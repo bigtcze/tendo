@@ -112,15 +112,6 @@ export interface operations {
                     "application/json": components["schemas"]["StatusResponse"];
                 };
             };
-            /** @description Request parsing failure. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
         };
     };
     getReadiness: {
@@ -147,15 +138,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusResponse"];
-                };
-            };
-            /** @description Request parsing failure. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description PostgreSQL is unavailable or graceful shutdown has begun. */
