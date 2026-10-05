@@ -12,6 +12,7 @@ permissions:
 jobs:
   required:
     name: required
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +64,19 @@ jobs:
       - name: Go build
         working-directory: backend
         run: go build ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Validate, audit, and check generated API artifacts
+        working-directory: api
+        run: npm ci && npm audit --audit-level=moderate && npm run check
+
+      - name: Production Docker and PostgreSQL runtime smoke
+        run: bash scripts/runtime-smoke.sh
 
       # Keep this job/check name stable.
       # As implementation grows, this `required` job MUST become the aggregate

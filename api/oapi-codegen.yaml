@@ -1,0 +1,8 @@
+package: httpx
+output: ../backend/internal/platform/httpx/health.gen.go
+generate:
+  models: true
+  std-http-server: false
+  strict-server: false
+output-options:
+  skip-prune: true

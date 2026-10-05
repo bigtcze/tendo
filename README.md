@@ -11,28 +11,20 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. Tendo is not ready for household use yet.
+> **Project status:** early development. The repository now has a minimal HTTP health/readiness runtime and Compose wiring, but it is operational scaffolding only—not a usable household installation. It has no household features, authentication, usable API, or UI.
 
-## Planned V1
+## Development runtime
 
-- simple responsive web UI for phone, tablet, and desktop;
-- first-run setup that asks for your household/family name;
-- multiple household members;
-- people, home, vehicle, pet, and custom subjects;
-- one-off items;
-- repeating items with fixed cadence;
-- optional fluid recurrence based on actual completion;
-- in-progress and waiting states;
-- history;
-- local login plus optional OIDC/PocketID;
-- Docker Compose deployment behind your existing reverse proxy.
+This repository is early development, not an installable household product. The current Compose stack provides only a Go health process and PostgreSQL; there is no authentication, household API, or UI. Do not expose it publicly. PostgreSQL stays private to Compose and the app binds to loopback.
 
-Installation instructions will be added when the first usable release is available. The repository must not publish untested setup commands before then.
+For prerequisites, generated development credentials, start/stop commands, and health checks, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md).
 
 ## Documentation
 
-Developer notes for the current schedule-domain slice are in [`docs/development/schedule-domain.md`](docs/development/schedule-domain.md). User and administrator guides will be added when those parts of Tendo are implemented.
+- [Runtime development](docs/development/runtime.md)
+- [Configuration reference](docs/admin/configuration.md)
+- [Schedule-domain notes](docs/development/schedule-domain.md)
 
 ## Development
 
-Go, PostgreSQL, a versioned REST/OpenAPI contract, and React/TypeScript are the planned V1 stack. Only a pure Go schedule package and its tests are implemented so far; there is no API, database, UI, or runnable application yet. See the [schedule-domain development notes](docs/development/schedule-domain.md) for checks and current limits.
+The repository contains a Go runtime skeleton, PostgreSQL wiring, and the pure Go schedule package. This remains development-only and does not provide a usable household application.
