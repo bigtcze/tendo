@@ -78,6 +78,9 @@ jobs:
       - name: Production Docker and PostgreSQL runtime smoke
         run: bash scripts/runtime-smoke.sh
 
+      - name: PostgreSQL backup and restore smoke
+        run: bash scripts/backup-restore-smoke.sh
+
       # Keep this job/check name stable.
       # As implementation grows, this `required` job MUST become the aggregate
       # gate for contract/static/unit/integration/frontend/e2e/build/migration checks.
