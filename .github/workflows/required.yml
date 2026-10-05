@@ -1,0 +1,42 @@
+name: Required
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate autonomous bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f AGENTS.md
+          test -f .autonomous/GUARDRAILS.md
+          test -f .autonomous/CHARTER.md
+          test -f .autonomous/PRODUCT.md
+          test -f .autonomous/ROADMAP.md
+          test -f .autonomous/UX.md
+          test -f .autonomous/ARCHITECTURE.md
+          test -f .autonomous/API.md
+          test -f .autonomous/TESTING.md
+          test -f .autonomous/DOCUMENTATION.md
+          test -f .autonomous/DEFINITION_OF_DONE.md
+          test -f .autonomous/FLOW.md
+          test -f .autonomous/STATE.md
+          test -f .autonomous/LEARNINGS.md
+          test -f .autonomous/CYCLE_PROMPT.md
+          bash -n scripts/autonomous-loop.sh
+
+      # Keep this job/check name stable.
+      # As implementation grows, this `required` job MUST become the aggregate
+      # gate for contract/static/unit/integration/frontend/e2e/build/migration checks.
