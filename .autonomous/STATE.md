@@ -6,6 +6,8 @@ completion_marker=absent
 
 implemented=backend/internal/schedule; validated_date_only_values; repeat_off; fixed_and_after_completion_next_cycle; historical_initialization; attention_derivation; household_timezone_conversion
 verified.local=Go_1.26.8_Docker; formatting; vet; race_tests; package_build
+verified.ci=PR_2_required_passed_for_c2e3ee2; run_37349406657; all_Go_steps_executed
+delivery.pr=https://github.com/bigtcze/tendo/pull/2
 verified.review=independent_review_complete; timezone_and_coverage_findings_resolved
 verified.regressions=fixed_anchor; strictly_future_anchor; repeat_off; explicit_household_timezone; isolated_mutations_rejected_by_tests
 ci.gate=required; Go_formatting; vet; race_tests; package_build; bootstrap_validation
