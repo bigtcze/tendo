@@ -1,18 +1,14 @@
 # Schedule domain development
 
-This repository currently contains a small, pure Go schedule package. It is a development slice, not a usable Tendo installation or a completed V1 application. No HTTP/API, database persistence, UI, authentication, or runtime is implemented; the V1 definition of done is not satisfied by this package.
+This repository includes a pure Go schedule package. It remains a development slice, not a usable Tendo installation: there is no household functionality, authentication, usable API, or UI. The health-only runtime Compose stack exists for development and CI only; see [runtime development](runtime.md) and [runtime configuration](../admin/configuration.md).
 
 ## Tooling and checks
 
-The package uses the Go standard library only; no `go.sum` is needed.
-
-Requires Go 1.26.8 and a C compiler for race checks, or Docker. The Docker command below has been verified. From the repository root, it checks formatting without rewriting files, then runs vet, race-enabled tests, and build:
+The schedule package uses the Go standard library only. Requires Go 1.26.8 and a C compiler for race checks, or Docker. From repository root:
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=1g --mount "type=bind,src=$PWD/backend,dst=/src" -w /src -e GOCACHE=/tmp/go-build golang:1.26.8-bookworm bash -c 'go version && test -z "$(gofmt -l internal/schedule/*.go)" && go vet ./... && go test -race ./... && go build ./...'
 ```
-
-The required GitHub Actions job installs Go 1.26.8, checks formatting without rewriting files, and runs vet, race-enabled tests, and build.
 
 ## Current schedule behavior
 
