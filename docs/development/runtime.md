@@ -26,7 +26,7 @@ curl -i http://127.0.0.1:8080/health/ready
 
 Both endpoints return JSON `{"status":"ok"}` with `Cache-Control: no-store` and `X-Request-ID`. Readiness returns HTTP 503 with an RFC 9457 `application/problem+json` response (`type: about:blank`, `title: Service Unavailable`, `status: 503`) if PostgreSQL cannot be pinged within the configured timeout or shutdown is draining; it contains no internal error details. Liveness checks only that the HTTP process responds. Stop with `docker compose down`; add `--volumes` only when you intend to delete this development database.
 
-For settings and their constraints, see [runtime configuration](../admin/configuration.md). Set `TENDO_HOST_PORT` in `.env` to an available port if 8080 is occupied.
+For settings and their constraints, see [runtime configuration](../admin/configuration.md). Set `TENDO_HOST_PORT` in `.env` to an available port if 8080 is occupied. For the bounded PostgreSQL logical backup/restore evidence and safe operational guidance, see [backup and restore](../admin/backup-restore.md); run `bash scripts/backup-restore-smoke.sh` from the repository root.
 
 ## Contract and checks
 
