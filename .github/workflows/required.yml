@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache: false
+
       - name: Validate autonomous bootstrap
         shell: bash
         run: |
@@ -36,6 +41,28 @@ jobs:
           test -f .autonomous/LEARNINGS.md
           test -f .autonomous/CYCLE_PROMPT.md
           bash -n scripts/autonomous-loop.sh
+
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(gofmt -l $(find backend -name '*.go' -type f))"
+          if [[ -n "$files" ]]; then
+            printf 'Go files need formatting:\n%s\n' "$files"
+            exit 1
+          fi
+
+      - name: Go vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Go tests with race detector
+        working-directory: backend
+        run: go test -race ./...
+
+      - name: Go build
+        working-directory: backend
+        run: go build ./...
 
       # Keep this job/check name stable.
       # As implementation grows, this `required` job MUST become the aggregate

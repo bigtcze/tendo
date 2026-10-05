@@ -1,16 +1,23 @@
 # State
 
-phase=bootstrap
-v1=not_started
-blockers=none
+phase=domain_foundation
+v1=in_progress
+completion_marker=absent
 
-git.branch=main
-git.pr=none
-git.ci=unknown
-git.clean=unknown
+implemented=backend/internal/schedule; validated_date_only_values; repeat_off; fixed_and_after_completion_next_cycle; historical_initialization; attention_derivation; household_timezone_conversion
+verified.local=Go_1.26.8_Docker; formatting; vet; race_tests; package_build
+verified.ci=PR_2_required_passed_for_c2e3ee2; run_37349406657; all_Go_steps_executed
+delivery.pr=https://github.com/bigtcze/tendo/pull/2
+verified.review=independent_review_complete; timezone_and_coverage_findings_resolved
+verified.regressions=fixed_anchor; strictly_future_anchor; repeat_off; explicit_household_timezone; isolated_mutations_rejected_by_tests
+ci.gate=required; Go_formatting; vet; race_tests; package_build; bootstrap_validation
+repository.protection=main_requires_PR; strict_required_GitHub_Actions; enforce_admins; resolve_conversations; no_force_push; no_deletion
 
-done=context_bootstrap
-next=establish_repo_baseline_and_first_vertical_slice
-unproven=all_v1_DoD
+unimplemented=application_runtime; PostgreSQL; auth_onboarding; subjects_items; public_API; responsive_UI; deployment
+unproven=all_end_to_end_V1_DoD; domain_arithmetic_has_unit_evidence_only
+next=first_run_owner_and_named_household_vertical_slice
 
-constraints=V1_only,PR_only,repeat_plus_fluid_modes,future_multi_household_schema,single_household_UI,responsive_web,platform_boundaries,calm_UX,no_V2_integrations
+blockers.product=none_for_current_domain_slice
+blockers.host=root_filesystem_52MiB_available_on_2026-10-05; Go_not_on_PATH; Docker_checks_use_tmpfs_cache
+license.discrepancy=locked_CHARTER_says_human_decision_pending; inherited_LICENSE_is_Apache_2.0; neither_changed
+controller.limitation=completion_predicate_does_not_verify_remote_sync_CI_DoD_or_untracked_files; final_FLOW_protocol_still_required; controller_unchanged
