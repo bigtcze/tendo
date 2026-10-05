@@ -31,10 +31,8 @@ Installation instructions will be added when the first usable release is availab
 
 ## Documentation
 
-User, administrator, and developer documentation lives in [`docs/`](docs/).
+Developer notes for the current schedule-domain slice are in [`docs/development/schedule-domain.md`](docs/development/schedule-domain.md). User and administrator guides will be added when those parts of Tendo are implemented.
 
 ## Development
 
-The implementation uses Go, PostgreSQL, a versioned REST/OpenAPI contract, and React/TypeScript.
-
-See [`docs/development/`](docs/development/) once development setup documentation is available.
+Go, PostgreSQL, a versioned REST/OpenAPI contract, and React/TypeScript are the planned V1 stack. Only a pure Go schedule package and its tests are implemented so far; there is no API, database, UI, or runnable application yet. See the [schedule-domain development notes](docs/development/schedule-domain.md) for checks and current limits.
