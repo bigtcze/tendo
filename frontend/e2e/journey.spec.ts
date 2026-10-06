@@ -16,15 +16,18 @@ const householdName = 'Veselí';
 
 const problems: string[] = [];
 const failedResponses = new Set<string>();
-// The only HTTP errors the journey may cause: anonymous session probes and the wrong-password login.
-const allowedFailedResponses = ['GET /api/v1/session 401', 'POST /api/v1/session 401'];
+// The only browser-initiated HTTP errors the journey may cause: the anonymous session probe, the
+// wrong-setup-code onboarding submit, and the wrong-password login. page.request calls are not reported.
+const allowedFailedResponses = ['GET /api/v1/session 401', 'PUT /api/v1/auth/setup 401', 'POST /api/v1/session 401'];
+const expectedFailedPaths = new Set(['/api/v1/session', '/api/v1/auth/setup']);
+const wrongSetupCode = 'A'.repeat(43) + '=';
 
 function watch(page: Page) {
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return;
     // Chromium logs a generic console error for each failed fetch; the response check below
-    // asserts exactly which failures happened, so only those for the session endpoint are skipped.
-    if (new URL(message.location().url || 'about:blank').pathname === '/api/v1/session') return;
+    // asserts exactly which failures happened, so only those for the session and setup endpoints are skipped.
+    if (expectedFailedPaths.has(new URL(message.location().url || 'about:blank').pathname)) return;
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
@@ -49,7 +52,7 @@ test.describe('Tendo production journey', () => {
   let sessionToken = '';
 
   test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext({ baseURL, locale: 'en-US' });
+    const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
     page = await context.newPage();
     watch(page);
   });
@@ -58,34 +61,45 @@ test.describe('Tendo production journey', () => {
     await page.context().close();
   });
 
-  test('a. before setup the app says it is not set up and offers no password field', async () => {
+  test('a. before setup the onboarding form proposes the browser time zone', async () => {
     const response = await page.goto('/');
     expect(response?.status()).toBe(200);
-    await expect(page.getByRole('heading', { name: en['setup.title'] })).toBeVisible();
-    await expect(page.getByText(en['setup.body'])).toBeVisible();
-    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 1, name: en['onboarding.title'] })).toBeVisible();
+    await expect(page.locator('#onboarding-timezone')).toHaveValue('America/New_York');
+    await expect(page.getByRole('combobox')).toHaveCount(1); // only the time zone select
+    await expect(page.getByText(/switch household/i)).toHaveCount(0);
+
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      await expect(page.getByRole('button', { name: en['onboarding.submit'] })).toBeVisible();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      );
+      expect(overflow, '360px horizontal overflow on onboarding').toBeLessThanOrEqual(0);
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
   });
 
-  test('b. operator setup through the real API', async () => {
-    const response = await page.request.put('/api/v1/auth/setup', {
-      headers: { Origin: baseURL, 'X-Tendo-Setup-Token': setupToken },
-      data: { login: ownerLogin, password: ownerPassword, householdName, timezone: 'Europe/Prague' },
-    });
-    expect(response.status()).toBe(201);
+  test('b. a wrong setup code shows an alert and keeps the entered fields', async () => {
+    await page.getByLabel(en['onboarding.setupCode'], { exact: true }).fill(wrongSetupCode);
+    await page.getByLabel(en['onboarding.householdName']).fill(householdName);
+    await page.locator('#onboarding-login').fill(ownerLogin);
+    await page.locator('#onboarding-password').fill(ownerPassword);
+    await page.getByRole('button', { name: en['onboarding.submit'] }).click();
+    await expect(page.getByRole('alert').filter({ hasText: en['onboarding.error.setupCode'] })).toBeVisible();
+    await expect(page.getByLabel(en['onboarding.householdName'])).toHaveValue(householdName);
+    await expect(page.locator('#onboarding-login')).toHaveValue(ownerLogin);
   });
 
-  test('c. wrong password shows an alert and clears the password field', async () => {
-    await page.goto('/');
-    await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
-    await signIn(page, 'definitely the wrong password');
-    await expect(page.getByRole('alert').filter({ hasText: en['login.error.invalid'] })).toBeVisible();
-    await expect(page.getByLabel(en['login.password'])).toHaveValue('');
-  });
+  test('c. correcting the time zone and onboarding lands on the empty home, skipping login', async () => {
+    await page.locator('#onboarding-timezone').selectOption('Europe/Prague');
+    await page.getByLabel(en['onboarding.setupCode'], { exact: true }).fill(setupToken);
+    await page.getByRole('button', { name: en['onboarding.submit'] }).click();
 
-  test('d. correct login opens the household home without household switching', async () => {
-    await signIn(page, ownerPassword);
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
     await expect(page.getByText(en['home.empty.title'])).toBeVisible();
+    await expect(page.getByRole('heading', { name: en['login.title'] })).toHaveCount(0);
     await expect(page.getByRole('combobox')).toHaveCount(0);
     await expect(page.getByRole('listbox')).toHaveCount(0);
     await expect(page.getByText(/switch household/i)).toHaveCount(0);
@@ -95,6 +109,13 @@ test.describe('Tendo production journey', () => {
     const body = (await session.json()) as { defaultHouseholdId: string };
     householdId = body.defaultHouseholdId;
     expect(householdId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const household = await page.request.get(`/api/v1/households/${householdId}`);
+    expect(household.status()).toBe(200);
+    const details = (await household.json()) as { name: string; timezone: string };
+    expect(details.timezone).toBe('Europe/Prague');
+    expect(details.name).toBe(householdName);
+
     expect(await page.locator('body').innerText()).not.toContain(householdId);
     expect(await page.content()).not.toContain(householdId);
 
@@ -104,6 +125,18 @@ test.describe('Tendo production journey', () => {
     expect(sessionCookie?.sameSite).toBe('Lax');
     sessionToken = sessionCookie?.value ?? '';
     expect(sessionToken).not.toBe('');
+  });
+
+  test('d. reload keeps the session and setup is closed afterwards', async () => {
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await expect(page.getByText(en['home.empty.title'])).toBeVisible();
+
+    const again = await page.request.put('/api/v1/auth/setup', {
+      headers: { Origin: baseURL, 'X-Tendo-Setup-Token': setupToken },
+      data: { login: 'second_owner', password: ownerPassword, householdName: 'Second', timezone: 'Europe/Prague' },
+    });
+    expect(again.status()).toBe(409);
   });
 
   test('e. deep link reload is served the app by the Go binary', async () => {
@@ -154,7 +187,15 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('i. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
+  test('i. wrong password shows an alert and clears the password field', async () => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
+    await signIn(page, 'definitely the wrong password');
+    await expect(page.getByRole('alert').filter({ hasText: en['login.error.invalid'] })).toBeVisible();
+    await expect(page.getByLabel(en['login.password'])).toHaveValue('');
+  });
+
+  test('j. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
     await page.goto('/');
     const login = page.getByLabel(en['login.login']);
     await expect(login).toBeVisible();
@@ -175,7 +216,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
   });
 
-  test('j. security headers are present and the journey produced no console errors', async () => {
+  test('k. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
     expect(response?.headers()['x-frame-options']).toBe('DENY');

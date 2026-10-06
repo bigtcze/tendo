@@ -2,7 +2,7 @@
 
 The web UI is a React 19, TypeScript, Vite, and Tailwind CSS single-page app in `frontend/`. In production it is embedded in the Go binary. See [ADR 0003](../adr/0003-ui-foundation.md) for the reasoning.
 
-Today the UI shows a "not set up yet" notice when setup has not been completed, a sign-in page, and, after sign-in, a home screen with the household name and an empty state. Setup is still the operator API described in the [README](../../README.md); items, subjects, invitations, and browser onboarding do not exist yet.
+Today the UI shows first-run onboarding when setup has not been completed (setup code, household name, login, password, and a time zone pre-filled from the browser), a sign-in page, and, after sign-in, a home screen with the household name and an empty state. Items, subjects, and invitations do not exist yet.
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ Start the backend from the repository root with `TENDO_PUBLIC_URL=http://localho
 docker compose up -d --build
 ```
 
-Complete operator setup as described in the README, then start the dev server:
+Set `TENDO_SETUP_TOKEN` as described in the README if you want to try onboarding, then start the dev server:
 
 ```sh
 cd frontend
@@ -63,7 +63,7 @@ From the repository root, after `npm ci` in `frontend/`:
 bash scripts/e2e-smoke.sh
 ```
 
-It runs Playwright in the `mcr.microsoft.com/playwright:v1.63.0-noble` container against the production Compose stack with real PostgreSQL. The container uses `--network host`, which works on Linux Docker hosts (CI is Linux). The image version must match `@playwright/test` in `frontend/package.json`; the script checks this. It covers the not-set-up screen, failed and successful sign-in, the home screen, reloading a deep link, Czech and English, narrow and wide viewports, keyboard use, sign out, and security headers.
+It runs Playwright in the `mcr.microsoft.com/playwright:v1.63.0-noble` container against the production Compose stack with real PostgreSQL. The container uses `--network host`, which works on Linux Docker hosts (CI is Linux). The image version must match `@playwright/test` in `frontend/package.json`; the script checks this. It covers browser onboarding (proposed time zone from a fixed browser time zone, correcting it, a wrong setup code, and the household name and time zone stored by the server), closing setup after first use, failed and successful sign-in, the home screen, reloading a deep link, Czech and English, narrow and wide viewports, keyboard use, sign out, and security headers.
 
 ## Production build
 

@@ -5,6 +5,7 @@ export interface RecordedRequest {
   method: string;
   path: string;
   body: string;
+  headers: Headers;
 }
 
 type Handler = (req: RecordedRequest) => Response | Promise<Response>;
@@ -24,7 +25,9 @@ export function installFakeServer(routes: Record<string, Handler | Response>) {
     'fetch',
     vi.fn(async (input: Request) => {
       const url = new URL(input.url);
-      const req: RecordedRequest = { method: input.method, path: url.pathname, body: await input.text() };
+      const req: RecordedRequest = { method: input.method, path: url.pathname, body: await input.text(),
+        headers: input.headers,
+      };
       requests.push(req);
       const route = routes[`${req.method} ${req.path}`];
       if (!route) return json(500, { title: `unhandled ${req.method} ${req.path}` });
