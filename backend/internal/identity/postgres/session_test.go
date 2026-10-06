@@ -51,7 +51,7 @@ func TestSessionsPostgresLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, app); err != nil {
-		t.Fatalf("runtime role rejects schema v2: %v", err)
+		t.Fatalf("runtime role rejects schema v3: %v", err)
 	}
 	reset := func() {
 		t.Helper()
@@ -260,12 +260,12 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	if err := identity.NewSetupService(New(upgradeApp, ownerFactory)).CreateOwner(ctx, identity.SetupInput{Login: "upgrade_owner", Password: "correct horse battery", HouseholdName: "Upgrade Home", Timezone: "Europe/Prague"}); err != nil {
 		t.Fatal(err)
 	}
-	// Rewind to the exact version 1 schema: no sessions table and no version 2 metadata row.
-	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE user_sessions; DELETE FROM tendo_schema_migrations WHERE version=2`); err != nil {
+	// Rewind to the exact version 1 schema: no sessions table, no households.version column, and no version 2/3 metadata rows.
+	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (2,3)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
-		t.Fatal("version 1 database accepted by version 2 application")
+		t.Fatal("version 1 database accepted by version 3 application")
 	}
 	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)
@@ -275,7 +275,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 2 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 3 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string
@@ -298,5 +298,81 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	if _, err := upgradeApp.Exec(ctx, `UPDATE user_sessions SET expires_at = expires_at`); err == nil {
 		t.Fatal("runtime role can update sessions after upgrade")
+	}
+}
+
+func TestMigrationUpgradeFromVersionTwoAddsHouseholdVersion(t *testing.T) {
+	appURL, adminURL := testURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin := connect(t, ctx, adminURL)
+	const dbName = "tendo_upgrade_v2_test"
+	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `CREATE DATABASE `+dbName); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		c, cc := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cc()
+		_, _ = admin.Exec(c, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
+	}()
+	adminCfg, err := pgxpool.ParseConfig(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminCfg.ConnConfig.Database = dbName
+	upgradeAdmin, err := pgxpool.NewWithConfig(ctx, adminCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgradeAdmin.Close()
+	appCfg, err := pgxpool.ParseConfig(appURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appCfg.ConnConfig.Database = dbName
+	if _, err := admin.Exec(ctx, `GRANT CONNECT ON DATABASE `+dbName+` TO tendo`); err != nil {
+		t.Fatal(err)
+	}
+	upgradeApp, err := pgxpool.NewWithConfig(ctx, appCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgradeApp.Close()
+	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err := identity.NewSetupService(New(upgradeApp, ownerFactory)).CreateOwner(ctx, identity.SetupInput{Login: "v2_owner", Password: "correct horse battery", HouseholdName: "V2 Home", Timezone: "Europe/Prague"}); err != nil {
+		t.Fatal(err)
+	}
+	// Rewind to the exact version 2 schema.
+	if _, err := upgradeAdmin.Exec(ctx, `ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version=3`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
+		t.Fatal("version 2 database accepted by version 3 application")
+	}
+	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if err := database.ValidateSchema(ctx, upgradeApp); err != nil {
+		t.Fatalf("validate after upgrade: %v", err)
+	}
+	var name, tz string
+	var version int64
+	if err := upgradeApp.QueryRow(ctx, `SELECT name, timezone, version FROM households`).Scan(&name, &tz, &version); err != nil {
+		t.Fatalf("runtime role cannot read upgraded households: %v", err)
+	}
+	if name != "V2 Home" || tz != "Europe/Prague" || version != 1 {
+		t.Fatalf("data after upgrade: %q %q version=%d", name, tz, version)
+	}
+	var login string
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT u.login FROM user_accounts u JOIN household_memberships m ON m.user_id=u.id WHERE u.default_household_id=m.household_id`).Scan(&login); err != nil || login != "v2_owner" {
+		t.Fatalf("membership lost: %q err=%v", login, err)
+	}
+	if _, err := upgradeAdmin.Exec(ctx, `UPDATE households SET version=0`); err == nil {
+		t.Fatal("version below 1 accepted")
 	}
 }

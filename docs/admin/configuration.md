@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This development Compose stack provides PostgreSQL, health/readiness, an operator-authorized initial-owner setup API, and local login sessions. It does not provide OIDC, household/item APIs, or a household UI. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This development Compose stack provides PostgreSQL, health/readiness, an operator-authorized initial-owner setup API, and local login sessions, and a read-only household endpoint (`GET /api/v1/households/{householdId}`, members only). It does not provide OIDC, item APIs, or a household UI. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
 Copy `.env.example` to `.env` and generate two independent hexadecimal database passwords:
 

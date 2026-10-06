@@ -7,6 +7,7 @@ const generated = await readFile(new URL('./generated/api.d.ts', import.meta.url
 const generatedHealth = await readFile(new URL('./generated/health.d.ts', import.meta.url), 'utf8')
 const goSetup = await readFile(new URL('../backend/internal/identity/httpapi/setup.gen.go', import.meta.url), 'utf8')
 const goHealth = await readFile(new URL('../backend/internal/platform/httpx/health.gen.go', import.meta.url), 'utf8')
+const goHousehold = await readFile(new URL('../backend/internal/household/httpapi/household.gen.go', import.meta.url), 'utf8')
 
 for (const [path, pathItem] of Object.entries(contract.paths)) {
   assert.ok(generated.includes(JSON.stringify(path)), `TypeScript output missing ${path}`)
@@ -44,7 +45,7 @@ for (const [name, schema] of Object.entries(contract.components.schemas)) {
   for (const value of schema.properties?.status?.enum ?? []) assert.ok(generated.includes(JSON.stringify(value)), `TypeScript output missing status value ${value}`)
 }
 for (const [name, schema] of Object.entries(contract.components.schemas)) {
-  assert.ok(goSetup.includes(name) || goHealth.includes(name), `Generated Go missing model ${name}`)
+  assert.ok(goSetup.includes(name) || goHealth.includes(name) || goHousehold.includes(name), `Generated Go missing model ${name}`)
 }
 for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
 assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goSetup), 'Generated Go Session must have optional DefaultHouseholdId')
@@ -53,3 +54,7 @@ for (const operationId of ['createSession', 'getSession', 'deleteSession']) asse
 assert.ok(/Session: \{[^}]*defaultHouseholdId\?: string/s.test(generated), 'TypeScript Session must have optional defaultHouseholdId')
 assert.ok(/LoginRequest: \{[^}]*login: string[^}]*password: string/s.test(generated), 'TypeScript LoginRequest missing required fields')
 for (const name of ['StatusResponse', 'Problem']) assert.ok(goHealth.includes(`type ${name} struct`), `Generated health Go missing ${name}`)
+assert.ok(/type Household struct \{[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]*Name\s+string[^}]*Timezone\s+string/s.test(goHousehold), 'Generated household Go missing Household model with required fields')
+assert.ok(!/Version/.test(goHousehold.match(/type Household struct \{[^}]*\}/s)?.[0] ?? ''), 'Household response model must not expose the internal version')
+assert.ok(generated.includes('getHousehold:'), 'TypeScript output missing operation getHousehold')
+assert.ok(/Household: \{[^}]*id: string[^}]*name: string[^}]*timezone: string[^}]*createdAt: string/s.test(generated), 'TypeScript Household missing required fields')

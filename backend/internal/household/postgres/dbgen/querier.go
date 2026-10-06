@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	AddOwner(ctx context.Context, arg AddOwnerParams) error
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (string, error)
+	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -1,7 +1,7 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql"]
     queries: "internal/identity/postgres/queries"
     gen:
       go:
@@ -11,7 +11,7 @@ sql:
         emit_interface: true
         emit_empty_slices: true
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql"]
     queries: "internal/household/postgres/queries"
     gen:
       go:

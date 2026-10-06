@@ -53,6 +53,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/households/{householdId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a household
+         * @description Returns the household only when the authenticated user has a membership in it, with any role. The path identifier is authorization context and is validated against membership on every request. A malformed identifier, a nonexistent household, and a household the caller does not belong to all return the same 404 response. The defaultHouseholdId from the session is a navigation hint and grants no access. The ETag is the strong, quoted decimal resource version.
+         */
+        get: operations["getHousehold"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -137,6 +157,15 @@ export interface components {
             /** Format: date-time */
             expiresAt: string;
         };
+        Household: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Named IANA timezone. */
+            timezone: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
         ValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             field: "login" | "password" | "householdName" | "timezone";
@@ -154,6 +183,11 @@ export interface components {
          * @example smoke-test_01
          */
         RequestId: string;
+        /**
+         * @description Household identifier. Authorization context; access is checked against membership.
+         * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+         */
+        HouseholdId: string;
     };
     requestBodies: never;
     headers: {
@@ -699,6 +733,112 @@ export interface operations {
                 };
             };
             /** @description Persistence unavailable; the session may not have been deleted. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getHousehold: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Household visible to the caller. */
+            200: {
+                headers: {
+                    /**
+                     * @description Strong entity tag derived from the household resource version.
+                     * @example "1"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Household"];
+                };
+            };
+            /** @description Trusted forwarded request metadata is malformed or inconsistent. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The identifier is malformed, the household does not exist, or the caller is not a member. All three cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Tendo API
   version: 1.0.0
-  description: Initial owner setup, local login sessions, and operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration. Sessions are opaque server-side records carried in an HttpOnly cookie.
+  description: Initial owner setup, local login sessions, membership-checked household reads, and operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration. Sessions are opaque server-side records carried in an HttpOnly cookie.
 servers:
   - url: /
 paths:
@@ -222,6 +222,34 @@ paths:
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable; the session may not have been deleted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/households/{householdId}:
+    get:
+      operationId: getHousehold
+      summary: Read a household
+      description: Returns the household only when the authenticated user has a membership in it, with any role. The path identifier is authorization context and is validated against membership on every request. A malformed identifier, a nonexistent household, and a household the caller does not belong to all return the same 404 response. The defaultHouseholdId from the session is a navigation hint and grants no access. The ETag is the strong, quoted decimal resource version.
+      tags: [Households]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+      responses:
+        '200':
+          description: Household visible to the caller.
+          headers:
+            ETag: { description: Strong entity tag derived from the household resource version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Household' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, name: Veselí, timezone: Europe/Prague, createdAt: '2026-10-06T10:00:00Z' }
+        '400': { description: 'Trusted forwarded request metadata is malformed or inconsistent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The identifier is malformed, the household does not exist, or the caller is not a member. All three cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /health/live:
     get:
       operationId: getLiveness
@@ -305,6 +333,13 @@ components:
       description: Optional caller-supplied correlation ID.
       schema: { type: string, pattern: '^[A-Za-z0-9._-]{1,64}$' }
       example: smoke-test_01
+    HouseholdId:
+      name: householdId
+      in: path
+      required: true
+      description: Household identifier. Authorization context; access is checked against membership.
+      schema: { type: string, format: uuid, x-go-type: string }
+      example: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
   schemas:
     Problem:
       type: object
@@ -348,6 +383,15 @@ components:
         login: { type: string }
         defaultHouseholdId: { type: string, format: uuid, x-go-type: string, description: Omitted when the account has no default household. }
         expiresAt: { type: string, format: date-time }
+    Household:
+      type: object
+      additionalProperties: false
+      required: [id, name, timezone, createdAt]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        timezone: { type: string, description: Named IANA timezone. }
+        createdAt: { type: string, format: date-time }
     ValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'

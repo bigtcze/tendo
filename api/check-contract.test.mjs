@@ -144,3 +144,43 @@ test('session cookie fixtures enforce cookie attributes, ETag pattern, and Locat
     }
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
+
+test('household fixtures enforce the ETag pattern, problem media type, and body schema', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-api-household-'))
+  const fixturePath = join(directory, 'responses.json')
+  const path = '/api/v1/households/{householdId}'
+  const base = { 'x-request-id': 'contract-check', 'cache-control': 'no-store' }
+  const household = { id: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', name: 'Veselí', timezone: 'Europe/Prague', createdAt: '2026-10-06T10:00:00Z' }
+  const ok = { path, method: 'get', status: 200, headers: { ...base, 'content-type': 'application/json', etag: '"1"' }, body: household }
+  const notFound = { path, method: 'get', status: 404, headers: { ...base, 'content-type': 'application/problem+json' }, body: { type: 'about:blank', title: 'Not Found', status: 404, code: 'not_found' } }
+  const run = async fixture => {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    return { code, stderr }
+  }
+  try {
+    for (const fixture of [ok, notFound]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    for (const [name, fixture, mutate, diagnostic] of [
+      ['unquoted ETag', ok, f => { f.headers.etag = '1' }, 'ETag does not match'],
+      ['weak ETag', ok, f => { f.headers.etag = 'W/"1"' }, 'ETag does not match'],
+      ['zero version ETag', ok, f => { f.headers.etag = '"0"' }, 'ETag does not match'],
+      ['missing ETag', ok, f => { delete f.headers.etag }, 'missing ETag'],
+      ['extra version field', ok, f => { f.body = { ...household, version: 1 } }, 'body invalid'],
+      ['missing timezone', ok, f => { f.body = { id: household.id, name: household.name, createdAt: household.createdAt } }, 'body invalid'],
+      ['404 wrong media', notFound, f => { f.headers['content-type'] = 'application/json' }, 'wrong media type'],
+      ['404 status mismatch', notFound, f => { f.body.status = 403 }, 'problem status does not match HTTP status'],
+      ['undocumented status', notFound, f => { f.status = 409; f.body.status = 409 }, 'undocumented HTTP 409'],
+    ]) {
+      await t.test(name, async () => {
+        const copy = structuredClone(fixture)
+        mutate(copy)
+        const result = await run(copy)
+        assert.notEqual(result.code, 0)
+        assert.match(result.stderr, new RegExp(diagnostic))
+      })
+    }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
