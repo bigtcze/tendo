@@ -48,11 +48,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false)`},
-		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=3`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (3,false)`},
-		{name: "version zero", set: `UPDATE tendo_schema_migrations SET version=version-3`, reset: `UPDATE tendo_schema_migrations SET version=version+3`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=4`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (4,false)`},
+		{name: "version zero", set: `UPDATE tendo_schema_migrations SET version=version-4`, reset: `UPDATE tendo_schema_migrations SET version=version+4`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=3`, reset: `UPDATE tendo_schema_migrations SET version=3 WHERE version=99`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=4`, reset: `UPDATE tendo_schema_migrations SET version=4 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {

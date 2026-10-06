@@ -22,6 +22,9 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/webui"
+	subjectapp "github.com/bigtcze/tendo/backend/internal/subject"
+	subjecthttp "github.com/bigtcze/tendo/backend/internal/subject/httpapi"
+	subjectpostgres "github.com/bigtcze/tendo/backend/internal/subject/postgres"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -103,10 +106,14 @@ func run() error {
 	}
 	sessionHandler := identityhttp.NewSession(sessions, cfg.PublicURL)
 	sessionHandler.Register(routes)
-	householdhttp.New(household.NewService(householdpostgres.NewRepository(pool)), sessionHandler.RequireSession, func(ctx context.Context) (string, bool) {
+	principalID := func(ctx context.Context) (string, bool) {
 		principal, ok := identityhttp.PrincipalFromContext(ctx)
 		return principal.UserID, ok
-	}).Register(routes)
+	}
+	householdService := household.NewService(householdpostgres.NewRepository(pool))
+	householdhttp.New(householdService, sessionHandler.RequireSession, principalID).Register(routes)
+	// Subjects authorize through household membership, never through cross-module SQL.
+	subjecthttp.New(subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get)), sessionHandler.RequireSession, principalID).Register(routes)
 	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)

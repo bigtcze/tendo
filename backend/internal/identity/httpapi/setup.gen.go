@@ -14,6 +14,35 @@ const (
 	SetupTokenScopes    = "SetupToken.Scopes"
 )
 
+// Defines values for QueryProblemParameter.
+const (
+	QueryProblemParameterArchived QueryProblemParameter = "archived"
+	QueryProblemParameterCursor   QueryProblemParameter = "cursor"
+	QueryProblemParameterLimit    QueryProblemParameter = "limit"
+)
+
+// Defines values for SubjectType.
+const (
+	Custom  SubjectType = "custom"
+	Home    SubjectType = "home"
+	Person  SubjectType = "person"
+	Pet     SubjectType = "pet"
+	Vehicle SubjectType = "vehicle"
+)
+
+// Defines values for SubjectValidationProblemCode.
+const (
+	InvalidCharacters SubjectValidationProblemCode = "invalid_characters"
+	InvalidLength     SubjectValidationProblemCode = "invalid_length"
+	InvalidType       SubjectValidationProblemCode = "invalid_type"
+)
+
+// Defines values for SubjectValidationProblemField.
+const (
+	Name SubjectValidationProblemField = "name"
+	Type SubjectValidationProblemField = "type"
+)
+
 // Defines values for ValidationProblemField.
 const (
 	HouseholdName ValidationProblemField = "householdName"
@@ -21,6 +50,13 @@ const (
 	Password      ValidationProblemField = "password"
 	Timezone      ValidationProblemField = "timezone"
 )
+
+// CreateSubjectRequest defines model for CreateSubjectRequest.
+type CreateSubjectRequest struct {
+	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
+	Name string      `json:"name"`
+	Type SubjectType `json:"type"`
+}
 
 // Household defines model for Household.
 type Household struct {
@@ -48,6 +84,21 @@ type Problem struct {
 	Type                 string                 `json:"type"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
+
+// QueryProblem defines model for QueryProblem.
+type QueryProblem struct {
+	Code                 *string                `json:"code,omitempty"`
+	Detail               *string                `json:"detail,omitempty"`
+	Instance             *string                `json:"instance,omitempty"`
+	Parameter            *QueryProblemParameter `json:"parameter,omitempty"`
+	Status               int                    `json:"status"`
+	Title                string                 `json:"title"`
+	Type                 string                 `json:"type"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// QueryProblemParameter defines model for QueryProblem.Parameter.
+type QueryProblemParameter string
 
 // Session defines model for Session.
 type Session struct {
@@ -81,6 +132,54 @@ type StatusResponse struct {
 	Status string `json:"status"`
 }
 
+// Subject defines model for Subject.
+type Subject struct {
+	Archived  bool        `json:"archived"`
+	CreatedAt time.Time   `json:"createdAt"`
+	Id        string      `json:"id"`
+	Name      string      `json:"name"`
+	Type      SubjectType `json:"type"`
+	UpdatedAt time.Time   `json:"updatedAt"`
+}
+
+// SubjectList defines model for SubjectList.
+type SubjectList struct {
+	Items []Subject `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// SubjectType defines model for SubjectType.
+type SubjectType string
+
+// SubjectValidationProblem defines model for SubjectValidationProblem.
+type SubjectValidationProblem struct {
+	Code                 SubjectValidationProblemCode  `json:"code"`
+	Detail               *string                       `json:"detail,omitempty"`
+	Field                SubjectValidationProblemField `json:"field"`
+	Instance             *string                       `json:"instance,omitempty"`
+	Status               int                           `json:"status"`
+	Title                string                        `json:"title"`
+	Type                 string                        `json:"type"`
+	AdditionalProperties map[string]interface{}        `json:"-"`
+}
+
+// SubjectValidationProblemCode defines model for SubjectValidationProblem.Code.
+type SubjectValidationProblemCode string
+
+// SubjectValidationProblemField defines model for SubjectValidationProblem.Field.
+type SubjectValidationProblemField string
+
+// UpdateSubjectRequest defines model for UpdateSubjectRequest.
+type UpdateSubjectRequest struct {
+	Archived *bool `json:"archived,omitempty"`
+
+	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
+	Name *string      `json:"name,omitempty"`
+	Type *SubjectType `json:"type,omitempty"`
+}
+
 // ValidationProblem defines model for ValidationProblem.
 type ValidationProblem struct {
 	Code                 string                 `json:"code"`
@@ -96,11 +195,23 @@ type ValidationProblem struct {
 // ValidationProblemField defines model for ValidationProblem.Field.
 type ValidationProblemField string
 
+// Archived defines model for Archived.
+type Archived = bool
+
+// Cursor defines model for Cursor.
+type Cursor = string
+
 // HouseholdId defines model for HouseholdId.
 type HouseholdId = string
 
+// Limit defines model for Limit.
+type Limit = int
+
 // RequestId defines model for RequestId.
 type RequestId = string
+
+// SubjectId defines model for SubjectId.
+type SubjectId = string
 
 // GetInitialSetupParams defines parameters for GetInitialSetup.
 type GetInitialSetupParams struct {
@@ -121,6 +232,42 @@ type CreateInitialOwnerParams struct {
 type GetHouseholdParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// ListSubjectsParams defines parameters for ListSubjects.
+type ListSubjectsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Archived false (default) lists active subjects; true lists archived subjects only.
+	Archived *Archived `form:"archived,omitempty" json:"archived,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateSubjectParams defines parameters for CreateSubject.
+type CreateSubjectParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetSubjectParams defines parameters for GetSubject.
+type GetSubjectParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateSubjectParams defines parameters for UpdateSubject.
+type UpdateSubjectParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Single strong entity tag of the version being replaced. The wildcard *, weak tags, and lists are rejected with 412.
+	IfMatch string `json:"If-Match"`
 }
 
 // DeleteSessionParams defines parameters for DeleteSession.
@@ -161,6 +308,12 @@ type GetReadinessParams struct {
 
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest
+
+// CreateSubjectJSONRequestBody defines body for CreateSubject for application/json ContentType.
+type CreateSubjectJSONRequestBody = CreateSubjectRequest
+
+// UpdateSubjectJSONRequestBody defines body for UpdateSubject for application/json ContentType.
+type UpdateSubjectJSONRequestBody = UpdateSubjectRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
@@ -269,6 +422,306 @@ func (a Problem) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
 		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for QueryProblem. Returns the specified
+// element and whether it was found
+func (a QueryProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for QueryProblem
+func (a *QueryProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for QueryProblem to handle AdditionalProperties
+func (a *QueryProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["parameter"]; found {
+		err = json.Unmarshal(raw, &a.Parameter)
+		if err != nil {
+			return fmt.Errorf("error reading 'parameter': %w", err)
+		}
+		delete(object, "parameter")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for QueryProblem to handle AdditionalProperties
+func (a QueryProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Code != nil {
+		object["code"], err = json.Marshal(a.Code)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'code': %w", err)
+		}
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	if a.Parameter != nil {
+		object["parameter"], err = json.Marshal(a.Parameter)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'parameter': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for SubjectValidationProblem. Returns the specified
+// element and whether it was found
+func (a SubjectValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for SubjectValidationProblem
+func (a *SubjectValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for SubjectValidationProblem to handle AdditionalProperties
+func (a *SubjectValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for SubjectValidationProblem to handle AdditionalProperties
+func (a SubjectValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
 	}
 
 	if a.Instance != nil {

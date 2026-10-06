@@ -33,6 +33,17 @@ type LocalCredential struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type Subject struct {
+	ID          pgtype.UUID
+	HouseholdID pgtype.UUID
+	Type        string
+	Name        string
+	Archived    bool
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	Version     int64
+}
+
 type UserAccount struct {
 	ID                 pgtype.UUID
 	Login              string
