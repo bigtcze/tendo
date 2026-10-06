@@ -11,7 +11,6 @@ import (
 	"mime"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -25,16 +24,13 @@ type service interface {
 	CreateOwner(context.Context, identity.SetupInput) error
 }
 type Handler struct {
-	service  service
-	token    string
-	mu       sync.Mutex
-	attempts map[string][]time.Time
-	active   int
-	now      func() time.Time
+	service service
+	token   string
+	limiter *limiter
 }
 
 func New(s service, token string) *Handler {
-	return &Handler{service: s, token: token, attempts: map[string][]time.Time{}, now: time.Now}
+	return &Handler{service: s, token: token, limiter: newLimiter(5, 2)}
 }
 func (h *Handler) Register(r chi.Router) {
 	r.Get("/api/v1/auth/setup", h.get)
@@ -60,7 +56,7 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "setup_unavailable")
 		return
 	}
-	if !h.admitAttempt(clientIP(r)) {
+	if !h.limiter.admitAttempt(clientIP(r)) {
 		w.Header().Set("Retry-After", "60")
 		problem(w, 429, "rate_limited")
 		return
@@ -74,39 +70,24 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		problem(w, 401, "unauthorized")
 		return
 	}
-	media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(media, "application/json") || len(params) > 1 || (len(params) == 1 && (func() bool { v, ok := params["charset"]; return !ok || !strings.EqualFold(v, "utf-8") })()) {
-		problem(w, 415, "unsupported_media_type")
-		return
-	}
-	if r.ContentLength > 8192 {
-		problem(w, 413, "content_too_large")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
-	if err != nil {
-		problem(w, 413, "content_too_large")
-		return
-	}
-	values, decodeErr := decodeSetupObject(body)
-	if decodeErr != nil {
-		problem(w, 400, "invalid_request")
+	values, ok := readStrictObject(w, r, 8192, "login", "password", "householdName", "timezone")
+	if !ok {
 		return
 	}
 	payload := SetupRequest{Login: values["login"], Password: values["password"], HouseholdName: values["householdName"], Timezone: values["timezone"]}
-	if !h.acquire() {
+	if !h.limiter.acquire() {
 		w.Header().Set("Retry-After", "60")
 		problem(w, 429, "rate_limited")
 		return
 	}
-	defer h.release()
+	defer h.limiter.release()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		problem(w, 503, "unavailable")
 		return
 	}
-	err = h.service.CreateOwner(ctx, identity.SetupInput{Login: payload.Login, Password: payload.Password, HouseholdName: payload.HouseholdName, Timezone: payload.Timezone})
+	err := h.service.CreateOwner(ctx, identity.SetupInput{Login: payload.Login, Password: payload.Password, HouseholdName: payload.HouseholdName, Timezone: payload.Timezone})
 	if errors.Is(err, identity.ErrComplete) {
 		problem(w, 409, "setup_complete")
 		return
@@ -126,7 +107,36 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/api/v1/auth/setup")
 	writeJSON(w, 201, SetupStatus{Required: false})
 }
-func decodeSetupObject(body []byte) (map[string]string, error) {
+
+// readStrictObject enforces JSON media type, a body size bound, and the strict
+// object decoder. On failure it writes the problem response and returns false.
+func readStrictObject(w http.ResponseWriter, r *http.Request, limit int64, keys ...string) (map[string]string, bool) {
+	media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	charset, hasCharset := params["charset"]
+	if err != nil || !strings.EqualFold(media, "application/json") || len(params) > 1 || (len(params) == 1 && (!hasCharset || !strings.EqualFold(charset, "utf-8"))) {
+		problem(w, 415, "unsupported_media_type")
+		return nil, false
+	}
+	if r.ContentLength > limit {
+		problem(w, 413, "content_too_large")
+		return nil, false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		problem(w, 413, "content_too_large")
+		return nil, false
+	}
+	values, err := decodeStrictObject(body, keys...)
+	if err != nil {
+		problem(w, 400, "invalid_request")
+		return nil, false
+	}
+	return values, true
+}
+
+// decodeStrictObject decodes a JSON object whose keys are exactly the allowed
+// set (no duplicates, unknown keys, nulls, or non-string values).
+func decodeStrictObject(body []byte, keys ...string) (map[string]string, error) {
 	if !utf8.Valid(body) {
 		return nil, fmt.Errorf("invalid UTF-8")
 	}
@@ -135,7 +145,10 @@ func decodeSetupObject(body []byte) (map[string]string, error) {
 	if err != nil || tok != json.Delim('{') {
 		return nil, fmt.Errorf("expected object")
 	}
-	allowed := map[string]bool{"login": true, "password": true, "householdName": true, "timezone": true}
+	allowed := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		allowed[key] = true
+	}
 	values := make(map[string]string, len(allowed))
 	for dec.More() {
 		keyToken, err := dec.Token()
@@ -171,43 +184,6 @@ func clientIP(r *http.Request) string {
 	}
 	return ""
 }
-func (h *Handler) admitAttempt(ip string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := h.now()
-	if len(h.attempts) >= 4096 {
-		for k, v := range h.attempts {
-			if len(v) == 0 || now.Sub(v[len(v)-1]) >= time.Minute {
-				delete(h.attempts, k)
-			}
-		}
-	}
-	if _, ok := h.attempts[ip]; !ok && len(h.attempts) >= 4096 {
-		return false
-	}
-	v := h.attempts[ip][:0]
-	for _, t := range h.attempts[ip] {
-		if now.Sub(t) < time.Minute {
-			v = append(v, t)
-		}
-	}
-	if len(v) >= 5 {
-		h.attempts[ip] = v
-		return false
-	}
-	h.attempts[ip] = append(v, now)
-	return true
-}
-func (h *Handler) acquire() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.active >= 2 {
-		return false
-	}
-	h.active++
-	return true
-}
-func (h *Handler) release() { h.mu.Lock(); h.active--; h.mu.Unlock() }
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

@@ -11,13 +11,13 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API, but there is no login, household/item API, or user interface. This is not yet a usable household product.
+> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API and local login sessions (`/api/v1/session`), but there is no household/item API or user interface. This is not yet a usable household product.
 
 ## Development runtime
 
 Copy `.env.example` to `.env`, set independent hexadecimal database passwords, and run `docker compose up -d --build`. Compose starts PostgreSQL, runs the mandatory one-shot migration service, then starts the app with restricted database credentials. Keep PostgreSQL private; the app binds to loopback by default.
 
-First-owner setup is an operator-only backend API, not a login or browser onboarding flow. Generate a token and add it to `.env` without printing it:
+First-owner setup is an operator-only backend API, not a browser onboarding flow. Generate a token and add it to `.env` without printing it:
 
 ```sh
 umask 077
@@ -84,7 +84,39 @@ except urllib.error.HTTPError as error:
 PY
 ```
 
-Remove the setup token from `.env` and recreate the app when setup is complete. This endpoint is not public visitor registration. There is no login/session flow, household UI, or usable household application yet; do not treat the API response as a finished onboarding experience.
+Remove the setup token from `.env` and recreate the app when setup is complete. This endpoint is not public visitor registration. There is no household UI or usable household application yet; do not treat the API response as a finished onboarding experience.
+
+After setup, the owner can log in through the API. The session cookie is HttpOnly and `POST`/`DELETE` require the canonical `Origin` header. The session cookie is a credential, so this check keeps it in memory only, then logs out. Run it interactively with the default development URL:
+
+```sh
+python3 - <<'PY'
+import getpass
+import http.cookiejar
+import json
+import urllib.request
+
+origin = 'http://localhost:8080'  # must equal TENDO_PUBLIC_URL
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+def call(method, body=None):
+    headers = {'Origin': origin}
+    if body is not None:
+        headers['Content-Type'] = 'application/json'
+        body = json.dumps(body, ensure_ascii=False).encode()
+    request = urllib.request.Request(origin + '/api/v1/session', data=body, headers=headers, method=method)
+    with opener.open(request, timeout=15) as response:
+        return response.status, response.read().decode()
+
+with open('/dev/tty', 'w') as terminal:
+    terminal.write('Owner login: ')
+with open('/dev/tty') as terminal:
+    login = terminal.readline().strip()
+print('Login:', *call('POST', {'login': login, 'password': getpass.getpass('Owner password: ')}))
+print('Session:', *call('GET'))
+print('Logout:', call('DELETE')[0])
+PY
+```
+
+Login returns HTTP 201 with `userId`, `login`, `defaultHouseholdId`, and `expiresAt`; reading the session returns 200 with the same body; logout returns 204. Wrong credentials stop the script with HTTP 401. Sessions last 30 days. Use an HTTPS `TENDO_PUBLIC_URL` for any non-local deployment; see [configuration](docs/admin/configuration.md).
 
 For configuration, health checks, and stop/start details, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md). See [reverse proxy deployment](docs/admin/reverse-proxy.md) before internet exposure and [backup and restore](docs/admin/backup-restore.md) for tested recovery limits.
 

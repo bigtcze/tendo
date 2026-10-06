@@ -11,7 +11,12 @@ import (
 type Querier interface {
 	CompleteSetup(ctx context.Context) error
 	CreateLocalCredential(ctx context.Context, arg CreateLocalCredentialParams) error
+	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateUser(ctx context.Context, login string) (string, error)
+	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
+	DeleteSession(ctx context.Context, tokenHash []byte) error
+	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
+	FindLogin(ctx context.Context, login string) (FindLoginRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 }

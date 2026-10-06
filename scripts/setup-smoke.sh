@@ -74,6 +74,71 @@ with open(path,'w',encoding='utf-8') as f:json.dump(fixtures,f,ensure_ascii=Fals
 PY
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 "${compose[@]}" exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
+session_fixtures=$(mktemp)
+psql_command="${compose[*]} exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -At"
+SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$session_fixtures" SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
+import base64,hashlib,json,os,shlex,subprocess,urllib.request,urllib.error
+origin=os.environ['SETUP_SMOKE_ORIGIN']
+fixtures=[]
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,*a,**k): return None
+opener=urllib.request.build_opener(NoRedirect)
+def req(method,body=None,headers=None,record=True):
+ h={**(headers or {})}
+ data=None
+ if body is not None:
+  h['Content-Type']='application/json'
+  data=json.dumps(body).encode()
+ r=urllib.request.Request(origin+'/api/v1/session',data=data,headers=h,method=method)
+ try:
+  with opener.open(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
+ except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
+ result=json.loads(raw) if raw else None
+ if record:
+  fixture={'path':'/api/v1/session','method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()}}
+  if raw: fixture['body']=result
+  fixtures.append(fixture)
+ return status,hs,result,raw
+def psql(sql):
+ return subprocess.run(shlex.split(os.environ['SETUP_SMOKE_PSQL'])+['-c',sql],check=True,capture_output=True,text=True).stdout.strip()
+login={'login':'owner_smoke','password':'correct horse battery'}
+bad,h,b,_=req('POST',{**login,'password':'wrong password value'},{'Origin':origin})
+assert bad==401 and b['code']=='invalid_credentials' and 'Set-Cookie' not in h,('wrong password',bad,b)
+status,_,unknown,_=req('POST',{'login':'nobody_here','password':'correct horse battery'},{'Origin':origin})
+assert status==401 and unknown==b,('unknown login must match wrong password body',status,unknown)
+status,_,_,_=req('POST',login,record=False);assert status==403,('login without Origin',status)
+status,_,_,_=req('POST',login,{'Origin':'http://foreign.example'},record=False);assert status==403,('login foreign Origin',status)
+assert psql('SELECT count(*) FROM user_sessions')=='0','failed logins created sessions'
+status,_,b,_=req('GET');assert status==401 and b['code']=='unauthenticated',('anonymous session',status,b)
+status,h,b,raw=req('POST',login,{'Origin':origin})
+assert status==201 and h['Location']=='/api/v1/session',('login',status,b)
+cookie=h['Set-Cookie']
+parts=[p.strip() for p in cookie.split(';')]
+name,_,token=parts[0].partition('=')
+attrs=[p.lower() for p in parts[1:]]
+assert name=='tendo_session' and len(token)==43,('cookie name/token',name,len(token))
+assert 'httponly' in attrs and 'samesite=lax' in attrs and 'path=/' in attrs and 'max-age=2592000' in attrs,attrs
+assert 'secure' not in attrs and not any(a.startswith('domain=') for a in attrs),attrs
+assert token.encode() not in raw,'token leaked in body'
+household=psql("SELECT default_household_id FROM user_accounts WHERE login='owner_smoke'")
+assert b['login']=='owner_smoke' and b['defaultHouseholdId']==household,(b,household)
+status,h,b2,_=req('GET',headers={'Cookie':f'tendo_session={token}'})
+assert status==200 and b2==b and h['ETag'].startswith('"session-'),('get session',status,b2,dict(h))
+digest=hashlib.sha256(token.encode()).hexdigest()
+raw_hex=base64.urlsafe_b64decode(token+'=').hex()
+assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{digest}','hex')")=='1','session digest not stored'
+assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{raw_hex}','hex') OR token_hash=convert_to('{token}','UTF8')")=='0','raw token stored'
+status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
+assert status==204,('logout',status)
+cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
+assert cleared[0]=='tendo_session=' and 'max-age=0' in cleared and 'httponly' in cleared and 'samesite=lax' in cleared and 'path=/' in cleared,cleared
+status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=False);assert status==403,('logout without Origin',status)
+status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
+assert psql('SELECT count(*) FROM user_sessions')=='0','session row survived logout'
+with open(os.environ['SETUP_SMOKE_FIXTURES'],'w',encoding='utf-8') as f:json.dump(fixtures,f)
+PY
+API_RESPONSE_FIXTURES="$session_fixtures" node "$root/api/check-health.mjs"
+rm -f "$session_fixtures"
 "${compose[@]}" restart app >/dev/null
 persisted=0
 for _ in $(seq 1 60); do
@@ -91,4 +156,4 @@ try:
 except urllib.error.HTTPError as error:
  assert error.code==409,('duplicate setup after restart',error.code)
 PY
-printf 'First-owner setup API smoke passed.\n'
+printf 'First-owner setup and local session API smoke passed.\n'

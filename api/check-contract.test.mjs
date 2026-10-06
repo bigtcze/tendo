@@ -98,3 +98,49 @@ test('setup live validator enforces media, cache, request id, Location, and body
     })
   }
 })
+
+test('session cookie fixtures enforce cookie attributes, ETag pattern, and Location', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-api-session-'))
+  const fixturePath = join(directory, 'responses.json')
+  const token = 'A'.repeat(43)
+  const session = { userId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60', login: 'owner', defaultHouseholdId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', expiresAt: '2026-11-05T10:00:00Z' }
+  const base = { 'content-type': 'application/json', 'x-request-id': 'contract-check', 'cache-control': 'no-store' }
+  const created = { path: '/api/v1/session', method: 'post', status: 201, headers: { ...base, location: '/api/v1/session', 'set-cookie': `tendo_session=${token}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax` }, body: session }
+  const current = { path: '/api/v1/session', method: 'get', status: 200, headers: { ...base, etag: '"session-0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"' }, body: session }
+  const deleted = { path: '/api/v1/session', method: 'delete', status: 204, headers: { 'x-request-id': 'contract-check', 'cache-control': 'no-store', 'set-cookie': 'tendo_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax' } }
+  const unauthenticated = { path: '/api/v1/session', method: 'get', status: 401, headers: { ...base, 'content-type': 'application/problem+json' }, body: { type: 'about:blank', title: 'Unauthorized', status: 401, code: 'unauthenticated' } }
+  const run = async fixture => {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    return { code, stderr }
+  }
+  try {
+    const staleCleared = { ...unauthenticated, headers: { ...unauthenticated.headers, 'set-cookie': 'tendo_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax' } }
+    for (const fixture of [created, current, deleted, unauthenticated, staleCleared]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    for (const [name, fixture, mutate, diagnostic] of [
+      ['missing HttpOnly', created, f => { f.headers['set-cookie'] = f.headers['set-cookie'].replace('; HttpOnly', '') }, 'HttpOnly'],
+      ['wrong SameSite', created, f => { f.headers['set-cookie'] = f.headers['set-cookie'].replace('Lax', 'None') }, 'SameSite=Lax'],
+      ['Domain attribute', created, f => { f.headers['set-cookie'] += '; Domain=example.com' }, 'Domain'],
+      ['__Host- without Secure', created, f => { f.headers['set-cookie'] = f.headers['set-cookie'].replace('tendo_session=', '__Host-tendo_session=') }, 'Secure'],
+      ['short token', created, f => { f.headers['set-cookie'] = f.headers['set-cookie'].replace(token, 'short') }, '43 base64url'],
+      ['missing cookie', created, f => { delete f.headers['set-cookie'] }, 'missing Set-Cookie'],
+      ['non-clearing 401', staleCleared, f => { f.headers['set-cookie'] = `tendo_session=${token}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax` }, 'clearing cookie must be empty'],
+      ['undocumented cookie on 200', current, f => { f.headers['set-cookie'] = 'tendo_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax' }, 'undocumented Set-Cookie'],
+      ['non-clearing delete', deleted, f => { f.headers['set-cookie'] = f.headers['set-cookie'].replace('Max-Age=0', 'Max-Age=5') }, 'Max-Age=0'],
+      ['bad ETag', current, f => { f.headers.etag = '"other"' }, 'ETag does not match'],
+      ['wrong Location', created, f => { f.headers.location = '/api/v1/other' }, 'invalid Location'],
+      ['token in body', created, f => { f.body = { ...session, token } }, 'body invalid'],
+    ]) {
+      await t.test(name, async () => {
+        const copy = structuredClone(fixture)
+        mutate(copy)
+        const result = await run(copy)
+        assert.notEqual(result.code, 0)
+        assert.match(result.stderr, new RegExp(diagnostic))
+      })
+    }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})

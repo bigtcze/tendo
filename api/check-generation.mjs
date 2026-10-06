@@ -46,5 +46,10 @@ for (const [name, schema] of Object.entries(contract.components.schemas)) {
 for (const [name, schema] of Object.entries(contract.components.schemas)) {
   assert.ok(goSetup.includes(name) || goHealth.includes(name), `Generated Go missing model ${name}`)
 }
-for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
+for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
+assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goSetup), 'Generated Go Session must have optional DefaultHouseholdId')
+assert.ok(goSetup.includes('SessionCookieScopes'), 'Generated Go missing SessionCookie security scheme')
+for (const operationId of ['createSession', 'getSession', 'deleteSession']) assert.ok(generated.includes(`${operationId}:`), `TypeScript output missing operation ${operationId}`)
+assert.ok(/Session: \{[^}]*defaultHouseholdId\?: string/s.test(generated), 'TypeScript Session must have optional defaultHouseholdId')
+assert.ok(/LoginRequest: \{[^}]*login: string[^}]*password: string/s.test(generated), 'TypeScript LoginRequest missing required fields')
 for (const name of ['StatusResponse', 'Problem']) assert.ok(goHealth.includes(`type ${name} struct`), `Generated health Go missing ${name}`)

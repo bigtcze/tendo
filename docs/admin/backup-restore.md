@@ -6,7 +6,7 @@ This operational guide covers PostgreSQL data in the development/CI Compose stac
 
 Prerequisites: Docker Compose, configured `.env` credentials (see [runtime configuration](configuration.md)), and a running PostgreSQL 18 Compose service. Keep PostgreSQL's major version the same for restore; PostgreSQL does not support downgrading a data directory or restoring into an older major version.
 
-Stop or quiet the app during the backup to avoid writes during capture. Store the archive privately: it can contain all database data. Keep it off-host in secure storage and protect it with appropriate access controls/encryption. The custom-format archive does not include PostgreSQL roles, role passwords, server configuration, or `.env`; securely retain configuration/credentials separately and recreate the `tendo` role from fresh Compose credentials before restore.
+Stop or quiet the app during the backup to avoid writes during capture. Store the archive privately: it can contain all database data, including password hashes and hashed login sessions. Sessions that had not expired when the backup was taken work again after a restore. Keep it off-host in secure storage and protect it with appropriate access controls/encryption. The custom-format archive does not include PostgreSQL roles, role passwords, server configuration, or `.env`; securely retain configuration/credentials separately and recreate the `tendo` role from fresh Compose credentials before restore.
 
 From the repository root, the evidence smoke runs the equivalent dump using PostgreSQL's bundled tools:
 

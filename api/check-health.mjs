@@ -24,6 +24,26 @@ function assertBody(path, status, body, method) {
   assert.ok(validate(body), `${path} HTTP ${status} body invalid: ${JSON.stringify(validate.errors)}`)
 }
 
+function assertSessionCookie(path, status, setCookie) {
+  assert.equal(typeof setCookie, 'string', `${path} HTTP ${status} missing Set-Cookie`)
+  const [pair, ...attributes] = setCookie.split(';').map(part => part.trim())
+  const [name, value = ''] = [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)]
+  assert.ok(['tendo_session', '__Host-tendo_session'].includes(name), `${path} HTTP ${status} unexpected cookie name ${name}`)
+  const lower = attributes.map(attribute => attribute.toLowerCase())
+  assert.ok(lower.includes('httponly'), `${path} HTTP ${status} cookie must be HttpOnly`)
+  assert.ok(lower.includes('samesite=lax'), `${path} HTTP ${status} cookie must be SameSite=Lax`)
+  assert.ok(lower.includes('path=/'), `${path} HTTP ${status} cookie must have Path=/`)
+  assert.ok(!lower.some(attribute => attribute.startsWith('domain=')), `${path} HTTP ${status} cookie must not set Domain`)
+  if (name.startsWith('__Host-')) assert.ok(lower.includes('secure'), `${path} HTTP ${status} __Host- cookie must be Secure`)
+  if (Number(status) !== 201) {
+    assert.equal(value, '', `${path} HTTP ${status} clearing cookie must be empty`)
+    assert.ok(lower.includes('max-age=0'), `${path} HTTP ${status} clearing cookie must have Max-Age=0`)
+  } else {
+    assert.match(value, /^[A-Za-z0-9_-]{43}$/, `${path} HTTP ${status} cookie value must be 43 base64url characters`)
+    assert.ok(lower.includes('max-age=2592000'), `${path} HTTP ${status} cookie must have a 30-day Max-Age`)
+  }
+}
+
 function assertResponse(path, status, body, method, headers = {}) {
   const responseSpec = contract.paths[path][method]?.responses[String(status)]
   assert.ok(responseSpec, `${path}: undocumented HTTP ${status}`)
@@ -35,7 +55,16 @@ function assertResponse(path, status, body, method, headers = {}) {
   const requestId = headers['x-request-id']
   if (responseSpec.headers?.['X-Request-ID']) assert.ok(/^[A-Za-z0-9._-]{1,64}$/.test(requestId ?? ''), `${path} HTTP ${status} invalid request ID ${requestId ?? '(missing)'}`)
   if (responseSpec.headers?.['Cache-Control']) assert.equal(headers['cache-control'], 'no-store', `${path} HTTP ${status} cache-control must be no-store`)
-  if (responseSpec.headers?.ETag) assert.ok(typeof headers.etag === 'string' && headers.etag.length > 0, `${path} HTTP ${status} missing ETag`)
+  if (responseSpec.headers?.ETag) {
+    assert.ok(typeof headers.etag === 'string' && headers.etag.length > 0, `${path} HTTP ${status} missing ETag`)
+    const etagPattern = responseSpec.headers.ETag.schema?.pattern
+    if (etagPattern) assert.match(headers.etag, new RegExp(etagPattern), `${path} HTTP ${status} ETag does not match its documented pattern`)
+  }
+  const cookieRef = responseSpec.headers?.['Set-Cookie']?.$ref
+  if (cookieRef) {
+    const cookieSpec = contract.components.headers[cookieRef.split('/').pop()]
+    if (cookieSpec.required === true || headers['set-cookie'] !== undefined) assertSessionCookie(path, status, headers['set-cookie'])
+  } else assert.equal(headers['set-cookie'], undefined, `${path} HTTP ${status} sends an undocumented Set-Cookie`)
   if (responseSpec.headers?.Location) {
     const locationSchema = responseSpec.headers.Location.schema ?? {}
     if (locationSchema.const !== undefined) assert.equal(headers.location, locationSchema.const, `${path} HTTP ${status} has invalid Location`)

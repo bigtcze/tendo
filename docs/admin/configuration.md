@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This development Compose stack provides PostgreSQL, health/readiness, and an operator-authorized initial-owner setup API. It does not provide login sessions, OIDC, household/item APIs, or a household UI. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This development Compose stack provides PostgreSQL, health/readiness, an operator-authorized initial-owner setup API, and local login sessions. It does not provide OIDC, household/item APIs, or a household UI. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
 Copy `.env.example` to `.env` and generate two independent hexadecimal database passwords:
 
@@ -38,4 +38,8 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 | `DATABASE_URL` | Compose constructs it | Migration service receives admin access separately; web app receives restricted DML role only. Compose uses `sslmode=disable` on its private bridge. |
 | `TENDO_LISTEN_ADDR` | Compose sets `0.0.0.0:8080` | Container HTTP bind address; process defaults to `:8080` outside Compose. |
 
-Compose migrates using administrator credentials in a successful one-shot migration dependency; the app itself does not receive database administrator credentials. On upgrades with an existing volume, migrations do not reset data or automatically repair old grants: follow the documented upgrade path and grant migration deliberately with administrator access if needed. See [reverse proxy deployment](reverse-proxy.md) before exposing HTTP behind TLS and [backup and restore](backup-restore.md) for data recovery scope. Setup creates the first owner and household only; local login, OIDC, and household editing are not implemented.
+Compose migrates using administrator credentials in a successful one-shot migration dependency; the app itself does not receive database administrator credentials. On upgrades with an existing volume, migrations do not reset data or automatically repair old grants: follow the documented upgrade path and grant migration deliberately with administrator access if needed. See [reverse proxy deployment](reverse-proxy.md) before exposing HTTP behind TLS and [backup and restore](backup-restore.md) for data recovery scope. Setup creates the first owner and household only; OIDC and household editing are not implemented.
+
+## Login sessions
+
+`POST /api/v1/session` creates a server-side session stored in PostgreSQL (only a SHA-256 digest of the cookie value is stored) and sets an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie with no `Domain` that lasts 30 days from login; it is not renewed. The cookie policy follows the scheme of `TENDO_PUBLIC_URL`, not the scheme the app listens on: an `https://` URL uses the name `__Host-tendo_session` with `Secure`; an `http://` URL uses `tendo_session` without `Secure`. Plain HTTP is for trusted local development only; use an HTTPS public URL (through a TLS-terminating reverse proxy) for any other deployment. Login is limited to 10 attempts per client address per minute and 2 concurrent attempts, returning 429 with `Retry-After: 60`. No new environment variable is required. The migration adds the `user_sessions` table; the runtime role may select, insert, and delete sessions but not update them.
