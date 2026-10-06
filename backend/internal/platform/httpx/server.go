@@ -8,12 +8,16 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
 var safeID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// routeLabelKey carries a *string that handlers set to a fixed log route label.
+type routeLabelKey struct{}
 
 type Pinger interface{ Ping(context.Context) error }
 
@@ -30,25 +34,66 @@ func NewApp(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy
 	return NewAppWithRoutes(pool, timeout, draining, policy, nil)
 }
 func NewAppWithRoutes(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy, register func(chi.Router)) http.Handler {
+	return NewAppWithUI(pool, timeout, draining, policy, register, nil)
+}
+
+// NewAppWithUI is NewAppWithRoutes plus an optional UI fallback handler. The
+// fallback receives every request (any method) that matches no route, except
+// under /api and /health, which keep the problem+json 404/405 responses.
+func NewAppWithUI(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy, register func(chi.Router), ui http.Handler) http.Handler {
 	config, err := newOriginConfig(policy)
-	return newRouter(pool, timeout, draining, originMiddlewareConfig(config, err), register)
+	return newRouterWithUI(pool, timeout, draining, originMiddlewareConfig(config, err), ui, register)
 }
 func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, registers ...func(chi.Router)) http.Handler {
+	return newRouterWithUI(pool, timeout, draining, origin, nil, registers...)
+}
+
+func isReservedPath(p string) bool {
+	return p == "/api" || strings.HasPrefix(p, "/api/") || p == "/health" || strings.HasPrefix(p, "/health/")
+}
+
+func newRouterWithUI(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, ui http.Handler, registers ...func(chi.Router)) http.Handler {
 	h := &Health{pool: pool, timeout: timeout, draining: draining}
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler { return requestMiddleware(next, slog.Default()) })
 	if origin != nil {
 		r.Use(origin)
 	}
+	// Set before registering routes so mounted sub-routers inherit these handlers.
+	notFound := func(w http.ResponseWriter, r *http.Request) { writeProblem(w, http.StatusNotFound, "Not Found") }
+	methodNotAllowed := func(w http.ResponseWriter, r *http.Request) {
+		writeProblem(w, http.StatusMethodNotAllowed, "Method Not Allowed")
+	}
+	if ui != nil {
+		serveUI := func(w http.ResponseWriter, r *http.Request) {
+			if label, ok := r.Context().Value(routeLabelKey{}).(*string); ok {
+				*label = "webui"
+			}
+			ui.ServeHTTP(w, r)
+		}
+		inner, innerMethod := notFound, methodNotAllowed
+		notFound = func(w http.ResponseWriter, r *http.Request) {
+			if isReservedPath(r.URL.Path) {
+				inner(w, r)
+				return
+			}
+			serveUI(w, r)
+		}
+		methodNotAllowed = func(w http.ResponseWriter, r *http.Request) {
+			if isReservedPath(r.URL.Path) {
+				innerMethod(w, r)
+				return
+			}
+			serveUI(w, r)
+		}
+	}
+	r.NotFound(notFound)
+	r.MethodNotAllowed(methodNotAllowed)
 	r.Get("/health/live", func(w http.ResponseWriter, r *http.Request) { writeStatus(w, http.StatusOK, "ok") })
 	r.Get("/health/ready", h.ready)
 	if len(registers) > 0 && registers[0] != nil {
 		registers[0](r)
 	}
-	r.NotFound(func(w http.ResponseWriter, r *http.Request) { writeProblem(w, http.StatusNotFound, "Not Found") })
-	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, http.StatusMethodNotAllowed, "Method Not Allowed")
-	})
 	return r
 }
 
@@ -103,8 +148,13 @@ func requestMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 		w.Header().Set("X-Request-ID", id)
 		rw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
-		next.ServeHTTP(rw, r)
-		logger.Info("http request", "request_id", id, "method", r.Method, "route", routePattern(r), "status", rw.status, "duration", time.Since(start))
+		label := ""
+		next.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), routeLabelKey{}, &label)))
+		route := label
+		if route == "" {
+			route = routePattern(r)
+		}
+		logger.Info("http request", "request_id", id, "method", r.Method, "route", route, "status", rw.status, "duration", time.Since(start))
 	})
 }
 

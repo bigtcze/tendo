@@ -11,7 +11,7 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API and local login sessions (`/api/v1/session`), and a membership-checked household read (`GET /api/v1/households/{householdId}`), but there is no item API or user interface. This is not yet a usable household product.
+> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API and local login sessions (`/api/v1/session`), and a membership-checked household read (`GET /api/v1/households/{householdId}`). After an operator completes setup, the browser shows a sign-in page and an empty home screen. There is no item API, no subjects, no invitations, and no browser onboarding. This is not yet a usable household product.
 
 ## Development runtime
 
@@ -84,7 +84,7 @@ except urllib.error.HTTPError as error:
 PY
 ```
 
-Remove the setup token from `.env` and recreate the app when setup is complete. This endpoint is not public visitor registration. There is no household UI or usable household application yet; do not treat the API response as a finished onboarding experience.
+Remove the setup token from `.env` and recreate the app when setup is complete. This endpoint is not public visitor registration. There is no usable household application yet; do not treat the API response as a finished onboarding experience.
 
 After setup, the owner can log in through the API. The session cookie is HttpOnly and `POST`/`DELETE` require the canonical `Origin` header. The session cookie is a credential, so this check keeps it in memory only, then logs out. Run it interactively with the default development URL:
 
@@ -118,14 +118,17 @@ PY
 
 Login returns HTTP 201 with `userId`, `login`, `defaultHouseholdId`, and `expiresAt`; reading the session returns 200 with the same body; logout returns 204. Wrong credentials stop the script with HTTP 401. Sessions last 30 days. Use an HTTPS `TENDO_PUBLIC_URL` for any non-local deployment; see [configuration](docs/admin/configuration.md).
 
+The owner can also sign in by opening `TENDO_PUBLIC_URL` (by default `http://localhost:8080`) in a browser. After sign-in the page shows the household name and an empty home screen. Before setup, the page says the instance has not been set up yet.
+
 For configuration, health checks, and stop/start details, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md). See [reverse proxy deployment](docs/admin/reverse-proxy.md) before internet exposure and [backup and restore](docs/admin/backup-restore.md) for tested recovery limits.
 
 ## Documentation
 
 - [Runtime development](docs/development/runtime.md)
+- [Frontend development](docs/development/frontend.md)
 - [Configuration reference](docs/admin/configuration.md)
 - [Schedule-domain notes](docs/development/schedule-domain.md)
 
 ## Development
 
-The repository contains a Go runtime skeleton, PostgreSQL wiring, and the pure Go schedule package. This remains development-only and does not provide a usable household application.
+The repository contains a Go backend, PostgreSQL wiring, the pure Go schedule package, and a small React web UI embedded in the Go binary. This remains development-only and does not provide a usable household application.

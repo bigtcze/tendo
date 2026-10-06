@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type testPinger struct {
@@ -186,5 +188,62 @@ func TestUnknownAndMethodErrorsUseProblem(t *testing.T) {
 		if problem.Status != w.Code || problem.Type != "about:blank" {
 			t.Fatalf("problem=%+v", problem)
 		}
+	}
+}
+
+func TestUIFallbackRouting(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = w.Write([]byte("ui-index"))
+	})
+	register := func(r chi.Router) {
+		sub := chi.NewRouter()
+		sub.Get("/api/v1/known", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+		r.Mount("/", sub)
+	}
+	app := NewAppWithUI(&testPinger{}, time.Second, make(chan struct{}), OriginPolicy{PublicURL: "http://example.test"}, register, ui)
+	serve := func(method, target, host string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, target, nil)
+		r.Host = host
+		r.Header.Set("Origin", "http://example.test")
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+		return w
+	}
+	for _, tc := range []struct {
+		method, target string
+		want           int
+	}{
+		{"GET", "/api/v1/nope", 404}, {"GET", "/api", 404}, {"GET", "/health/nope", 404},
+		{"POST", "/health/ready", 405}, {"POST", "/api/v1/known", 405},
+	} {
+		w := serve(tc.method, tc.target, "example.test")
+		if w.Code != tc.want || w.Header().Get("Content-Type") != "application/problem+json" || strings.Contains(w.Body.String(), "ui-index") {
+			t.Fatalf("%s %s status=%d ct=%q body=%s", tc.method, tc.target, w.Code, w.Header().Get("Content-Type"), w.Body)
+		}
+	}
+	if w := serve("GET", "/api/v1/known", "example.test"); w.Code != http.StatusNoContent {
+		t.Fatalf("api route status=%d", w.Code)
+	}
+	logs.Reset()
+	for _, target := range []string{"/", "/some/route?token=supersecret"} {
+		w := serve("GET", target, "example.test")
+		if w.Code != http.StatusTeapot || w.Body.String() != "ui-index" {
+			t.Fatalf("%s reached fallback? status=%d body=%s", target, w.Code, w.Body)
+		}
+	}
+	out := logs.String()
+	if strings.Contains(out, "supersecret") || strings.Contains(out, "some/route") || strings.Count(out, `"route":"webui"`) != 2 {
+		t.Fatalf("unsafe or wrong route label: %s", out)
+	}
+	if w := serve("GET", "/", "evil.test"); w.Code != http.StatusMisdirectedRequest || strings.Contains(w.Body.String(), "ui-index") {
+		t.Fatalf("origin not enforced on UI: status=%d body=%s", w.Code, w.Body)
+	}
+	if w := serve("GET", "/some/route", "evil.test"); w.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("origin not enforced on deep UI route: %d", w.Code)
 	}
 }

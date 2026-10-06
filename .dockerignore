@@ -6,3 +6,8 @@
 **/dist
 **/coverage
 **/.DS_Store
+# Host-built frontend output must not leak into the image; the web stage produces it.
+backend/internal/platform/webui/dist/*
+!backend/internal/platform/webui/dist/.gitkeep
+frontend/test-results
+frontend/playwright-report

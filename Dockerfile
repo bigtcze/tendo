@@ -1,9 +1,19 @@
+# Build the production frontend; vite writes to /src/backend/internal/platform/webui/dist.
+FROM node:22.22.3-bookworm-slim AS web
+WORKDIR /src/frontend
+COPY api/generated/ /src/api/generated/
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY frontend/ ./
+RUN npm run build && test -f /src/backend/internal/platform/webui/dist/index.html
+
 # Build using the project-pinned Go toolchain; keep generated binary independent of libc.
 FROM golang:1.26.8-bookworm AS build
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
+COPY --from=web /src/backend/internal/platform/webui/dist/ ./internal/platform/webui/dist/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/tendo ./cmd/tendo
 
 FROM gcr.io/distroless/base-debian12:nonroot

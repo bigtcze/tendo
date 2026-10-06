@@ -1,0 +1,31 @@
+import type { MessageKey } from './en';
+
+// Typed to require exactly the keys of the English resource.
+export const cs: Record<MessageKey, string> = {
+  'app.name': 'Tendo',
+  'app.loading': 'Načítám…',
+  'app.error.title': 'S Tendem se teď nedaří spojit.',
+  'app.error.body': 'Zkontrolujte připojení a zkuste to znovu.',
+  'app.error.retry': 'Zkusit znovu',
+  'app.skipToContent': 'Přeskočit na obsah',
+  'header.signedInAs': 'Účet: {login}',
+  'header.signOut': 'Odhlásit se',
+  'header.signingOut': 'Odhlašuji…',
+  'header.signOutError': 'Odhlášení se nepovedlo. Zkuste to znovu.',
+  'language.label': 'Jazyk',
+  'setup.title': 'Tendo ještě nebylo nastaveno.',
+  'setup.body': 'Nejdřív musí nastavení dokončit ten, kdo Tendo nainstaloval.',
+  'login.title': 'Přihlášení do Tenda',
+  'login.login': 'Přihlašovací jméno',
+  'login.password': 'Heslo',
+  'login.submit': 'Přihlásit se',
+  'login.submitting': 'Přihlašuji…',
+  'login.error.invalid': 'Přihlašovací jméno nebo heslo není správné.',
+  'login.error.rateLimited': 'Příliš mnoho pokusů. Zkuste to za chvíli.',
+  'login.error.unavailable': 'S Tendem se teď nedaří spojit. Zkuste to znovu.',
+  'home.loading': 'Otevírám vaši domácnost…',
+  'home.empty.title': 'Teď nic nevyžaduje pozornost.',
+  'home.empty.body': 'Až bude něco potřebovat vás, objeví se to tady.',
+  'home.noHousehold.title': 'Váš účet zatím není součástí žádné domácnosti.',
+  'home.noHousehold.body': 'Požádejte o pomoc toho, kdo Tendo provozuje.',
+};

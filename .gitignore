@@ -7,3 +7,10 @@ node_modules/
 /build/
 /backend/bin/
 *.test
+
+# Frontend build output is embedded into the Go binary; only the placeholder is tracked.
+backend/internal/platform/webui/dist/*
+!backend/internal/platform/webui/dist/.gitkeep
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/

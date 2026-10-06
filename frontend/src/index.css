@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: ui-rounded, 'SF Pro Rounded', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  --font-display: ui-serif, 'New York', Charter, 'Iowan Old Style', Georgia, serif;
+  --color-paper: #faf7f2;
+  --color-sand: #efe9df;
+  --color-ink: #25302b;
+  --color-muted: #5b655f;
+  --color-line: #d8d0c3;
+  --color-accent: #2f6b57;
+  --color-accent-strong: #234f41;
+  --color-danger: #a3342a;
+}
+
+html {
+  background: var(--color-paper);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background:
+    radial-gradient(60rem 30rem at 85% -10%, #e6efe6 0%, transparent 60%),
+    var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.settle {
+  animation: settle 400ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
