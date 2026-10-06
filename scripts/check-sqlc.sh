@@ -13,7 +13,7 @@ fi
 if [[ -d "$root/backend/internal/household/postgres/dbgen" ]]; then
   cp -a "$root/backend/internal/household/postgres/dbgen" "$tmp/household"
 fi
-docker run --rm -v "$root/backend:/src" -w /src "$image" generate -f sqlc.yaml
+docker run --rm --user "$(id -u):$(id -g)" -v "$root/backend:/src" -w /src "$image" generate -f sqlc.yaml
 for module in identity household; do
   target="$root/backend/internal/$module/postgres/dbgen"
   if [[ -d "$tmp/$module" ]]; then
