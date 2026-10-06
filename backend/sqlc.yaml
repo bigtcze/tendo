@@ -1,0 +1,22 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "internal/platform/database/001_setup.sql"
+    queries: "internal/identity/postgres/queries"
+    gen:
+      go:
+        package: "dbgen"
+        out: "internal/identity/postgres/dbgen"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_empty_slices: true
+  - engine: "postgresql"
+    schema: "internal/platform/database/001_setup.sql"
+    queries: "internal/household/postgres/queries"
+    gen:
+      go:
+        package: "dbgen"
+        out: "internal/household/postgres/dbgen"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_empty_slices: true

@@ -30,6 +30,10 @@ type originConfig struct {
 	trusted []*net.IPNet
 }
 
+func WithRequestMetadata(r *http.Request, metadata RequestMetadata) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), metadataKey{}, metadata))
+}
+
 func MetadataFromRequest(r *http.Request) (RequestMetadata, bool) {
 	m, ok := r.Context().Value(metadataKey{}).(RequestMetadata)
 	return m, ok

@@ -8,8 +8,21 @@ import (
 	"fmt"
 )
 
+const (
+	SetupTokenScopes = "SetupToken.Scopes"
+)
+
+// Defines values for ValidationProblemField.
+const (
+	HouseholdName ValidationProblemField = "householdName"
+	Login         ValidationProblemField = "login"
+	Password      ValidationProblemField = "password"
+	Timezone      ValidationProblemField = "timezone"
+)
+
 // Problem defines model for Problem.
 type Problem struct {
+	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
 	Status               int                    `json:"status"`
@@ -18,25 +31,76 @@ type Problem struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// SetupRequest defines model for SetupRequest.
+type SetupRequest struct {
+	// HouseholdName Trimmed value must be nonempty and contain no control characters.
+	HouseholdName string `json:"householdName"`
+	Login         string `json:"login"`
+
+	// Password 15–128 Unicode scalar values; maximum 512 UTF-8 bytes
+	Password string `json:"password"`
+
+	// Timezone Valid named IANA timezone; UTC accepted; Local and fixed offsets are not accepted.
+	Timezone string `json:"timezone"`
+}
+
+// SetupStatus defines model for SetupStatus.
+type SetupStatus struct {
+	Required bool `json:"required"`
+}
+
 // StatusResponse defines model for StatusResponse.
 type StatusResponse struct {
 	Status string `json:"status"`
 }
 
+// ValidationProblem defines model for ValidationProblem.
+type ValidationProblem struct {
+	Code                 string                 `json:"code"`
+	Detail               *string                `json:"detail,omitempty"`
+	Field                ValidationProblemField `json:"field"`
+	Instance             *string                `json:"instance,omitempty"`
+	Status               int                    `json:"status"`
+	Title                string                 `json:"title"`
+	Type                 string                 `json:"type"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// ValidationProblemField defines model for ValidationProblem.Field.
+type ValidationProblemField string
+
 // RequestId defines model for RequestId.
 type RequestId = string
 
+// GetInitialSetupParams defines parameters for GetInitialSetup.
+type GetInitialSetupParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateInitialOwnerParams defines parameters for CreateInitialOwner.
+type CreateInitialOwnerParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
 // GetLivenessParams defines parameters for GetLiveness.
 type GetLivenessParams struct {
-	// XRequestID Optional caller-supplied correlation ID; only 1–64 ASCII letters, digits, dots, underscores, or hyphens are accepted. Invalid values are replaced with a generated ID.
+	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
 // GetReadinessParams defines parameters for GetReadiness.
 type GetReadinessParams struct {
-	// XRequestID Optional caller-supplied correlation ID; only 1–64 ASCII letters, digits, dots, underscores, or hyphens are accepted. Invalid values are replaced with a generated ID.
+	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
+
+// CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
+type CreateInitialOwnerJSONRequestBody = SetupRequest
 
 // Getter for additional properties for Problem. Returns the specified
 // element and whether it was found
@@ -61,6 +125,14 @@ func (a *Problem) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, &object)
 	if err != nil {
 		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
 	}
 
 	if raw, found := object["detail"]; found {
@@ -122,11 +194,166 @@ func (a Problem) MarshalJSON() ([]byte, error) {
 	var err error
 	object := make(map[string]json.RawMessage)
 
+	if a.Code != nil {
+		object["code"], err = json.Marshal(a.Code)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'code': %w", err)
+		}
+	}
+
 	if a.Detail != nil {
 		object["detail"], err = json.Marshal(a.Detail)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
 		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for ValidationProblem. Returns the specified
+// element and whether it was found
+func (a ValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for ValidationProblem
+func (a *ValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for ValidationProblem to handle AdditionalProperties
+func (a *ValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for ValidationProblem to handle AdditionalProperties
+func (a ValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
 	}
 
 	if a.Instance != nil {

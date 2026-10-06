@@ -1,5 +1,5 @@
-package: httpx
-output: ../backend/internal/platform/httpx/health.gen.go
+package: httpapi
+output: ../backend/internal/identity/httpapi/setup.gen.go
 generate:
   models: true
   std-http-server: false

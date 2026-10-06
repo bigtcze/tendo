@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +21,7 @@ type Config struct {
 	TrustedProxyCIDRs []string
 	DBTimeout         time.Duration
 	ShutdownTimeout   time.Duration
+	SetupToken        string
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -89,6 +91,13 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	c.ShutdownTimeout, err = duration(lookup, "TENDO_SHUTDOWN_TIMEOUT", 10*time.Second, 60*time.Second)
 	if err != nil {
 		return c, err
+	}
+	c.SetupToken, _ = lookup("TENDO_SETUP_TOKEN")
+	if c.SetupToken != "" {
+		decoded, decodeErr := base64.StdEncoding.DecodeString(c.SetupToken)
+		if decodeErr != nil || len(decoded) != 32 || base64.StdEncoding.EncodeToString(decoded) != c.SetupToken {
+			return Config{}, errors.New("TENDO_SETUP_TOKEN must be canonical standard base64 encoding of 32 bytes")
+		}
 	}
 	return c, nil
 }

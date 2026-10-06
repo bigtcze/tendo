@@ -17,6 +17,16 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  migrate:
+    build: .
+    entrypoint: ["/tendo", "migrate"]
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?Set hexadecimal POSTGRES_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   app:
     build: .
     stop_grace_period: 70s
@@ -27,11 +37,14 @@ services:
       TENDO_TRUSTED_PROXY_CIDRS: ${TENDO_TRUSTED_PROXY_CIDRS:-}
       TENDO_DB_TIMEOUT: ${TENDO_DB_TIMEOUT:-2}s
       TENDO_SHUTDOWN_TIMEOUT: ${TENDO_SHUTDOWN_TIMEOUT:-10}s
+      TENDO_SETUP_TOKEN: ${TENDO_SETUP_TOKEN:-}
     ports:
       - "127.0.0.1:${TENDO_HOST_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m

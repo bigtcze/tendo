@@ -1,11 +1,134 @@
 openapi: 3.1.0
 info:
-  title: Tendo Runtime Health API
+  title: Tendo API
   version: 1.0.0
-  description: Development-only operational health endpoints. Readiness checks PostgreSQL and returns unavailable during graceful shutdown; liveness reports only that the HTTP process responds.
+  description: Initial owner setup plus operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration.
 servers:
   - url: /
 paths:
+  /api/v1/auth/setup:
+    get:
+      operationId: getInitialSetup
+      summary: Read initial setup status
+      tags: [Auth]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Setup status.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            ETag:
+              schema: { type: string, enum: ['"setup-v1-required"', '"setup-v1-complete"'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupStatus' }
+              example: { required: true }
+        '400':
+          description: Trusted forwarded request metadata is malformed or inconsistent.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request }
+        '403':
+          description: Request Origin is foreign, malformed, or duplicated.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Setup state unavailable.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    put:
+      operationId: createInitialOwner
+      summary: Create the initial owner and household
+      description: Requires the operator-configured bootstrap token and canonical Origin. Setup token generation is an operator action; an empty token configuration disables this operation. This does not enable public visitor registration.
+      tags: [Auth]
+      security:
+        - SetupToken: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: Origin
+          in: header
+          required: true
+          description: Must match the configured canonical public origin.
+          schema: { type: string, format: uri }
+          example: https://tendo.example
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetupRequest' }
+            example:
+              login: owner
+              password: a-long-unique-passphrase
+              householdName: Veselí
+              timezone: Europe/Prague
+      responses:
+        '201':
+          description: Initial owner created.
+          headers:
+            Location: { schema: { type: string, const: /api/v1/auth/setup } }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupStatus' }
+              example: { required: false }
+        '400': { description: 'Malformed JSON, request shape, or trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '401': { description: Setup token is missing or invalid., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthorized } } } }
+        '403': { description: Request Origin is missing or does not match the configured canonical public origin., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
+        '409': { description: Setup already completed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: setup_complete } } } }
+        '413': { description: Request body exceeds 8 KiB., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '415': { description: Unsupported request media type., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '421': { description: Request authority does not match the configured public origin., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '422':
+          description: Field validation failed.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ValidationProblem' }
+              example: { type: 'about:blank', title: 'Validation Failed', status: 422, code: invalid_timezone, field: timezone }
+        '429':
+          description: Setup admission limit exceeded.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Retry-After: { schema: { type: integer, minimum: 1 } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited } } }
+        '500': { description: Unexpected server failure., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '503':
+          description: Setup disabled or persistence unavailable.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
   /health/live:
     get:
       operationId: getLiveness
@@ -13,16 +136,13 @@ paths:
       description: Does not check dependencies. Intended for process liveness probes.
       tags: [Health]
       security: []
-      parameters:
-        - $ref: '#/components/parameters/RequestId'
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
       responses:
         '200':
           description: The HTTP process is responding.
           headers:
-            X-Request-ID:
-              $ref: '#/components/headers/RequestId'
-            Cache-Control:
-              $ref: '#/components/headers/NoStore'
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/StatusResponse' }
@@ -31,19 +151,16 @@ paths:
     get:
       operationId: getReadiness
       summary: Check whether PostgreSQL is reachable and the process is not draining
-      description: Returns unavailable when the database ping fails or graceful shutdown has begun. The database ping is bounded by the configured database timeout.
+      description: Returns unavailable when the database ping fails or graceful shutdown has begun.
       tags: [Health]
       security: []
-      parameters:
-        - $ref: '#/components/parameters/RequestId'
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
       responses:
         '200':
           description: PostgreSQL is reachable and shutdown has not begun.
           headers:
-            X-Request-ID:
-              $ref: '#/components/headers/RequestId'
-            Cache-Control:
-              $ref: '#/components/headers/NoStore'
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/StatusResponse' }
@@ -51,63 +168,73 @@ paths:
         '503':
           description: PostgreSQL is unavailable or graceful shutdown has begun.
           headers:
-            X-Request-ID:
-              $ref: '#/components/headers/RequestId'
-            Cache-Control:
-              $ref: '#/components/headers/NoStore'
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: 'Service Unavailable', status: 503 }
 components:
+  securitySchemes:
+    SetupToken:
+      type: apiKey
+      in: header
+      name: X-Tendo-Setup-Token
+      description: Standard base64 encoding of 32 random bytes (44 characters ending in =). Operator generates with openssl rand -base64 32.
   headers:
     RequestId:
-      description: Bounded correlation ID echoed from a valid request header or generated by Tendo.
-      schema:
-        type: string
-        pattern: '^[A-Za-z0-9._-]{1,64}$'
+      description: Correlation ID echoed from a valid request header or generated by Tendo.
+      schema: { type: string, pattern: '^[A-Za-z0-9._-]{1,64}$' }
       example: smoke-test_01
     NoStore:
-      description: Prevents health responses from being cached.
-      schema:
-        type: string
-        const: no-store
+      description: Prevents responses from being cached.
+      schema: { type: string, const: no-store }
   parameters:
     RequestId:
       name: X-Request-ID
       in: header
       required: false
-      description: Optional caller-supplied correlation ID; only 1–64 ASCII letters, digits, dots, underscores, or hyphens are accepted. Invalid values are replaced with a generated ID.
-      schema:
-        type: string
-        pattern: '^[A-Za-z0-9._-]{1,64}$'
+      description: Optional caller-supplied correlation ID.
+      schema: { type: string, pattern: '^[A-Za-z0-9._-]{1,64}$' }
       example: smoke-test_01
   schemas:
     Problem:
       type: object
       required: [type, title, status]
       properties:
-        type:
-          type: string
-          format: uri-reference
-        title:
-          type: string
-        status:
-          type: integer
-          minimum: 400
-          maximum: 599
-        detail:
-          type: string
-        instance:
-          type: string
-          format: uri-reference
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }
+        code: { type: string }
       additionalProperties: true
+    SetupStatus:
+      type: object
+      additionalProperties: false
+      required: [required]
+      properties:
+        required: { type: boolean }
+    SetupRequest:
+      type: object
+      additionalProperties: false
+      required: [login, password, householdName, timezone]
+      properties:
+        login: { type: string, minLength: 3, maxLength: 64, pattern: '^[a-z0-9][a-z0-9._-]{2,63}$' }
+        password: { type: string, minLength: 15, maxLength: 128, description: 15–128 Unicode scalar values; maximum 512 UTF-8 bytes }
+        householdName: { type: string, minLength: 1, maxLength: 100, description: Trimmed value must be nonempty and contain no control characters. }
+        timezone: { type: string, minLength: 1, maxLength: 128, description: Valid named IANA timezone; UTC accepted; Local and fixed offsets are not accepted. }
+    ValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [field, code]
+          properties:
+            field: { type: string, enum: [login, password, householdName, timezone] }
+            code: { type: string }
     StatusResponse:
       type: object
       additionalProperties: false
       required: [status]
       properties:
-        status:
-          type: string
-          enum: [ok, unavailable]
-          x-go-type: string
+        status: { type: string, enum: [ok, unavailable], x-go-type: string }

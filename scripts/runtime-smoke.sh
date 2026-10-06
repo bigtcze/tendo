@@ -5,9 +5,10 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project="tendo-runtime-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-runtime-smoke.XXXXXX")
 export COMPOSE_PROJECT_NAME=$project
-export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS
+export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
+TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 TENDO_PUBLIC_URL="http://127.0.0.1:${TENDO_HOST_PORT}"
 TENDO_TRUSTED_PROXY_CIDRS=
@@ -15,6 +16,7 @@ TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
 compose=(docker compose --project-name "$project" -f "$root/compose.yaml")
+migrate=(docker compose --profile migration --project-name "$project" -f "$root/compose.yaml")
 cleanup() {
   local result=$?
   trap - EXIT
@@ -28,7 +30,8 @@ text = open(sys.argv[1], encoding="utf-8").read()
 for name in ("POSTGRES_PASSWORD", "TENDO_DATABASE_PASSWORD"):
     value = os.environ[name]
     text = text.replace(value, "[REDACTED]")
-text = re.sub(r"(?i)(POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD)(=|%3[dD])[^\s&]+", r"\1\2[REDACTED]", text)
+text = text.replace(os.environ.get("TENDO_SETUP_TOKEN", ""), "[REDACTED]") if os.environ.get("TENDO_SETUP_TOKEN") else text
+text = re.sub(r"(?i)(POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD|TENDO_SETUP_TOKEN)(=|%3[dD])[^\s&]+", r"\1\2[REDACTED]", text)
 print(text, end="", file=sys.stderr)
 PY
     fi

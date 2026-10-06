@@ -33,6 +33,7 @@ services:
     profiles: [disabled-for-backup-smoke]
 YAML
 "${compose[@]}" up -d --wait --wait-timeout 90 postgres
+docker compose --profile migration --project-name "$project" -f "$root/compose.yaml" run --rm migrate
 psql() { "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres "$@"; }
 psql -d tendo <<'SQL'
 CREATE SCHEMA smoke AUTHORIZATION tendo;

@@ -11,8 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/household"
+	householdpostgres "github.com/bigtcze/tendo/backend/internal/household/postgres"
+	householddb "github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
+	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
+	identityhttp "github.com/bigtcze/tendo/backend/internal/identity/httpapi"
+	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
+	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,10 +35,35 @@ type runtimeResources struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "migrate" {
+		if err := migrate(); err != nil {
+			slog.Error("migration failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("runtime failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func migrate() error {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		return errors.New("DATABASE_URL is required")
+	}
+	pool, err := pgxpool.New(context.Background(), url)
+	if err != nil {
+		return errors.New("migration database initialization failed")
+	}
+	defer pool.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := pool.Ping(ctx); err != nil {
+		return errors.New("migration database unavailable")
+	}
+	return database.Migrate(ctx, pool)
 }
 
 func run() error {
@@ -48,14 +81,35 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := database.ValidateSchema(startupCtx, pool); err != nil {
+		startupCancel()
+		pool.Close()
+		return errors.New("database schema validation failed")
+	}
+	startupCancel()
 	draining := make(chan struct{})
-	srv := &http.Server{Addr: cfg.ListenAddr, Handler: httpx.NewApp(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: cfg.DBTimeout + 5*time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	routes := chi.NewRouter()
+	identityRepository := identitypostgres.New(pool, func(queries *householddb.Queries) identityapp.OwnerHouseholdService {
+		return household.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
+	})
+	identityhttp.New(identityapp.NewSetupService(identityRepository), cfg.SetupToken).Register(routes)
+	app := httpx.NewAppWithRoutes(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) })
+	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		pool.Close()
 		return err
 	}
 	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
+}
+
+func newRuntimeServer(addr string, handler http.Handler, serviceTimeout time.Duration) *http.Server {
+	writeTimeout := 15*time.Second + serviceTimeout + 5*time.Second
+	if writeTimeout < 25*time.Second {
+		writeTimeout = 25 * time.Second
+	}
+	return &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: writeTimeout, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 }
 
 func serve(ctx context.Context, listener net.Listener, resources runtimeResources, draining chan struct{}, shutdownTimeout time.Duration) error {

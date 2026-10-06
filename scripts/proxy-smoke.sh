@@ -29,6 +29,7 @@ TENDO_SHUTDOWN_TIMEOUT=10
 TENDO_PUBLIC_URL=https://tendo.test
 TENDO_TRUSTED_PROXY_CIDRS=
 compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$temp_dir/compose.yaml")
+migrate=(docker compose --profile migration --project-name "$project" -f "$root/compose.yaml" -f "$temp_dir/compose.yaml")
 cleanup() {
   local result=$?
   trap - EXIT
@@ -64,6 +65,9 @@ openssl x509 -req -in "$temp_dir/tendo.test.csr" -CA "$temp_dir/ca.crt" -CAkey "
 cp "$temp_dir/ca.crt" "$temp_dir/smoke-ca.crt"
 cat >"$temp_dir/compose.yaml" <<EOF
 services:
+  migrate:
+    networks:
+      - proxy-net
   app:
     environment:
       TENDO_PUBLIC_URL: https://tendo.test
@@ -97,7 +101,9 @@ networks:
         - subnet: 172.29.247.0/24
 EOF
 
-"${compose[@]}" up -d --build --wait --wait-timeout 150
+"${compose[@]}" up -d --build --wait --wait-timeout 150 postgres
+"${migrate[@]}" run --rm migrate
+"${compose[@]}" up -d --build --wait --wait-timeout 150 app proxy
 curl_args=(--silent --show-error --noproxy '*' --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" -H 'Host: tendo.test')
 expect_status() {
   local expected=$1 path=$2; shift 2
