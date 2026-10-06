@@ -24,9 +24,19 @@ type Health struct {
 }
 
 func NewHealth(pool Pinger, timeout time.Duration, draining <-chan struct{}) http.Handler {
+	return newRouter(pool, timeout, draining, nil)
+}
+func NewApp(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy) http.Handler {
+	config, err := newOriginConfig(policy)
+	return newRouter(pool, timeout, draining, originMiddlewareConfig(config, err))
+}
+func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler) http.Handler {
 	h := &Health{pool: pool, timeout: timeout, draining: draining}
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler { return requestMiddleware(next, slog.Default()) })
+	if origin != nil {
+		r.Use(origin)
+	}
 	r.Get("/health/live", func(w http.ResponseWriter, r *http.Request) { writeStatus(w, http.StatusOK, "ok") })
 	r.Get("/health/ready", h.ready)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) { writeProblem(w, http.StatusNotFound, "Not Found") })
@@ -35,6 +45,7 @@ func NewHealth(pool Pinger, timeout time.Duration, draining <-chan struct{}) htt
 	})
 	return r
 }
+
 func (h *Health) ready(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-h.draining:

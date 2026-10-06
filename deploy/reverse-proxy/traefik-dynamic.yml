@@ -1,0 +1,27 @@
+tls:
+  certificates:
+    - certFile: /certs/tendo.test.crt
+      keyFile: /certs/tendo.test.key
+http:
+  routers:
+    tendo:
+      rule: Host(`tendo.test`)
+      entryPoints:
+        - websecure
+      tls: {}
+      service: tendo
+      middlewares:
+        - tendo-forwarded
+  services:
+    tendo:
+      loadBalancer:
+        servers:
+          - url: http://app:8080
+  middlewares:
+    tendo-forwarded:
+      headers:
+        customRequestHeaders:
+          Forwarded: ""
+          X-Forwarded-Proto: https
+          X-Forwarded-Host: tendo.test
+          X-Forwarded-For: ""

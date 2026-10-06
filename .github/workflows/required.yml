@@ -12,7 +12,7 @@ permissions:
 jobs:
   required:
     name: required
-    timeout-minutes: 15
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +77,10 @@ jobs:
 
       - name: Production Docker and PostgreSQL runtime smoke
         run: bash scripts/runtime-smoke.sh
+
+      - name: Reverse proxy boundary smoke
+        timeout-minutes: 12
+        run: bash scripts/proxy-smoke.sh
 
       - name: PostgreSQL backup and restore smoke
         run: bash scripts/backup-restore-smoke.sh

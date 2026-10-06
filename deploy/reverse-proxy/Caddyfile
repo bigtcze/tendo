@@ -1,0 +1,18 @@
+{
+	log default {
+		exclude http.log.error
+	}
+	servers {
+		strict_sni_host
+	}
+}
+
+tendo.test:443 {
+	tls /certs/tendo.test.crt /certs/tendo.test.key
+	reverse_proxy app:8080 {
+		header_up -Forwarded
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host tendo.test
+		header_up X-Forwarded-For {http.request.remote.host}
+	}
+}
