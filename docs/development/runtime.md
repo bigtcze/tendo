@@ -1,6 +1,13 @@
 # Development runtime
 
-The Compose stack is for development and CI only. It runs PostgreSQL, health endpoints, an operator-authorized first-owner setup API, and local login sessions (`POST`/`GET`/`DELETE /api/v1/session`); it is not a usable Tendo household application because household/item APIs and UI are not implemented. PostgreSQL is private to the Compose network and the app port binds to host loopback.
+The Compose stack is for development and CI only. It runs:
+
+- PostgreSQL and health endpoints
+- an operator-authorized first-owner setup API
+- local login sessions (`POST`/`GET`/`DELETE /api/v1/session`)
+- a session-authenticated household read (`GET /api/v1/households/{householdId}`, members only; malformed, nonexistent, and non-member IDs all return the same 404)
+
+It is not a usable Tendo household application because item APIs and UI are not implemented. PostgreSQL is private to the Compose network and the app port binds to host loopback.
 
 ## Prerequisites
 
@@ -30,8 +37,8 @@ For settings and their constraints, see [runtime configuration](../admin/configu
 
 ## Contract and checks
 
-The setup, session, and health contract is `api/openapi.yaml` (OpenAPI 3.1). From `api/`, install pinned dependencies with `npm ci`, then run `npm run check`; this validates OpenAPI, contract examples and checker regressions, and drift for both generated Go outputs and TypeScript definitions. The same source schemas generate the setup models in identity/httpapi and health models in platform/httpx; generated TS definitions remain outside the frontend runtime until a real API client exists. oapi-codegen v2.4.1 warns that OpenAPI 3.1 support is incomplete, so keep schemas simple and validate output coverage against the source contract.
+The setup, session, household read, and health contract is `api/openapi.yaml` (OpenAPI 3.1). From `api/`, install pinned dependencies with `npm ci`, then run `npm run check`; this validates OpenAPI, contract examples and checker regressions, and drift for both generated Go outputs and TypeScript definitions. The same source schemas generate the setup models in identity/httpapi and household response models in household/httpapi, and health models in platform/httpx; generated TS definitions remain outside the frontend runtime until a real API client exists. oapi-codegen v2.4.1 warns that OpenAPI 3.1 support is incomplete, so keep schemas simple and validate output coverage against the source contract.
 
 From the repository root, run `bash scripts/runtime-smoke.sh` to build and exercise an isolated Compose project with generated credentials and a temporary host port. For reverse-proxy boundary verification, run `bash scripts/proxy-smoke.sh`; it executes Caddy, Nginx, and Traefik against the shared checked-in configs using a temporary local CA, real PostgreSQL, and no published database port. Set `PROXY=caddy`, `PROXY=nginx`, or `PROXY=traefik` to run only one configuration while debugging. It checks mismatched TLS SNI/Host handling, malformed forwarded-chain rejection, schema-valid live and unavailable health responses, media types, request IDs, cache headers, readiness failure/recovery when PostgreSQL stops, and query-secret absence from all three proxy logs during normal requests and upstream transport failures. The separate runtime smoke verifies container UID/read-only root, no published PostgreSQL port, and clean bounded SIGTERM shutdown. Compose readiness waits have explicit deadlines, and required CI bounds the overall job. Cleanup removes only the uniquely named project, its volume, and a private temporary directory.
 
-Run `gofmt`, `go vet ./...`, and `go build ./...` from `backend/`. The unit-only race suite is `go test -race $(go list ./... | grep -v '/internal/identity/postgres$')`; the PostgreSQL-dependent integration suite is `bash scripts/setup-integration.sh` from the repository root, which provisions disposable PostgreSQL and runs the database packages with `-race`. The first-owner and session APIs, persistence, and response fixtures are exercised against a disposable Compose stack by `bash scripts/setup-smoke.sh`.
+Run `gofmt`, `go vet ./...`, and `go build ./...` from `backend/`. The unit-only race suite is `go test -race $(go list ./... | grep -v -e '/internal/identity/postgres$' -e '/internal/household/postgres$')`; the PostgreSQL-dependent integration suite is `bash scripts/setup-integration.sh` from the repository root, which provisions disposable PostgreSQL and runs the identity, household, and database packages with `-race` (one package at a time, because they share fixture tables). The first-owner, session, and household read APIs, persistence, and response fixtures are exercised against a disposable Compose stack by `bash scripts/setup-smoke.sh`.

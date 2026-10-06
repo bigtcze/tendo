@@ -128,12 +128,36 @@ digest=hashlib.sha256(token.encode()).hexdigest()
 raw_hex=base64.urlsafe_b64decode(token+'=').hex()
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{digest}','hex')")=='1','session digest not stored'
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{raw_hex}','hex') OR token_hash=convert_to('{token}','UTF8')")=='0','raw token stored'
+cookie_header={'Cookie':f'tendo_session={token}'}
+def hreq(hid,headers=None,record=True):
+ r=urllib.request.Request(origin+'/api/v1/households/'+hid,headers=headers or {},method='GET')
+ try:
+  with opener.open(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
+ except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
+ result=json.loads(raw) if raw else None
+ if record: fixtures.append({'path':'/api/v1/households/{householdId}','method':'GET','status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
+ return status,hs,result
+status,h,hb=hreq(household,cookie_header)
+assert status==200 and set(hb)=={'id','name','timezone','createdAt'} and hb['id']==household and hb['name']=='Veselí 家族' and hb['timezone']=='Europe/Prague' and hb['createdAt'].endswith('Z'),('get household',status,hb)
+assert h['ETag']=='"1"' and h['Cache-Control']=='no-store' and h['Content-Type'].startswith('application/json'),dict(h)
+assert psql(f"SELECT to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') FROM households WHERE id='{household}'")==hb['createdAt'].rstrip('Z').split('.')[0],('createdAt mismatch',hb)
+status,h,b_anon=hreq(household);assert status==401 and b_anon['code']=='unauthenticated' and 'Set-Cookie' not in h,('household without cookie',status,b_anon)
+random_id=psql('SELECT uuidv7()')
+status,_,b_missing=hreq(random_id,cookie_header);assert status==404 and b_missing['code']=='not_found',('nonexistent household',status,b_missing)
+status,_,b_bad=hreq('not-a-uuid',cookie_header);assert status==404 and b_bad==b_missing,('malformed household id',status,b_bad)
+status,_,_=hreq(household,{**cookie_header,'Origin':'http://foreign.example'},record=False);assert status==403,('household foreign Origin',status)
+other_id=psql("WITH x AS (INSERT INTO households(name,timezone) VALUES ('Other','UTC') RETURNING id) SELECT id FROM x")
+assert other_id!=household and psql(f"SELECT count(*) FROM households WHERE id='{other_id}'")=='1' and psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{other_id}'")=='0','other household fixture'
+status,h,b_other=hreq(other_id,cookie_header);assert status==404 and b_other==b_missing and 'ETag' not in h,('non-member household must match nonexistent 404',status,b_other,b_missing)
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert cleared[0]=='tendo_session=' and 'max-age=0' in cleared and 'httponly' in cleared and 'samesite=lax' in cleared and 'path=/' in cleared,cleared
 status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=False);assert status==403,('logout without Origin',status)
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
+status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
+stale=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
+assert stale[0]=='tendo_session=' and 'max-age=0' in stale and 'httponly' in stale and 'samesite=lax' in stale and 'path=/' in stale,stale
 assert psql('SELECT count(*) FROM user_sessions')=='0','session row survived logout'
 with open(os.environ['SETUP_SMOKE_FIXTURES'],'w',encoding='utf-8') as f:json.dump(fixtures,f)
 PY

@@ -59,9 +59,9 @@ jobs:
 
       - name: Go unit tests with race detector
         working-directory: backend
-        run: go test -race $(go list ./... | grep -v '/internal/identity/postgres$')
+        run: go test -race $(go list ./... | grep -v -e '/internal/identity/postgres$' -e '/internal/household/postgres$')
 
-      - name: First-owner PostgreSQL integration tests
+      - name: PostgreSQL integration tests
         run: bash scripts/setup-integration.sh
 
       - name: sqlc generated output is current

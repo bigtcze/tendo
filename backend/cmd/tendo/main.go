@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	householdhttp "github.com/bigtcze/tendo/backend/internal/household/httpapi"
 	householdpostgres "github.com/bigtcze/tendo/backend/internal/household/postgres"
 	householddb "github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
 	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
@@ -99,7 +100,12 @@ func run() error {
 		pool.Close()
 		return err
 	}
-	identityhttp.NewSession(sessions, cfg.PublicURL).Register(routes)
+	sessionHandler := identityhttp.NewSession(sessions, cfg.PublicURL)
+	sessionHandler.Register(routes)
+	householdhttp.New(household.NewService(householdpostgres.NewRepository(pool)), sessionHandler.RequireSession, func(ctx context.Context) (string, bool) {
+		principal, ok := identityhttp.PrincipalFromContext(ctx)
+		return principal.UserID, ok
+	}).Register(routes)
 	app := httpx.NewAppWithRoutes(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) })
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)

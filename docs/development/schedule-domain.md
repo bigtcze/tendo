@@ -1,6 +1,6 @@
 # Schedule domain development
 
-This repository includes a pure Go schedule package. It remains a development slice, not a usable Tendo installation: there is no household functionality, authentication, usable API, or UI. The development/CI Compose stack includes an operator-authorized initial-owner setup endpoint, but still lacks login, household/item APIs, and UI; see [runtime development](runtime.md) and [runtime configuration](../admin/configuration.md).
+This repository includes a pure Go schedule package. It remains a development slice, not a usable Tendo installation: there is no item functionality, usable item API, or UI. The development/CI Compose stack includes an operator-authorized initial-owner setup endpoint, local login sessions, and a read-only household endpoint, but still lacks item APIs and UI; see [runtime development](runtime.md) and [runtime configuration](../admin/configuration.md).
 
 ## Tooling and checks
 

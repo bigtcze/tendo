@@ -22,6 +22,16 @@ const (
 	Timezone      ValidationProblemField = "timezone"
 )
 
+// Household defines model for Household.
+type Household struct {
+	CreatedAt time.Time `json:"createdAt"`
+	Id        string    `json:"id"`
+	Name      string    `json:"name"`
+
+	// Timezone Named IANA timezone.
+	Timezone string `json:"timezone"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	Login    string `json:"login"`
@@ -86,6 +96,9 @@ type ValidationProblem struct {
 // ValidationProblemField defines model for ValidationProblem.Field.
 type ValidationProblemField string
 
+// HouseholdId defines model for HouseholdId.
+type HouseholdId = string
+
 // RequestId defines model for RequestId.
 type RequestId = string
 
@@ -102,6 +115,12 @@ type CreateInitialOwnerParams struct {
 
 	// Origin Must match the configured canonical public origin.
 	Origin string `json:"Origin"`
+}
+
+// GetHouseholdParams defines parameters for GetHousehold.
+type GetHouseholdParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
 // DeleteSessionParams defines parameters for DeleteSession.

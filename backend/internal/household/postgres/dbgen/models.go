@@ -13,6 +13,7 @@ type Household struct {
 	Name      string
 	Timezone  string
 	CreatedAt pgtype.Timestamptz
+	Version   int64
 }
 
 type HouseholdMembership struct {

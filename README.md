@@ -11,7 +11,7 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API and local login sessions (`/api/v1/session`), but there is no household/item API or user interface. This is not yet a usable household product.
+> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API and local login sessions (`/api/v1/session`), and a membership-checked household read (`GET /api/v1/households/{householdId}`), but there is no item API or user interface. This is not yet a usable household product.
 
 ## Development runtime
 
