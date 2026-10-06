@@ -73,12 +73,18 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.3'
           cache: npm
-          cache-dependency-path: api/package-lock.json
+          cache-dependency-path: |
+            api/package-lock.json
+            frontend/package-lock.json
 
       - name: Validate, audit, and check generated API artifacts
         working-directory: api
+        run: npm ci && npm audit --audit-level=moderate && npm run check
+
+      - name: Frontend install, audit, and check
+        working-directory: frontend
         run: npm ci && npm audit --audit-level=moderate && npm run check
 
       - name: Production Docker and PostgreSQL runtime smoke
@@ -93,6 +99,10 @@ jobs:
 
       - name: PostgreSQL backup and restore smoke
         run: bash scripts/backup-restore-smoke.sh
+
+      - name: Browser E2E against production build and PostgreSQL
+        timeout-minutes: 15
+        run: bash scripts/e2e-smoke.sh
 
       # Keep this job/check name stable.
       # As implementation grows, this `required` job MUST become the aggregate

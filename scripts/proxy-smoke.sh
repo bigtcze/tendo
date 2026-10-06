@@ -140,10 +140,10 @@ assert re.search(r"^content-type: application/json(?:;[^\r\n]*)?\r?$", headers, 
 assert re.search(r"^x-request-id: proxy_smoke-01\r?$", headers, re.M), headers
 assert re.search(r"^cache-control: no-store\r?$", headers, re.M), headers
 PY
-expect_status 404 /not-a-route
+expect_status 404 /api/not-a-route
 # Proxy access logs must never persist request query strings, which may contain secrets.
 query_secret="proxy-smoke-secret-${RANDOM}-${RANDOM}"
-expect_status 404 "/not-a-route?token=$query_secret"
+expect_status 404 "/api/not-a-route?token=$query_secret"
 assert_no_proxy_secret() {
   local secret=$1
   if "${compose[@]}" logs --no-color proxy | python3 -c 'import sys; needle=sys.argv[1]; data=sys.stdin.read(); sys.exit(1 if needle in data else 0)' "$secret"; then
@@ -159,7 +159,7 @@ outage_secret="proxy-smoke-outage-${RANDOM}-${RANDOM}"
 if [[ "$proxy" == nginx ]]; then
   sleep 1
 fi
-outage_url="https://tendo.test:$TENDO_HOST_PORT/not-a-route?token=$outage_secret"
+outage_url="https://tendo.test:$TENDO_HOST_PORT/api/not-a-route?token=$outage_secret"
 outage_status=$(curl --silent --show-error --noproxy '*' --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/outage-body" --write-out '%{http_code}' -H 'Host: tendo.test' "$outage_url")
 if [[ "$proxy" == nginx ]]; then
   [[ "$outage_status" == 504 ]] || { printf 'Expected Nginx upstream timeout HTTP 504 while app is stopped, got %s\n' "$outage_status" >&2; exit 1; }
@@ -173,7 +173,7 @@ assert_no_proxy_secret "$outage_secret"
 # TLS SNI remains tendo.test while Host changes; only Nginx serves its default TLS vhost,
 # and must reject rather than rewrite this authority into the canonical app route.
 if [[ "$proxy" == nginx ]]; then
-  actual=$(curl --silent --show-error --noproxy '*' --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/mismatched-host-body" --write-out '%{http_code}' -H 'Host: attacker.test' "https://tendo.test:$TENDO_HOST_PORT/not-a-route")
+  actual=$(curl --silent --show-error --noproxy '*' --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/mismatched-host-body" --write-out '%{http_code}' -H 'Host: attacker.test' "https://tendo.test:$TENDO_HOST_PORT/api/not-a-route")
   [[ "$actual" == 421 ]] || { printf 'Mismatched TLS SNI/Host expected HTTP 421, got %s\n' "$actual" >&2; exit 1; }
   python3 - "$temp_dir/mismatched-host-body" <<'PY'
 import sys
@@ -181,7 +181,7 @@ body = open(sys.argv[1], "rb").read()
 assert not body or b'"status":404' not in body, body
 PY
 elif [[ "$proxy" == traefik ]]; then
-  actual=$(curl --silent --show-error --noproxy '*' --http1.1 --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/mismatched-host-body" --write-out '%{http_code}' -H 'Host: attacker.test' "https://tendo.test:$TENDO_HOST_PORT/not-a-route")
+  actual=$(curl --silent --show-error --noproxy '*' --http1.1 --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/mismatched-host-body" --write-out '%{http_code}' -H 'Host: attacker.test' "https://tendo.test:$TENDO_HOST_PORT/api/not-a-route")
   [[ "$actual" == 404 ]] || { printf 'Traefik mismatched Host expected router HTTP 404, got %s\n' "$actual" >&2; exit 1; }
   python3 - "$temp_dir/mismatched-host-body" <<'PY'
 import json, sys
@@ -193,7 +193,7 @@ except json.JSONDecodeError:
 assert problem != {"type": "about:blank", "title": "Not Found", "status": 404}, body
 PY
 else
-  actual=$(curl --silent --show-error --noproxy '*' --http1.1 --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/mismatched-host-body" --write-out '%{http_code}' -H 'Host: attacker.test' "https://tendo.test:$TENDO_HOST_PORT/not-a-route")
+  actual=$(curl --silent --show-error --noproxy '*' --http1.1 --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" --output "$temp_dir/mismatched-host-body" --write-out '%{http_code}' -H 'Host: attacker.test' "https://tendo.test:$TENDO_HOST_PORT/api/not-a-route")
   if [[ "$actual" != 421 ]]; then
     printf 'Caddy strict SNI/Host mismatch expected proxy HTTP 421, got %s; body=' "$actual" >&2
     python3 -c 'import pathlib,sys; print(repr(pathlib.Path(sys.argv[1]).read_bytes()))' "$temp_dir/mismatched-host-body" >&2
@@ -206,12 +206,12 @@ assert not body or json.loads(body) != {"type": "about:blank", "title": "Not Fou
 print(f"Caddy mismatched SNI/Host: HTTP 421 proxy rejection; body={body!r}")
 PY
 fi
-expect_status 404 /not-a-route -H 'X-Forwarded-Proto: http'
-expect_status 404 /not-a-route -H 'X-Forwarded-Host: attacker.test'
-expect_status 403 /not-a-route -H 'Origin: https://attacker.test'
-expect_status 403 /not-a-route -X POST -H 'Origin:'
-expect_status 404 /not-a-route -H 'Forwarded: for=192.0.2.4;proto=http;host=attacker.test' -H 'X-Forwarded-Proto: http' -H 'X-Forwarded-Host: attacker.test' -H 'X-Forwarded-For: 192.0.2.4'
-curl "${curl_args[@]}" -D "$temp_dir/error-headers" -o "$temp_dir/error-body" "https://tendo.test:$TENDO_HOST_PORT/not-a-route"
+expect_status 404 /api/not-a-route -H 'X-Forwarded-Proto: http'
+expect_status 404 /api/not-a-route -H 'X-Forwarded-Host: attacker.test'
+expect_status 403 /api/not-a-route -H 'Origin: https://attacker.test'
+expect_status 403 /api/not-a-route -X POST -H 'Origin:'
+expect_status 404 /api/not-a-route -H 'Forwarded: for=192.0.2.4;proto=http;host=attacker.test' -H 'X-Forwarded-Proto: http' -H 'X-Forwarded-Host: attacker.test' -H 'X-Forwarded-For: 192.0.2.4'
+curl "${curl_args[@]}" -D "$temp_dir/error-headers" -o "$temp_dir/error-body" "https://tendo.test:$TENDO_HOST_PORT/api/not-a-route"
 python3 - "$temp_dir/error-headers" "$temp_dir/error-body" <<'PY'
 import json, re, sys
 headers = open(sys.argv[1], encoding="utf-8").read().lower()
@@ -220,6 +220,19 @@ assert body == {"type": "about:blank", "title": "Not Found", "status": 404}, bod
 assert re.search(r"^content-type: application/problem\+json(?:;[^\r\n]*)?\r?$", headers, re.M), headers
 assert re.search(r"^cache-control: no-store\r?$", headers, re.M), headers
 assert re.search(r"^x-request-id: [a-z0-9._-]{1,64}\r?$", headers, re.M), headers
+PY
+# The embedded SPA is served through the proxy with its security headers passed through unchanged.
+curl "${curl_args[@]}" -D "$temp_dir/spa-headers" -o "$temp_dir/spa-body" -w '%{http_code}\n' "https://tendo.test:$TENDO_HOST_PORT/" >"$temp_dir/spa-status"
+python3 - "$temp_dir/spa-status" "$temp_dir/spa-headers" "$temp_dir/spa-body" <<'PY'
+import re, sys
+status = open(sys.argv[1], encoding="utf-8").read().strip()
+headers = open(sys.argv[2], encoding="utf-8").read().lower()
+body = open(sys.argv[3], encoding="utf-8").read().lower()
+assert status == "200", status
+assert re.search(r"^content-type: text/html(?:;[^\r\n]*)?\r?$", headers, re.M), headers
+assert re.search(r"^content-security-policy: [^\r\n]*default-src 'self'[^\r\n]*\r?$", headers, re.M), headers
+assert re.search(r"^x-frame-options: deny\r?$", headers, re.M), headers
+assert '<div id="root">' in body, body
 PY
 
 # Local login through the HTTPS proxy: the cookie policy follows TENDO_PUBLIC_URL (https), not the plain-HTTP backend socket.
@@ -262,7 +275,7 @@ test_trusted_headers() {
   actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.12.1 \
     --silent --show-error --max-time 5 -o /tmp/smoke/trusted-body -w '%{http_code}' \
     -H "X-Forwarded-Proto: $proto" -H "X-Forwarded-Host: $host" "${origin_args[@]}" \
-    "http://172.29.247.20:8080/not-a-route")
+    "http://172.29.247.20:8080/api/not-a-route")
   [[ "$actual" == "$expected" ]] || { printf 'Trusted peer expected HTTP %s, got %s\n' "$expected" "$actual" >&2; return 1; }
   python3 - "$temp_dir/trusted-body" "$expected" <<'PY'
 import json, sys
@@ -280,7 +293,7 @@ test_trusted_headers https tendo.test '' 404
 test_trusted_headers 'https,https' tendo.test https://tendo.test 400
 actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.12.1 --silent --show-error --max-time 5 -o /tmp/smoke/malformed-forwarded-body -w '%{http_code}' \
   -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: tendo.test' -H 'X-Forwarded-For: not-an-ip, also-not-an-ip' \
-  "http://172.29.247.20:8080/not-a-route")
+  "http://172.29.247.20:8080/api/not-a-route")
 [[ "$actual" == 400 ]] || { printf 'Proxy-stripped malformed X-Forwarded-For expected HTTP 400, got %s\n' "$actual" >&2; exit 1; }
 python3 - "$temp_dir/malformed-forwarded-body" <<'PY'
 import json, sys
@@ -290,7 +303,7 @@ PY
 
 actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.30 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.12.1 --silent --show-error --max-time 5 -o /tmp/smoke/untrusted-body -w '%{http_code}' \
   -H 'Forwarded: for=192.0.2.1;proto=https;host=tendo.test' -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: tendo.test' \
-  "http://172.29.247.20:8080/not-a-route")
+  "http://172.29.247.20:8080/api/not-a-route")
 [[ "$actual" == 421 ]] || { printf 'Untrusted peer expected HTTP 421, got %s\n' "$actual" >&2; exit 1; }
 python3 - "$temp_dir/untrusted-body" <<'PY'
 import json, sys

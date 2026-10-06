@@ -21,6 +21,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/webui"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -106,7 +107,7 @@ func run() error {
 		principal, ok := identityhttp.PrincipalFromContext(ctx)
 		return principal.UserID, ok
 	}).Register(routes)
-	app := httpx.NewAppWithRoutes(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) })
+	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
