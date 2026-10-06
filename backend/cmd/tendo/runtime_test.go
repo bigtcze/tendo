@@ -74,6 +74,17 @@ func startRequest(client *http.Client, url string) <-chan httpResult {
 	return result
 }
 
+func TestRuntimeServerWriteBudgetCoversReadAndServiceBudgets(t *testing.T) {
+	server := newRuntimeServer(":0", http.NotFoundHandler(), 5*time.Second)
+	if server.ReadTimeout != 15*time.Second || server.WriteTimeout < server.ReadTimeout+5*time.Second+5*time.Second {
+		t.Fatalf("read timeout=%s write timeout=%s", server.ReadTimeout, server.WriteTimeout)
+	}
+	server = newRuntimeServer(":0", http.NotFoundHandler(), 30*time.Second)
+	if server.WriteTimeout < server.ReadTimeout+30*time.Second+5*time.Second {
+		t.Fatalf("write timeout=%s does not cover service budget", server.WriteTimeout)
+	}
+}
+
 func TestServeDrainsReadinessAndBoundsPoolClose(t *testing.T) {
 	pool := &blockingPool{pingStarted: make(chan struct{}), pingRelease: make(chan struct{}), closeStarted: make(chan struct{}), closeRelease: make(chan struct{})}
 	t.Cleanup(func() {

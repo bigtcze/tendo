@@ -77,6 +77,11 @@ func TestLoadFrom(t *testing.T) {
 		bad            bool
 	}{
 		{name: "defaults"},
+		{name: "canonical setup token", set: map[string]string{"TENDO_SETUP_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}},
+		{name: "empty setup token allowed", set: map[string]string{"TENDO_SETUP_TOKEN": ""}},
+		{name: "short setup token", set: map[string]string{"TENDO_SETUP_TOKEN": "AAAA"}, bad: true},
+		{name: "malformed setup token", set: map[string]string{"TENDO_SETUP_TOKEN": "not-base64"}, bad: true},
+		{name: "noncanonical setup token", set: map[string]string{"TENDO_SETUP_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, bad: true},
 		{name: "listen ipv4", set: map[string]string{"TENDO_LISTEN_ADDR": "127.0.0.1:8081"}},
 		{name: "listen ipv6", set: map[string]string{"TENDO_LISTEN_ADDR": "[::1]:8081"}},
 		{name: "postgresql scheme", set: map[string]string{"DATABASE_URL": "postgresql://user:pass@localhost/db?sslmode=disable"}},

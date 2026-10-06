@@ -57,9 +57,15 @@ jobs:
         working-directory: backend
         run: go vet ./...
 
-      - name: Go tests with race detector
+      - name: Go unit tests with race detector
         working-directory: backend
-        run: go test -race ./...
+        run: go test -race $(go list ./... | grep -v '/internal/identity/postgres$')
+
+      - name: First-owner PostgreSQL integration tests
+        run: bash scripts/setup-integration.sh
+
+      - name: sqlc generated output is current
+        run: bash scripts/check-sqlc.sh
 
       - name: Go build
         working-directory: backend
@@ -77,6 +83,9 @@ jobs:
 
       - name: Production Docker and PostgreSQL runtime smoke
         run: bash scripts/runtime-smoke.sh
+
+      - name: First-owner setup API and PostgreSQL smoke
+        run: bash scripts/setup-smoke.sh
 
       - name: Reverse proxy boundary smoke
         timeout-minutes: 12

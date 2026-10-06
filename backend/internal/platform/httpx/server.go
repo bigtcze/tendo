@@ -27,10 +27,13 @@ func NewHealth(pool Pinger, timeout time.Duration, draining <-chan struct{}) htt
 	return newRouter(pool, timeout, draining, nil)
 }
 func NewApp(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy) http.Handler {
-	config, err := newOriginConfig(policy)
-	return newRouter(pool, timeout, draining, originMiddlewareConfig(config, err))
+	return NewAppWithRoutes(pool, timeout, draining, policy, nil)
 }
-func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler) http.Handler {
+func NewAppWithRoutes(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy, register func(chi.Router)) http.Handler {
+	config, err := newOriginConfig(policy)
+	return newRouter(pool, timeout, draining, originMiddlewareConfig(config, err), register)
+}
+func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, registers ...func(chi.Router)) http.Handler {
 	h := &Health{pool: pool, timeout: timeout, draining: draining}
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler { return requestMiddleware(next, slog.Default()) })
@@ -39,6 +42,9 @@ func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, ori
 	}
 	r.Get("/health/live", func(w http.ResponseWriter, r *http.Request) { writeStatus(w, http.StatusOK, "ok") })
 	r.Get("/health/ready", h.ready)
+	if len(registers) > 0 && registers[0] != nil {
+		registers[0](r)
+	}
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) { writeProblem(w, http.StatusNotFound, "Not Found") })
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusMethodNotAllowed, "Method Not Allowed")

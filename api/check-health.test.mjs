@@ -10,7 +10,7 @@ const requestId = 'contract-smoke_01'
 async function checkResponse({ status, headers = {}, body, unavailable = false }) {
   const server = createServer((request, response) => {
     if (request.url === '/health/live') {
-      response.writeHead(200, healthyHeaders)
+      response.writeHead(200, { ...healthyHeaders, 'x-request-id': requestId })
       response.end(JSON.stringify({ status: 'ok' }))
       return
     }
@@ -43,12 +43,12 @@ async function checkResponse({ status, headers = {}, body, unavailable = false }
 
 const healthyHeaders = {
   'content-type': 'application/json',
-  'x-request-id': requestId,
+  'x-request-id': 'contract-smoke_01',
   'cache-control': 'no-store',
 }
 const unavailableHeaders = {
   'content-type': 'application/problem+json',
-  'x-request-id': requestId,
+  'x-request-id': 'contract-smoke_01',
   'cache-control': 'no-store',
 }
 
@@ -71,6 +71,9 @@ const cases = [
   }],
   ['malformed readiness 503 fails', {
     status: 503, headers: unavailableHeaders, body: '{invalid', unavailable: true,
+  }],
+  ['readiness 204 fails when a JSON response is required', {
+    status: 204, headers: healthyHeaders, body: '',
   }],
 ]
 

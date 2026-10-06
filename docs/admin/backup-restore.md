@@ -1,6 +1,6 @@
 # PostgreSQL backup and restore
 
-This is an operational guide for the current development/CI Compose stack, not a household-release guarantee. The current app is health-only and has no application schema. The smoke fixture is test-only; it is not a Tendo migration or runtime schema. Full V1 backup readiness remains unproven until real household data and flows exist.
+This operational guide covers PostgreSQL data in the development/CI Compose stack. The backup smoke uses a test-only fixture, not a Tendo runtime schema. It does not prove recovery of owner/household records or a complete household product; application-schema recovery remains unproven.
 
 ## Back up
 
