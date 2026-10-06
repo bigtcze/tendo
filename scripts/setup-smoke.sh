@@ -149,6 +149,87 @@ status,_,_=hreq(household,{**cookie_header,'Origin':'http://foreign.example'},re
 other_id=psql("WITH x AS (INSERT INTO households(name,timezone) VALUES ('Other','UTC') RETURNING id) SELECT id FROM x")
 assert other_id!=household and psql(f"SELECT count(*) FROM households WHERE id='{other_id}'")=='1' and psql(f"SELECT count(*) FROM household_memberships WHERE household_id='{other_id}'")=='0','other household fixture'
 status,h,b_other=hreq(other_id,cookie_header);assert status==404 and b_other==b_missing and 'ETag' not in h,('non-member household must match nonexistent 404',status,b_other,b_missing)
+COLL='/api/v1/households/{householdId}/subjects'
+ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
+def sreq(method,url,template,body=None,headers=None,record=True):
+ h={**(headers or {})}
+ data=None
+ if body is not None:
+  h['Content-Type']='application/json'
+  data=json.dumps(body,ensure_ascii=False).encode()
+ r=urllib.request.Request(origin+url,data=data,headers=h,method=method)
+ try:
+  with opener.open(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
+ except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
+ result=json.loads(raw) if raw else None
+ if record: fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
+ return status,hs,result
+sbase=f'/api/v1/households/{household}/subjects'
+mut={**cookie_header,'Origin':origin}
+accounts_before=psql('SELECT count(*) FROM user_accounts')
+status,h,person=sreq('POST',sbase,COLL,{'name':'  Babička Líba 👵  ','type':'person'},mut)
+assert status==201 and set(person)=={'id','type','name','archived','createdAt','updatedAt'} and person['name']=='Babička Líba 👵' and person['type']=='person' and person['archived'] is False,('create person',status,person)
+assert h['Location']==f"{sbase}/{person['id']}" and h['ETag']=='"1"' and h['Cache-Control']=='no-store',dict(h)
+assert psql('SELECT count(*) FROM user_accounts')==accounts_before,'person subject must not create an account'
+assert psql(f"SELECT name||'|'||type||'|'||version||'|'||archived FROM subjects WHERE id='{person['id']}' AND household_id='{household}'")=='Babička Líba 👵|person|1|false','stored subject'
+status,h,car=sreq('POST',sbase,COLL,{'name':'Octavia','type':'vehicle'},mut)
+assert status==201 and car['type']=='vehicle' and h['ETag']=='"1"',('create vehicle',status,car)
+status,_,b=sreq('POST',sbase,COLL,{'name':'   ','type':'vehicle'},mut)
+assert status==422 and b['field']=='name' and b['code']=='invalid_length',('blank name',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'robot'},mut)
+assert status==422 and b['field']=='type' and b['code']=='invalid_type',('bad type',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'pet','extra':1},mut)
+assert status==400 and b['code']=='invalid_request',('unknown key',status,b)
+status,h,lst=sreq('GET',sbase,COLL,headers=cookie_header)
+assert status==200 and [i['id'] for i in lst['items']]==[person['id'],car['id']] and lst['nextCursor'] is None,('list',status,lst)
+status,h,p1=sreq('GET',sbase+'?limit=1',COLL,headers=cookie_header)
+assert status==200 and [i['id'] for i in p1['items']]==[person['id']] and isinstance(p1['nextCursor'],str) and p1['nextCursor'],('page 1',status,p1)
+status,h,p2=sreq('GET',sbase+'?limit=1&cursor='+p1['nextCursor'],COLL,headers=cookie_header)
+assert status==200 and [i['id'] for i in p2['items']]==[car['id']] and p2['nextCursor'] is None,('page 2',status,p2)
+status,_,b=sreq('GET',sbase+'?limit=0',COLL,headers=cookie_header);assert status==400 and b['code']=='invalid_query' and b['parameter']=='limit',('limit',status,b)
+status,_,b=sreq('GET',sbase+'?cursor=%2A%2A',COLL,headers=cookie_header);assert status==400 and b['parameter']=='cursor',('cursor',status,b)
+status,_,b=sreq('GET',sbase+'?archived=maybe',COLL,headers=cookie_header);assert status==400 and b['parameter']=='archived',('archived',status,b)
+status,h,got=sreq('GET',sbase+'/'+car['id'],ITEM,headers=cookie_header)
+assert status==200 and got==car and h['ETag']=='"1"',('get',status,got)
+spath=sbase+'/'+car['id']
+status,h,renamed=sreq('PATCH',spath,ITEM,{'name':'Škoda Octavia'},{**mut,'If-Match':'"1"'})
+assert status==200 and renamed['name']=='Škoda Octavia' and renamed['id']==car['id'] and h['ETag']=='"2"',('rename',status,renamed,dict(h))
+assert psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|2','rename not persisted'
+status,_,b=sreq('PATCH',spath,ITEM,{'name':'No precondition'},mut)
+assert status==428 and b['code']=='precondition_required',('no If-Match',status,b)
+status,_,b=sreq('PATCH',spath,ITEM,{'name':'Stale'},{**mut,'If-Match':'"1"'})
+assert status==412 and b['code']=='precondition_failed',('stale',status,b)
+status,_,b=sreq('PATCH',spath,ITEM,{'name':'Weak'},{**mut,'If-Match':'W/"2"'})
+assert status==412,('weak',status,b)
+status,_,b=sreq('PATCH',spath,ITEM,{},{**mut,'If-Match':'"2"'})
+assert status==400 and b['code']=='invalid_request',('empty patch',status,b)
+assert psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|2','failed patches changed the row'
+status,h,archived=sreq('PATCH',spath,ITEM,{'archived':True},{**mut,'If-Match':'"2"'})
+assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('archive',status,archived)
+status,_,lst=sreq('GET',sbase,COLL,headers=cookie_header)
+assert [i['id'] for i in lst['items']]==[person['id']],('default list must exclude archived',lst)
+status,_,lst=sreq('GET',sbase+'?archived=true',COLL,headers=cookie_header)
+assert [i['id'] for i in lst['items']]==[car['id']] and lst['nextCursor'] is None,('archived list',lst)
+status,_,got=sreq('GET',spath,ITEM,headers=cookie_header);assert status==200 and got['archived'] is True,('archived get',status,got)
+assert psql(f"SELECT archived||'|'||version FROM subjects WHERE id='{car['id']}'")=='true|3','archive not persisted'
+status,h,back=sreq('PATCH',spath,ITEM,{'archived':False},{**mut,'If-Match':'"3"'});assert status==200 and back['archived'] is False and h['ETag']=='"4"',('unarchive',status,back)
+foreign=psql(f"INSERT INTO subjects(household_id,type,name) VALUES ('{other_id}','home','Foreign') RETURNING id").splitlines()[0]
+status,_,n1=sreq('GET',sbase+'/'+random_id,ITEM,headers=cookie_header);assert status==404 and n1['code']=='not_found',('unknown subject',status,n1)
+status,_,n2=sreq('GET',sbase+'/not-a-uuid',ITEM,headers=cookie_header);assert status==404 and n2==n1,('malformed subject',status,n2)
+status,h,n3=sreq('GET',sbase+'/'+foreign,ITEM,headers=cookie_header);assert status==404 and n3==n1 and 'ETag' not in h,('foreign subject via own household',status,n3)
+status,_,n4=sreq('GET',f'/api/v1/households/{other_id}/subjects/{foreign}',ITEM,headers=cookie_header);assert status==404 and n4==n1,('non-member household subject',status,n4)
+status,_,n5=sreq('GET',f'/api/v1/households/{other_id}/subjects',COLL,headers=cookie_header);assert status==404 and n5==n1,('non-member household list',status,n5)
+status,_,n6=sreq('POST',f'/api/v1/households/{other_id}/subjects',COLL,{'name':'x','type':'home'},mut);assert status==404 and n6==n1,('non-member create',status,n6)
+status,_,n7=sreq('PATCH',sbase+'/'+foreign,ITEM,{'name':'Hijack'},{**mut,'If-Match':'"1"'});assert status==404 and n7==n1,('foreign subject patch',status,n7)
+status,_,n8=sreq('PATCH',f'/api/v1/households/{other_id}/subjects/{foreign}',ITEM,{'name':'Hijack'},{**mut,'If-Match':'"1"'});assert status==404 and n8==n1,('non-member household subject patch',status,n8)
+assert psql(f"SELECT name||'|'||version FROM subjects WHERE id='{foreign}'")=='Foreign|1','foreign subject changed'
+assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{other_id}'")=='1','non-member create persisted'
+status,_,b=sreq('GET',sbase,COLL);assert status==401 and b['code']=='unauthenticated',('anonymous list',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{'Origin':origin});assert status==401,('anonymous create',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign Origin POST',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},cookie_header);assert status==403,('missing Origin POST',status,b)
+status,_,b=sreq('PATCH',spath,ITEM,{'name':'x'},{**cookie_header,'Origin':'http://foreign.example','If-Match':'"4"'});assert status==403,('foreign Origin PATCH',status,b)
+assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")=='2' and psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|4','rejected requests changed subjects'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]

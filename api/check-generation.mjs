@@ -8,6 +8,7 @@ const generatedHealth = await readFile(new URL('./generated/health.d.ts', import
 const goSetup = await readFile(new URL('../backend/internal/identity/httpapi/setup.gen.go', import.meta.url), 'utf8')
 const goHealth = await readFile(new URL('../backend/internal/platform/httpx/health.gen.go', import.meta.url), 'utf8')
 const goHousehold = await readFile(new URL('../backend/internal/household/httpapi/household.gen.go', import.meta.url), 'utf8')
+const goSubject = await readFile(new URL('../backend/internal/subject/httpapi/subject.gen.go', import.meta.url), 'utf8')
 
 for (const [path, pathItem] of Object.entries(contract.paths)) {
   assert.ok(generated.includes(JSON.stringify(path)), `TypeScript output missing ${path}`)
@@ -45,7 +46,7 @@ for (const [name, schema] of Object.entries(contract.components.schemas)) {
   for (const value of schema.properties?.status?.enum ?? []) assert.ok(generated.includes(JSON.stringify(value)), `TypeScript output missing status value ${value}`)
 }
 for (const [name, schema] of Object.entries(contract.components.schemas)) {
-  assert.ok(goSetup.includes(name) || goHealth.includes(name) || goHousehold.includes(name), `Generated Go missing model ${name}`)
+  assert.ok(goSetup.includes(name) || goHealth.includes(name) || goHousehold.includes(name) || goSubject.includes(name), `Generated Go missing model ${name}`)
 }
 for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
 assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goSetup), 'Generated Go Session must have optional DefaultHouseholdId')
@@ -58,3 +59,15 @@ assert.ok(/type Household struct \{[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]
 assert.ok(!/Version/.test(goHousehold.match(/type Household struct \{[^}]*\}/s)?.[0] ?? ''), 'Household response model must not expose the internal version')
 assert.ok(generated.includes('getHousehold:'), 'TypeScript output missing operation getHousehold')
 assert.ok(/Household: \{[^}]*id: string[^}]*name: string[^}]*timezone: string[^}]*createdAt: string/s.test(generated), 'TypeScript Household missing required fields')
+for (const name of ['Subject', 'SubjectList', 'CreateSubjectRequest', 'UpdateSubjectRequest']) {
+  if (name !== 'UpdateSubjectRequest') assert.ok(goSubject.includes(`type ${name} struct`), `Generated subject Go missing ${name}`)
+}
+assert.ok(/type Subject struct \{[^}]*Archived\s+bool[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]*Name\s+string[^}]*Type\s+SubjectType[^}]*UpdatedAt time\.Time/s.test(goSubject), 'Generated subject Go missing Subject model with required fields')
+assert.ok(!/Version|HouseholdId/.test(goSubject.match(/type Subject struct \{[^}]*\}/s)?.[0] ?? ''), 'Subject response model must not expose version or householdId')
+assert.ok(/type SubjectList struct \{[^}]*Items \[\]Subject[^}]*NextCursor \*string `json:"nextCursor"`/s.test(goSubject), 'Generated SubjectList must always serialize nextCursor')
+assert.ok(/type UpdateSubjectRequest struct \{[^}]*Archived \*bool[^}]*Name \*string[^}]*Type \*SubjectType/s.test(goSubject), 'Generated UpdateSubjectRequest must have optional fields')
+for (const type of ['person', 'home', 'vehicle', 'pet', 'custom']) assert.ok(goSubject.includes(`"${type}"`), `Generated Go missing subject type ${type}`)
+for (const operationId of ['createSubject', 'listSubjects', 'getSubject', 'updateSubject']) assert.ok(generated.includes(`${operationId}:`), `TypeScript output missing operation ${operationId}`)
+assert.ok(/Subject: \{[^}]*id: string[^}]*type: components\["schemas"\]\["SubjectType"\][^}]*name: string[^}]*archived: boolean[^}]*createdAt: string[^}]*updatedAt: string/s.test(generated), 'TypeScript Subject missing required fields')
+assert.ok(/SubjectList: \{[^}]*nextCursor: string \| null/s.test(generated), 'TypeScript SubjectList must have required nullable nextCursor')
+assert.ok(/SubjectType: "person" \| "home" \| "vehicle" \| "pet" \| "custom"/.test(generated), 'TypeScript SubjectType enum mismatch')

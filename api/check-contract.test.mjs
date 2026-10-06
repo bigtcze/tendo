@@ -184,3 +184,65 @@ test('household fixtures enforce the ETag pattern, problem media type, and body 
     }
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
+
+test('subject fixtures enforce Location, ETag, list envelope, concurrency problems, and strict bodies', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-api-subject-'))
+  const fixturePath = join(directory, 'responses.json')
+  const household = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'
+  const id = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70'
+  const collection = '/api/v1/households/{householdId}/subjects'
+  const item = '/api/v1/households/{householdId}/subjects/{subjectId}'
+  const base = { 'x-request-id': 'contract-check', 'cache-control': 'no-store' }
+  const json = { ...base, 'content-type': 'application/json' }
+  const problem = { ...base, 'content-type': 'application/problem+json' }
+  const subject = { id, type: 'vehicle', name: 'Octavia', archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
+  const created = { path: collection, method: 'post', status: 201, headers: { ...json, etag: '"1"', location: `/api/v1/households/${household}/subjects/${id}` }, body: subject }
+  const list = { path: collection, method: 'get', status: 200, headers: json, body: { items: [subject], nextCursor: null } }
+  const listNext = { ...structuredClone(list), body: { items: [subject], nextCursor: 'czE6MDE5OGEyZjA' } }
+  const got = { path: item, method: 'get', status: 200, headers: { ...json, etag: '"1"' }, body: subject }
+  const patched = { path: item, method: 'patch', status: 200, headers: { ...json, etag: '"2"' }, body: { ...subject, archived: true } }
+  const failed = { path: item, method: 'patch', status: 412, headers: problem, body: { type: 'about:blank', title: 'Precondition Failed', status: 412, code: 'precondition_failed' } }
+  const required = { path: item, method: 'patch', status: 428, headers: problem, body: { type: 'about:blank', title: 'Precondition Required', status: 428, code: 'precondition_required' } }
+  const badQuery = { path: collection, method: 'get', status: 400, headers: problem, body: { type: 'about:blank', title: 'Bad Request', status: 400, code: 'invalid_query', parameter: 'limit' } }
+  const invalid = { path: collection, method: 'post', status: 422, headers: problem, body: { type: 'about:blank', title: 'Validation Failed', status: 422, code: 'invalid_length', field: 'name' } }
+  const run = async fixture => {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    return { code, stderr }
+  }
+  try {
+    for (const fixture of [created, list, listNext, got, patched, failed, required, badQuery, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    for (const [name, fixture, mutate, diagnostic] of [
+      ['created without ETag', created, f => { delete f.headers.etag }, 'missing ETag'],
+      ['created without Location', created, f => { delete f.headers.location }, 'missing Location'],
+      ['created with wrong Location', created, f => { f.headers.location = '/api/v1/subjects/1' }, 'invalid Location'],
+      ['weak ETag', got, f => { f.headers.etag = 'W/"1"' }, 'ETag does not match'],
+      ['zero version ETag', patched, f => { f.headers.etag = '"0"' }, 'ETag does not match'],
+      ['patched without ETag', patched, f => { delete f.headers.etag }, 'missing ETag'],
+      ['list missing nextCursor', list, f => { delete f.body.nextCursor }, 'body invalid'],
+      ['list nextCursor wrong type', list, f => { f.body.nextCursor = 5 }, 'body invalid'],
+      ['list item extra field', list, f => { f.body.items[0].householdId = household }, 'body invalid'],
+      ['subject leaks version', got, f => { f.body.version = 1 }, 'body invalid'],
+      ['subject extra field', created, f => { f.body.extra = true }, 'body invalid'],
+      ['subject unknown type', got, f => { f.body.type = 'robot' }, 'body invalid'],
+      ['subject missing archived', got, f => { delete f.body.archived }, 'body invalid'],
+      ['412 status mismatch', failed, f => { f.body.status = 428 }, 'problem status does not match HTTP status'],
+      ['412 wrong media', failed, f => { f.headers['content-type'] = 'application/json' }, 'wrong media type'],
+      ['428 documented on get is undocumented', { ...required, method: 'get', path: item }, () => {}, 'undocumented HTTP 428'],
+      ['query problem unknown parameter', badQuery, f => { f.body.parameter = 'offset' }, 'body invalid'],
+      ['422 unknown field', invalid, f => { f.body.field = 'archived' }, 'body invalid'],
+      ['undocumented status on list', list, f => { f.status = 412 }, 'undocumented HTTP 412'],
+    ]) {
+      await t.test(name, async () => {
+        const copy = structuredClone(fixture)
+        mutate(copy)
+        const result = await run(copy)
+        assert.notEqual(result.code, 0)
+        assert.match(result.stderr, new RegExp(diagnostic))
+      })
+    }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})

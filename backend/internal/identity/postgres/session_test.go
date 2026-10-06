@@ -260,12 +260,12 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	if err := identity.NewSetupService(New(upgradeApp, ownerFactory)).CreateOwner(ctx, identity.SetupInput{Login: "upgrade_owner", Password: "correct horse battery", HouseholdName: "Upgrade Home", Timezone: "Europe/Prague"}); err != nil {
 		t.Fatal(err)
 	}
-	// Rewind to the exact version 1 schema: no sessions table, no households.version column, and no version 2/3 metadata rows.
-	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (2,3)`); err != nil {
+	// Rewind to the exact version 1 schema: no sessions table, no households.version column, no subjects table, and no version 2/3/4 metadata rows.
+	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE subjects; DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (2,3,4)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
-		t.Fatal("version 1 database accepted by version 3 application")
+		t.Fatal("version 1 database accepted by version 4 application")
 	}
 	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)
@@ -275,7 +275,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 3 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 4 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string
@@ -348,11 +348,11 @@ func TestMigrationUpgradeFromVersionTwoAddsHouseholdVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 2 schema.
-	if _, err := upgradeAdmin.Exec(ctx, `ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version=3`); err != nil {
+	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE subjects; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (3,4)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
-		t.Fatal("version 2 database accepted by version 3 application")
+		t.Fatal("version 2 database accepted by version 4 application")
 	}
 	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)

@@ -68,7 +68,10 @@ function assertResponse(path, status, body, method, headers = {}) {
   if (responseSpec.headers?.Location) {
     const locationSchema = responseSpec.headers.Location.schema ?? {}
     if (locationSchema.const !== undefined) assert.equal(headers.location, locationSchema.const, `${path} HTTP ${status} has invalid Location`)
-    else assert.ok(headers.location, `${path} HTTP ${status} missing Location`)
+    else {
+      assert.ok(headers.location, `${path} HTTP ${status} missing Location`)
+      if (locationSchema.pattern) assert.match(headers.location, new RegExp(locationSchema.pattern), `${path} HTTP ${status} has invalid Location`)
+    }
   }
   assertBody(path, status, body, method)
   if (body && typeof body === 'object' && 'status' in body && expectedMedia.includes('application/problem+json')) {

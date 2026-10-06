@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Tendo API
   version: 1.0.0
-  description: Initial owner setup, local login sessions, membership-checked household reads, and operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration. Sessions are opaque server-side records carried in an HttpOnly cookie.
+  description: Initial owner setup, local login sessions, membership-checked household reads, household-scoped subjects, and operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration. Sessions are opaque server-side records carried in an HttpOnly cookie.
 servers:
   - url: /
 paths:
@@ -250,6 +250,147 @@ paths:
         '404': { description: 'The identifier is malformed, the household does not exist, or the caller is not a member. All three cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/households/{householdId}/subjects:
+    post:
+      operationId: createSubject
+      summary: Create a subject
+      description: Creates a household-scoped subject. Any household member may create subjects. A person subject never requires a login account. The name is stored trimmed. Requires the canonical Origin header.
+      tags: [Subjects]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSubjectRequest' }
+            example: { name: Octavia, type: vehicle }
+      responses:
+        '201':
+          description: Subject created.
+          headers:
+            Location: { description: Canonical URL of the created subject., schema: { type: string, pattern: '^/api/v1/households/[0-9a-fA-F-]{36}/subjects/[0-9a-fA-F-]{36}$' }, example: /api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61/subjects/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70 }
+            ETag: { description: Strong entity tag derived from the subject version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subject' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Octavia, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
+        '400': { description: 'Malformed JSON, unknown or duplicate keys, null values, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'Field validation failed. field is name or type; code is invalid_characters, invalid_length, or invalid_type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/SubjectValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: name } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    get:
+      operationId: listSubjects
+      summary: List subjects
+      description: Returns subjects of the household in creation order (ascending id) using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. nextCursor is always present and is null on the last page. The cursor is opaque. Unknown query parameters are ignored.
+      tags: [Subjects]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Archived'
+      responses:
+        '200':
+          description: One page of subjects.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubjectList' }
+              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Octavia, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null }
+        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/households/{householdId}/subjects/{subjectId}:
+    get:
+      operationId: getSubject
+      summary: Read a subject
+      description: Returns the subject, archived or not, when the caller is a household member. The ETag is the strong, quoted decimal subject version.
+      tags: [Subjects]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+        - $ref: '#/components/parameters/SubjectId'
+      responses:
+        '200':
+          description: Subject visible to the caller.
+          headers:
+            ETag: { description: Strong entity tag derived from the subject version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subject' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Octavia, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
+        '400': { description: 'Trusted forwarded request metadata is malformed or inconsistent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The household or subject identifier is malformed, the subject does not exist in that household, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    patch:
+      operationId: updateSubject
+      summary: Update, archive, or unarchive a subject
+      description: Partial update of name, type, and archived. If-Match with the current strong ETag is required; every successful update increments the version. Archive by sending archived true and unarchive by sending archived false. Archived subjects remain readable and editable. Requires the canonical Origin header.
+      tags: [Subjects]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+        - $ref: '#/components/parameters/SubjectId'
+        - name: If-Match
+          in: header
+          required: true
+          description: Single strong entity tag of the version being replaced. The wildcard *, weak tags, and lists are rejected with 412.
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          example: '"1"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSubjectRequest' }
+            example: { name: Škoda Octavia }
+      responses:
+        '200':
+          description: Subject updated; the ETag carries the new version.
+          headers:
+            ETag: { description: Strong entity tag derived from the subject version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"2"' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subject' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Škoda Octavia, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T11:00:00Z' }
+        '400': { description: 'Malformed JSON, unknown or duplicate keys, null values, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The household or subject identifier is malformed, the subject does not exist in that household, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '412': { description: 'If-Match is malformed, weak, a list of tags, the wildcard *, or does not match the current subject version. If-Match: * and weak or list entity tags are not supported and are rejected with 412.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
+        '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'Field validation failed. field is name or type; code is invalid_characters, invalid_length, or invalid_type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/SubjectValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: name } } } }
+        '428': { description: 'The If-Match header is missing. A present but unsupported value (wildcard *, weak or list entity tags) returns 412, not 428.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /health/live:
     get:
       operationId: getLiveness
@@ -340,6 +481,31 @@ components:
       description: Household identifier. Authorization context; access is checked against membership.
       schema: { type: string, format: uuid, x-go-type: string }
       example: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+    SubjectId:
+      name: subjectId
+      in: path
+      required: true
+      description: Subject identifier.
+      schema: { type: string, format: uuid, x-go-type: string }
+      example: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items per page.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    Archived:
+      name: archived
+      in: query
+      required: false
+      description: false (default) lists active subjects; true lists archived subjects only.
+      schema: { type: boolean, default: false }
   schemas:
     Problem:
       type: object
@@ -392,6 +558,59 @@ components:
         name: { type: string, minLength: 1, maxLength: 100 }
         timezone: { type: string, description: Named IANA timezone. }
         createdAt: { type: string, format: date-time }
+    SubjectType:
+      type: string
+      enum: [person, home, vehicle, pet, custom]
+    Subject:
+      type: object
+      additionalProperties: false
+      required: [id, type, name, archived, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        type: { $ref: '#/components/schemas/SubjectType' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        archived: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SubjectList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/Subject' }
+        nextCursor: { type: [string, 'null'], x-go-type: '*string', description: Opaque cursor for the next page; null on the last page. }
+    CreateSubjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      properties:
+        name: { type: string, description: '1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.' }
+        type: { $ref: '#/components/schemas/SubjectType' }
+    UpdateSubjectRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, description: '1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.' }
+        type: { $ref: '#/components/schemas/SubjectType' }
+        archived: { type: boolean }
+    QueryProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            parameter: { type: string, enum: [limit, cursor, archived] }
+    SubjectValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [field, code]
+          properties:
+            field: { type: string, enum: [name, type] }
+            code: { type: string, enum: [invalid_characters, invalid_length, invalid_type] }
     ValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'
