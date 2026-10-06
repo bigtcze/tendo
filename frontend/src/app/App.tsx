@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LoginScreen } from '../features/auth/LoginScreen';
-import { SetupPendingScreen } from '../features/auth/SetupPendingScreen';
+import { OnboardingScreen } from '../features/auth/OnboardingScreen';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
 import { HomeScreen } from '../features/home/HomeScreen';
 import { useI18n } from '../i18n';
@@ -70,7 +70,7 @@ export function App() {
     <Layout>
       {state.kind === 'loading' ? <LoadingScreen message={t('app.loading')} /> : null}
       {state.kind === 'error' ? <ErrorScreen onRetry={retry} /> : null}
-      {state.kind === 'setupRequired' ? <SetupPendingScreen /> : null}
+      {state.kind === 'setupRequired' ? <OnboardingScreen onSignedIn={signedIn} onSetupComplete={signedOut} /> : null}
       {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} /> : null}
     </Layout>
     </ScreenTransitionContext>

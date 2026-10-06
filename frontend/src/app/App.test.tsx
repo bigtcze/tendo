@@ -26,18 +26,6 @@ afterEach(() => {
 });
 
 describe('signed out', () => {
-  it('shows the not-set-up screen and no login form when setup is required', async () => {
-    installFakeServer({
-      'GET /api/v1/session': problem(401),
-      'GET /api/v1/auth/setup': json(200, { required: true }),
-    });
-    renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'This Tendo hasn’t been set up yet.' })).toBeVisible();
-    expect(screen.getByText(/person who installed it needs to finish setup/)).toBeVisible();
-    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
-  });
-
   it('shows a retryable error when the session check fails', async () => {
     const fake = installFakeServer({ 'GET /api/v1/session': problem(503) });
     renderApp();

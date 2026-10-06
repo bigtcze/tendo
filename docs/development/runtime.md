@@ -3,12 +3,12 @@
 The Compose stack is for development and CI only. It runs:
 
 - PostgreSQL and health endpoints
-- an operator-authorized first-owner setup API
+- first-owner setup, protected by an operator-generated setup code, used by the browser onboarding screen
 - local login sessions (`POST`/`GET`/`DELETE /api/v1/session`)
 - a session-authenticated household read (`GET /api/v1/households/{householdId}`, members only; malformed, nonexistent, and non-member IDs all return the same 404)
-- an embedded web UI served by the app: a sign-in page and an empty home screen (see [frontend development](frontend.md))
+- an embedded web UI served by the app: first-run onboarding, a sign-in page, and an empty home screen (see [frontend development](frontend.md))
 
-It is not a usable Tendo household application because item APIs and item screens are not implemented, and setup has no browser flow. PostgreSQL is private to the Compose network and the app port binds to host loopback.
+It is not a usable Tendo household application because item APIs and item screens are not implemented. PostgreSQL is private to the Compose network and the app port binds to host loopback.
 
 ## Prerequisites
 

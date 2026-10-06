@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This development Compose stack provides PostgreSQL, health/readiness, an operator-authorized initial-owner setup API, and local login sessions, and a read-only household endpoint (`GET /api/v1/households/{householdId}`, members only). It does not provide OIDC, item APIs, or a household UI. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This development Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, and a read-only household endpoint (`GET /api/v1/households/{householdId}`, members only). It does not provide OIDC, items, subjects, or invitations. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
 Copy `.env.example` to `.env` and generate two independent hexadecimal database passwords:
 
@@ -22,13 +22,13 @@ Never commit `.env` or reuse development credentials elsewhere. Generate an inde
 openssl rand -base64 32
 ```
 
-The output is 44-character standard base64 ending in `=`. Set it as the existing `TENDO_SETUP_TOKEN` key in `.env` (replace its value; do not add duplicate keys), ensure `.env` is mode `0600` (`chmod 600 .env`), and recreate the app with `docker compose up -d --build --force-recreate app`; restarting an existing container does not load changed Compose environment. Empty configuration disables setup; `.env.example` intentionally leaves setup disabled. Malformed nonempty tokens fail startup. The token is a bootstrap secret, not a visitor-registration credential; only perform setup over the canonical origin, with the token kept private. Never export it to logs or commit it. The interactive first-owner request example in the README requires Python 3 and uses `getpass` for the password prompt.
+The output is 44-character standard base64 ending in `=`. Set it as the existing `TENDO_SETUP_TOKEN` key in `.env` (replace its value; do not add duplicate keys), ensure `.env` is mode `0600` (`chmod 600 .env`), and recreate the app with `docker compose up -d --build --force-recreate app`; restarting an existing container does not load changed Compose environment. Empty configuration disables setup; `.env.example` intentionally leaves setup disabled. Malformed nonempty tokens fail startup. The token is a bootstrap secret, not a visitor-registration credential; only perform setup over the canonical origin, with the token kept private. Never export it to logs or commit it. The onboarding screen calls this code the "setup code"; paste it there together with the household name, owner login, password, and time zone (see the README). Clear it after setup.
 
 | Variable | Required/default | Meaning and security |
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | Required; no default | PostgreSQL bootstrap superuser password; independent random hexadecimal value. |
 | `TENDO_DATABASE_PASSWORD` | Required; no default | Restricted web-role password; independent random hexadecimal value. |
-| `TENDO_SETUP_TOKEN` | Empty; setup PUT disabled | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |
+| `TENDO_SETUP_TOKEN` | Empty; first-run setup disabled (the onboarding screen says so) | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |
 | `TENDO_HOST_PORT` | `8080` | Loopback-only host port for HTTP. Match `TENDO_PUBLIC_URL`. |
 | `TENDO_PUBLIC_URL` | Required; example `http://localhost:8080` | Canonical external origin with scheme, host, optional port, and no path except `/`, query, or fragment. Use HTTPS for internet-facing deployments. |
 | `TENDO_TRUSTED_PROXY_CIDRS` | Empty; trusts no proxy | CIDRs for the immediate, controlled proxy peer only. |

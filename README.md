@@ -11,13 +11,15 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. The backend now includes an operator-authorized first-owner and named-household setup API and local login sessions (`/api/v1/session`), and a membership-checked household read (`GET /api/v1/households/{householdId}`). After an operator completes setup, the browser shows a sign-in page and an empty home screen. There is no item API, no subjects, no invitations, and no browser onboarding. This is not yet a usable household product.
+> **Project status:** early development. You can set up the first household in the browser, sign in, and see an empty home screen. There are no items, subjects, or invitations yet, so this is not yet a usable household product.
 
 ## Development runtime
 
 Copy `.env.example` to `.env`, set independent hexadecimal database passwords, and run `docker compose up -d --build`. Compose starts PostgreSQL, runs the mandatory one-shot migration service, then starts the app with restricted database credentials. Keep PostgreSQL private; the app binds to loopback by default.
 
-First-owner setup is an operator-only backend API, not a browser onboarding flow. Generate a token and add it to `.env` without printing it:
+## First household
+
+Setup is protected by a one-time setup code, so a stranger who reaches your Tendo first cannot claim it. Generate the code and add it to `.env` without printing it:
 
 ```sh
 umask 077
@@ -41,84 +43,22 @@ Apply the changed environment by recreating the app (Compose does not import `.e
 docker compose up -d --build --force-recreate app
 ```
 
-Use Python 3 to send the request to the canonical origin with a matching Origin header. This client reads the token from `.env` and prompts for the password with `getpass`; neither secret is placed in command arguments or shell history. Run it interactively in a terminal (the password prompt uses `/dev/tty`):
+Show the code in a private terminal when you are ready to paste it into the browser. Do not share the output or include it in logs:
 
 ```sh
-python3 - <<'PY'
-import getpass
-import json
-from pathlib import Path
-import urllib.error
-import urllib.request
-
-origin = 'http://localhost:8080'
-token = next(line.partition('=')[2].strip() for line in Path('.env').read_text().splitlines() if line.startswith('TENDO_SETUP_TOKEN='))
-def prompt(label):
-    with open('/dev/tty', 'w') as terminal:
-        terminal.write(label)
-        terminal.flush()
-    with open('/dev/tty', 'r') as terminal:
-        return terminal.readline().strip()
-
-payload = {
-    'login': prompt('Owner login: '),
-    'password': getpass.getpass('Owner password: '),
-    'householdName': prompt('Household name: '),
-    'timezone': prompt('Timezone (for example Europe/Prague): '),
-}
-request = urllib.request.Request(
-    origin + '/api/v1/auth/setup',
-    data=json.dumps(payload, ensure_ascii=False).encode(),
-    headers={
-        'Content-Type': 'application/json',
-        'Origin': origin,
-        'X-Tendo-Setup-Token': token,
-    },
-    method='PUT',
-)
-try:
-    with urllib.request.urlopen(request, timeout=15) as response:
-        print(f'Setup response: HTTP {response.status}')
-except urllib.error.HTTPError as error:
-    print(f'Setup failed: HTTP {error.code}')
-PY
+grep '^TENDO_SETUP_TOKEN=' .env | cut -d= -f2-
 ```
 
-Remove the setup token from `.env` and recreate the app when setup is complete. This endpoint is not public visitor registration. There is no usable household application yet; do not treat the API response as a finished onboarding experience.
+Open `TENDO_PUBLIC_URL` (by default `http://localhost:8080`). Tendo asks for:
 
-After setup, the owner can log in through the API. The session cookie is HttpOnly and `POST`/`DELETE` require the canonical `Origin` header. The session cookie is a credential, so this check keeps it in memory only, then logs out. Run it interactively with the default development URL:
+1. the setup code;
+2. a name for your household, for example "The Novák family";
+3. a login and a password (at least 15 characters);
+4. your time zone. Tendo suggests the one your browser reports; change it if it is wrong.
 
-```sh
-python3 - <<'PY'
-import getpass
-import http.cookiejar
-import json
-import urllib.request
+Select **Create household**. Tendo creates your account and household, signs you in, and opens the empty home screen. If automatic sign-in fails, sign in with the account you just created. After you sign out, Tendo shows the sign-in form instead of setup.
 
-origin = 'http://localhost:8080'  # must equal TENDO_PUBLIC_URL
-opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-def call(method, body=None):
-    headers = {'Origin': origin}
-    if body is not None:
-        headers['Content-Type'] = 'application/json'
-        body = json.dumps(body, ensure_ascii=False).encode()
-    request = urllib.request.Request(origin + '/api/v1/session', data=body, headers=headers, method=method)
-    with opener.open(request, timeout=15) as response:
-        return response.status, response.read().decode()
-
-with open('/dev/tty', 'w') as terminal:
-    terminal.write('Owner login: ')
-with open('/dev/tty') as terminal:
-    login = terminal.readline().strip()
-print('Login:', *call('POST', {'login': login, 'password': getpass.getpass('Owner password: ')}))
-print('Session:', *call('GET'))
-print('Logout:', call('DELETE')[0])
-PY
-```
-
-Login returns HTTP 201 with `userId`, `login`, `defaultHouseholdId`, and `expiresAt`; reading the session returns 200 with the same body; logout returns 204. Wrong credentials stop the script with HTTP 401. Sessions last 30 days. Use an HTTPS `TENDO_PUBLIC_URL` for any non-local deployment; see [configuration](docs/admin/configuration.md).
-
-The owner can also sign in by opening `TENDO_PUBLIC_URL` (by default `http://localhost:8080`) in a browser. After sign-in the page shows the household name and an empty home screen. Before setup, the page says the instance has not been set up yet.
+Setup works only once. When it is done, clear `TENDO_SETUP_TOKEN` in `.env` and run `docker compose up -d --force-recreate app` again. Use an HTTPS `TENDO_PUBLIC_URL` for any non-local deployment; see [configuration](docs/admin/configuration.md).
 
 For configuration, health checks, and stop/start details, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md). See [reverse proxy deployment](docs/admin/reverse-proxy.md) before internet exposure and [backup and restore](docs/admin/backup-restore.md) for tested recovery limits.
 
@@ -131,4 +71,4 @@ For configuration, health checks, and stop/start details, see [runtime developme
 
 ## Development
 
-The repository contains a Go backend, PostgreSQL wiring, the pure Go schedule package, and a small React web UI embedded in the Go binary. This remains development-only and does not provide a usable household application.
+The repository contains a Go backend, PostgreSQL wiring, the pure Go schedule package, and a small React web UI embedded in the Go binary. The setup and session API are described in `api/openapi.yaml`. This remains development-only and does not provide a usable household application.
