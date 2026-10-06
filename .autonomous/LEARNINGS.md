@@ -6,6 +6,7 @@ Format:
 L001 | Preserve the primary task failure when cleanup/reporting also fails. | proven autonomous-flow safeguard
 L002 | Verify local `main` after merge; command success alone is not proof of merged repository state. | proven autonomous-flow safeguard
 L003 | Reconcile dependency/tool failures to root cause; do not paper over them with repeated reinstalls. | proven autonomous-flow safeguard
+L004 | If the primary worktree holds uncommitted work and other OpenCode sessions on the shared server are still busy (`GET /session/status?directory=<repo>`), do not edit it; snapshot the diff + untracked files into a separate `git worktree` on a fresh branch and validate/deliver from there. | 2026-10-06 overlapping orphaned cycle writers on auth files
 
 Rules:
 - Add only knowledge likely to matter across future cycles.

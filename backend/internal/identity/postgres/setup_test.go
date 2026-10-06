@@ -48,10 +48,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false)`},
-		{name: "version zero", set: `UPDATE tendo_schema_migrations SET version=0`, reset: `UPDATE tendo_schema_migrations SET version=1`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=2`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (2,false)`},
+		{name: "version zero", set: `UPDATE tendo_schema_migrations SET version=version-2`, reset: `UPDATE tendo_schema_migrations SET version=version+2`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99`, reset: `UPDATE tendo_schema_migrations SET version=1`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=2`, reset: `UPDATE tendo_schema_migrations SET version=2 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {

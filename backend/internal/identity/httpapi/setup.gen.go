@@ -6,10 +6,12 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 const (
-	SetupTokenScopes = "SetupToken.Scopes"
+	SessionCookieScopes = "SessionCookie.Scopes"
+	SetupTokenScopes    = "SetupToken.Scopes"
 )
 
 // Defines values for ValidationProblemField.
@@ -20,6 +22,12 @@ const (
 	Timezone      ValidationProblemField = "timezone"
 )
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code                 *string                `json:"code,omitempty"`
@@ -29,6 +37,15 @@ type Problem struct {
 	Title                string                 `json:"title"`
 	Type                 string                 `json:"type"`
 	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// Session defines model for Session.
+type Session struct {
+	// DefaultHouseholdId Omitted when the account has no default household.
+	DefaultHouseholdId *string   `json:"defaultHouseholdId,omitempty"`
+	ExpiresAt          time.Time `json:"expiresAt"`
+	Login              string    `json:"login"`
+	UserId             string    `json:"userId"`
 }
 
 // SetupRequest defines model for SetupRequest.
@@ -87,6 +104,30 @@ type CreateInitialOwnerParams struct {
 	Origin string `json:"Origin"`
 }
 
+// DeleteSessionParams defines parameters for DeleteSession.
+type DeleteSessionParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
+// GetSessionParams defines parameters for GetSession.
+type GetSessionParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateSessionParams defines parameters for CreateSession.
+type CreateSessionParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
 // GetLivenessParams defines parameters for GetLiveness.
 type GetLivenessParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
@@ -101,6 +142,9 @@ type GetReadinessParams struct {
 
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest
+
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = LoginRequest
 
 // Getter for additional properties for Problem. Returns the specified
 // element and whether it was found

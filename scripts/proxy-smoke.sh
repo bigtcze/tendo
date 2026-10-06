@@ -19,9 +19,10 @@ esac
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-proxy-smoke.XXXXXX")
 chmod 755 "$temp_dir"
 export COMPOSE_PROJECT_NAME=$project
-export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS
+export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
+TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
@@ -220,6 +221,36 @@ assert re.search(r"^content-type: application/problem\+json(?:;[^\r\n]*)?\r?$", 
 assert re.search(r"^cache-control: no-store\r?$", headers, re.M), headers
 assert re.search(r"^x-request-id: [a-z0-9._-]{1,64}\r?$", headers, re.M), headers
 PY
+
+# Local login through the HTTPS proxy: the cookie policy follows TENDO_PUBLIC_URL (https), not the plain-HTTP backend socket.
+base="https://tendo.test:$TENDO_HOST_PORT"
+setup_status=$(curl "${curl_args[@]}" --output "$temp_dir/setup-body" --write-out '%{http_code}' -X PUT -H "Origin: https://tendo.test" -H "X-Tendo-Setup-Token: $TENDO_SETUP_TOKEN" -H 'Content-Type: application/json' --data '{"login":"proxy_owner","password":"correct horse battery","householdName":"Proxy home","timezone":"UTC"}' "$base/api/v1/auth/setup")
+[[ "$setup_status" == 201 ]] || { printf 'Setup through proxy expected HTTP 201, got %s\n' "$setup_status" >&2; exit 1; }
+login_status=$(curl "${curl_args[@]}" -D "$temp_dir/login-headers" --output "$temp_dir/login-body" --write-out '%{http_code}' -X POST -H "Origin: https://tendo.test" -H 'Content-Type: application/json' --data '{"login":"proxy_owner","password":"correct horse battery"}' "$base/api/v1/session")
+[[ "$login_status" == 201 ]] || { printf 'Login through proxy expected HTTP 201, got %s\n' "$login_status" >&2; exit 1; }
+python3 - "$temp_dir/login-headers" "$temp_dir/login-body" "$temp_dir/session-cookie" <<'PY'
+import json, re, sys
+headers = open(sys.argv[1], encoding="utf-8").read()
+cookies = re.findall(r"^set-cookie: ([^\r\n]*)\r?$", headers, re.M | re.I)
+assert len(cookies) == 1, headers
+parts = [p.strip() for p in cookies[0].split(";")]
+name, _, token = parts[0].partition("=")
+attrs = [p.lower() for p in parts[1:]]
+assert name == "__Host-tendo_session" and re.fullmatch(r"[A-Za-z0-9_-]{43}", token), parts[0]
+assert "secure" in attrs and "httponly" in attrs and "samesite=lax" in attrs and "path=/" in attrs, attrs
+assert not any(a.startswith("domain=") for a in attrs), attrs
+body = json.load(open(sys.argv[2], encoding="utf-8"))
+assert body["login"] == "proxy_owner" and "defaultHouseholdId" in body and token not in json.dumps(body), body
+open(sys.argv[3], "w", encoding="utf-8").write(f"{name}={token}")
+PY
+session_cookie=$(<"$temp_dir/session-cookie")
+expect_status 200 /api/v1/session -H "Cookie: $session_cookie"
+python3 - "$temp_dir/body" <<'PY'
+import json, sys
+assert json.load(open(sys.argv[1], encoding="utf-8"))["login"] == "proxy_owner"
+PY
+expect_status 401 /api/v1/session -H "Cookie: tendo_session=${session_cookie#*=}"
+expect_status 401 /api/v1/session
 
 "${compose[@]}" stop proxy >/dev/null
 "${compose[@]}" rm -sf proxy >/dev/null

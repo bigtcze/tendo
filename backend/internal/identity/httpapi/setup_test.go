@@ -59,7 +59,7 @@ func TestSetupHTTPContract(t *testing.T) {
 		{name: "oversized body", mutate: func(r *http.Request) { r.Body = io.NopCloser(strings.NewReader(strings.Repeat("x", 8193))) }, status: 413, code: "content_too_large"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h.attempts = map[string][]time.Time{}
+			h.limiter.attempts = map[string][]time.Time{}
 			r := httptest.NewRequest(http.MethodPut, "/api/v1/auth/setup", strings.NewReader(valid))
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("X-Tendo-Setup-Token", "a-secret-of-at-least-thirty-two-bytes")
@@ -74,12 +74,12 @@ func TestSetupHTTPContract(t *testing.T) {
 		})
 	}
 	for _, body := range []string{`{"login":null,"password":"a sufficiently long password","householdName":"Home","timezone":"UTC"}`, `{"login":"a","login":"b","password":"a sufficiently long password","householdName":"Home","timezone":"UTC"}`, `{"Login":"a","password":"a sufficiently long password","householdName":"Home","timezone":"UTC"}`, `{"login":"a","password":"a sufficiently long password","householdName":"Home","timezone":null}`, `{"login":"a","password":"a sufficiently long password","householdName":"Home","timezone":"UTC","extra":1}`, `{"login":"a","password":"a sufficiently long password","householdName":"Home","timezone":"UTC"} {}`, `[]`} {
-		h.attempts = map[string][]time.Time{}
+		h.limiter.attempts = map[string][]time.Time{}
 		if w := request("a-secret-of-at-least-thirty-two-bytes", body); w.Code != 400 {
 			t.Fatalf("invalid body accepted: %d %s", w.Code, w.Body)
 		}
 	}
-	h.attempts = map[string][]time.Time{}
+	h.limiter.attempts = map[string][]time.Time{}
 	r := httptest.NewRequest(http.MethodPut, "/api/v1/auth/setup", strings.NewReader(valid))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("X-Tendo-Setup-Token", "a-secret-of-at-least-thirty-two-bytes")

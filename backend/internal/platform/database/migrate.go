@@ -17,7 +17,7 @@ import (
 //go:embed *.sql
 var migrations embed.FS
 
-const currentVersion int64 = 1
+const currentVersion int64 = 2
 const advisoryLock int64 = 784193214
 
 type migrationConn interface {

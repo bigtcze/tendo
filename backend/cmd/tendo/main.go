@@ -94,6 +94,12 @@ func run() error {
 		return household.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
 	})
 	identityhttp.New(identityapp.NewSetupService(identityRepository), cfg.SetupToken).Register(routes)
+	sessions, err := identityapp.NewSessionService(identityRepository, time.Now)
+	if err != nil {
+		pool.Close()
+		return err
+	}
+	identityhttp.NewSession(sessions, cfg.PublicURL).Register(routes)
 	app := httpx.NewAppWithRoutes(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) })
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
