@@ -9,13 +9,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/httporigin"
 )
 
 type Config struct {
-	DatabaseURL     string
-	ListenAddr      string
-	DBTimeout       time.Duration
-	ShutdownTimeout time.Duration
+	DatabaseURL       string
+	ListenAddr        string
+	PublicURL         string
+	TrustedProxyCIDRs []string
+	DBTimeout         time.Duration
+	ShutdownTimeout   time.Duration
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -44,6 +48,25 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	default:
 		return c, errors.New("DATABASE_URL must set a valid sslmode")
 	}
+	publicURL, ok := lookup("TENDO_PUBLIC_URL")
+	if !ok || strings.TrimSpace(publicURL) == "" {
+		return c, errors.New("TENDO_PUBLIC_URL is required")
+	}
+	canonical, err := canonicalOrigin(publicURL)
+	if err != nil {
+		return c, errors.New("TENDO_PUBLIC_URL must be an absolute HTTP(S) root origin")
+	}
+	c.PublicURL = canonical
+	if proxies, ok := lookup("TENDO_TRUSTED_PROXY_CIDRS"); ok && strings.TrimSpace(proxies) != "" {
+		for _, entry := range strings.Split(proxies, ",") {
+			entry = strings.TrimSpace(entry)
+			_, network, parseErr := net.ParseCIDR(entry)
+			if parseErr != nil {
+				return c, errors.New("invalid TENDO_TRUSTED_PROXY_CIDRS")
+			}
+			c.TrustedProxyCIDRs = append(c.TrustedProxyCIDRs, network.String())
+		}
+	}
 	c.ListenAddr, _ = lookup("TENDO_LISTEN_ADDR")
 	if c.ListenAddr == "" {
 		c.ListenAddr = ":8080"
@@ -68,6 +91,14 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return c, err
 	}
 	return c, nil
+}
+
+func canonicalOrigin(raw string) (string, error) {
+	origin, ok := httporigin.Parse(raw, true)
+	if !ok {
+		return "", errors.New("invalid origin")
+	}
+	return httporigin.Format(origin), nil
 }
 
 func duration(lookup func(string) (string, bool), key string, fallback, max time.Duration) (time.Duration, error) {

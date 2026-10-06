@@ -6,6 +6,8 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project="tendo-backup-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-backup-smoke.XXXXXX")
 export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD
+# Compose requires a public origin even when the app is disabled in this smoke test.
+export TENDO_PUBLIC_URL=http://localhost
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 cleanup() {

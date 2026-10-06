@@ -23,6 +23,8 @@ services:
     environment:
       DATABASE_URL: postgres://tendo:${TENDO_DATABASE_PASSWORD:?Set hexadecimal TENDO_DATABASE_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
       TENDO_LISTEN_ADDR: 0.0.0.0:8080
+      TENDO_PUBLIC_URL: ${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL to the canonical origin}
+      TENDO_TRUSTED_PROXY_CIDRS: ${TENDO_TRUSTED_PROXY_CIDRS:-}
       TENDO_DB_TIMEOUT: ${TENDO_DB_TIMEOUT:-2}s
       TENDO_SHUTDOWN_TIMEOUT: ${TENDO_SHUTDOWN_TIMEOUT:-10}s
     ports:
