@@ -18,6 +18,9 @@ import (
 	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
 	identityhttp "github.com/bigtcze/tendo/backend/internal/identity/httpapi"
 	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
+	itemapp "github.com/bigtcze/tendo/backend/internal/item"
+	itemhttp "github.com/bigtcze/tendo/backend/internal/item/httpapi"
+	itempostgres "github.com/bigtcze/tendo/backend/internal/item/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
@@ -113,7 +116,11 @@ func run() error {
 	householdService := household.NewService(householdpostgres.NewRepository(pool))
 	householdhttp.New(householdService, sessionHandler.RequireSession, principalID).Register(routes)
 	// Subjects authorize through household membership, never through cross-module SQL.
-	subjecthttp.New(subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get)), sessionHandler.RequireSession, principalID).Register(routes)
+	subjectService := subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get))
+	subjecthttp.New(subjectService, sessionHandler.RequireSession, principalID).Register(routes)
+	// Items reach households and subjects only through injected application-service adapters.
+	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), time.Now)
+	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
 	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)

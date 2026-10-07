@@ -1,0 +1,293 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/item"
+	"github.com/bigtcze/tendo/backend/internal/item/itemtest"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
+	"github.com/go-chi/chi/v5"
+)
+
+const (
+	userID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
+	hid    = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	sid    = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70"
+	iid    = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+	other  = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
+)
+
+var at = time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC)
+var base = "/api/v1/households/" + hid + "/items"
+var one = base + "/" + iid
+
+type userKey struct{}
+type fixture struct {
+	repo    *itemtest.Repo
+	handler http.Handler
+	member  error
+	subject error
+	authHit int
+	svcHit  int
+	zone    string
+}
+
+func newFixture(authenticate bool) *fixture {
+	f := &fixture{repo: itemtest.New(), zone: "Europe/Prague"}
+	d := itemtest.Date(2026, time.March, 2)
+	f.repo.Seed(item.Item{ID: iid, HouseholdID: hid, SubjectID: sid, Title: "Renew insurance", Notes: ptr("Quotes\n"), AttentionOn: d, WorkflowState: item.StateOpen, CreatedAt: at, UpdatedAt: at, Version: 1})
+	houses := func(_ context.Context, uid, household string) (string, error) {
+		f.svcHit++
+		if f.member != nil {
+			return "", f.member
+		}
+		if uid != userID || household != hid {
+			return "", item.ErrNotFound
+		}
+		return f.zone, nil
+	}
+	subjects := func(_ context.Context, uid, household, subjectID string) (bool, error) {
+		if f.subject != nil {
+			return false, f.subject
+		}
+		if uid != userID || household != hid || subjectID != sid {
+			return false, item.ErrNotFound
+		}
+		return false, nil
+	}
+	auth := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			f.authHit++
+			if !authenticate {
+				httpxProblem(w, 401, "unauthenticated")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey{}, userID)))
+		})
+	}
+	r := chi.NewRouter()
+	New(item.NewService(f.repo, houses, subjects, func() time.Time { return at }), auth, func(ctx context.Context) (string, bool) { v, ok := ctx.Value(userKey{}).(string); return v, ok }).Register(r)
+	f.handler = r
+	return f
+}
+
+func ptr[T any](v T) *T { return &v }
+func httpxProblem(w http.ResponseWriter, status int, code string) {
+	httpx.ProblemResponse(w, status, code)
+}
+func (f *fixture) do(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(method, path, nil)
+	} else {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	w := httptest.NewRecorder()
+	f.handler.ServeHTTP(w, req)
+	return w
+}
+func bodyEqual(t *testing.T, got, want string) {
+	t.Helper()
+	var a, b any
+	if err := json.Unmarshal([]byte(got), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &b); err != nil {
+		t.Fatal(err)
+	}
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	if string(x) != string(y) {
+		t.Fatalf("got=%s want=%s", x, y)
+	}
+}
+func itemBody(title, notes, attention, state, attentionState string, archived bool, version int) string {
+	return `{"id":"` + iid + `","subjectId":"` + sid + `","title":"` + title + `","notes":` + notes + `,"attentionOn":` + attention + `,"workflowState":"` + state + `","attention":"` + attentionState + `","archived":` + map[bool]string{true: "true", false: "false"}[archived] + `,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"` + map[bool]string{true: "2026-03-02T00:30:00Z", false: "2026-03-01T23:30:00Z"}[version > 1] + `"}`
+}
+func problem(status int, code string) string {
+	return `{"type":"about:blank","title":"` + http.StatusText(status) + `","status":` + strconv.Itoa(status) + `,"code":"` + code + `"}`
+}
+func stored(t *testing.T, f *fixture) item.Item {
+	t.Helper()
+	i, ok := f.repo.Row(iid)
+	if !ok {
+		t.Fatal("missing stored item")
+	}
+	return i
+}
+
+func TestCreateGetListAndPatchPersistence(t *testing.T) {
+	f := newFixture(true)
+	created := f.do("POST", base, `{"title":"  New item  ","subjectId":"`+sid+`","notes":"  keep\n ","attentionOn":"2026-03-02"}`, nil)
+	var createdBody map[string]any
+	_ = json.Unmarshal(created.Body.Bytes(), &createdBody)
+	id := createdBody["id"].(string)
+	row, ok := f.repo.Row(id)
+	if created.Code != 201 || created.Header().Get("ETag") != `"1"` || created.Header().Get("Location") != base+"/"+id || row.Title != "New item" || row.Notes == nil || *row.Notes != "  keep\n " || row.Version != 1 || row.WorkflowState != item.StateOpen {
+		t.Fatalf("status=%d headers=%v body=%s row=%+v", created.Code, created.Header(), created.Body, row)
+	}
+	want := `{"id":"` + id + `","subjectId":"` + sid + `","title":"New item","notes":"  keep\n ","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	// Use schema and exact encoded shape for stable response assertions.
+	if created.Header().Get("Content-Type") != "application/json" || !strings.Contains(created.Body.String(), `"attention":"needs_attention"`) || !strings.Contains(created.Body.String(), `"workflowState":"open"`) || !strings.Contains(created.Body.String(), `"notes":"  keep\n "`) {
+		t.Fatalf("create body=%s want form=%s", created.Body, want)
+	}
+	get := f.do("GET", base+"/"+id, "", nil)
+	if get.Code != 200 || get.Header().Get("ETag") != `"1"` || !strings.Contains(get.Body.String(), `"attention":"needs_attention"`) {
+		t.Fatalf("get=%d %s", get.Code, get.Body)
+	}
+	list := f.do("GET", base, "", nil)
+	if list.Code != 200 || !strings.Contains(list.Body.String(), `"nextCursor":null`) || !strings.Contains(list.Body.String(), id) {
+		t.Fatalf("list=%d %s", list.Code, list.Body)
+	}
+	patched := f.do("PATCH", base+"/"+id, `{"notes":null,"attentionOn":null,"workflowState":"paused"}`, map[string]string{"If-Match": `"1"`})
+	updated, _ := f.repo.Row(id)
+	if patched.Code != 200 || patched.Header().Get("ETag") != `"2"` || updated.Version != 2 || updated.Notes != nil || updated.AttentionOn != nil || updated.WorkflowState != item.StatePaused || !strings.Contains(patched.Body.String(), `"attention":"needs_attention"`) {
+		t.Fatalf("patch=%d %s row=%+v", patched.Code, patched.Body, updated)
+	}
+	if _, err := schedule.NewDate(2026, time.March, 2); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStrictBodiesValidationAndNullSemantics(t *testing.T) {
+	f := newFixture(true)
+	original := stored(t, f)
+	for name, body := range map[string]string{"empty": `{}`, "unknown": `{"title":"x","subjectId":"` + sid + `","extra":1}`, "duplicate": `{"title":"x","title":"y","subjectId":"` + sid + `"}`, "wrong": `{"title":1,"subjectId":"` + sid + `"}`, "null subject": `{"title":"x","subjectId":null}`, "null title": `{"title":null,"subjectId":"` + sid + `"}`} {
+		w := f.do("POST", base, body, nil)
+		if w.Code != 400 {
+			t.Fatalf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	for name, body := range map[string]string{"empty": `{}`, "null title": `{"title":null}`, "null subject": `{"subjectId":null}`, "bad attention null number": `{"attentionOn":1}`, "bad notes": `{"notes":[]}`} {
+		w := f.do("PATCH", one, body, map[string]string{"If-Match": `"1"`})
+		if w.Code != 400 {
+			t.Fatalf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	for _, tc := range []struct{ body, field, code string }{
+		{`{"title":"  ","subjectId":"` + sid + `"}`, "title", "invalid_length"},
+		{`{"title":"a\u0000b","subjectId":"` + sid + `"}`, "title", "invalid_characters"},
+		{`{"title":"x","subjectId":"` + sid + `","notes":""}`, "notes", "invalid_length"},
+		{`{"title":"x","subjectId":"` + sid + `","attentionOn":"2026-02-30"}`, "attentionOn", "invalid_date"},
+		{`{"title":"x","subjectId":"` + other + `"}`, "subjectId", "invalid_reference"},
+		{`{"title":"x","subjectId":"not-a-uuid"}`, "subjectId", "invalid_reference"},
+	} {
+		w := f.do("POST", base, tc.body, nil)
+		want := `{"type":"about:blank","title":"Validation Failed","status":422,"code":"` + tc.code + `","field":"` + tc.field + `"}`
+		if w.Code != 422 {
+			t.Fatalf("%s: %d %s", tc.body, w.Code, w.Body)
+		}
+		bodyEqual(t, w.Body.String(), want)
+	}
+	for _, tc := range []struct{ body, field, code string }{
+		{`{"workflowState":"done"}`, "workflowState", "invalid_workflow_state"},
+		{`{"title":" "}`, "title", "invalid_length"},
+		{`{"attentionOn":"2026-02-30"}`, "attentionOn", "invalid_date"},
+	} {
+		w := f.do("PATCH", one, tc.body, map[string]string{"If-Match": `"1"`})
+		if w.Code != 422 || !strings.Contains(w.Body.String(), `"field":"`+tc.field+`"`) || !strings.Contains(w.Body.String(), `"code":"`+tc.code+`"`) {
+			t.Fatalf("%s: %d %s", tc.body, w.Code, w.Body)
+		}
+	}
+	if got := stored(t, f); got != original {
+		t.Fatalf("invalid bodies changed state: %+v", got)
+	}
+}
+
+func TestPreconditionEvaluationOrderAndState(t *testing.T) {
+	f := newFixture(true)
+	original := stored(t, f)
+	if w := f.do("PATCH", one, `{`, nil); w.Code != 428 {
+		t.Fatalf("missing: %d", w.Code)
+	}
+	for _, bad := range []string{`W/"1"`, `*`, `"1", "2"`, `"0"`, `"01"`, `1`} {
+		if w := f.do("PATCH", one, `{"title":"x"}`, map[string]string{"If-Match": bad}); w.Code != 412 {
+			t.Fatalf("If-Match %s => %d", bad, w.Code)
+		}
+	}
+	if w := f.do("PATCH", one, `{"title":"x"}`, map[string]string{"If-Match": `"99"`}); w.Code != 412 {
+		t.Fatalf("stale: %d %s", w.Code, w.Body)
+	}
+	if got := stored(t, f); got != original {
+		t.Fatalf("preconditions changed row: %+v", got)
+	}
+	if w := f.do("PATCH", one, `{}`, map[string]string{"If-Match": `"99"`}); w.Code != 400 {
+		t.Fatalf("malformed body precedence=%d", w.Code)
+	}
+	if w := f.do("PATCH", one, `{"title":" "}`, map[string]string{"If-Match": `"99"`}); w.Code != 422 {
+		t.Fatalf("validation precedence=%d", w.Code)
+	}
+}
+
+func TestBodyLimitsMediaTypeAndQueryProblems(t *testing.T) {
+	f := newFixture(true)
+	for _, tc := range []struct {
+		contentType string
+		size        int
+		want        int
+	}{{"text/plain", 1, 415}, {"application/json", bodyLimit + 1, 413}} {
+		body := `{"title":"` + strings.Repeat("x", tc.size) + `","subjectId":"` + sid + `"}`
+		w := f.do("POST", base, body, map[string]string{"Content-Type": tc.contentType})
+		if w.Code != tc.want {
+			t.Fatalf("got %d want %d", w.Code, tc.want)
+		}
+	}
+	for _, query := range []string{"limit=0", "limit=101", "cursor=", "archived=yes"} {
+		w := f.do("GET", base+"?"+query, "", nil)
+		if w.Code != 400 || !strings.Contains(w.Body.String(), `"code":"invalid_query"`) {
+			t.Fatalf("%s => %d %s", query, w.Code, w.Body)
+		}
+	}
+}
+
+func TestNotFoundUnavailableAndAuthenticationAreUniform(t *testing.T) {
+	f := newFixture(true)
+	want404 := problem(404, "not_found")
+	for _, path := range []string{base + "/" + other, "/api/v1/households/" + other + "/items/" + iid, base + "/nope"} {
+		w := f.do("GET", path, "", nil)
+		if w.Code != 404 {
+			t.Fatalf("%s: %d", path, w.Code)
+		}
+		bodyEqual(t, w.Body.String(), want404)
+	}
+	f.member = errors.New("database secret")
+	w := f.do("GET", one, "", nil)
+	if w.Code != 503 || strings.Contains(w.Body.String(), "secret") {
+		t.Fatalf("unavailable %d %s", w.Code, w.Body)
+	}
+	unauth := newFixture(false)
+	w = unauth.do("GET", one, "", nil)
+	if w.Code != 401 || unauth.svcHit != 0 || unauth.repo.Calls != 0 {
+		t.Fatalf("auth %d svc=%d repo=%d", w.Code, unauth.svcHit, unauth.repo.Calls)
+	}
+}
+
+func TestCreateAndUpdatePrecedenceForNonMembers(t *testing.T) {
+	f := newFixture(true)
+	foreign := "/api/v1/households/" + other + "/items/" + iid
+	if w := f.do("PATCH", foreign, `{"title":"x"}`, nil); w.Code != 428 {
+		t.Fatalf("missing If-Match precedes member: %d", w.Code)
+	}
+	if w := f.do("PATCH", foreign, `{}`, map[string]string{"If-Match": `"1"`}); w.Code != 400 {
+		t.Fatalf("body precedes member: %d", w.Code)
+	}
+	if w := f.do("PATCH", foreign, `{"title":" "}`, map[string]string{"If-Match": `"1"`}); w.Code != 404 {
+		t.Fatalf("member precedes validation: %d", w.Code)
+	}
+	if w := f.do("PATCH", one, `{"title":"ok"}`, map[string]string{"If-Match": `"1"`}); w.Code != 200 {
+		t.Fatalf("valid patch: %d %s", w.Code, w.Body)
+	}
+}

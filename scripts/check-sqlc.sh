@@ -16,8 +16,11 @@ fi
 if [[ -d "$root/backend/internal/subject/postgres/dbgen" ]]; then
   cp -a "$root/backend/internal/subject/postgres/dbgen" "$tmp/subject"
 fi
+if [[ -d "$root/backend/internal/item/postgres/dbgen" ]]; then
+  cp -a "$root/backend/internal/item/postgres/dbgen" "$tmp/item"
+fi
 docker run --rm --user "$(id -u):$(id -g)" -v "$root/backend:/src" -w /src "$image" generate -f sqlc.yaml
-for module in identity household subject; do
+for module in identity household subject item; do
   target="$root/backend/internal/$module/postgres/dbgen"
   if [[ -d "$tmp/$module" ]]; then
     diff -ru "$tmp/$module" "$target"

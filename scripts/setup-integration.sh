@@ -49,4 +49,4 @@ role_url="postgres://tendo:${role_password}@${container}:5432/${db_name}?sslmode
 docker run --rm --network "$network" \
   -e "TEST_DATABASE_ADMIN_URL=$admin_url" -e "TEST_DATABASE_URL=$role_url" \
   -e GOCACHE=/go-cache -v "$root/backend:/workspace/backend" -v "$cache:/go-cache" \
-  -w /workspace/backend golang:1.26.8 go test -race -p 1 ./internal/identity/postgres ./internal/household/postgres ./internal/subject/postgres ./internal/platform/database
+  -w /workspace/backend golang:1.26.8 go test -race -p 1 ./internal/identity/postgres ./internal/household/postgres ./internal/subject/postgres ./internal/item/postgres ./internal/platform/database

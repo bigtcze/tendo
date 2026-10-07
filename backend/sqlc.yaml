@@ -1,7 +1,7 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql"]
     queries: "internal/identity/postgres/queries"
     gen:
       go:
@@ -11,7 +11,7 @@ sql:
         emit_interface: true
         emit_empty_slices: true
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql"]
     queries: "internal/household/postgres/queries"
     gen:
       go:
@@ -21,12 +21,22 @@ sql:
         emit_interface: true
         emit_empty_slices: true
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql"]
     queries: "internal/subject/postgres/queries"
     gen:
       go:
         package: "dbgen"
         out: "internal/subject/postgres/dbgen"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_empty_slices: true
+  - engine: "postgresql"
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql"]
+    queries: "internal/item/postgres/queries"
+    gen:
+      go:
+        package: "dbgen"
+        out: "internal/item/postgres/dbgen"
         sql_package: "pgx/v5"
         emit_interface: true
         emit_empty_slices: true
