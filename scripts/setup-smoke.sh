@@ -266,6 +266,8 @@ for rec_item, expected in ((fixed, '1|year|fixed'),(fluid,'1|month|after_complet
 ipath=ibase+'/'+immediate['id']
 status,h,got=ireq('GET',ipath,IITEM,headers=cookie_header)
 assert status==200 and got==immediate and h['ETag']=='"1"',('item get',status,got)
+status,h,fixed_get=ireq('GET',ibase+'/'+fixed['id'],IITEM,headers=cookie_header)
+assert status==200 and fixed_get['recurrence']=={'intervalValue':1,'intervalUnit':'year','mode':'fixed'} and fixed_get['attentionOn']=='2030-01-15',('fixed item get',status,fixed_get)
 status,h,patched=ireq('PATCH',ipath,IITEM,{'title':'Insurance follow-up','workflowState':'in_progress','attentionOn':None},{**mut,'If-Match':'"1"'})
 assert status==200 and patched['title']=='Insurance follow-up' and patched['workflowState']=='in_progress' and patched['attentionOn'] is None and patched['attention']=='needs_attention' and h['ETag']=='"2"',('item patch',status,patched)
 assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::text,'NULL')||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|NULL|2','item patch persisted'
@@ -273,6 +275,9 @@ status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
 status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
 status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id'],fixed['id'],fluid['id']],('active items',status,active_items)
+active_by_id={x['id']:x for x in active_items['items']}
+assert active_by_id[fixed['id']]['recurrence']==fixed['recurrence'] and active_by_id[fixed['id']]['attentionOn']==fixed['attentionOn'],('fixed list recurrence/attention',active_by_id[fixed['id']])
+assert active_by_id[fluid['id']]['recurrence']==fluid['recurrence'] and active_by_id[fluid['id']]['attentionOn']==fluid['attentionOn'],('fluid list recurrence/attention',active_by_id[fluid['id']])
 status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},mut);assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)

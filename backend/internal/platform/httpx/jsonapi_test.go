@@ -66,7 +66,18 @@ func TestDecodeIntegerAndNullableObject(t *testing.T) {
 			t.Fatalf("valid %s: %v", body, err)
 		}
 	}
-	for _, body := range []string{`{"a":"x","i":1.5}`, `{"a":"x","i":1e2}`, `{"a":"x","i":"12"}`, `{"a":"x","i":true}`, `{"a":"x","i":9223372036854775808}`, `{"a":"x","o":{"n":1,"s":"x","extra":true}}`, `{"a":"x","o":{"n":1,"s":"x","n":2}}`, `{"a":"x","o":{"n":1}}`, `{"a":"x","o":{"n":"1","s":"x"}}`, `{"a":"x","o":{"n":null,"s":"x"}}`} {
+	got, err := DecodeObject([]byte(`{"a":"x","o":{"n":12,"s":"nested"}}`), testFields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested, ok := got["o"].(map[string]any)
+	if !ok {
+		t.Fatalf("nested=%#v", got["o"])
+	}
+	if n, ok := nested["n"].(int64); !ok || n != 12 || nested["s"] != "nested" {
+		t.Fatalf("nested=%#v", nested)
+	}
+	for _, body := range []string{`{"a":"x","i":1.5}`, `{"a":"x","i":1e2}`, `{"a":"x","i":"12"}`, `{"a":"x","i":true}`, `{"a":"x","o":{"n":1,"s":"x","extra":true}}`, `{"a":"x","o":{"n":1,"s":"x","n":2}}`, `{"a":"x","o":{"n":1}}`, `{"a":"x","o":{"n":"1","s":"x"}}`, `{"a":"x","o":{"n":null,"s":"x"}}`} {
 		if _, err := DecodeObject([]byte(body), testFields); err == nil {
 			t.Fatalf("accepted %s", body)
 		}

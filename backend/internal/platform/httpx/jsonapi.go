@@ -198,7 +198,15 @@ func DecodeObject(body []byte, fields map[string]Field) (map[string]any, error) 
 			}
 			v, err := strconv.ParseInt(text, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("expected integer")
+				if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
+					if strings.HasPrefix(text, "-") {
+						v = -1 << 63
+					} else {
+						v = 1<<63 - 1
+					}
+				} else {
+					return nil, fmt.Errorf("expected integer")
+				}
 			}
 			values[key] = v
 		case KindNullableObject:

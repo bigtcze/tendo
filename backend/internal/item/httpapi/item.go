@@ -222,7 +222,11 @@ func recurrence(v any) (*schedule.Policy, error) {
 	if !ok {
 		return nil, errors.New("invalid mode")
 	}
-	return &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: int(value), Unit: schedule.Unit(unit)}, Mode: schedule.Mode(mode)}, nil
+	interval := 0
+	if value >= 1 && value <= 999 {
+		interval = int(value)
+	}
+	return &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: interval, Unit: schedule.Unit(unit)}, Mode: schedule.Mode(mode)}, nil
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {

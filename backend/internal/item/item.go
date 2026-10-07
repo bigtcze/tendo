@@ -280,6 +280,7 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 	if err := validateRecurrence(n.Recurrence); err != nil {
 		return Item{}, err
 	}
+	n.Recurrence = canonicalRecurrence(n.Recurrence)
 	var attentionOn *schedule.Date
 	if n.AttentionOn != nil {
 		d, err := ParseDate(*n.AttentionOn)
@@ -405,6 +406,7 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		if err := validateRecurrence(p.Recurrence.Value); err != nil {
 			return Item{}, err
 		}
+		p.Recurrence.Value = canonicalRecurrence(p.Recurrence.Value)
 		c.Recurrence = p.Recurrence
 	}
 	if p.WorkflowState != nil {
@@ -429,6 +431,13 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		return Item{}, mapRepoErr(err)
 	}
 	return derive(updated, today)
+}
+
+func canonicalRecurrence(policy *schedule.Policy) *schedule.Policy {
+	if policy == nil || !policy.Enabled {
+		return nil
+	}
+	return policy
 }
 
 func validateRecurrence(policy *schedule.Policy) error {
