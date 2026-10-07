@@ -12,31 +12,37 @@ import (
 )
 
 const createItem = `-- name: CreateItem :one
-INSERT INTO items (household_id, subject_id, title, notes, attention_on)
-VALUES ($1, $2, $3, $4::text, $5::date)
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, workflow_state, archived, created_at, updated_at, version
+INSERT INTO items (household_id, subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode)
+VALUES ($1, $2, $3, $4::text, $5::date, $6::integer, $7::text, $8::text)
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
 `
 
 type CreateItemParams struct {
-	HouseholdID pgtype.UUID
-	SubjectID   pgtype.UUID
-	Title       string
-	Notes       pgtype.Text
-	AttentionOn pgtype.Date
+	HouseholdID             pgtype.UUID
+	SubjectID               pgtype.UUID
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
 }
 
 type CreateItemRow struct {
-	ID            string
-	HouseholdID   string
-	SubjectID     string
-	Title         string
-	Notes         pgtype.Text
-	AttentionOn   pgtype.Date
-	WorkflowState string
-	Archived      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	Version       int64
+	ID                      string
+	HouseholdID             string
+	SubjectID               string
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           string
+	Archived                bool
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
 }
 
 func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateItemRow, error) {
@@ -46,6 +52,9 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		arg.Title,
 		arg.Notes,
 		arg.AttentionOn,
+		arg.RecurrenceIntervalValue,
+		arg.RecurrenceIntervalUnit,
+		arg.RecurrenceMode,
 	)
 	var i CreateItemRow
 	err := row.Scan(
@@ -55,6 +64,9 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.RecurrenceIntervalValue,
+		&i.RecurrenceIntervalUnit,
+		&i.RecurrenceMode,
 		&i.WorkflowState,
 		&i.Archived,
 		&i.CreatedAt,
@@ -65,7 +77,7 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 }
 
 const getItem = `-- name: GetItem :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, workflow_state, archived, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
 FROM items
 WHERE household_id = $1 AND id = $2
 `
@@ -76,17 +88,20 @@ type GetItemParams struct {
 }
 
 type GetItemRow struct {
-	ID            string
-	HouseholdID   string
-	SubjectID     string
-	Title         string
-	Notes         pgtype.Text
-	AttentionOn   pgtype.Date
-	WorkflowState string
-	Archived      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	Version       int64
+	ID                      string
+	HouseholdID             string
+	SubjectID               string
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           string
+	Archived                bool
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
 }
 
 func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, error) {
@@ -99,6 +114,9 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.RecurrenceIntervalValue,
+		&i.RecurrenceIntervalUnit,
+		&i.RecurrenceMode,
 		&i.WorkflowState,
 		&i.Archived,
 		&i.CreatedAt,
@@ -109,7 +127,7 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 }
 
 const listItems = `-- name: ListItems :many
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, workflow_state, archived, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
 FROM items
 WHERE household_id = $1 AND archived = $2 AND id > $3
 ORDER BY id ASC
@@ -124,17 +142,20 @@ type ListItemsParams struct {
 }
 
 type ListItemsRow struct {
-	ID            string
-	HouseholdID   string
-	SubjectID     string
-	Title         string
-	Notes         pgtype.Text
-	AttentionOn   pgtype.Date
-	WorkflowState string
-	Archived      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	Version       int64
+	ID                      string
+	HouseholdID             string
+	SubjectID               string
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           string
+	Archived                bool
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
 }
 
 func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error) {
@@ -158,6 +179,9 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.Title,
 			&i.Notes,
 			&i.AttentionOn,
+			&i.RecurrenceIntervalValue,
+			&i.RecurrenceIntervalUnit,
+			&i.RecurrenceMode,
 			&i.WorkflowState,
 			&i.Archived,
 			&i.CreatedAt,
@@ -180,40 +204,50 @@ SET title = COALESCE($1::text, title),
     subject_id = COALESCE($2::uuid, subject_id),
     notes = CASE WHEN $3::boolean THEN $4::text ELSE notes END,
     attention_on = CASE WHEN $5::boolean THEN $6::date ELSE attention_on END,
-    workflow_state = COALESCE($7::text, workflow_state),
-    archived = COALESCE($8::boolean, archived),
+    recurrence_interval_value = CASE WHEN $7::boolean THEN $8::integer ELSE recurrence_interval_value END,
+    recurrence_interval_unit = CASE WHEN $7::boolean THEN $9::text ELSE recurrence_interval_unit END,
+    recurrence_mode = CASE WHEN $7::boolean THEN $10::text ELSE recurrence_mode END,
+    workflow_state = COALESCE($11::text, workflow_state),
+    archived = COALESCE($12::boolean, archived),
     version = version + 1,
     updated_at = now()
-WHERE household_id = $9 AND id = $10 AND version = $11
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, workflow_state, archived, created_at, updated_at, version
+WHERE household_id = $13 AND id = $14 AND version = $15
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
 `
 
 type UpdateItemParams struct {
-	Title           pgtype.Text
-	SubjectID       pgtype.UUID
-	SetNotes        bool
-	Notes           pgtype.Text
-	SetAttentionOn  bool
-	AttentionOn     pgtype.Date
-	WorkflowState   pgtype.Text
-	Archived        pgtype.Bool
-	HouseholdID     pgtype.UUID
-	ID              pgtype.UUID
-	ExpectedVersion int64
+	Title                   pgtype.Text
+	SubjectID               pgtype.UUID
+	SetNotes                bool
+	Notes                   pgtype.Text
+	SetAttentionOn          bool
+	AttentionOn             pgtype.Date
+	SetRecurrence           bool
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           pgtype.Text
+	Archived                pgtype.Bool
+	HouseholdID             pgtype.UUID
+	ID                      pgtype.UUID
+	ExpectedVersion         int64
 }
 
 type UpdateItemRow struct {
-	ID            string
-	HouseholdID   string
-	SubjectID     string
-	Title         string
-	Notes         pgtype.Text
-	AttentionOn   pgtype.Date
-	WorkflowState string
-	Archived      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	Version       int64
+	ID                      string
+	HouseholdID             string
+	SubjectID               string
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           string
+	Archived                bool
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
 }
 
 func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateItemRow, error) {
@@ -224,6 +258,10 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateI
 		arg.Notes,
 		arg.SetAttentionOn,
 		arg.AttentionOn,
+		arg.SetRecurrence,
+		arg.RecurrenceIntervalValue,
+		arg.RecurrenceIntervalUnit,
+		arg.RecurrenceMode,
 		arg.WorkflowState,
 		arg.Archived,
 		arg.HouseholdID,
@@ -238,6 +276,9 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateI
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.RecurrenceIntervalValue,
+		&i.RecurrenceIntervalUnit,
+		&i.RecurrenceMode,
 		&i.WorkflowState,
 		&i.Archived,
 		&i.CreatedAt,

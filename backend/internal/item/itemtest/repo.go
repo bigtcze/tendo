@@ -58,7 +58,7 @@ func (r *Repo) Create(_ context.Context, householdID string, d item.Draft) (item
 	}
 	r.seq++
 	id := "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
-	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
+	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, Recurrence: d.Recurrence, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
 	r.rows[id] = i
 	return i, nil
 }
@@ -122,6 +122,9 @@ func (r *Repo) Update(_ context.Context, householdID, itemID string, expected in
 	}
 	if c.AttentionOn.Set {
 		i.AttentionOn = c.AttentionOn.Value
+	}
+	if c.Recurrence.Set {
+		i.Recurrence = c.Recurrence.Value
 	}
 	if c.WorkflowState != nil {
 		i.WorkflowState = *c.WorkflowState

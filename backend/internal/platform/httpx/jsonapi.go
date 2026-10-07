@@ -30,12 +30,15 @@ const (
 	// KindNullableString accepts a JSON string or null. A null value is stored
 	// as a nil entry so callers can tell it from an omitted key.
 	KindNullableString
+	KindInteger
+	KindNullableObject
 )
 
 // Field describes one accepted object key.
 type Field struct {
 	Kind     Kind
 	Required bool
+	Fields   map[string]Field
 }
 
 // ETag formats a resource version as a strong, quoted decimal entity tag.
@@ -169,7 +172,7 @@ func DecodeObject(body []byte, fields map[string]Field) (map[string]any, error) 
 			return nil, fmt.Errorf("invalid value")
 		}
 		if string(raw) == "null" {
-			if field.Kind != KindNullableString {
+			if field.Kind != KindNullableString && field.Kind != KindNullableObject {
 				return nil, fmt.Errorf("invalid value")
 			}
 			values[key] = nil
@@ -186,6 +189,25 @@ func DecodeObject(body []byte, fields map[string]Field) (map[string]any, error) 
 			var v bool
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return nil, fmt.Errorf("expected boolean")
+			}
+			values[key] = v
+		case KindInteger:
+			text := string(raw)
+			if text == "" || strings.ContainsAny(text, ".eE") {
+				return nil, fmt.Errorf("expected integer literal")
+			}
+			v, err := strconv.ParseInt(text, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("expected integer")
+			}
+			values[key] = v
+		case KindNullableObject:
+			if field.Fields == nil {
+				return nil, fmt.Errorf("missing nested schema")
+			}
+			v, err := DecodeObject(raw, field.Fields)
+			if err != nil {
+				return nil, err
 			}
 			values[key] = v
 		}

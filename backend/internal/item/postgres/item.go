@@ -38,6 +38,9 @@ type row struct {
 	ID, HouseholdID, SubjectID, Title string
 	Notes                             pgtype.Text
 	AttentionOn                       pgtype.Date
+	RecurrenceIntervalValue           pgtype.Int4
+	RecurrenceIntervalUnit            pgtype.Text
+	RecurrenceMode                    pgtype.Text
 	WorkflowState                     string
 	Archived                          bool
 	CreatedAt, UpdatedAt              pgtype.Timestamptz
@@ -49,6 +52,29 @@ func toItem(r row) (item.Item, error) {
 	if r.Notes.Valid {
 		notes := r.Notes.String
 		out.Notes = &notes
+	}
+	recurrenceParts := 0
+	if r.RecurrenceIntervalValue.Valid {
+		recurrenceParts++
+	}
+	if r.RecurrenceIntervalUnit.Valid {
+		recurrenceParts++
+	}
+	if r.RecurrenceMode.Valid {
+		recurrenceParts++
+	}
+	if recurrenceParts != 0 && recurrenceParts != 3 {
+		return item.Item{}, errPersistence
+	}
+	if recurrenceParts == 3 {
+		if r.RecurrenceIntervalValue.Int32 < 1 || r.RecurrenceIntervalValue.Int32 > 999 {
+			return item.Item{}, errPersistence
+		}
+		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: int(r.RecurrenceIntervalValue.Int32), Unit: schedule.Unit(r.RecurrenceIntervalUnit.String)}, Mode: schedule.Mode(r.RecurrenceMode.String)}
+		if policy.Validate() != nil {
+			return item.Item{}, errPersistence
+		}
+		out.Recurrence = policy
 	}
 	if r.AttentionOn.Valid {
 		if r.AttentionOn.InfinityModifier != pgtype.Finite {
@@ -91,7 +117,13 @@ func (r *Repository) Create(ctx context.Context, householdID string, d item.Draf
 	if !ok2 {
 		return item.Item{}, item.ErrInvalidReference
 	}
-	created, err := r.queries.CreateItem(ctx, dbgen.CreateItemParams{HouseholdID: hid, SubjectID: sid, Title: d.Title, Notes: text(d.Notes), AttentionOn: date(d.AttentionOn)})
+	params := dbgen.CreateItemParams{HouseholdID: hid, SubjectID: sid, Title: d.Title, Notes: text(d.Notes), AttentionOn: date(d.AttentionOn)}
+	if d.Recurrence != nil {
+		params.RecurrenceIntervalValue = pgtype.Int4{Int32: int32(d.Recurrence.Interval.Value), Valid: true}
+		params.RecurrenceIntervalUnit = pgtype.Text{String: string(d.Recurrence.Interval.Unit), Valid: true}
+		params.RecurrenceMode = pgtype.Text{String: string(d.Recurrence.Mode), Valid: true}
+	}
+	created, err := r.queries.CreateItem(ctx, params)
 	if isForeignKey(err) {
 		// The subject is not in this household, or a household/subject was
 		// deleted concurrently.
@@ -164,6 +196,14 @@ func (r *Repository) Update(ctx context.Context, householdID, itemID string, exp
 	if c.AttentionOn.Set {
 		params.SetAttentionOn = true
 		params.AttentionOn = date(c.AttentionOn.Value)
+	}
+	if c.Recurrence.Set {
+		params.SetRecurrence = true
+		if c.Recurrence.Value != nil {
+			params.RecurrenceIntervalValue = pgtype.Int4{Int32: int32(c.Recurrence.Value.Interval.Value), Valid: true}
+			params.RecurrenceIntervalUnit = pgtype.Text{String: string(c.Recurrence.Value.Interval.Unit), Valid: true}
+			params.RecurrenceMode = pgtype.Text{String: string(c.Recurrence.Value.Mode), Valid: true}
+		}
 	}
 	if c.WorkflowState != nil {
 		params.WorkflowState = pgtype.Text{String: string(*c.WorkflowState), Valid: true}

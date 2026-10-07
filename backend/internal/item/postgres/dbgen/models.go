@@ -28,17 +28,20 @@ type InstallationState struct {
 }
 
 type Item struct {
-	ID            pgtype.UUID
-	HouseholdID   pgtype.UUID
-	SubjectID     pgtype.UUID
-	Title         string
-	Notes         pgtype.Text
-	AttentionOn   pgtype.Date
-	WorkflowState string
-	Archived      bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	Version       int64
+	ID                      pgtype.UUID
+	HouseholdID             pgtype.UUID
+	SubjectID               pgtype.UUID
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	WorkflowState           string
+	Archived                bool
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
 }
 
 type LocalCredential struct {

@@ -308,6 +308,19 @@ export interface components {
          * @enum {string}
          */
         ItemAttention: "upcoming" | "needs_attention";
+        /** @enum {string} */
+        RecurrenceIntervalUnit: "day" | "week" | "month" | "year";
+        /**
+         * @description fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+         * @enum {string}
+         */
+        RecurrenceMode: "fixed" | "after_completion";
+        /** @description Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn. */
+        ItemRecurrence: {
+            intervalValue: number;
+            intervalUnit: components["schemas"]["RecurrenceIntervalUnit"];
+            mode: components["schemas"]["RecurrenceMode"];
+        };
         Item: {
             /** Format: uuid */
             id: string;
@@ -320,6 +333,8 @@ export interface components {
              * @description Current attention date; null means needs attention immediately.
              */
             attentionOn: string | null;
+            /** @description Recurrence policy; null disables repeat. Policy changes affect only the next completion and never change attentionOn. Completions are not yet implemented. */
+            recurrence: components["schemas"]["ItemRecurrence"] | null;
             workflowState: components["schemas"]["WorkflowState"];
             attention: components["schemas"]["ItemAttention"];
             archived: boolean;
@@ -342,6 +357,8 @@ export interface components {
             notes?: string | null;
             /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
             attentionOn?: string | null;
+            /** @description Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn; completions are not yet implemented. */
+            recurrence?: components["schemas"]["ItemRecurrence"] | null;
         };
         UpdateItemRequest: {
             /** @description 1 to 200 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. */
@@ -353,13 +370,15 @@ export interface components {
             /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
             attentionOn?: string | null;
             workflowState?: components["schemas"]["WorkflowState"];
+            /** @description Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn; completions are not yet implemented. */
+            recurrence?: components["schemas"]["ItemRecurrence"] | null;
             archived?: boolean;
         };
         ItemValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            field: "title" | "subjectId" | "notes" | "attentionOn" | "workflowState";
+            field: "title" | "subjectId" | "notes" | "attentionOn" | "workflowState" | "recurrence";
             /** @enum {string} */
-            code: "invalid_characters" | "invalid_length" | "invalid_date" | "invalid_workflow_state" | "invalid_reference";
+            code: "invalid_characters" | "invalid_length" | "invalid_date" | "invalid_workflow_state" | "invalid_reference" | "invalid_interval" | "invalid_interval_unit" | "invalid_mode";
         };
         ValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -1744,7 +1763,8 @@ export interface operations {
                  *       "title": "Renew car insurance",
                  *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
                  *       "notes": "Compare two quotes first.",
-                 *       "attentionOn": "2026-11-01"
+                 *       "attentionOn": "2026-11-01",
+                 *       "recurrence": null
                  *     } */
                 "application/json": components["schemas"]["CreateItemRequest"];
             };
@@ -1849,7 +1869,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. field is title, subjectId, notes, attentionOn, or workflowState. Codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
+            /** @description Field validation failed. field may include recurrence; recurrence codes are invalid_interval (outside 1..999), invalid_interval_unit, and invalid_mode. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -2016,7 +2036,11 @@ export interface operations {
         requestBody: {
             content: {
                 /** @example {
-                 *       "workflowState": "in_progress"
+                 *       "recurrence": {
+                 *         "intervalValue": 1,
+                 *         "intervalUnit": "year",
+                 *         "mode": "fixed"
+                 *       }
                  *     } */
                 "application/json": components["schemas"]["UpdateItemRequest"];
             };
@@ -2127,7 +2151,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. field is title, subjectId, notes, attentionOn, or workflowState. Codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
+            /** @description Field validation failed. field may include recurrence; recurrence codes are invalid_interval (outside 1..999), invalid_interval_unit, and invalid_mode. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
