@@ -441,7 +441,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 3 database accepted by version 4 application")
+		t.Fatal("version 3 database accepted by version 5 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)
