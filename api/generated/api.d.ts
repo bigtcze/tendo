@@ -154,7 +154,7 @@ export interface paths {
         };
         /**
          * Read an item
-         * @description Returns the item, archived or not, when the caller is a household member. The ETag is the strong, quoted decimal item version.
+         * @description Returns the item, archived or not, when the caller is a household member. The strong ETag identifies the stored item version used for If-Match; the attention field is derived per request using the household timezone and can change at household-local midnight without a version change. Responses are Cache-Control: no-store.
          */
         get: operations["getItem"];
         put?: never;
@@ -164,7 +164,7 @@ export interface paths {
         head?: never;
         /**
          * Update, move, change state of, archive, or unarchive an item
-         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag is required; every successful update increments the version. Archived items remain readable and editable. Requires the canonical Origin header.
+         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.
          */
         patch: operations["updateItem"];
         trace?: never;
@@ -350,7 +350,7 @@ export interface components {
             subjectId?: string;
             /** @description Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes. */
             notes?: string | null;
-            /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. Null clears the date. */
+            /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
             attentionOn?: string | null;
             workflowState?: components["schemas"]["WorkflowState"];
             archived?: boolean;
@@ -1759,7 +1759,7 @@ export interface operations {
                      */
                     Location?: string;
                     /**
-                     * @description Strong entity tag derived from the item version.
+                     * @description Strong entity tag identifying the stored item version used for If-Match.
                      * @example "1"
                      */
                     ETag?: string;
@@ -1816,7 +1816,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Request body exceeds 16 KiB. */
+            /** @description Request body exceeds 64 KiB. */
             413: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1903,7 +1903,7 @@ export interface operations {
             200: {
                 headers: {
                     /**
-                     * @description Strong entity tag derived from the item version.
+                     * @description Strong entity tag identifying the stored item version used for If-Match.
                      * @example "1"
                      */
                     ETag?: string;
@@ -2094,7 +2094,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Request body exceeds 16 KiB. */
+            /** @description Request body exceeds 64 KiB. */
             413: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

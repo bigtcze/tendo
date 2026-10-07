@@ -413,7 +413,7 @@ paths:
           description: Item created.
           headers:
             Location: { description: Canonical URL of the created item., schema: { type: string, pattern: '^/api/v1/households/[0-9a-fA-F-]{36}/items/[0-9a-fA-F-]{36}$' }, example: /api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61/items/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80 }
-            ETag: { description: Strong entity tag derived from the item version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            ETag: { description: Strong entity tag identifying the stored item version used for If-Match., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
@@ -424,7 +424,7 @@ paths:
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
-        '413': { description: 'Request body exceeds 16 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
+        '413': { description: 'Request body exceeds 64 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
         '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '422': { description: 'Field validation failed. field is title, subjectId, notes, attentionOn, or workflowState. Codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/ItemValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: title } } } }
@@ -462,7 +462,7 @@ paths:
     get:
       operationId: getItem
       summary: Read an item
-      description: Returns the item, archived or not, when the caller is a household member. The ETag is the strong, quoted decimal item version.
+      description: 'Returns the item, archived or not, when the caller is a household member. The strong ETag identifies the stored item version used for If-Match; the attention field is derived per request using the household timezone and can change at household-local midnight without a version change. Responses are Cache-Control: no-store.'
       tags: [Items]
       security:
         - SessionCookie: []
@@ -474,7 +474,7 @@ paths:
         '200':
           description: Item visible to the caller.
           headers:
-            ETag: { description: Strong entity tag derived from the item version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
+            ETag: { description: Strong entity tag identifying the stored item version used for If-Match., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
@@ -490,7 +490,7 @@ paths:
     patch:
       operationId: updateItem
       summary: Update, move, change state of, archive, or unarchive an item
-      description: Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag is required; every successful update increments the version. Archived items remain readable and editable. Requires the canonical Origin header.
+      description: 'Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.'
       tags: [Items]
       security:
         - SessionCookie: []
@@ -510,9 +510,6 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UpdateItemRequest' }
             example: { workflowState: in_progress }
-            examples:
-              start: { summary: Mark as in progress, value: { workflowState: in_progress } }
-              clearDate: { summary: Clear the attention date and notes, value: { attentionOn: null, notes: null } }
       responses:
         '200':
           description: Item updated; the ETag carries the new version.
@@ -529,7 +526,7 @@ paths:
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household or item identifier is malformed, the item does not exist in that household, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '412': { description: 'If-Match is malformed, weak, a list of tags, the wildcard *, or does not match the current item version. If-Match: * and weak or list entity tags are not supported and are rejected with 412.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } } }
-        '413': { description: 'Request body exceeds 16 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
+        '413': { description: 'Request body exceeds 64 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
         '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '422': { description: 'Field validation failed. field is title, subjectId, notes, attentionOn, or workflowState. Codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/ItemValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: title } } } }
@@ -811,7 +808,7 @@ components:
         title: { type: string, description: '1 to 200 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422.' }
         subjectId: { type: string, description: Identifier of an active subject in the same household; otherwise 422 invalid_reference. }
         notes: { type: [string, 'null'], x-go-type: '*string', description: 'Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes.' }
-        attentionOn: { type: [string, 'null'], x-go-type: '*string', description: 'Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. Null clears the date.' }
+        attentionOn: { type: [string, 'null'], x-go-type: '*string', description: 'Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422.' }
         workflowState: { $ref: '#/components/schemas/WorkflowState' }
         archived: { type: boolean }
     ItemValidationProblem:

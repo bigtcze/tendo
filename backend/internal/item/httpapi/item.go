@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const bodyLimit = 16 << 10
+const bodyLimit = 64 << 10
 
 var (
 	createFields = map[string]httpx.Field{

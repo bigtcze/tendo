@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/item/itemtest"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
-	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -114,9 +114,6 @@ func bodyEqual(t *testing.T, got, want string) {
 		t.Fatalf("got=%s want=%s", x, y)
 	}
 }
-func itemBody(title, notes, attention, state, attentionState string, archived bool, version int) string {
-	return `{"id":"` + iid + `","subjectId":"` + sid + `","title":"` + title + `","notes":` + notes + `,"attentionOn":` + attention + `,"workflowState":"` + state + `","attention":"` + attentionState + `","archived":` + map[bool]string{true: "true", false: "false"}[archived] + `,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"` + map[bool]string{true: "2026-03-02T00:30:00Z", false: "2026-03-01T23:30:00Z"}[version > 1] + `"}`
-}
 func problem(status int, code string) string {
 	return `{"type":"about:blank","title":"` + http.StatusText(status) + `","status":` + strconv.Itoa(status) + `,"code":"` + code + `"}`
 }
@@ -133,35 +130,74 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	f := newFixture(true)
 	created := f.do("POST", base, `{"title":"  New item  ","subjectId":"`+sid+`","notes":"  keep\n ","attentionOn":"2026-03-02"}`, nil)
 	var createdBody map[string]any
-	_ = json.Unmarshal(created.Body.Bytes(), &createdBody)
-	id := createdBody["id"].(string)
-	row, ok := f.repo.Row(id)
-	if !ok {
+	if err := json.Unmarshal(created.Body.Bytes(), &createdBody); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, ok := createdBody["id"].(string)
+	if !ok || id == "" {
+		t.Fatalf("create response has no string id: %s", created.Body)
+	}
+	row, persisted := f.repo.Row(id)
+	if !persisted {
 		t.Fatalf("created item %s was not persisted", id)
 	}
-	if created.Code != 201 || created.Header().Get("ETag") != `"1"` || created.Header().Get("Location") != base+"/"+id || row.Title != "New item" || row.Notes == nil || *row.Notes != "  keep\n " || row.Version != 1 || row.WorkflowState != item.StateOpen {
+	if created.Code != 201 || created.Header().Get("ETag") != `"1"` || created.Header().Get("Location") != base+"/"+id || created.Header().Get("Content-Type") != "application/json" || created.Header().Get("Cache-Control") != "no-store" || row.Title != "New item" || row.Notes == nil || *row.Notes != "  keep\n " || row.Version != 1 || row.WorkflowState != item.StateOpen {
 		t.Fatalf("status=%d headers=%v body=%s row=%+v", created.Code, created.Header(), created.Body, row)
 	}
 	want := `{"id":"` + id + `","subjectId":"` + sid + `","title":"New item","notes":"  keep\n ","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
-	// Use schema and exact encoded shape for stable response assertions.
-	if created.Header().Get("Content-Type") != "application/json" || !strings.Contains(created.Body.String(), `"attention":"needs_attention"`) || !strings.Contains(created.Body.String(), `"workflowState":"open"`) || !strings.Contains(created.Body.String(), `"notes":"  keep\n "`) {
-		t.Fatalf("create body=%s want form=%s", created.Body, want)
-	}
+	bodyEqual(t, created.Body.String(), want)
 	get := f.do("GET", base+"/"+id, "", nil)
-	if get.Code != 200 || get.Header().Get("ETag") != `"1"` || !strings.Contains(get.Body.String(), `"attention":"needs_attention"`) {
-		t.Fatalf("get=%d %s", get.Code, get.Body)
+	if get.Code != 200 || get.Header().Get("ETag") != `"1"` || get.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("get=%d headers=%v %s", get.Code, get.Header(), get.Body)
 	}
+	bodyEqual(t, get.Body.String(), want)
 	list := f.do("GET", base, "", nil)
-	if list.Code != 200 || !strings.Contains(list.Body.String(), `"nextCursor":null`) || !strings.Contains(list.Body.String(), id) {
+	if list.Code != 200 {
 		t.Fatalf("list=%d %s", list.Code, list.Body)
 	}
+	seeded := `{"id":"` + iid + `","subjectId":"` + sid + `","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-03-01T23:30:00Z"}`
+	bodyEqual(t, list.Body.String(), `{"items":[`+want+`,`+seeded+`],"nextCursor":null}`)
 	patched := f.do("PATCH", base+"/"+id, `{"notes":null,"attentionOn":null,"workflowState":"paused"}`, map[string]string{"If-Match": `"1"`})
-	updated, _ := f.repo.Row(id)
-	if patched.Code != 200 || patched.Header().Get("ETag") != `"2"` || updated.Version != 2 || updated.Notes != nil || updated.AttentionOn != nil || updated.WorkflowState != item.StatePaused || !strings.Contains(patched.Body.String(), `"attention":"needs_attention"`) {
-		t.Fatalf("patch=%d %s row=%+v", patched.Code, patched.Body, updated)
+	updated, exists := f.repo.Row(id)
+	if !exists || patched.Code != 200 || patched.Header().Get("ETag") != `"2"` || updated.Version != 2 || updated.Notes != nil || updated.AttentionOn != nil || updated.WorkflowState != item.StatePaused {
+		t.Fatalf("patch=%d %s row=%+v exists=%v", patched.Code, patched.Body, updated, exists)
 	}
-	if _, err := schedule.NewDate(2026, time.March, 2); err != nil {
-		t.Fatal(err)
+	bodyEqual(t, patched.Body.String(), `{"id":"`+id+`","subjectId":"`+sid+`","title":"New item","notes":null,"attentionOn":null,"workflowState":"paused","attention":"needs_attention","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+}
+
+func TestBodyLimitAllowsMaximumUnicodeAndRejectsOversize(t *testing.T) {
+	for _, tc := range []struct {
+		name, title, notes, wantTitle, wantNotes string
+	}{
+		{name: "literal supplementary characters", title: strings.Repeat("😀", 200), notes: strings.Repeat("𐐷", 4000), wantTitle: strings.Repeat("😀", 200), wantNotes: strings.Repeat("𐐷", 4000)},
+		{name: "escaped supplementary characters", title: strings.Repeat(`\ud83d\ude00`, 200), notes: strings.Repeat(`\ud801\udc37`, 4000), wantTitle: strings.Repeat("😀", 200), wantNotes: strings.Repeat("𐐷", 4000)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(true)
+			body := `{"title":"` + tc.title + `","subjectId":"` + sid + `","notes":"` + tc.notes + `"}`
+			w := f.do("POST", base, body, nil)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status=%d body=%s request bytes=%d", w.Code, w.Body, len(body))
+			}
+			var response Item
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			row, ok := f.repo.Row(response.Id)
+			if !ok || row.Title != tc.wantTitle || row.Notes == nil || *row.Notes != tc.wantNotes || utf8.RuneCountInString(row.Title) != 200 || utf8.RuneCountInString(*row.Notes) != 4000 {
+				t.Fatalf("max fields not persisted: ok=%v titleRunes=%d notesRunes=%d", ok, utf8.RuneCountInString(row.Title), func() int {
+					if row.Notes == nil {
+						return 0
+					}
+					return utf8.RuneCountInString(*row.Notes)
+				}())
+			}
+		})
+	}
+	f := newFixture(true)
+	body := `{"title":"x","subjectId":"` + sid + `","notes":"` + strings.Repeat("x", bodyLimit) + `"}`
+	if w := f.do("POST", base, body, nil); w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body status=%d body=%s", w.Code, w.Body)
 	}
 }
 

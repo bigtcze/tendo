@@ -269,7 +269,7 @@ type SubjectValidationProblemField string
 type UpdateItemRequest struct {
 	Archived *bool `json:"archived,omitempty"`
 
-	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. Null clears the date.
+	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422.
 	AttentionOn **string `json:"attentionOn,omitempty"`
 
 	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes.

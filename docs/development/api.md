@@ -20,7 +20,7 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | 401 | `unauthenticated` | No valid session |
 | 404 | `not_found` | Malformed ID, nonexistent resource, resource of another household, or caller not a member. The bodies are identical |
 | 412 | `precondition_failed` | `If-Match` is malformed, weak, a list, or stale |
-| 413 | `content_too_large` | Body over the limit (4 KiB for subjects) |
+| 413 | `content_too_large` | Body over the limit (4 KiB for subjects; 64 KiB for items) |
 | 415 | `unsupported_media_type` | Body is not `application/json` |
 | 422 | `invalid_length`, `invalid_characters`, `invalid_type` | Validation failure; `field` names the property. Subject names are 1 to 100 characters after trimming and may not contain control, format (zero-width, bidirectional) or line and paragraph separator characters |
 | 428 | `precondition_required` | `If-Match` missing on `PATCH` |
@@ -45,7 +45,8 @@ Checks run in this order and the first failure is returned: 401 session, 403/421
 
 - Create and update accept a title of 1 to 200 Unicode characters after trimming; the stored title is trimmed. Notes, when present, contain 1 to 4,000 Unicode characters and are stored exactly as provided. Send `notes: null` to clear notes. Control, format, and line/paragraph separator characters are rejected in titles; notes also reject those characters except newline, carriage return, and tab.
 - `subjectId` must identify an active subject in the same household. Invalid, archived, or foreign-household subjects return `422 invalid_reference` for `subjectId`.
-- `attentionOn` is an optional date-only value. Without it, the item is `needs_attention` immediately; before the date it is `upcoming`; on or after the date it is `needs_attention`. The derived `attention` is evaluated per request using the household timezone and is not stored.
+- `attentionOn` is an optional date-only value. On creation, without it, the item is `needs_attention` immediately; before the date it is `upcoming`; on or after the date it is `needs_attention`. On PATCH, omitted leaves the stored date unchanged; `null` clears it, making the item need attention immediately. The derived `attention` is evaluated per request using the household timezone and is not stored.
+- Item responses use `Cache-Control: no-store`. The strong ETag identifies the stored item version used for `If-Match`; the derived `attention` value can change at household-local midnight without changing that version.
 - `workflowState` is one of `open`, `in_progress`, `waiting`, or `paused`. Archive and unarchive with the `archived` boolean; archived items remain directly readable and editable.
 - List accepts `limit` (1–100, default 50), opaque `cursor`, and `archived` (`true` or `false`; default `false`). Unknown query parameters are ignored. Results use ascending ID keyset pagination.
 

@@ -199,15 +199,12 @@ func TestCreateRejectsInvalidInputWithoutPersisting(t *testing.T) {
 		{"bad date", item.NewItem{SubjectID: subjectID, Title: "x", AttentionOn: ptr("2026-02-30")}, "attentionOn", "invalid_date"},
 		{"empty date", item.NewItem{SubjectID: subjectID, Title: "x", AttentionOn: ptr("")}, "attentionOn", "invalid_date"},
 		{"malformed subject", item.NewItem{SubjectID: "nope", Title: "x"}, "subjectId", "invalid_reference"},
-		{"empty subject", item.NewItem{Title: "x"}, "subjectId", "invalid_reference"},
+		{"empty subject", item.NewItem{SubjectID: "", Title: "x"}, "subjectId", "invalid_reference"},
 		{"unknown subject", item.NewItem{SubjectID: missingID, Title: "x"}, "subjectId", "invalid_reference"},
 		{"foreign subject", item.NewItem{SubjectID: foreignID, Title: "x"}, "subjectId", "invalid_reference"},
 		{"archived subject", item.NewItem{SubjectID: archivedID, Title: "x"}, "subjectId", "invalid_reference"},
 	} {
 		_, err := e.svc.Create(ctx, userID, householdID, tc.in)
-		if tc.name == "empty subject" {
-			tc.in.SubjectID = ""
-		}
 		validation(t, err, tc.field, tc.code)
 	}
 	if e.repo.Count() != 0 || e.repo.Calls != 0 {
