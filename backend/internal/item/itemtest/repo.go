@@ -20,8 +20,9 @@ type Repo struct {
 	// Err, when set, is returned by every operation.
 	Err error
 	// Clock stamps created and updated times.
-	Clock time.Time
-	seq   int
+	Clock       time.Time
+	seq         int
+	completions []item.Completion
 }
 
 func New() *Repo {
@@ -47,6 +48,55 @@ func (r *Repo) Count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.rows)
+}
+
+func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fingerprint [32]byte, decide item.CompletionDecider) (item.Completion, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current, ok := r.rows[itemID]
+	if !ok || current.HouseholdID != householdID {
+		return item.Completion{}, false, item.ErrNotFound
+	}
+	var existing *item.Completion
+	for i := range r.completions {
+		if r.completions[i].ItemID == itemID && r.completions[i].IdempotencyKey == key {
+			existing = &r.completions[i]
+			break
+		}
+	}
+	plan, err := decide(current, existing)
+	if err != nil {
+		return item.Completion{}, false, err
+	}
+	if existing != nil {
+		return *existing, true, nil
+	}
+	r.seq++
+	plan.Receipt.ID = "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
+	plan.Receipt.Fingerprint = fingerprint
+	plan.Receipt.CreatedAt = r.Clock
+	plan.Item.UpdatedAt = r.Clock.Add(time.Hour)
+	r.rows[itemID] = plan.Item
+	r.completions = append(r.completions, plan.Receipt)
+	return plan.Receipt, false, nil
+}
+func (r *Repo) ListCompletions(_ context.Context, householdID, itemID, after string, limit int) ([]item.Completion, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if i, ok := r.rows[itemID]; !ok || i.HouseholdID != householdID {
+		return nil, item.ErrNotFound
+	}
+	var out []item.Completion
+	for _, v := range r.completions {
+		if v.ItemID == itemID && v.HouseholdID == householdID && v.ID > after {
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (r *Repo) Create(_ context.Context, householdID string, d item.Draft) (item.Item, error) {
@@ -77,7 +127,7 @@ func (r *Repo) Get(_ context.Context, householdID, itemID string) (item.Item, er
 	return i, nil
 }
 
-func (r *Repo) List(_ context.Context, householdID string, archived bool, afterID string, limit int) ([]item.Item, error) {
+func (r *Repo) List(_ context.Context, householdID string, archived, done bool, afterID string, limit int) ([]item.Item, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Calls++
@@ -86,7 +136,7 @@ func (r *Repo) List(_ context.Context, householdID string, archived bool, afterI
 	}
 	var all []item.Item
 	for _, i := range r.rows {
-		if i.HouseholdID == householdID && i.Archived == archived && i.ID > afterID {
+		if i.HouseholdID == householdID && i.Archived == archived && i.Done == done && i.ID > afterID {
 			all = append(all, i)
 		}
 	}
@@ -132,6 +182,7 @@ func (r *Repo) Update(_ context.Context, householdID, itemID string, expected in
 	if c.Archived != nil {
 		i.Archived = *c.Archived
 	}
+	// Done is server-owned and is not writable through Change.
 	i.Version++
 	i.UpdatedAt = r.Clock.Add(time.Hour)
 	r.rows[itemID] = i

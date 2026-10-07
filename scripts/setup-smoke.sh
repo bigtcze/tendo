@@ -280,10 +280,34 @@ assert active_by_id[fixed['id']]['recurrence']==fixed['recurrence'] and active_b
 assert active_by_id[fluid['id']]['recurrence']==fluid['recurrence'] and active_by_id[fluid['id']]['attentionOn']==fluid['attentionOn'],('fluid list recurrence/attention',active_by_id[fluid['id']])
 status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},mut);assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
+# Completion vertical slice: fixed/fluid cadence, one-off lifecycle and receipt idempotency.
+CITEM='/api/v1/households/{householdId}/items/{itemId}/completions'
+cpath=lambda x:ibase+'/'+x+'/completions'
+fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},mut)[2]
+status,_,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
+assert status==201 and receipt['completedOn']=='2026-10-06' and receipt['nextAttentionOn']=='2027-09-01',('fixed completion',status,receipt)
+assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2027-09-01|2|false','fixed completion persistence'
+fluid=ireq('POST',ibase,ICOLL,{'title':'Completion fluid late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':12,'intervalUnit':'month','mode':'after_completion'}},mut)[2]
+status,_,fluid_receipt=ireq('POST',cpath(fluid['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fluid-late'})
+assert status==201 and fluid_receipt['nextAttentionOn']=='2027-10-06' and psql(f"SELECT attention_on::text FROM items WHERE id='{fluid['id']}'")== '2027-10-06',('fluid completion',status,fluid_receipt)
+oneoff=ireq('POST',ibase,ICOLL,{'title':'Completion one off','subjectId':person['id']},mut)[2];complete_headers={**mut,'If-Match':'"1"','Idempotency-Key':'oneoff-key'}
+status,ch,one_receipt=ireq('POST',cpath(oneoff['id']),CITEM,{},complete_headers);assert status==201 and 'ETag' not in ch and one_receipt['itemId']==oneoff['id'],('one-off receipt',status,one_receipt)
+stored_version=psql(f"SELECT version::text FROM items WHERE id='{oneoff['id']}'");status,_,replay=ireq('POST',cpath(oneoff['id']),CITEM,{},complete_headers);assert status==201 and replay==one_receipt and psql(f"SELECT version::text FROM items WHERE id='{oneoff['id']}'")==stored_version,('idempotent replay',status,replay)
+status,_,b=ireq('POST',cpath(oneoff['id']),CITEM,{'completedOn':one_receipt['completedOn']},{**complete_headers,'If-Match':'"2"'});assert status==422 and b['code']=='idempotency_key_reused',('key reused',status,b)
+status,_,b=ireq('POST',cpath(oneoff['id']),CITEM,{}, {**mut,'Idempotency-Key':'missing-match'});assert status==428 and b['code']=='precondition_required',('completion missing If-Match',status,b)
+status,_,b=ireq('POST',cpath(oneoff['id']),CITEM,{}, {**mut,'If-Match':'"1"'});assert status==400 and b['code']=='idempotency_key_required',('completion missing key',status,b)
+status,_,b=ireq('POST',cpath(oneoff['id']),CITEM,{}, {**mut,'If-Match':'"1"','Idempotency-Key':'stale'});assert status==412 and b['code']=='precondition_failed',('completion stale etag',status,b)
+status,_,b=ireq('POST',cpath(oneoff['id']),CITEM,{}, {**mut,'If-Match':'"2"','Idempotency-Key':'archived'});assert status==409 and b['code']=='item_done',('done conflict',status,b)
+assert psql(f"SELECT done||'|'||version FROM items WHERE id='{oneoff['id']}'")== 'true|2','one-off done state'
+status,_,default_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert oneoff['id'] not in [x['id'] for x in default_items['items']],('done item in default list',default_items)
+status,_,done_items=ireq('GET',ibase+'?done=true',ICOLL,headers=cookie_header);assert any(x['id']==oneoff['id'] and x['done'] is True for x in done_items['items']),('done list',done_items)
+status,_,bad_done=ireq('GET',ibase+'?done=bad',ICOLL,headers=cookie_header);assert status==400 and bad_done['code']=='invalid_query' and bad_done['parameter']=='done',('invalid done filter',status,bad_done)
+status,_,history=ireq('GET',cpath(oneoff['id']),CITEM,headers=cookie_header);assert status==200 and len(history['items'])==1 and history['items'][0]==one_receipt,('completion history',status,history)
+status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items/{oneoff["id"]}/completions',CITEM,headers=cookie_header);assert status==404 and b['code']=='not_found',('foreign item completion list',status,b)
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)
 status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign origin items',status,b)
-assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '4' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
+assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '7' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]

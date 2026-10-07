@@ -16,7 +16,7 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | Status | `code` | Meaning |
 | --- | --- | --- |
 | 400 | `invalid_request` | Malformed JSON, unknown, duplicate or null keys, wrong value types, empty patch |
-| 400 | `invalid_query` | Bad query parameter; the `parameter` field names `limit`, `cursor`, or `archived` |
+| 400 | `invalid_query` | Bad query parameter; the `parameter` field names `limit`, `cursor`, `archived`, or `done` |
 | 401 | `unauthenticated` | No valid session |
 | 404 | `not_found` | Malformed ID, nonexistent resource, resource of another household, or caller not a member. The bodies are identical |
 | 412 | `precondition_failed` | `If-Match` is malformed, weak, a list, or stale |
@@ -48,13 +48,21 @@ Checks run in this order and the first failure is returned: 401 session, 403/421
 - `attentionOn` is an optional date-only value. On creation, without it, the item is `needs_attention` immediately; before the date it is `upcoming`; on or after the date it is `needs_attention`. On PATCH, omitted leaves the stored date unchanged; `null` clears it, making the item need attention immediately. The derived `attention` is evaluated per request using the household timezone and is not stored.
 - Item responses use `Cache-Control: no-store`. The strong ETag identifies the stored item version used for `If-Match`; the derived `attention` value can change at household-local midnight without changing that version.
 - `workflowState` is one of `open`, `in_progress`, `waiting`, or `paused`. Archive and unarchive with the `archived` boolean; archived items remain directly readable and editable.
-- `recurrence` is null for Repeat OFF (one-off). On create, omitted or null means one-off. On PATCH, omitted leaves the policy unchanged, null turns Repeat off, and an object replaces the whole policy. A policy contains an integer interval value (1–999), unit (`day`, `week`, `month`, `year`), and mode. Non-integer JSON values, including fractions and exponent notation, are `400 invalid_request`; integer literals beyond signed 64-bit range are clamped for validation and return `422 invalid_interval`. Repeat and Fluid are distinct choices: `fixed` means Repeat ON / Fluid OFF; `after_completion` means Repeat ON / Fluid ON. The policy only changes what would happen at the next completion; completion behavior is not implemented yet. Setting, changing, or clearing recurrence does not reschedule `attentionOn`; `attention` remains derived from `attentionOn` and household-local today.
+- `recurrence` is null for Repeat OFF (one-off). On create, omitted or null means one-off. On PATCH, omitted leaves the policy unchanged, null turns Repeat off, and an object replaces the whole policy. A policy contains an integer interval value (1–999), unit (`day`, `week`, `month`, `year`), and mode. Non-integer JSON values, including fractions and exponent notation, are `400 invalid_request`; integer literals beyond signed 64-bit range are clamped for validation and return `422 invalid_interval`. Repeat and Fluid are distinct choices: `fixed` means Repeat ON / Fluid OFF; `after_completion` means Repeat ON / Fluid ON. The policy determines the next cycle when the item is completed. Setting, changing, or clearing recurrence does not reschedule `attentionOn`; `attention` remains derived from `attentionOn` and household-local today.
 - Invalid recurrence values return 422 with `field: recurrence` and `invalid_interval`, `invalid_interval_unit`, or `invalid_mode`.
 - List accepts `limit` (1–100, default 50), opaque `cursor`, and `archived` (`true` or `false`; default `false`). Unknown query parameters are ignored. Results use ascending ID keyset pagination.
 
+## Completions
+
+- Create a receipt with `POST /api/v1/households/{householdId}/items/{itemId}/completions`. `Idempotency-Key` is required, case-sensitive, 1–128 visible ASCII bytes with no normalization. `If-Match` must contain the current strong item ETag. The body may be `{}` (household-local today) or specify `completedOn` as a valid, non-future business date.
+- Evaluation order is session/origin, If-Match presence/syntax, idempotency header, media/body validation, household membership/item existence, then idempotency lookup under the item lock before future-date, version, lifecycle, and recurrence-overflow checks. The fingerprint binds actor and submitted-date presence/value; it excludes If-Match and resolved today. Identical retries replay the same receipt and Location without a version bump, including across local midnight. A differing request with the same key returns `422 idempotency_key_reused`.
+- Success is `201` with a durable receipt and no ETag; GET the item for its current ETag. A recurring item advances from the policy snapshot (fixed cadence or after-completion) and resets workflow state to open. A one-off becomes done while its receipt remains in history. Archived and done items cannot be completed; unarchive or enabling recurrence does not reopen a done item.
+- GET `/completions` returns receipts in ascending ID order using `c1:` keyset cursors (base64url without padding); limit defaults to 50 and caps at 100. Membership and item existence are required; archived/done items remain readable.
+- Item responses include read-only `done` and nullable `lastCompletedOn`; the latter is from the completion with greatest `item_version_before`, not greatest completed date. Item listing filters exact-match `done` (default false), independently of `archived`.
+
 ## Concurrency
 
-- Single-resource `GET`, `POST` (create) and `PATCH` responses return a strong `ETag` such as `"3"`, the resource version. The version is not in the body.
+- Single-resource `GET`, item/subject `POST` (create), and `PATCH` responses return a strong `ETag` such as `"3"`, the resource version. Completion `POST` returns a receipt without an ETag; fetch the item afterward for its current ETag. The version is not in the body.
 - `PATCH` requires `If-Match` with one strong ETag. Missing returns `428`; anything not matching `^"[1-9][0-9]*"$`, or a stale version, returns `412`.
 - Every successful update increments the version.
 

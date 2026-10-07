@@ -14,7 +14,7 @@ import (
 const createItem = `-- name: CreateItem :one
 INSERT INTO items (household_id, subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode)
 VALUES ($1, $2, $3, $4::text, $5::date, $6::integer, $7::text, $8::text)
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type CreateItemParams struct {
@@ -40,6 +40,8 @@ type CreateItemRow struct {
 	RecurrenceMode          pgtype.Text
 	WorkflowState           string
 	Archived                bool
+	Done                    bool
+	LastCompletedOn         pgtype.Date
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
 	Version                 int64
@@ -69,6 +71,8 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		&i.RecurrenceMode,
 		&i.WorkflowState,
 		&i.Archived,
+		&i.Done,
+		&i.LastCompletedOn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
@@ -77,9 +81,9 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 }
 
 const getItem = `-- name: GetItem :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
-WHERE household_id = $1 AND id = $2
+WHERE items.household_id = $1 AND items.id = $2
 `
 
 type GetItemParams struct {
@@ -99,6 +103,8 @@ type GetItemRow struct {
 	RecurrenceMode          pgtype.Text
 	WorkflowState           string
 	Archived                bool
+	Done                    bool
+	LastCompletedOn         pgtype.Date
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
 	Version                 int64
@@ -119,6 +125,8 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 		&i.RecurrenceMode,
 		&i.WorkflowState,
 		&i.Archived,
+		&i.Done,
+		&i.LastCompletedOn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
@@ -127,16 +135,17 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 }
 
 const listItems = `-- name: ListItems :many
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
-WHERE household_id = $1 AND archived = $2 AND id > $3
+WHERE items.household_id = $1 AND archived = $2 AND done = $3 AND items.id > $4
 ORDER BY id ASC
-LIMIT $4
+LIMIT $5
 `
 
 type ListItemsParams struct {
 	HouseholdID pgtype.UUID
 	Archived    bool
+	Done        bool
 	AfterID     pgtype.UUID
 	RowLimit    int32
 }
@@ -153,6 +162,8 @@ type ListItemsRow struct {
 	RecurrenceMode          pgtype.Text
 	WorkflowState           string
 	Archived                bool
+	Done                    bool
+	LastCompletedOn         pgtype.Date
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
 	Version                 int64
@@ -162,6 +173,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 	rows, err := q.db.Query(ctx, listItems,
 		arg.HouseholdID,
 		arg.Archived,
+		arg.Done,
 		arg.AfterID,
 		arg.RowLimit,
 	)
@@ -184,6 +196,8 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.RecurrenceMode,
 			&i.WorkflowState,
 			&i.Archived,
+			&i.Done,
+			&i.LastCompletedOn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
@@ -211,8 +225,8 @@ SET title = COALESCE($1::text, title),
     archived = COALESCE($12::boolean, archived),
     version = version + 1,
     updated_at = now()
-WHERE household_id = $13 AND id = $14 AND version = $15
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, created_at, updated_at, version
+WHERE items.household_id = $13 AND items.id = $14 AND version = $15
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type UpdateItemParams struct {
@@ -245,6 +259,8 @@ type UpdateItemRow struct {
 	RecurrenceMode          pgtype.Text
 	WorkflowState           string
 	Archived                bool
+	Done                    bool
+	LastCompletedOn         pgtype.Date
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
 	Version                 int64
@@ -281,6 +297,8 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateI
 		&i.RecurrenceMode,
 		&i.WorkflowState,
 		&i.Archived,
+		&i.Done,
+		&i.LastCompletedOn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,

@@ -130,6 +130,9 @@ func TestParseListParams(t *testing.T) {
 	if p, bad := parse("other=1"); bad != "" || p != (ListParams{}) {
 		t.Fatalf("p=%+v bad=%s", p, bad)
 	}
+	if p, ok := ParseListParamsFor(httptest.NewRecorder(), httptest.NewRequest("GET", "/?done=bad", nil), 100, ListFilterArchived); !ok || p.Done {
+		t.Fatalf("subjects filter parsed done: %+v ok=%v", p, ok)
+	}
 	for query, want := range map[string]string{
 		"limit=0": "limit", "limit=101": "limit", "limit=1&limit=2": "limit", "limit=%2B5": "limit", "limit=": "limit",
 		"cursor=": "cursor", "cursor=a&cursor=b": "cursor",

@@ -70,11 +70,29 @@ type ListParams struct {
 	Limit    int
 	Cursor   string
 	Archived bool
+	Done     bool
 }
 
-// ParseListParams parses limit, cursor, and archived in that order. On failure
+type ListFilter int
+
+const (
+	ListFilterArchived ListFilter = iota + 1
+	ListFilterDone
+	ListFilterArchivedDone
+)
+
+// ParseListParamsFor parses common pagination and only the filters enabled for this endpoint.
+func ParseListParamsFor(w http.ResponseWriter, r *http.Request, maxLimit int, filter ListFilter) (ListParams, bool) {
+	return parseListParams(w, r, maxLimit, filter)
+}
+
+// ParseListParams parses limit, cursor and archived. Endpoint-specific filters
+// are enabled with ParseListParamsFor. On failure
 // it writes the invalid_query problem naming the first offender.
 func ParseListParams(w http.ResponseWriter, r *http.Request, maxLimit int) (ListParams, bool) {
+	return parseListParams(w, r, maxLimit, ListFilterArchived)
+}
+func parseListParams(w http.ResponseWriter, r *http.Request, maxLimit int, filter ListFilter) (ListParams, bool) {
 	var p ListParams
 	values := r.URL.Query()
 	if v, present := values["limit"]; present {
@@ -92,12 +110,23 @@ func ParseListParams(w http.ResponseWriter, r *http.Request, maxLimit int) (List
 		}
 		p.Cursor = v[0]
 	}
-	if v, present := values["archived"]; present {
-		if len(v) != 1 || (v[0] != "true" && v[0] != "false") {
-			QueryProblemResponse(w, "archived")
-			return p, false
+	if filter == ListFilterArchived || filter == ListFilterArchivedDone {
+		if v, present := values["archived"]; present {
+			if len(v) != 1 || (v[0] != "true" && v[0] != "false") {
+				QueryProblemResponse(w, "archived")
+				return p, false
+			}
+			p.Archived = v[0] == "true"
 		}
-		p.Archived = v[0] == "true"
+	}
+	if filter == ListFilterDone || filter == ListFilterArchivedDone {
+		if v, present := values["done"]; present {
+			if len(v) != 1 || (v[0] != "true" && v[0] != "false") {
+				QueryProblemResponse(w, "done")
+				return p, false
+			}
+			p.Done = v[0] == "true"
+		}
 	}
 	return p, true
 }
@@ -121,6 +150,14 @@ func parseLimit(values []string, maxLimit int) (int, bool) {
 // ReadObject enforces JSON media type, a body size bound, and the strict object
 // decoder. On failure it writes the problem response and returns false.
 func ReadObject(w http.ResponseWriter, r *http.Request, fields map[string]Field, bodyLimit int64) (map[string]any, bool) {
+	return readObject(w, r, fields, bodyLimit, false)
+}
+
+func ReadObjectAllowEmpty(w http.ResponseWriter, r *http.Request, fields map[string]Field, bodyLimit int64) (map[string]any, bool) {
+	return readObject(w, r, fields, bodyLimit, true)
+}
+
+func readObject(w http.ResponseWriter, r *http.Request, fields map[string]Field, bodyLimit int64, allowEmpty bool) (map[string]any, bool) {
 	media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	charset, hasCharset := params["charset"]
 	if err != nil || !strings.EqualFold(media, "application/json") || len(params) > 1 || (len(params) == 1 && (!hasCharset || !strings.EqualFold(charset, "utf-8"))) {
@@ -136,7 +173,7 @@ func ReadObject(w http.ResponseWriter, r *http.Request, fields map[string]Field,
 		ProblemResponse(w, http.StatusRequestEntityTooLarge, "content_too_large")
 		return nil, false
 	}
-	values, err := DecodeObject(body, fields)
+	values, err := decodeObject(body, fields, allowEmpty)
 	if err != nil {
 		ProblemResponse(w, http.StatusBadRequest, "invalid_request")
 		return nil, false
@@ -148,6 +185,9 @@ func ReadObject(w http.ResponseWriter, r *http.Request, fields map[string]Field,
 // duplicates, unknown keys, disallowed nulls, or wrongly typed values. The
 // object must be non-empty and contain every required key.
 func DecodeObject(body []byte, fields map[string]Field) (map[string]any, error) {
+	return decodeObject(body, fields, false)
+}
+func decodeObject(body []byte, fields map[string]Field, allowEmpty bool) (map[string]any, error) {
 	if !utf8.Valid(body) {
 		return nil, fmt.Errorf("invalid UTF-8")
 	}
@@ -213,7 +253,7 @@ func DecodeObject(body []byte, fields map[string]Field) (map[string]any, error) 
 			if field.Fields == nil {
 				return nil, fmt.Errorf("missing nested schema")
 			}
-			v, err := DecodeObject(raw, field.Fields)
+			v, err := decodeObject(raw, field.Fields, false)
 			if err != nil {
 				return nil, err
 			}
@@ -226,7 +266,7 @@ func DecodeObject(body []byte, fields map[string]Field) (map[string]any, error) 
 	if dec.Decode(new(any)) != io.EOF {
 		return nil, fmt.Errorf("trailing data")
 	}
-	if len(values) == 0 {
+	if len(values) == 0 && !allowEmpty {
 		return nil, fmt.Errorf("empty object")
 	}
 	for key, field := range fields {

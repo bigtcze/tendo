@@ -44,6 +44,8 @@ type service interface {
 	Get(ctx context.Context, userID, householdID, itemID string) (item.Item, error)
 	List(ctx context.Context, userID, householdID string, q item.ListQuery) (item.Page, error)
 	Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p item.Patch) (item.Item, error)
+	Complete(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, key string, request item.CompletionRequest) (item.Completion, bool, error)
+	ListCompletions(ctx context.Context, userID, householdID, itemID string, limit int, cursor string) (item.CompletionPage, error)
 }
 
 // Handler serves item resources. Authentication is injected so this package
@@ -65,6 +67,7 @@ func (h *Handler) Register(r chi.Router) {
 	r.With(h.auth).Get("/api/v1/households/{householdId}/items", h.list)
 	r.With(h.auth).Get("/api/v1/households/{householdId}/items/{itemId}", h.get)
 	r.With(h.auth).Patch("/api/v1/households/{householdId}/items/{itemId}", h.update)
+	h.RegisterCompletionRoutes(r)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -111,11 +114,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.ProblemResponse(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	params, ok := httpx.ParseListParams(w, r, item.MaxLimit)
+	params, ok := httpx.ParseListParamsFor(w, r, item.MaxLimit, httpx.ListFilterArchivedDone)
 	if !ok {
 		return
 	}
-	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Archived: params.Archived, Limit: params.Limit, Cursor: params.Cursor})
+	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor})
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -256,10 +259,17 @@ func recurrenceJSON(policy *schedule.Policy) *ItemRecurrence {
 }
 
 func toJSON(i item.Item) Item {
-	out := Item{Id: i.ID, SubjectId: i.SubjectID, Title: i.Title, Notes: i.Notes, Recurrence: recurrenceJSON(i.Recurrence), WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
+	done := i.Done
+	out := Item{Id: i.ID, SubjectId: i.SubjectID, Title: i.Title, Notes: i.Notes, Recurrence: recurrenceJSON(i.Recurrence), WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, Done: &done, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
 	if i.AttentionOn != nil {
 		s := i.AttentionOn.String()
 		out.AttentionOn = &s
 	}
+	var last *string
+	if i.LastCompletedOn != nil {
+		s := i.LastCompletedOn.String()
+		last = &s
+	}
+	out.LastCompletedOn = &last
 	return out
 }

@@ -32,7 +32,7 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
     if (operation.requestBody) {
       const schema = operation.requestBody.content?.['application/json']?.schema
       assert.ok(schema?.$ref && generated.includes(`components["schemas"]["${schema.$ref.split('/').at(-1)}"]`), `${operation.operationId}: missing generated request model`)
-      assert.ok(operation.requestBody.content['application/json'].example, `${operation.operationId}: missing request example`)
+      assert.ok(operation.requestBody.content['application/json'].example || Object.keys(operation.requestBody.content['application/json'].examples ?? {}).length, `${operation.operationId}: missing request example`)
     }
   }
 }

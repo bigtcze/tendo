@@ -42,6 +42,25 @@ type Item struct {
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
+	Done                    bool
+}
+
+type ItemCompletion struct {
+	ID                      pgtype.UUID
+	HouseholdID             pgtype.UUID
+	ItemID                  pgtype.UUID
+	CompletedOn             pgtype.Date
+	CompletedByUserID       pgtype.UUID
+	CycleAttentionOn        pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	PriorWorkflowState      string
+	NextAttentionOn         pgtype.Date
+	ItemVersionBefore       int64
+	IdempotencyKey          string
+	RequestFingerprint      []byte
+	CreatedAt               pgtype.Timestamptz
 }
 
 type LocalCredential struct {

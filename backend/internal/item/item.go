@@ -71,19 +71,21 @@ func ParseWorkflowState(s string) (WorkflowState, bool) {
 // populated by repositories but are not part of the public representation.
 // Attention is derived by the Service and is never stored.
 type Item struct {
-	ID            string
-	HouseholdID   string
-	SubjectID     string
-	Title         string
-	Notes         *string
-	AttentionOn   *schedule.Date
-	Recurrence    *schedule.Policy
-	WorkflowState WorkflowState
-	Attention     schedule.Attention
-	Archived      bool
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Version       int64
+	ID              string
+	HouseholdID     string
+	SubjectID       string
+	Title           string
+	Notes           *string
+	AttentionOn     *schedule.Date
+	Recurrence      *schedule.Policy
+	WorkflowState   WorkflowState
+	Attention       schedule.Attention
+	Archived        bool
+	Done            bool
+	LastCompletedOn *schedule.Date
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Version         int64
 }
 
 type ValidationError struct{ Field, Code string }
@@ -155,6 +157,7 @@ type Change struct {
 
 type ListQuery struct {
 	Archived bool
+	Done     bool
 	// Limit 0 selects DefaultLimit.
 	Limit  int
 	Cursor string
@@ -175,7 +178,9 @@ type Page struct {
 type Repository interface {
 	Create(ctx context.Context, householdID string, d Draft) (Item, error)
 	Get(ctx context.Context, householdID, itemID string) (Item, error)
-	List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]Item, error)
+	List(ctx context.Context, householdID string, archived, done bool, afterID string, limit int) ([]Item, error)
+	Complete(ctx context.Context, householdID, itemID, key string, fingerprint [32]byte, decide CompletionDecider) (Completion, bool, error)
+	ListCompletions(ctx context.Context, householdID, itemID, afterID string, limit int) ([]Completion, error)
 	Update(ctx context.Context, householdID, itemID string, expectedVersion int64, c Change) (Item, error)
 }
 
@@ -342,7 +347,7 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := s.repository.List(ctx, householdID, q.Archived, after, limit+1)
+	rows, err := s.repository.List(ctx, householdID, q.Archived, q.Done, after, limit+1)
 	if err != nil {
 		return Page{}, ErrUnavailable
 	}
