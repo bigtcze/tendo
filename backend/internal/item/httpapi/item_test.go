@@ -136,6 +136,9 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	_ = json.Unmarshal(created.Body.Bytes(), &createdBody)
 	id := createdBody["id"].(string)
 	row, ok := f.repo.Row(id)
+	if !ok {
+		t.Fatalf("created item %s was not persisted", id)
+	}
 	if created.Code != 201 || created.Header().Get("ETag") != `"1"` || created.Header().Get("Location") != base+"/"+id || row.Title != "New item" || row.Notes == nil || *row.Notes != "  keep\n " || row.Version != 1 || row.WorkflowState != item.StateOpen {
 		t.Fatalf("status=%d headers=%v body=%s row=%+v", created.Code, created.Header(), created.Body, row)
 	}
