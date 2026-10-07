@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n';
 import { api } from '../../lib/api';
 import type { Session } from '../auth/sessionApi';
 import { Heading } from '../../app/Heading';
+import { ItemsScreen } from '../items/ItemsScreen';
 
 type HouseholdState =
   | { kind: 'loading' }
@@ -43,7 +44,9 @@ export function HomeScreen({
           if (!cancelled) onSignedOut();
           return;
         }
-        if (data && response.status === 200) next = { kind: 'ready', name: data.name };
+        if (data && response.status === 200) {
+          next = { kind: 'ready', name: data.name };
+        }
         else if (response.status === 404) next = { kind: 'none' };
       } catch {
         // keep error state
@@ -73,9 +76,8 @@ export function HomeScreen({
       {household.kind === 'ready' ? (
         <section className="settle">
           <Heading className="font-display text-4xl leading-tight sm:text-5xl">{household.name}</Heading>
-          <div className="mt-10 rounded-3xl border border-line bg-white/70 p-8 sm:p-12">
-            <h2 className="font-display text-2xl leading-snug">{t('home.empty.title')}</h2>
-            <p className="mt-3 text-muted">{t('home.empty.body')}</p>
+          <div className="mt-8">
+            <ItemsScreen householdId={householdId!} onOpenPeople={onOpenPeople} onSignedOut={onSignedOut} />
           </div>
           <NavLink
             href="/people"
