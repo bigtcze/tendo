@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/item/postgres/dbgen"
@@ -86,13 +88,41 @@ func decodeReceipt(id, household, itemID, userID string, completed, cycle, next 
 const sha256Size = 32
 
 func completionFromRow(r dbgen.InsertCompletionRow) (item.Completion, error) {
-	return decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
 }
 func completionFromExisting(r dbgen.GetCompletionByKeyRow) (item.Completion, error) {
-	return decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
 }
 func completionFromList(r dbgen.ListCompletionsRow) (item.Completion, error) {
-	return decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
+}
+
+func withUndo(c item.Completion, at pgtype.Timestamptz, userID pgtype.UUID, err error) (item.Completion, error) {
+	if err != nil {
+		return item.Completion{}, err
+	}
+	if at.Valid != userID.Valid {
+		return item.Completion{}, errPersistence
+	}
+	if !at.Valid {
+		return c, nil
+	}
+	if at.InfinityModifier != pgtype.Finite {
+		return item.Completion{}, errPersistence
+	}
+	t := at.Time.UTC()
+	c.UndoneAt = &t
+	u := uuidString(userID)
+	c.UndoneByUserID = &u
+	return c, nil
+}
+
+func completionFromUndo(r dbgen.GetCompletionForUndoRow) (item.Completion, error) {
+	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
+	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
 }
 func completionCurrent(r dbgen.LockItemForCompletionRow) (item.Item, error) {
 	return toItem(row{ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn, RecurrenceIntervalValue: r.RecurrenceIntervalValue, RecurrenceIntervalUnit: r.RecurrenceIntervalUnit, RecurrenceMode: r.RecurrenceMode, WorkflowState: r.WorkflowState, Archived: r.Archived, Done: r.Done, LastCompletedOn: r.LastCompletedOn, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Version: r.Version})
@@ -175,7 +205,79 @@ func (r *Repository) Complete(ctx context.Context, hid, iid, key string, fingerp
 	}
 	return result, false, nil
 }
+func (r *Repository) UndoCompletion(ctx context.Context, hid, iid, cid string, decide item.CompletionUndoDecider) (item.Completion, error) {
+	h, ok1 := parseUUID(hid)
+	i, ok2 := parseUUID(iid)
+	c, ok3 := parseUUID(cid)
+	if !ok1 || !ok2 || !ok3 {
+		return item.Completion{}, item.ErrNotFound
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	defer tx.Rollback(ctx)
+	q := dbgen.New(tx)
+	locked, err := q.LockItemForCompletion(ctx, dbgen.LockItemForCompletionParams{HouseholdID: h, ID: i})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item.Completion{}, item.ErrNotFound
+	}
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	current, err := completionCurrent(locked)
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	raw, err := q.GetCompletionForUndo(ctx, dbgen.GetCompletionForUndoParams{HouseholdID: h, ItemID: i, ID: c})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item.Completion{}, item.ErrNotFound
+	}
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	receipt, err := completionFromUndo(raw)
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	var latest *int64
+	lv, err := q.LatestActiveCompletionVersion(ctx, dbgen.LatestActiveCompletionVersionParams{HouseholdID: h, ItemID: i})
+	if err == nil {
+		latest = &lv
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return item.Completion{}, errPersistence
+	}
+	plan, err := decide(current, receipt, latest)
+	if err != nil {
+		return item.Completion{}, err
+	}
+	if plan.Apply {
+		rows, e := q.MarkCompletionUndone(ctx, dbgen.MarkCompletionUndoneParams{HouseholdID: h, ItemID: i, ID: c, UndoneAt: pgtype.Timestamptz{Time: plan.UndoneAt, Valid: true}, UndoneByUserID: uuid(plan.UndoneByUserID)})
+		if e != nil || rows != 1 {
+			return item.Completion{}, errPersistence
+		}
+		if e = q.UpdateItemForUndo(ctx, dbgen.UpdateItemForUndoParams{HouseholdID: h, ID: i, AttentionOn: dbDate(plan.Item.AttentionOn), WorkflowState: string(plan.Item.WorkflowState)}); e != nil {
+			return item.Completion{}, errPersistence
+		}
+		stored, e := q.GetCompletionForUndo(ctx, dbgen.GetCompletionForUndoParams{HouseholdID: h, ItemID: i, ID: c})
+		if e != nil {
+			return item.Completion{}, errPersistence
+		}
+		plan.Receipt, e = completionFromUndo(stored)
+		if e != nil {
+			return item.Completion{}, errPersistence
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return item.Completion{}, errPersistence
+	}
+	return plan.Receipt, nil
+}
+
 func uuid(s string) pgtype.UUID { u, _ := parseUUID(s); return u }
+func uuidString(u pgtype.UUID) string {
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", binary.BigEndian.Uint32(u.Bytes[0:4]), binary.BigEndian.Uint16(u.Bytes[4:6]), binary.BigEndian.Uint16(u.Bytes[6:8]), binary.BigEndian.Uint16(u.Bytes[8:10]), u.Bytes[10:16])
+}
 func (r *Repository) ListCompletions(ctx context.Context, hid, iid, after string, limit int) ([]item.Completion, error) {
 	h, ok1 := parseUUID(hid)
 	id, ok2 := parseUUID(iid)

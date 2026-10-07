@@ -12,10 +12,12 @@ import (
 const completionBodyLimit = 4 << 10
 
 var completionFields = map[string]httpx.Field{"completedOn": {Kind: httpx.KindString}}
+var undoFields = map[string]httpx.Field{"undone": {Kind: httpx.KindBool, Required: true}}
 
 func (h *Handler) RegisterCompletionRoutes(r chi.Router) {
 	r.With(h.auth).Post("/api/v1/households/{householdId}/items/{itemId}/completions", h.createCompletion)
 	r.With(h.auth).Get("/api/v1/households/{householdId}/items/{itemId}/completions", h.listCompletions)
+	r.With(h.auth).Patch("/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}", h.undoCompletion)
 }
 func (h *Handler) createCompletion(w http.ResponseWriter, r *http.Request) {
 	uid, ok := h.userID(r.Context())
@@ -55,6 +57,32 @@ func (h *Handler) createCompletion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/api/v1/households/"+hID+"/items/"+iID+"/completions/"+strings.ToLower(result.ID))
 	httpx.WriteJSON(w, 201, completionJSON(result))
 }
+func (h *Handler) undoCompletion(w http.ResponseWriter, r *http.Request) {
+	uid, ok := h.userID(r.Context())
+	if !ok {
+		httpx.ProblemResponse(w, 401, "unauthenticated")
+		return
+	}
+	expected, ok := httpx.ParseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	values, ok := httpx.ReadObject(w, r, undoFields, completionBodyLimit)
+	if !ok {
+		return
+	}
+	if !values["undone"].(bool) {
+		httpx.ValidationProblemResponse(w, "undone", "invalid_value")
+		return
+	}
+	result, err := h.service.UndoCompletion(r.Context(), uid, chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId"), chi.URLParam(r, "completionId"), expected)
+	if err != nil {
+		writeCompletionError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, 200, completionJSON(result))
+}
+
 func (h *Handler) listCompletions(w http.ResponseWriter, r *http.Request) {
 	uid, ok := h.userID(r.Context())
 	if !ok {
@@ -78,7 +106,11 @@ func (h *Handler) listCompletions(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, 200, out)
 }
 func completionJSON(c item.Completion) Completion {
-	out := Completion{Id: c.ID, ItemId: c.ItemID, CompletedByUserId: c.CompletedByUserID, CompletedOn: c.CompletedOn.String(), CreatedAt: c.CreatedAt.UTC(), Recurrence: recurrenceJSON(c.Recurrence)}
+	out := Completion{Id: c.ID, ItemId: c.ItemID, CompletedByUserId: c.CompletedByUserID, CompletedOn: c.CompletedOn.String(), CreatedAt: c.CreatedAt.UTC(), Recurrence: recurrenceJSON(c.Recurrence), UndoneByUserId: c.UndoneByUserID}
+	if c.UndoneAt != nil {
+		at := c.UndoneAt.UTC()
+		out.UndoneAt = &at
+	}
 	if c.CycleAttentionOn != nil {
 		s := c.CycleAttentionOn.String()
 		out.CycleAttentionOn = &s
@@ -101,6 +133,8 @@ func writeCompletionError(w http.ResponseWriter, err error) {
 		httpx.ProblemResponse(w, 409, "item_archived")
 	case errors.Is(err, item.ErrDone):
 		httpx.ProblemResponse(w, 409, "item_done")
+	case errors.Is(err, item.ErrCompletionNotLatest):
+		httpx.ProblemResponse(w, 409, "completion_not_latest")
 	case errors.Is(err, item.ErrIdempotencyKeyReused):
 		httpx.ProblemResponse(w, 422, "idempotency_key_reused")
 	case errors.As(err, &v):

@@ -180,6 +180,7 @@ type Repository interface {
 	Get(ctx context.Context, householdID, itemID string) (Item, error)
 	List(ctx context.Context, householdID string, archived, done bool, afterID string, limit int) ([]Item, error)
 	Complete(ctx context.Context, householdID, itemID, key string, fingerprint [32]byte, decide CompletionDecider) (Completion, bool, error)
+	UndoCompletion(ctx context.Context, householdID, itemID, completionID string, decide CompletionUndoDecider) (Completion, error)
 	ListCompletions(ctx context.Context, householdID, itemID, afterID string, limit int) ([]Completion, error)
 	Update(ctx context.Context, householdID, itemID string, expectedVersion int64, c Change) (Item, error)
 }

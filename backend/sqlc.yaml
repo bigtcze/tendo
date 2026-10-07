@@ -31,7 +31,7 @@ sql:
         emit_interface: true
         emit_empty_slices: true
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql", "internal/platform/database/006_item_recurrence.sql", "internal/platform/database/007_item_completions.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql", "internal/platform/database/006_item_recurrence.sql", "internal/platform/database/007_item_completions.sql", "internal/platform/database/008_completion_undo.sql"]
     queries: "internal/item/postgres/queries"
     gen:
       go:

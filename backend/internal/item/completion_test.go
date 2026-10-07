@@ -225,6 +225,126 @@ func TestCompletionPolicySnapshotSurvivesLaterEdit(t *testing.T) {
 	}
 }
 
+func TestUndoLatestCompletionRestoresCycleAndChains(t *testing.T) {
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01"), Recurrence: policy, WorkflowState: item.StateWaiting})
+	day := "2026-10-20"
+	first, _, err := runCompletion(t, e, missingID, "first", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := runCompletion(t, e, missingID, "second", 2, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, first.ID, 3); !errors.Is(err, item.ErrCompletionNotLatest) {
+		t.Fatalf("not latest err=%v", err)
+	}
+	undone, err := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, second.ID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.Version != 4 || row.AttentionOn == nil || row.AttentionOn.String() != "2027-09-01" || row.WorkflowState != item.StateOpen || row.LastCompletedOn == nil || row.LastCompletedOn.String() != day {
+		t.Fatalf("restored=%+v", row)
+	}
+	// Replay is independent of the now-stale ETag and does not increment again.
+	replay, err := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, second.ID, 1)
+	if err != nil || replay.UndoneAt == nil || undone.ID != replay.ID {
+		t.Fatalf("replay=%+v err=%v", replay, err)
+	}
+	after, _ := e.repo.Row(missingID)
+	if after.Version != 4 {
+		t.Fatalf("replay changed version: %+v", after)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, first.ID, 4); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.Version != 5 || row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.WorkflowState != item.StateWaiting || row.LastCompletedOn != nil {
+		t.Fatalf("chained restore=%+v", row)
+	}
+}
+
+func TestUndoOneOffAndPolicyUnaffected(t *testing.T) {
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01"), WorkflowState: item.StateWaiting})
+	day := "2026-10-20"
+	receipt, _, err := runCompletion(t, e, missingID, "oneoff", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.Done || row.Version != 3 || row.WorkflowState != item.StateWaiting || row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.LastCompletedOn != nil {
+		t.Fatalf("undo state=%+v", row)
+	}
+}
+
+func TestUndoPreservesCurrentEditsExceptCycleSnapshot(t *testing.T) {
+	anchor := d("2026-09-01")
+	fixed := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: anchor, Recurrence: fixed, WorkflowState: item.StateWaiting, Title: "before"})
+	day := "2026-10-20"
+	receipt, _, err := runCompletion(t, e, missingID, "edit-undo", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fluid := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+	title, notes, state, attention := "edited title", "edited notes", string(item.StatePaused), "2030-04-05"
+	_, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{Title: &title, Notes: item.Some(notes), WorkflowState: &state, AttentionOn: item.Some(attention), Recurrence: item.Some(fluid)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 3); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.Title != title || row.Notes == nil || *row.Notes != notes || row.SubjectID != subjectID || row.Recurrence == nil || *row.Recurrence != fluid || row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.WorkflowState != item.StateWaiting || row.Done || row.Version != 4 {
+		t.Fatalf("undo did not preserve user edits/restore snapshot: %+v", row)
+	}
+}
+
+func TestUndoOverwritesAttentionEditedAfterCompletion(t *testing.T) {
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}, WorkflowState: item.StateWaiting})
+	day := "2026-10-20"
+	receipt, _, err := runCompletion(t, e, missingID, "attention-snapshot", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newAttention := "2030-04-05"
+	if _, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{AttentionOn: item.Some(newAttention)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 3); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.WorkflowState != item.StateWaiting || row.Done || row.Version != 4 {
+		t.Fatalf("attention snapshot not restored: %+v", row)
+	}
+}
+
+func TestUndoRejectsStaleAndArchived(t *testing.T) {
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}})
+	day := "2026-10-20"
+	c, _, err := runCompletion(t, e, missingID, "undo", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, c.ID, 1); !errors.Is(err, item.ErrVersionMismatch) {
+		t.Fatalf("stale=%v", err)
+	}
+	_, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{Archived: ptr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, c.ID, 3); !errors.Is(err, item.ErrArchived) {
+		t.Fatalf("archived=%v", err)
+	}
+}
+
 func TestListCompletionsInvalidQueryNames(t *testing.T) {
 	e := newEnv("UTC")
 	for _, tc := range []struct {

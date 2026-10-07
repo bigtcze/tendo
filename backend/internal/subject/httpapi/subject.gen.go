@@ -18,6 +18,7 @@ const (
 const (
 	CompletionProblemFieldCompletedOn CompletionProblemField = "completedOn"
 	CompletionProblemFieldRecurrence  CompletionProblemField = "recurrence"
+	CompletionProblemFieldUndone      CompletionProblemField = "undone"
 )
 
 // Defines values for ItemAttention.
@@ -92,6 +93,11 @@ const (
 	Type SubjectValidationProblemField = "type"
 )
 
+// Defines values for UndoCompletionRequestUndone.
+const (
+	True UndoCompletionRequestUndone = true
+)
+
 // Defines values for ValidationProblemField.
 const (
 	HouseholdName ValidationProblemField = "householdName"
@@ -118,6 +124,8 @@ type Completion struct {
 	ItemId            string          `json:"itemId"`
 	NextAttentionOn   *string         `json:"nextAttentionOn"`
 	Recurrence        *ItemRecurrence `json:"recurrence"`
+	UndoneAt          *time.Time      `json:"undoneAt"`
+	UndoneByUserId    *string         `json:"undoneByUserId"`
 }
 
 // CompletionList defines model for CompletionList.
@@ -197,7 +205,7 @@ type Item struct {
 	Done *bool  `json:"done,omitempty"`
 	Id   string `json:"id"`
 
-	// LastCompletedOn Nullable business date from the completion with the greatest item_version_before, representing the most recently completed cycle regardless of submitted date.
+	// LastCompletedOn Greatest item_version_before among non-undone receipts, or null if none; business date order is not used.
 	LastCompletedOn **string `json:"lastCompletedOn,omitempty"`
 	Notes           *string  `json:"notes"`
 
@@ -356,6 +364,14 @@ type SubjectValidationProblemCode string
 // SubjectValidationProblemField defines model for SubjectValidationProblem.Field.
 type SubjectValidationProblemField string
 
+// UndoCompletionRequest defines model for UndoCompletionRequest.
+type UndoCompletionRequest struct {
+	Undone UndoCompletionRequestUndone `json:"undone"`
+}
+
+// UndoCompletionRequestUndone defines model for UndoCompletionRequest.Undone.
+type UndoCompletionRequestUndone bool
+
 // UpdateItemRequest defines model for UpdateItemRequest.
 type UpdateItemRequest struct {
 	Archived *bool `json:"archived,omitempty"`
@@ -512,6 +528,15 @@ type CreateItemCompletionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// UndoItemCompletionParams defines parameters for UndoItemCompletion.
+type UndoItemCompletionParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Exactly one syntactically valid strong item ETag is required on every request. Missing returns 428; malformed, weak, wildcard, or list returns 412. For an already-undone replay only the stored-version comparison is skipped.
+	IfMatch string `json:"If-Match"`
+}
+
 // ListSubjectsParams defines parameters for ListSubjects.
 type ListSubjectsParams struct {
 	// Limit Maximum number of items per page.
@@ -595,6 +620,9 @@ type UpdateItemJSONRequestBody = UpdateItemRequest
 
 // CreateItemCompletionJSONRequestBody defines body for CreateItemCompletion for application/json ContentType.
 type CreateItemCompletionJSONRequestBody = CreateCompletionRequest
+
+// UndoItemCompletionJSONRequestBody defines body for UndoItemCompletion for application/json ContentType.
+type UndoItemCompletionJSONRequestBody = UndoCompletionRequest
 
 // CreateSubjectJSONRequestBody defines body for CreateSubject for application/json ContentType.
 type CreateSubjectJSONRequestBody = CreateSubjectRequest

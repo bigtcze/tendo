@@ -60,7 +60,22 @@ func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fing
 	var existing *item.Completion
 	for i := range r.completions {
 		if r.completions[i].ItemID == itemID && r.completions[i].IdempotencyKey == key {
-			existing = &r.completions[i]
+			if r.completions[i].UndoneAt != nil {
+				original := r.completions[i]
+				if original.CycleAttentionOn != nil {
+					if original.Recurrence != nil {
+						next, e := schedule.NextCycle(original.CycleAttentionOn, original.CompletedOn, *original.Recurrence)
+						if e == nil {
+							original.NextAttentionOn = next
+						}
+					} else {
+						original.NextAttentionOn = nil
+					}
+				}
+				existing = &original
+			} else {
+				existing = &r.completions[i]
+			}
 			break
 		}
 	}
@@ -80,6 +95,60 @@ func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fing
 	r.completions = append(r.completions, plan.Receipt)
 	return plan.Receipt, false, nil
 }
+func (r *Repo) UndoCompletion(_ context.Context, householdID, itemID, completionID string, decide item.CompletionUndoDecider) (item.Completion, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current, ok := r.rows[itemID]
+	if !ok || current.HouseholdID != householdID {
+		return item.Completion{}, item.ErrNotFound
+	}
+	idx := -1
+	for i := range r.completions {
+		if r.completions[i].ID == completionID && r.completions[i].ItemID == itemID && r.completions[i].HouseholdID == householdID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return item.Completion{}, item.ErrNotFound
+	}
+	var latest *int64
+	for i := range r.completions {
+		c := r.completions[i]
+		if c.ItemID == itemID && c.UndoneAt == nil && (latest == nil || c.ItemVersionBefore > *latest) {
+			v := c.ItemVersionBefore
+			latest = &v
+		}
+	}
+	plan, err := decide(current, r.completions[idx], latest)
+	if err != nil {
+		return item.Completion{}, err
+	}
+	if plan.Apply {
+		plan.Receipt.UndoneAt = ptrTime(plan.UndoneAt)
+		userID := plan.UndoneByUserID
+		plan.Receipt.UndoneByUserID = &userID
+		plan.Item.UpdatedAt = r.Clock
+		r.rows[itemID] = plan.Item
+		r.completions[idx] = plan.Receipt
+		current.LastCompletedOn = nil
+		var lastVersion int64
+		for i := range r.completions {
+			c := r.completions[i]
+			if c.ItemID == itemID && c.UndoneAt == nil && c.ItemVersionBefore > lastVersion {
+				date := c.CompletedOn
+				current.LastCompletedOn = &date
+				lastVersion = c.ItemVersionBefore
+			}
+		}
+		plan.Item.LastCompletedOn = current.LastCompletedOn
+		r.rows[itemID] = plan.Item
+	}
+	return plan.Receipt, nil
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }
+
 func (r *Repo) ListCompletions(_ context.Context, householdID, itemID, after string, limit int) ([]item.Completion, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -61,6 +61,8 @@ type ItemCompletion struct {
 	IdempotencyKey          string
 	RequestFingerprint      []byte
 	CreatedAt               pgtype.Timestamptz
+	UndoneAt                pgtype.Timestamptz
+	UndoneByUserID          pgtype.UUID
 }
 
 type LocalCredential struct {
