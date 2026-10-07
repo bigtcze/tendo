@@ -26,6 +26,7 @@ async function boot(): Promise<BootState> {
   const setup = await fetchSetupRequired();
   if (setup === 'required') return { kind: 'setupRequired' };
   if (setup === 'error') return { kind: 'error' };
+  clearPendingCompletions();
   return { kind: 'signedOut' };
 }
 

@@ -216,6 +216,7 @@ describe('Home items', () => {
     expect(posts[0]!.headers.get('If-Match')).toBe('"7"');
     expect(posts[1]!.headers.get('If-Match')).toBe('"8"');
     expect(posts[1]!.headers.get('Idempotency-Key')).toBe(key);
+    expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBe(key);
   });
 
   it('keeps the unresolved completion key when Home unmounts for People and things', async () => {
@@ -244,7 +245,7 @@ describe('Home items', () => {
   });
 
   it('retries a lost response from the server receipt using the exact stored receipt and advances once', async () => {
-    let storedReceipt: Record<string, unknown> | undefined;
+    const receipts = new Map<string, Record<string, unknown>>();
     let advanceCount = 0;
     const fake = installFakeServer({
       ...routes,
@@ -253,10 +254,12 @@ describe('Home items', () => {
       [`GET ${base}/items/i-1`]: () => json(200, item({ attention: advanceCount ? 'upcoming' : 'needs_attention', attentionOn: advanceCount ? '2027-01-01' : null }), { ETag: `"${1 + advanceCount}"` }),
       [`POST ${donePath}`]: (request) => {
         const key = request.headers.get('Idempotency-Key')!;
-        if (storedReceipt) return json(201, storedReceipt);
+        const replay = receipts.get(key);
+        if (replay) return json(201, replay);
         expect(request.body).toBe('{}');
         advanceCount++;
-        storedReceipt = { id: 'c-stored', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: session().userId, cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null, requestKey: key };
+        const receipt = { id: `c-${advanceCount}`, itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: session().userId, cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null, requestKey: key };
+        receipts.set(key, receipt);
         throw new Error('server committed; response lost');
       },
     });
@@ -268,7 +271,7 @@ describe('Home items', () => {
     expect(posts).toHaveLength(2);
     expect(posts[1]!.headers.get('Idempotency-Key')).toBe(posts[0]!.headers.get('Idempotency-Key'));
     expect(advanceCount).toBe(1);
-    expect(storedReceipt?.requestKey).toBe(posts[0]!.headers.get('Idempotency-Key'));
+    expect(receipts.get(posts[0]!.headers.get('Idempotency-Key')!)?.requestKey).toBe(posts[0]!.headers.get('Idempotency-Key'));
   });
 
   it('persists an unresolved attempt across a fresh App render', async () => {
@@ -293,6 +296,17 @@ describe('Home items', () => {
     expect(requestsOf(reloaded.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key')).toBe(key);
   });
 
+  it('clears stale pending completions when bootstrap finds a signed-out session', async () => {
+    const storedKey = `tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`;
+    sessionStorage.setItem(storedKey, 'stale-attempt');
+    installFakeServer({ 'GET /api/v1/session': json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+
+    app();
+
+    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(sessionStorage.getItem(storedKey)).toBeNull();
+  });
+
   it('clears stored completion attempts on sign out', async () => {
     const key = 'a'.repeat(32);
     sessionStorage.setItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`, key);
@@ -311,6 +325,7 @@ describe('Home items', () => {
     expect(await screen.findByText('That was already undone. The list is up to date.')).toBeVisible();
     await waitFor(() => expect(screen.getByText('That was already undone. The list is up to date.').closest('[tabindex="-1"]')).toHaveFocus());
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
   });
 
   it('keeps Add and Done available but form submit disabled while Done is pending', async () => {
@@ -382,7 +397,10 @@ describe('Home items', () => {
     const key = posts[0]!.headers.get('Idempotency-Key')!;
     expect(key).toMatch(/^[0-9a-f]{32}$/);
     expect(posts[1]!.headers.get('Idempotency-Key')).toBe(key);
-    expect(requestsOf(fake.requests, 'GET', `${base}/items/i-1`)).toHaveLength(2);
+    const itemGets = requestsOf(fake.requests, 'GET', `${base}/items/i-1`);
+    expect(itemGets).toHaveLength(2);
+    expect(itemReads).toBe(2);
+    expect(posts.map((request) => request.headers.get('If-Match'))).toEqual(['"7"', '"8"']);
     expect(listCalls).toBeGreaterThanOrEqual(2);
   });
 
@@ -410,13 +428,22 @@ describe('Home items', () => {
     expect(patch.headers.get('If-Match')).toBe('"10"');
   });
 
-  it.each([{ status: 412, message: 'That changed just now.' }, { status: 409, message: 'already done or can’t be completed' }])('shows a calm $status completion notice and refreshes', async ({ status, message }) => {
+  it.each([{ status: 412, message: 'That changed just now.' }, { status: 409, message: 'This item is already done. The list is up to date.' }])('shows a calm $status completion notice and refreshes', async ({ status, message }) => {
     let lists = 0;
-    installFakeServer({ ...routes, [itemList]: () => { lists++; return page([item()]); }, [subjectList]: (request) => request.query.get('archived') === 'true' ? json(200, { items: [], nextCursor: null }) : subjects, [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"3"' }), [`POST ${donePath}`]: json(status), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    installFakeServer({ ...routes, [itemList]: () => { lists++; return page([item()]); }, [subjectList]: (request) => request.query.get('archived') === 'true' ? json(200, { items: [], nextCursor: null }) : subjects, [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"3"' }), [`POST ${donePath}`]: status === 409 ? json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'item_done' }) : json(status), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
     await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
     expect(await screen.findByText(new RegExp(message))).toBeVisible();
     expect(lists).toBeGreaterThanOrEqual(2);
+    if (status === 409) expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
+  });
+
+  it('clears the pending key when the item is gone during Done', async () => {
+    installFakeServer({ ...routes, [itemList]: page([item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(404) });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await screen.findByText('That item is gone. The list is up to date.');
+    expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
   });
 
   it('returns to sign-in on 401 while completing', async () => {
@@ -433,15 +460,17 @@ describe('Home items', () => {
     expect(await screen.findByText('A completion date cannot be in the future.')).toBeVisible();
     const notice = screen.getByText('A completion date cannot be in the future.').closest<HTMLElement>('[aria-live="polite"]')!;
     expect(within(notice).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
   });
 
   it('removes Undo when the completion is no longer latest', async () => {
+    let itemReads = 0;
     const fake = installFakeServer({
       ...routes,
       [itemList]: page([item()]),
       [subjectList]: subjects,
       [`GET ${base}/items/i-1`]: () => {
-        const reads = requestsOf(fake.requests, 'GET', `${base}/items/i-1`).length;
+        const reads = itemReads++;
         return json(200, item(), { ETag: reads === 0 ? '"7"' : '"8"' });
       },
       [`POST ${donePath}`]: json(201, { id: 'c-old', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }),
