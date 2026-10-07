@@ -2015,6 +2015,9 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /** @example {
+                 *       "workflowState": "in_progress"
+                 *     } */
                 "application/json": components["schemas"]["UpdateItemRequest"];
             };
         };
