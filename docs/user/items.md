@@ -10,4 +10,4 @@ Turn that second switch on to count from the day you finish instead. In the same
 
 ## Mark done and undo
 
-Choose **Done** on an item. A repeating item stays in the list with its next attention date; a one-off item leaves the active list. The confirmation includes **Undo** so you can restore the previous cycle if you marked it done by mistake.
+Choose **Done** on an item. A repeating item stays in the list with its next attention date; a one-off item leaves the active list. The confirmation immediately after marking it done offers **Undo**, which can undo only the latest completion. If a connection problem interrupts completion, retrying the same attempt will not mark it done twice.

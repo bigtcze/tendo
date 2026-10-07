@@ -379,6 +379,27 @@ test.describe('Tendo production journey', () => {
     return ((await response.json()) as { items: ServerCompletion[] }).items;
   }
 
+  // Household today in Europe/Prague as the browser sees it; the server may differ by a day around midnight.
+  function pragueToday(): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date());
+  }
+
+  // Anchors are chosen relative to today so fixed and fluid outcomes always differ, even with a one-day
+  // drift between test and server: a yearly anchor 15 days off today's month-day, a weekly anchor 3 days
+  // off today's weekday. Both are well over a year/week in the past, so the completion is late.
+  function yearlyAnchor(): string {
+    return addDays(`${Number(pragueToday().slice(0, 4)) - 2}${pragueToday().slice(4)}`, 15);
+  }
+  function weeklyAnchor(): string {
+    return addDays(pragueToday(), -(7 * 60 + 3));
+  }
+
+  function addYearsClamped(isoDate: string, years: number): string {
+    const [y, m, d] = isoDate.split('-').map(Number);
+    const last = new Date(Date.UTC(y + years, m, 0)).getUTCDate();
+    return `${y + years}-${String(m).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+  }
+
   function addDays(isoDate: string, days: number): string {
     const date = new Date(`${isoDate}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() + days);
@@ -454,24 +475,29 @@ test.describe('Tendo production journey', () => {
   });
 
   test('n2. a fixed yearly item (Repeat on, Fluid off) completed late keeps its planned date', async () => {
-    await addItem({ title: 'Service the boiler', subject: 'Anička', attentionOn: '2025-01-01', repeat: { value: '1', unit: 'year', fluid: false } });
+    const anchor = yearlyAnchor();
+    await addItem({ title: 'Service the boiler', subject: 'Anička', attentionOn: anchor, repeat: { value: '1', unit: 'year', fluid: false } });
     await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: 'Service the boiler' })).toBeVisible();
     const before = await serverItem('Service the boiler');
-    expect(before).toMatchObject({ attentionOn: '2025-01-01', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
+    expect(before).toMatchObject({ attentionOn: anchor, recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
 
     await row('Service the boiler').getByRole('button', { name: en['items.done'] }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Service the boiler' })).toContainText('Next time:');
     const [receipt] = await serverCompletions(before.id);
-    // Late by well over a year: the next date stays on the 1 January anchor, not completion + 1 year.
-    const expected = `${Number(receipt.completedOn.slice(0, 4)) + 1}-01-01`;
-    expect(receipt).toMatchObject({ cycleAttentionOn: '2025-01-01', nextAttentionOn: expected });
+    // First anchor-aligned date strictly after the completion day, never completion + 1 year.
+    let expected = anchor;
+    while (expected <= receipt.completedOn) expected = addYearsClamped(anchor, Number(expected.slice(0, 4)) - Number(anchor.slice(0, 4)) + 1);
+    expect(expected.slice(5)).toBe(anchor.slice(5));
+    expect(expected).not.toBe(addYearsClamped(receipt.completedOn, 1));
+    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected });
     const after = await serverItem('Service the boiler');
     expect(after).toMatchObject({ attentionOn: expected, attention: 'upcoming', done: false, lastCompletedOn: receipt.completedOn });
     await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: 'Service the boiler' })).toBeVisible();
   });
 
   test('n3. a fluid weekly item (Repeat on, Fluid on) completed late counts from the completion day; undo restores it', async () => {
-    await addItem({ title: 'Water the plants', subject: 'Octavia RS', attentionOn: '2025-01-01', repeat: { value: '1', unit: 'week', fluid: true } });
+    const anchor = weeklyAnchor();
+    await addItem({ title: 'Water the plants', subject: 'Octavia RS', attentionOn: anchor, repeat: { value: '1', unit: 'week', fluid: true } });
     const before = await serverItem('Water the plants');
     expect(before.recurrence).toEqual({ intervalValue: 1, intervalUnit: 'week', mode: 'after_completion' });
 
@@ -479,13 +505,16 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('status').filter({ hasText: 'Water the plants' })).toContainText('Next time:');
     const [receipt] = await serverCompletions(before.id);
     const expected = addDays(receipt.completedOn, 7);
-    expect(receipt).toMatchObject({ cycleAttentionOn: '2025-01-01', nextAttentionOn: expected });
+    // A fixed weekly cadence would land on the anchor's weekday, which is never the completion's weekday here.
+    const fixedDays = (Date.parse(expected) - Date.parse(anchor)) / 86_400_000;
+    expect(fixedDays % 7).not.toBe(0);
+    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected });
     expect(await serverItem('Water the plants')).toMatchObject({ attentionOn: expected, attention: 'upcoming' });
     await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
 
     await page.getByRole('button', { name: en['items.undo'] }).click();
     await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
-    expect(await serverItem('Water the plants')).toMatchObject({ attentionOn: '2025-01-01', attention: 'needs_attention', lastCompletedOn: null });
+    expect(await serverItem('Water the plants')).toMatchObject({ attentionOn: anchor, attention: 'needs_attention', lastCompletedOn: null });
     const history = await serverCompletions(before.id);
     expect(history).toHaveLength(1);
     expect(history[0].undoneAt).not.toBeNull();

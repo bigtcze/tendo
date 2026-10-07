@@ -2,105 +2,65 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import { ItemForm } from './ItemForm';
-import {
-  completeItem,
-  createItem,
-  getItem,
-  listActiveSubjects,
-  listItems,
-  undoCompletion,
-  type Completion,
-  type Item,
-  type Recurrence,
-  type Subject,
-} from './itemsApi';
+import { completeItem, createItem, getItem, listActiveSubjects, listItems, undoCompletion, type Completion, type Item, type Recurrence, type Subject } from './itemsApi';
 
-type Notice = { text: string; completion?: Completion; itemId?: string; retryKey?: string };
+type Notice = { text: string; completion?: Completion; itemId?: string; retryKey?: string; retryKind?: 'complete' | 'undo'; undoAvailable?: boolean };
 type SubjectState = 'loading' | 'error' | 'ready';
+const MAX_SUBJECT_PAGES = 20;
 
-function formatDate(value: string, locale: string): string {
+function formatDate(value: string, locale: string) {
   const [year, month, day] = value.split('-').map(Number);
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(
-    new Date(Date.UTC(year, month - 1, day)),
-  );
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
 }
-
-function idempotencyKey(): string {
+function idempotencyKey() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
-
 function pluralKey(unit: Recurrence['intervalUnit'], count: number, locale: string): MessageKey {
   const category = new Intl.PluralRules(locale).select(count);
-  const supported: Record<string, readonly string[]> = {
-    en: ['one', 'other'],
-    cs: ['one', 'few', 'other'],
-  };
-  const key = supported[locale]?.includes(category) ? category : 'other';
-  return `items.every.${unit}.${key}` as MessageKey;
+  const supported: Record<string, readonly string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
+  return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
 }
 
-function NoticeView({ notice, busy, onUndo, onRetry }: {
-  notice: Notice | null;
-  busy: boolean;
-  onUndo: () => void;
-  onRetry: () => void;
-}) {
+function NoticeView({ notice, busy, onUndo, onRetry }: { notice: Notice | null; busy: boolean; onUndo: () => void; onRetry: () => void }) {
   const { t } = useI18n();
   if (!notice) return null;
-  return (
-    <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2">
-      <p>{notice.text}</p>
-      {notice.completion?.id ? <Button type="button" variant="quiet" disabled={busy} onClick={onUndo}>{t('items.undo')}</Button> : null}
-      {notice.retryKey ? <Button type="button" variant="quiet" disabled={busy} onClick={onRetry}>{t('items.retry')}</Button> : null}
-    </div>
-  );
+  return <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2">
+    <p>{notice.text}</p>
+    {notice.undoAvailable && notice.completion?.id ? <Button type="button" variant="quiet" disabled={busy} onClick={onUndo}>{t('items.undo')}</Button> : null}
+    {notice.retryKey && notice.retryKind ? <Button type="button" variant="quiet" disabled={busy} onClick={onRetry}>{t('items.retry')}</Button> : null}
+  </div>;
 }
 
-function ItemRow({ item, subjectName, locale, busy, onDone }: {
-  item: Item;
-  subjectName: string;
-  locale: string;
-  busy: boolean;
-  onDone: () => void;
-}) {
+function ItemRow({ item, subjectName, locale, busy, onDone, rowRef }: { item: Item; subjectName: string; locale: string; busy: boolean; onDone: () => void; rowRef?: (node: HTMLLIElement | null) => void }) {
   const { t } = useI18n();
-  const recurrence = item.recurrence;
-  return (
-    <li className="flex flex-wrap items-center justify-between gap-3 p-4">
-      <div className="min-w-0 flex-1 basis-48">
-        <p className="break-words text-lg leading-snug">{item.title}</p>
-        <p className="mt-1 text-sm text-muted">
-          {subjectName}
-          {item.attention === 'upcoming' && item.attentionOn
-            ? ` · ${t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}`
-            : ''}
-        </p>
-        {recurrence ? <p className="mt-1 text-sm text-muted">
-          {t(pluralKey(recurrence.intervalUnit, recurrence.intervalValue, locale), { count: String(recurrence.intervalValue) })}
-        </p> : null}
-      </div>
-      <Button type="button" data-action="done" disabled={busy} onClick={onDone}>{t('items.done')}</Button>
-    </li>
-  );
+  return <li ref={rowRef} className="flex flex-wrap items-center justify-between gap-3 p-4">
+    <div className="min-w-0 flex-1 basis-48">
+      <p className="break-words text-lg leading-snug">{item.title}</p>
+      <p className="mt-1 text-sm text-muted">{subjectName}{item.attention === 'upcoming' && item.attentionOn ? ` · ${t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}` : ''}</p>
+      {item.recurrence ? <p className="mt-1 text-sm text-muted">{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
+    </div>
+    <Button type="button" data-action="done" disabled={busy} onClick={onDone}>{t('items.done')}</Button>
+  </li>;
 }
 
-const groups: { key: MessageKey; items: (item: Item) => boolean; quiet?: boolean }[] = [
-  { key: 'items.group.needs', items: (item) => item.attention === 'needs_attention' && item.workflowState === 'open' },
-  { key: 'items.group.inProgress', items: (item) => item.workflowState === 'in_progress' },
-  { key: 'items.group.waiting', items: (item) => item.workflowState === 'waiting' },
-  { key: 'items.group.upcoming', items: (item) => item.attention === 'upcoming' && item.workflowState === 'open', quiet: true },
-  { key: 'items.group.paused', items: (item) => item.workflowState === 'paused', quiet: true },
+const groups: { key: MessageKey; matches: (item: Item) => boolean; quiet?: boolean }[] = [
+  { key: 'items.group.needs', matches: (item) => item.attention === 'needs_attention' && item.workflowState === 'open' },
+  { key: 'items.group.inProgress', matches: (item) => item.workflowState === 'in_progress' },
+  { key: 'items.group.waiting', matches: (item) => item.workflowState === 'waiting' },
+  { key: 'items.group.upcoming', matches: (item) => item.attention === 'upcoming' && item.workflowState === 'open', quiet: true },
+  { key: 'items.group.paused', matches: (item) => item.workflowState === 'paused', quiet: true },
 ];
 
 export function ItemsScreen({ householdId, onOpenPeople, onSignedOut }: { householdId: string; onOpenPeople: () => void; onSignedOut: () => void }) {
   const { t, locale } = useI18n();
   const [items, setItems] = useState<Item[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
-  const [subjectRequestComplete, setSubjectRequestComplete] = useState(false);
-  const [subjectReload, setSubjectReload] = useState(0);
+  const [subjectRetry, setSubjectRetry] = useState(0);
+  const [subjectLoadingArchived, setSubjectLoadingArchived] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [itemsRequestComplete, setItemsRequestComplete] = useState(false);
@@ -110,183 +70,210 @@ export function ItemsScreen({ householdId, onOpenPeople, onSignedOut }: { househ
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
-  const actionBusy = useRef(false);
-  const focusedRow = useRef(false);
+  const mutationBusy = useRef(false);
+  const pending = useRef(new Map<string, { key: string }>());
   const noticeRef = useRef<HTMLDivElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef(false);
+  const focusedRow = useRef(false);
   const names = new Map(subjects.map((subject) => [subject.id, subject.name]));
 
   const refresh = useCallback(async () => {
-    const current = ++generation.current;
+    const started = ++generation.current;
     setLoading(true);
     const result = await listItems(householdId);
-    if (current !== generation.current) return;
+    if (started !== generation.current) return;
     if (result.kind === 'unauthenticated') onSignedOut();
-    else if (result.kind === 'ok') {
-      setItems(result.items);
-      setCursor(result.nextCursor);
-      setError(false);
-    } else setError(true);
+    else if (result.kind === 'ok') { setItems(result.items); setCursor(result.nextCursor); setError(false); }
+    else setError(true);
     setLoading(false);
   }, [householdId, onSignedOut]);
 
   useEffect(() => {
     let cancelled = false;
+    const started = ++generation.current;
     void listItems(householdId).then((result) => {
-      if (cancelled) return;
+      if (cancelled || started !== generation.current) return;
       if (result.kind === 'unauthenticated') onSignedOut();
-      else if (result.kind === 'ok') { setItems(result.items); setCursor(result.nextCursor); setLoading(false);  setItemsRequestComplete(true); }
-      else { setError(true); setLoading(false);  setItemsRequestComplete(true); }
+      else if (result.kind === 'ok') { setItems(result.items); setCursor(result.nextCursor); setLoading(false); setItemsRequestComplete(true); }
+      else { setError(true); setLoading(false); setItemsRequestComplete(true); }
     });
     return () => { cancelled = true; };
   }, [householdId, onSignedOut]);
 
   useEffect(() => {
     let cancelled = false;
-    void listActiveSubjects(householdId).then((active) => {
+    const load = async (archived: boolean) => {
+      const collected: Subject[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < MAX_SUBJECT_PAGES; page++) {
+        const result = await listActiveSubjects(householdId, archived, cursor);
+        if (result.kind !== 'ok') return result;
+        collected.push(...result.subjects);
+        if (!result.nextCursor) return { kind: 'ok' as const, subjects: collected };
+        cursor = result.nextCursor;
+      }
+      return { kind: 'error' as const };
+    };
+    subjectLoadBusy.current = true;
+    void load(false).then(async (active) => {
       if (cancelled) return;
-      if (active.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (active.kind !== 'ok') { setSubjectState('error'); setSubjectRequestComplete(true); return; }
+      if (active.kind === 'unauthenticated') { subjectLoadBusy.current = false; onSignedOut(); return; }
+      if (active.kind !== 'ok') { subjectLoadBusy.current = false; setSubjectState('error'); return; }
       setSubjects(active.subjects);
+      subjectLoadBusy.current = false;
       setSubjectState('ready');
-      setSubjectRequestComplete(true);
+      setSubjectLoadingArchived(true);
+      subjectLoadBusy.current = true;
+      const archived = await load(true);
+      if (cancelled) { subjectLoadBusy.current = false; setSubjectLoadingArchived(false); return; }
+      subjectLoadBusy.current = false;
+      setSubjectLoadingArchived(false);
+      if (archived.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (archived.kind === 'ok') {
+        const seen = new Set(active.subjects.map((subject) => subject.id));
+        setSubjects((current) => [...current, ...archived.subjects.filter((subject) => !seen.has(subject.id))]);
+      }
     });
     return () => { cancelled = true; };
-  }, [householdId, onSignedOut, subjectReload]);
+  }, [householdId, onSignedOut, subjectRetry]);
 
   useEffect(() => {
-    if (notice && focusedRow.current) {
-      noticeRef.current?.focus();
-      focusedRow.current = false;
-    }
+    if (notice && focusedRow.current) { noticeRef.current?.focus(); focusedRow.current = false; }
   }, [notice]);
   useEffect(() => {
-    if (!adding && returnFocus.current) {
-      addRef.current?.focus();
-      returnFocus.current = false;
-    }
+    if (!adding && returnFocus.current) { addRef.current?.focus(); returnFocus.current = false; }
   }, [adding]);
 
+  function beginMutation() {
+    if (mutationBusy.current) return false;
+    mutationBusy.current = true;
+    setBusy(true);
+    return true;
+  }
+  function endMutation() { mutationBusy.current = false; setBusy(false); }
+
   async function create(values: { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null }) {
-    const result = await createItem(householdId, {
-      title: values.title,
-      subjectId: values.subjectId,
-      ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}),
-      ...(values.notes ? { notes: values.notes } : {}),
-      recurrence: values.recurrence,
-    });
-    if (result.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
-    if (result.kind === 'invalid') return result;
-    if (result.kind === 'ok') {
-      setItems((current) => [...current, result.item]);
+    if (!beginMutation()) return { kind: 'handled' as const };
+    try {
+      const result = await createItem(householdId, { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence });
+      if (result.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
+      if (result.kind === 'invalid') return result;
+      if (result.kind !== 'ok') return { kind: 'failed' as const };
+      generation.current++;
+      returnFocus.current = true;
       setAdding(false);
+      await refresh();
       setNotice({ text: t('items.notice.added', { title: result.item.title }) });
+      requestAnimationFrame(() => addRef.current?.focus());
       return { kind: 'done' as const };
-    }
-    return { kind: 'failed' as const };
+    } finally { endMutation(); }
   }
 
   async function showMore() {
     if (!cursor || loadingMore) return;
-    const current = generation.current;
+    const started = generation.current;
     setLoadingMore(true);
     const result = await listItems(householdId, cursor);
     setLoadingMore(false);
-    if (current !== generation.current) return;
+    if (started !== generation.current) return;
     if (result.kind === 'unauthenticated') onSignedOut();
-    else if (result.kind === 'ok') {
-      setItems((existing) => [...existing, ...result.items.filter((item) => !existing.some((old) => old.id === item.id))]);
-      setCursor(result.nextCursor);
-    } else setError(true);
+    else if (result.kind === 'ok') { setItems((old) => [...old, ...result.items.filter((item) => !old.some((known) => known.id === item.id))]); setCursor(result.nextCursor); }
+    else setError(true);
   }
 
-  async function finish(item: Item, retryKey?: string) {
-    if (actionBusy.current) return;
-    actionBusy.current = true;
-    setBusy(true);
-    const key = retryKey ?? idempotencyKey();
-    const current = await getItem(householdId, item.id);
-    if (current.kind === 'unauthenticated') { onSignedOut(); }
-    else if (current.kind !== 'ok' || !current.etag) {
-      await refresh();
-      setNotice({ text: t(current.kind === 'notFound' ? 'items.notice.gone' : current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action') });
-    } else {
-      const result = await completeItem(householdId, item.id, current.etag, key);
-      if (result.kind === 'unauthenticated') onSignedOut();
-      else if (result.kind === 'ok') {
-        // The row (and its Done button) may disappear after refresh; keep keyboard users anchored on the notice.
-        focusedRow.current = document.activeElement instanceof HTMLElement && document.activeElement.dataset.action === 'done';
+  async function finish(itemId: string) {
+    const focused = document.activeElement instanceof HTMLElement && document.activeElement.dataset.action === 'done';
+    if (!beginMutation()) return;
+    const attempt = pending.current.get(itemId) ?? { key: idempotencyKey() };
+    pending.current.set(itemId, attempt);
+    const item = items.find((candidate) => candidate.id === itemId);
+    try {
+      const current = await getItem(householdId, itemId);
+      if (current.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (current.kind === 'notFound') {
         await refresh();
+        setNotice({ text: t('items.notice.gone') });
+        return;
+      }
+      if (current.kind !== 'ok' || !current.etag) {
+        await refresh();
+        setNotice({ text: t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action'), itemId, retryKey: attempt.key, retryKind: 'complete' });
+        return;
+      }
+      const result = await completeItem(householdId, itemId, current.etag, attempt.key);
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind === 'ok') {
+        pending.current.delete(itemId);
+        focusedRow.current = focused;
+        await refresh();
+        const title = current.item.title || item?.title || '';
         const date = result.completion.nextAttentionOn;
-        setNotice({
-          text: item.recurrence && date
-            ? t('items.notice.doneNext', { title: item.title, date: formatDate(date, locale) })
-            : t('items.notice.done', { title: item.title }),
-          completion: result.completion,
-          itemId: item.id,
-        });
-      } else if (result.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); }
-      else if (result.kind === 'changed' || result.kind === 'conflict') {
+        setNotice({ text: current.item.recurrence && date ? t('items.notice.doneNext', { title, date: formatDate(date, locale) }) : t('items.notice.done', { title }), completion: result.completion, itemId, undoAvailable: true });
+      } else if (result.kind === 'notFound') { pending.current.delete(itemId); await refresh(); setNotice({ text: t('items.notice.gone') }); }
+      else if (result.kind === 'conflict') {
+        pending.current.delete(itemId);
         await refresh();
-        setNotice({ text: t(result.kind === 'changed' ? 'items.notice.changed' : 'items.notice.conflict') });
-      } else setNotice({ text: t('items.notice.retry'), itemId: item.id, retryKey: key });
-    }
-    actionBusy.current = false;
-    setBusy(false);
+        setNotice({ text: t(result.code === 'item_archived' ? 'items.notice.archived' : result.code === 'item_done' ? 'items.notice.alreadyDone' : 'items.notice.conflict') });
+      } else if (result.kind === 'changed') { await refresh(); setNotice({ text: t('items.notice.changed') }); }
+      else if (result.kind === 'invalid') {
+        pending.current.delete(itemId);
+        setNotice({ text: t(result.code === 'idempotency_key_reused' ? 'items.notice.keyUsed' : result.code === 'future_date' ? 'items.notice.futureDate' : result.code === 'date_overflow' ? 'items.notice.dateOverflow' : 'items.notice.validation') });
+      } else setNotice({ text: t('items.notice.retry'), itemId, retryKey: attempt.key, retryKind: 'complete' });
+    } finally { endMutation(); }
   }
 
   async function undo() {
-    if (!notice?.completion || !notice.itemId || actionBusy.current) return;
-    actionBusy.current = true;
-    setBusy(true);
-    const current = await getItem(householdId, notice.itemId);
-    if (current.kind === 'unauthenticated') onSignedOut();
-    else if (current.kind !== 'ok' || !current.etag) {
-      await refresh();
-      setNotice({ text: t(current.kind === 'notFound' ? 'items.notice.gone' : 'items.notice.changed') });
-    } else {
-      const result = await undoCompletion(householdId, notice.itemId, notice.completion.id, current.etag);
-      if (result.kind === 'unauthenticated') onSignedOut();
-      else if (result.kind === 'ok') { setNotice(null); await refresh(); }
-      else {
+    if (!notice?.completion || !notice.itemId || !beginMutation()) return;
+    const previous = notice;
+    const itemId = notice.itemId;
+    const completion = notice.completion;
+    if (!itemId || !completion) { endMutation(); return; }
+    try {
+      const current = await getItem(householdId, itemId);
+      if (current.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (current.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); return; }
+      if (current.kind !== 'ok' || !current.etag) {
         await refresh();
-        setNotice({
-          text: t(result.kind === 'notFound' ? 'items.notice.gone' : result.kind === 'changed' || result.kind === 'conflict' ? 'items.notice.changed' : 'items.notice.retry'),
-          completion: notice.completion,
-          itemId: notice.itemId,
-        });
+        setNotice({ ...previous, text: t('items.notice.changed'), undoAvailable: true });
+        return;
       }
-    }
-    actionBusy.current = false;
-    setBusy(false);
+      const result = await undoCompletion(householdId, itemId, completion.id, current.etag);
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind === 'ok') {
+        setNotice(null);
+        await refresh();
+        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-item-id="${itemId}"] [data-action="done"]`)?.focus());
+      } else if (result.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); }
+      else if (result.kind === 'conflict') {
+        await refresh();
+        const key = result.code === 'completion_not_latest' ? 'items.notice.notLatest' : 'items.notice.archived';
+        setNotice({ text: t(key) });
+      } else if (result.kind === 'changed') { await refresh(); setNotice({ ...previous, text: t('items.notice.changed'), retryKind: 'undo', undoAvailable: true }); }
+      else setNotice({ ...previous, text: t('items.notice.retry'), retryKind: 'undo', undoAvailable: true });
+    } finally { endMutation(); }
   }
 
-  const hasItems = items.length > 0;
-  return (
-    <div className="space-y-6">
-      <div ref={noticeRef} tabIndex={-1} className="outline-none">
-        {notice ? <NoticeView notice={notice} busy={busy} onUndo={() => void undo()} onRetry={() => {
-          const item = items.find((entry) => entry.id === notice?.itemId);
-          if (item && notice?.retryKey) void finish(item, notice.retryKey);
-        }} /> : null}
-      </div>
-      {error ? <div className="space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button></div> : null}
-      {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-      {subjectState === 'error' ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { setSubjectState('loading'); setSubjectRequestComplete(false); setSubjectReload((attempt) => attempt + 1); }}>{t('app.error.retry')}</Button></div> : null}
-      {!loading && !error && !hasItems && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
-      {itemsRequestComplete && !adding ? <Button ref={addRef} data-focus="add-item" type="button" onClick={() => { setNotice(null); setAdding(true); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
-      {adding && subjectRequestComplete && subjectState === 'ready' && subjects.length > 0 ? <ItemForm subjects={subjects.filter((subject) => !subject.archived)} onSubmit={create} onCancel={() => { returnFocus.current = true; setAdding(false); }} /> : null}
-      {adding && subjectRequestComplete && subjectState === 'ready' && subjects.filter((subject) => !subject.archived).length === 0 ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={onOpenPeople}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={() => setAdding(false)}>{t('subjects.cancel')}</Button></div> : null}
-      {!loading ? groups.map((group) => {
-        const groupedItems = items.filter(group.items);
-        if (!groupedItems.length) return null;
-        return <section key={group.key} className={group.quiet ? 'border-t border-line pt-5' : ''}>
-          <h2 className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)}</h2>
-          <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{groupedItems.map((item) => <ItemRow key={item.id} item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item)} />)}</ul>
-        </section>;
-      }) : null}
-      {cursor && !loading ? <Button type="button" variant="quiet" disabled={loadingMore} onClick={() => void showMore()}>{loadingMore ? t('items.moreLoading') : t('subjects.more')}</Button> : null}
-    </div>
-  );
+  async function retryNotice() {
+    if (!notice) return;
+    if (notice.retryKind === 'complete' && notice.itemId) await finish(notice.itemId);
+    else if (notice.retryKind === 'undo') await undo();
+  }
+
+  return <div className="space-y-6">
+    <div ref={noticeRef} tabIndex={-1} className="outline-none">{notice ? <NoticeView notice={notice} busy={busy} onUndo={() => void undo()} onRetry={() => void retryNotice()} /> : null}</div>
+    {error ? <div className="space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button></div> : null}
+    {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
+    {subjectState === 'error' && !subjectLoadingArchived ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { setSubjectState('loading'); setSubjectRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
+    {!loading && !error && items.length === 0 && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
+    {itemsRequestComplete && !adding ? <Button ref={addRef} disabled={busy} type="button" onClick={() => { setAdding(true); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
+    {adding && subjectState === 'ready' && subjects.some((subject) => !subject.archived) ? <ItemForm subjects={subjects.filter((subject) => !subject.archived)} onSubmit={create} onCancel={() => { returnFocus.current = true; setAdding(false); }} /> : null}
+    {adding && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={onOpenPeople}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={() => setAdding(false)}>{t('items.cancel')}</Button></div> : null}
+    {!loading ? groups.map((group) => {
+      const grouped = items.filter(group.matches);
+      if (!grouped.length) return null;
+      return <section key={group.key} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)}</h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{grouped.map((item) => <div key={item.id} data-item-id={item.id} className="contents"><ItemRow item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item.id)} /></div>)}</ul></section>;
+    }) : null}
+    {cursor && !loading ? <Button type="button" variant="quiet" disabled={loadingMore} onClick={() => void showMore()}>{loadingMore ? t('items.moreLoading') : t('subjects.more')}</Button> : null}
+  </div>;
 }
