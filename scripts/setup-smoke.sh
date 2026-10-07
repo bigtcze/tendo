@@ -248,7 +248,21 @@ status,h,immediate=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění
 assert status==201 and immediate['title']=='Připomenout pojištění 🚗' and immediate['attention']=='needs_attention' and h['ETag']=='"1"',('create immediate item',status,immediate)
 assert psql(f"SELECT title||'|'||notes||'|'||workflow_state||'|'||archived||'|'||version FROM items WHERE id='{immediate['id']}' AND household_id='{household}'")== 'Připomenout pojištění 🚗|Poznámka 家族|open|false|1','persisted item row'
 status,h,future=ireq('POST',ibase,ICOLL,{'title':'Future item','subjectId':person['id'],'attentionOn':'2099-12-31'},mut)
-assert status==201 and future['attention']=='upcoming',('future attention',status,future)
+assert status==201 and future['attention']=='upcoming' and future['recurrence'] is None,('future attention',status,future)
+status,h,fixed=ireq('POST',ibase,ICOLL,{'title':'Fixed yearly','subjectId':person['id'],'attentionOn':'2030-01-15','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},mut)
+assert status==201 and fixed['recurrence']=={'intervalValue':1,'intervalUnit':'year','mode':'fixed'},('fixed recurrence',status,fixed)
+status,h,fluid=ireq('POST',ibase,ICOLL,{'title':'Fluid monthly','subjectId':person['id'],'attentionOn':'2030-02-20','recurrence':{'intervalValue':1,'intervalUnit':'month','mode':'after_completion'}},mut)
+assert status==201 and fluid['recurrence']=={'intervalValue':1,'intervalUnit':'month','mode':'after_completion'},('fluid recurrence',status,fluid)
+for rec_item, expected in ((fixed, '1|year|fixed'),(fluid,'1|month|after_completion')):
+ row=psql(f"SELECT recurrence_interval_value||'|'||recurrence_interval_unit||'|'||recurrence_mode||'|'||attention_on::text FROM items WHERE id='{rec_item['id']}'")
+ assert row==expected+'|'+rec_item['attentionOn'],('persisted recurrence',row,expected)
+ rec_path=ibase+'/'+rec_item['id']
+ status,h,cleared=ireq('PATCH',rec_path,IITEM,{'recurrence':None},{**mut,'If-Match':'"1"'})
+ assert status==200 and cleared['recurrence'] is None and cleared['attentionOn']==rec_item['attentionOn'] and h['ETag']=='"2"',('clear recurrence',status,cleared)
+ assert psql(f"SELECT COALESCE(recurrence_interval_value::text||'|'||recurrence_interval_unit||'|'||recurrence_mode,'NULL')||'|'||attention_on::text FROM items WHERE id='{rec_item['id']}'")== 'NULL|'+rec_item['attentionOn'],'recurrence clear modified cycle state'
+ status,h,restored=ireq('PATCH',rec_path,IITEM,{'recurrence':rec_item['recurrence']},{**mut,'If-Match':'"2"'})
+ assert status==200 and restored['recurrence']==rec_item['recurrence'] and restored['attentionOn']==rec_item['attentionOn'] and h['ETag']=='"3"',('restore recurrence',status,restored)
+ assert psql(f"SELECT recurrence_interval_value||'|'||recurrence_interval_unit||'|'||recurrence_mode||'|'||attention_on::text FROM items WHERE id='{rec_item['id']}'")==expected+'|'+rec_item['attentionOn'],'recurrence restore changed cycle state'
 ipath=ibase+'/'+immediate['id']
 status,h,got=ireq('GET',ipath,IITEM,headers=cookie_header)
 assert status==200 and got==immediate and h['ETag']=='"1"',('item get',status,got)
@@ -258,13 +272,13 @@ assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::tex
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert status==428 and b['code']=='precondition_required',('item missing If-Match',status,b)
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
 status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
-status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id']],('active items',status,active_items)
+status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id'],fixed['id'],fluid['id']],('active items',status,active_items)
 status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},mut);assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)
 status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign origin items',status,b)
-assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '2' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
+assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '4' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]

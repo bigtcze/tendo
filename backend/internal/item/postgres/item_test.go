@@ -109,6 +109,44 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			t.Fatalf("stored=%q %q %v %q", title, storedNotes, date, state)
 		}
 	})
+	t.Run("recurrence round trips, clears, and respects database constraints", func(t *testing.T) {
+		for _, tc := range []struct {
+			value int
+			unit  schedule.Unit
+			mode  schedule.Mode
+		}{
+			{1, schedule.UnitDay, schedule.ModeFixed}, {2, schedule.UnitWeek, schedule.ModeAfterCompletion}, {3, schedule.UnitMonth, schedule.ModeFixed}, {4, schedule.UnitYear, schedule.ModeAfterCompletion},
+		} {
+			policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: tc.value, Unit: tc.unit}, Mode: tc.mode}
+			i := create(hA, sA.ID, "recurrence", nil, nil)
+			updated, err := repo.Update(ctx, hA, i.ID, 1, item.Change{Recurrence: item.Some(*policy)})
+			if err != nil || updated.Recurrence == nil || *updated.Recurrence != *policy {
+				t.Fatalf("round trip=%+v err=%v", updated, err)
+			}
+			got, err := repo.Get(ctx, hA, i.ID)
+			if err != nil || got.Recurrence == nil || *got.Recurrence != *policy {
+				t.Fatalf("get=%+v err=%v", got, err)
+			}
+			cleared, err := repo.Update(ctx, hA, i.ID, 2, item.Change{Recurrence: item.Null[schedule.Policy]()})
+			if err != nil || cleared.Recurrence != nil {
+				t.Fatalf("clear=%+v err=%v", cleared, err)
+			}
+		}
+		for _, stmt := range []string{
+			`INSERT INTO items(household_id,subject_id,title,recurrence_interval_value) VALUES ($1::uuid,$2::uuid,'partial',1)`,
+			`INSERT INTO items(household_id,subject_id,title,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) VALUES ($1::uuid,$2::uuid,'zero',0,'day','fixed')`,
+			`INSERT INTO items(household_id,subject_id,title,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) VALUES ($1::uuid,$2::uuid,'high',1000,'day','fixed')`,
+		} {
+			if _, err := admin.Exec(ctx, stmt, hA, sA.ID); err == nil {
+				t.Fatalf("constraint accepted %s", stmt)
+			}
+		}
+		i := create(hA, sA.ID, "runtime recurrence", nil, nil)
+		_, err := app.Exec(ctx, `UPDATE items SET recurrence_interval_value=1,recurrence_interval_unit='year',recurrence_mode='fixed' WHERE id=$1::uuid`, i.ID)
+		if err != nil {
+			t.Fatalf("runtime recurrence update denied: %v", err)
+		}
+	})
 	t.Run("pagination no duplicate and archive filter", func(t *testing.T) {
 		h := household("Pages")
 		s := newSubject(h, "subject")
@@ -260,6 +298,81 @@ func TestItemsAgainstPostgres(t *testing.T) {
 	})
 }
 
+func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin := pool(t, ctx, adminURL)
+	const dbName = "tendo_upgrade_v5_items_test"
+	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `CREATE DATABASE `+dbName); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		c, cc := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cc()
+		_, _ = admin.Exec(c, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
+	}()
+	adminCfg, err := pgxpool.ParseConfig(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminCfg.ConnConfig.Database = dbName
+	upAdmin, err := pgxpool.NewWithConfig(ctx, adminCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upAdmin.Close()
+	appCfg, err := pgxpool.ParseConfig(appURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appCfg.ConnConfig.Database = dbName
+	if _, err := admin.Exec(ctx, `GRANT CONNECT ON DATABASE `+dbName+` TO tendo`); err != nil {
+		t.Fatal(err)
+	}
+	upApp, err := pgxpool.NewWithConfig(ctx, appCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upApp.Close()
+	if err := database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upAdmin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; DELETE FROM tendo_schema_migrations WHERE version=6`); err != nil {
+		t.Fatal(err)
+	}
+	var hid, sid, iid string
+	if err := upAdmin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES ('Legacy','Europe/Prague') RETURNING id::text`).Scan(&hid); err != nil {
+		t.Fatal(err)
+	}
+	if err := upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES ($1::uuid,'person','Legacy person') RETURNING id::text`, hid).Scan(&sid); err != nil {
+		t.Fatal(err)
+	}
+	if err := upAdmin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,title,attention_on) VALUES ($1::uuid,$2::uuid,'Legacy item','2030-01-02') RETURNING id::text`, hid, sid).Scan(&iid); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
+		t.Fatal("v5 schema accepted by v6 application")
+	}
+	if err := database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ValidateSchema(ctx, upApp); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewRepository(upApp).Get(ctx, hid, iid)
+	if err != nil || got.Title != "Legacy item" || got.Recurrence != nil || got.AttentionOn == nil || got.AttentionOn.String() != "2030-01-02" {
+		t.Fatalf("legacy item=%+v err=%v", got, err)
+	}
+	var max int64
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 6 {
+		t.Fatalf("version=%d err=%v", max, err)
+	}
+}
+
 func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	appURL, adminURL := integrationURLs(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -303,7 +416,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; DELETE FROM tendo_schema_migrations WHERE version=5`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; DELETE FROM tendo_schema_migrations WHERE version IN (5,6)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid string
@@ -314,7 +427,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("v4 database accepted by v5 application")
+		t.Fatal("v4 database accepted by v6 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -332,7 +445,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 5 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 6 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

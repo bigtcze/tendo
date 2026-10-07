@@ -48,6 +48,8 @@ Checks run in this order and the first failure is returned: 401 session, 403/421
 - `attentionOn` is an optional date-only value. On creation, without it, the item is `needs_attention` immediately; before the date it is `upcoming`; on or after the date it is `needs_attention`. On PATCH, omitted leaves the stored date unchanged; `null` clears it, making the item need attention immediately. The derived `attention` is evaluated per request using the household timezone and is not stored.
 - Item responses use `Cache-Control: no-store`. The strong ETag identifies the stored item version used for `If-Match`; the derived `attention` value can change at household-local midnight without changing that version.
 - `workflowState` is one of `open`, `in_progress`, `waiting`, or `paused`. Archive and unarchive with the `archived` boolean; archived items remain directly readable and editable.
+- `recurrence` is null for Repeat OFF (one-off). A policy contains an interval value (1–999), unit (`day`, `week`, `month`, `year`), and mode. Repeat and Fluid are distinct choices: `fixed` means Repeat ON / Fluid OFF; `after_completion` means Repeat ON / Fluid ON. The policy only changes what would happen at the next completion; completion behavior is not implemented yet. Setting, changing, or clearing recurrence never changes `attentionOn` or the derived `attention`.
+- Invalid recurrence values return 422 with `field: recurrence` and `invalid_interval`, `invalid_interval_unit`, or `invalid_mode`.
 - List accepts `limit` (1–100, default 50), opaque `cursor`, and `archived` (`true` or `false`; default `false`). Unknown query parameters are ignored. Results use ascending ID keyset pagination.
 
 ## Concurrency
