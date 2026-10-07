@@ -77,6 +77,7 @@ type Item struct {
 	Title         string
 	Notes         *string
 	AttentionOn   *schedule.Date
+	Recurrence    *schedule.Policy
 	WorkflowState WorkflowState
 	Attention     schedule.Attention
 	Archived      bool
@@ -113,6 +114,7 @@ type NewItem struct {
 	Title       string
 	Notes       *string
 	AttentionOn *string
+	Recurrence  *schedule.Policy
 }
 
 // Patch is the unvalidated partial update input. Unset fields are unchanged;
@@ -122,12 +124,13 @@ type Patch struct {
 	SubjectID     *string
 	Notes         Nullable[string]
 	AttentionOn   Nullable[string]
+	Recurrence    Nullable[schedule.Policy]
 	WorkflowState *string
 	Archived      *bool
 }
 
 func (p Patch) empty() bool {
-	return p.Title == nil && p.SubjectID == nil && !p.Notes.Set && !p.AttentionOn.Set && p.WorkflowState == nil && p.Archived == nil
+	return p.Title == nil && p.SubjectID == nil && !p.Notes.Set && !p.AttentionOn.Set && !p.Recurrence.Set && p.WorkflowState == nil && p.Archived == nil
 }
 
 // Draft is a validated new item handed to the repository.
@@ -136,6 +139,7 @@ type Draft struct {
 	Title       string
 	Notes       *string
 	AttentionOn *schedule.Date
+	Recurrence  *schedule.Policy
 }
 
 // Change is a validated patch handed to the repository.
@@ -144,6 +148,7 @@ type Change struct {
 	SubjectID     *string
 	Notes         Nullable[string]
 	AttentionOn   Nullable[schedule.Date]
+	Recurrence    Nullable[schedule.Policy]
 	WorkflowState *WorkflowState
 	Archived      *bool
 }
@@ -272,6 +277,10 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 			return Item{}, err
 		}
 	}
+	if err := validateRecurrence(n.Recurrence); err != nil {
+		return Item{}, err
+	}
+	n.Recurrence = canonicalRecurrence(n.Recurrence)
 	var attentionOn *schedule.Date
 	if n.AttentionOn != nil {
 		d, err := ParseDate(*n.AttentionOn)
@@ -286,7 +295,7 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, Title: title, Notes: n.Notes, AttentionOn: attentionOn})
+	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence})
 	if err != nil {
 		return Item{}, mapRepoErr(err)
 	}
@@ -393,6 +402,13 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 			c.AttentionOn.Value = &d
 		}
 	}
+	if p.Recurrence.Set {
+		if err := validateRecurrence(p.Recurrence.Value); err != nil {
+			return Item{}, err
+		}
+		p.Recurrence.Value = canonicalRecurrence(p.Recurrence.Value)
+		c.Recurrence = p.Recurrence
+	}
 	if p.WorkflowState != nil {
 		state, ok := ParseWorkflowState(*p.WorkflowState)
 		if !ok {
@@ -415,6 +431,33 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		return Item{}, mapRepoErr(err)
 	}
 	return derive(updated, today)
+}
+
+func canonicalRecurrence(policy *schedule.Policy) *schedule.Policy {
+	if policy == nil || !policy.Enabled {
+		return nil
+	}
+	return policy
+}
+
+func validateRecurrence(policy *schedule.Policy) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.Interval.Value < 1 || policy.Interval.Value > 999 {
+		return &ValidationError{"recurrence", "invalid_interval"}
+	}
+	switch policy.Interval.Unit {
+	case schedule.UnitDay, schedule.UnitWeek, schedule.UnitMonth, schedule.UnitYear:
+	default:
+		return &ValidationError{"recurrence", "invalid_interval_unit"}
+	}
+	switch policy.Mode {
+	case schedule.ModeFixed, schedule.ModeAfterCompletion:
+	default:
+		return &ValidationError{"recurrence", "invalid_mode"}
+	}
+	return nil
 }
 
 func forbiddenRune(r rune) bool {

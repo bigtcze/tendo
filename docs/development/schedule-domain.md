@@ -1,6 +1,6 @@
 # Schedule domain development
 
-This repository includes a pure Go schedule package. It remains a development slice, not a usable Tendo installation: there is no item functionality, usable item API, or UI. The development/CI Compose stack includes an operator-authorized initial-owner setup endpoint, local login sessions, and a read-only household endpoint, but still lacks item APIs and UI; see [runtime development](runtime.md) and [runtime configuration](../admin/configuration.md).
+This repository includes a pure Go schedule package and a persisted household-scoped items API with optional recurrence policies. Item completions/history and recurrence-driven cycle advancement are not implemented, and there is no item UI yet. See [API development](api.md), [runtime development](runtime.md), and [runtime configuration](../admin/configuration.md).
 
 ## Tooling and checks
 
@@ -22,4 +22,4 @@ The canonical package is `backend/internal/schedule` (`internal/schedule` from t
 
 Examples (monthly interval): fixed anchor 2026-01-01 completed 2026-03-15 advances to 2026-04-01; fluid completion on 2026-03-15 advances to 2026-04-15. The sequential clamping choice deliberately preserves each consecutive interval step rather than reapplying the original day-of-month after a clamp.
 
-These functions do not persist schedule state or implement lifecycle, completion history, policy edits, transactions, or workflow state. Go backend is the planned stack; only this schedule source package and its tests are implemented so far. See [the V1 plan](../../README.md) for project status.
+These functions remain pure calculations and do not persist schedule state or implement lifecycle, completion history, or completion transactions. The items API persists recurrence policy separately from the current attention date; completions are not yet implemented. See [the V1 plan](../../README.md) for project status.

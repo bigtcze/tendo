@@ -8,6 +8,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -19,12 +20,20 @@ var (
 		"subjectId":   {Kind: httpx.KindString, Required: true},
 		"notes":       {Kind: httpx.KindNullableString},
 		"attentionOn": {Kind: httpx.KindNullableString},
+		"recurrence":  {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
+	}
+
+	recurrenceFields = map[string]httpx.Field{
+		"intervalValue": {Kind: httpx.KindInteger, Required: true},
+		"intervalUnit":  {Kind: httpx.KindString, Required: true},
+		"mode":          {Kind: httpx.KindString, Required: true},
 	}
 	updateFields = map[string]httpx.Field{
 		"title":         {Kind: httpx.KindString},
 		"subjectId":     {Kind: httpx.KindString},
 		"notes":         {Kind: httpx.KindNullableString},
 		"attentionOn":   {Kind: httpx.KindNullableString},
+		"recurrence":    {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
 		"workflowState": {Kind: httpx.KindString},
 		"archived":      {Kind: httpx.KindBool},
 	}
@@ -76,6 +85,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if v, present := values["attentionOn"]; present && v != nil {
 		s := v.(string)
 		n.AttentionOn = &s
+	}
+	if v, present := values["recurrence"]; present && v != nil {
+		policy, err := recurrence(v)
+		if err != nil {
+			httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		n.Recurrence = policy
 	}
 	householdID := chi.URLParam(r, "householdId")
 	created, err := h.service.Create(r.Context(), userID, householdID, n)
@@ -154,6 +171,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if v, present := values["attentionOn"]; present {
 		patch.AttentionOn = nullable(v)
 	}
+	if v, present := values["recurrence"]; present {
+		if v == nil {
+			patch.Recurrence = item.Null[schedule.Policy]()
+		} else {
+			policy, err := recurrence(v)
+			if err != nil {
+				httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
+				return
+			}
+			patch.Recurrence = item.Some(*policy)
+		}
+	}
 	if v, present := values["workflowState"]; present {
 		s := v.(string)
 		patch.WorkflowState = &s
@@ -179,6 +208,27 @@ func nullable(v any) item.Nullable[string] {
 	return item.Some(v.(string))
 }
 
+func recurrence(v any) (*schedule.Policy, error) {
+	fields := v.(map[string]any)
+	value, ok := fields["intervalValue"].(int64)
+	if !ok {
+		return nil, errors.New("invalid interval")
+	}
+	unit, ok := fields["intervalUnit"].(string)
+	if !ok {
+		return nil, errors.New("invalid unit")
+	}
+	mode, ok := fields["mode"].(string)
+	if !ok {
+		return nil, errors.New("invalid mode")
+	}
+	interval := 0
+	if value >= 1 && value <= 999 {
+		interval = int(value)
+	}
+	return &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: interval, Unit: schedule.Unit(unit)}, Mode: schedule.Mode(mode)}, nil
+}
+
 func writeServiceError(w http.ResponseWriter, err error) {
 	var validation *item.ValidationError
 	var query *item.InvalidQueryError
@@ -198,8 +248,15 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 }
 
+func recurrenceJSON(policy *schedule.Policy) *ItemRecurrence {
+	if policy == nil {
+		return nil
+	}
+	return &ItemRecurrence{IntervalValue: policy.Interval.Value, IntervalUnit: RecurrenceIntervalUnit(policy.Interval.Unit), Mode: RecurrenceMode(policy.Mode)}
+}
+
 func toJSON(i item.Item) Item {
-	out := Item{Id: i.ID, SubjectId: i.SubjectID, Title: i.Title, Notes: i.Notes, WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
+	out := Item{Id: i.ID, SubjectId: i.SubjectID, Title: i.Title, Notes: i.Notes, Recurrence: recurrenceJSON(i.Recurrence), WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
 	if i.AttentionOn != nil {
 		s := i.AttentionOn.String()
 		out.AttentionOn = &s

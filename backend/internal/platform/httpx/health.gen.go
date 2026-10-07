@@ -24,7 +24,10 @@ const (
 const (
 	ItemValidationProblemCodeInvalidCharacters    ItemValidationProblemCode = "invalid_characters"
 	ItemValidationProblemCodeInvalidDate          ItemValidationProblemCode = "invalid_date"
+	ItemValidationProblemCodeInvalidInterval      ItemValidationProblemCode = "invalid_interval"
+	ItemValidationProblemCodeInvalidIntervalUnit  ItemValidationProblemCode = "invalid_interval_unit"
 	ItemValidationProblemCodeInvalidLength        ItemValidationProblemCode = "invalid_length"
+	ItemValidationProblemCodeInvalidMode          ItemValidationProblemCode = "invalid_mode"
 	ItemValidationProblemCodeInvalidReference     ItemValidationProblemCode = "invalid_reference"
 	ItemValidationProblemCodeInvalidWorkflowState ItemValidationProblemCode = "invalid_workflow_state"
 )
@@ -33,6 +36,7 @@ const (
 const (
 	ItemValidationProblemFieldAttentionOn   ItemValidationProblemField = "attentionOn"
 	ItemValidationProblemFieldNotes         ItemValidationProblemField = "notes"
+	ItemValidationProblemFieldRecurrence    ItemValidationProblemField = "recurrence"
 	ItemValidationProblemFieldSubjectId     ItemValidationProblemField = "subjectId"
 	ItemValidationProblemFieldTitle         ItemValidationProblemField = "title"
 	ItemValidationProblemFieldWorkflowState ItemValidationProblemField = "workflowState"
@@ -43,6 +47,20 @@ const (
 	QueryProblemParameterArchived QueryProblemParameter = "archived"
 	QueryProblemParameterCursor   QueryProblemParameter = "cursor"
 	QueryProblemParameterLimit    QueryProblemParameter = "limit"
+)
+
+// Defines values for RecurrenceIntervalUnit.
+const (
+	Day   RecurrenceIntervalUnit = "day"
+	Month RecurrenceIntervalUnit = "month"
+	Week  RecurrenceIntervalUnit = "week"
+	Year  RecurrenceIntervalUnit = "year"
+)
+
+// Defines values for RecurrenceMode.
+const (
+	AfterCompletion RecurrenceMode = "after_completion"
+	Fixed           RecurrenceMode = "fixed"
 )
 
 // Defines values for SubjectType.
@@ -91,6 +109,9 @@ type CreateItemRequest struct {
 	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear.
 	Notes **string `json:"notes,omitempty"`
 
+	// Recurrence Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn; completions are not yet implemented.
+	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
+
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
 	SubjectId string `json:"subjectId"`
 
@@ -123,14 +144,17 @@ type Item struct {
 	Attention ItemAttention `json:"attention"`
 
 	// AttentionOn Current attention date; null means needs attention immediately.
-	AttentionOn   *string       `json:"attentionOn"`
-	CreatedAt     time.Time     `json:"createdAt"`
-	Id            string        `json:"id"`
-	Notes         *string       `json:"notes"`
-	SubjectId     string        `json:"subjectId"`
-	Title         string        `json:"title"`
-	UpdatedAt     time.Time     `json:"updatedAt"`
-	WorkflowState WorkflowState `json:"workflowState"`
+	AttentionOn *string   `json:"attentionOn"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Id          string    `json:"id"`
+	Notes       *string   `json:"notes"`
+
+	// Recurrence Recurrence policy; null disables repeat. Policy changes affect only the next completion and never change attentionOn. Completions are not yet implemented.
+	Recurrence    *ItemRecurrence `json:"recurrence"`
+	SubjectId     string          `json:"subjectId"`
+	Title         string          `json:"title"`
+	UpdatedAt     time.Time       `json:"updatedAt"`
+	WorkflowState WorkflowState   `json:"workflowState"`
 }
 
 // ItemAttention Derived server-side from attentionOn and today's date in the household timezone; never set by clients. needs_attention when attentionOn is null or not after today, otherwise upcoming.
@@ -142,6 +166,15 @@ type ItemList struct {
 
 	// NextCursor Opaque cursor for the next page; null on the last page.
 	NextCursor *string `json:"nextCursor"`
+}
+
+// ItemRecurrence Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+type ItemRecurrence struct {
+	IntervalUnit  RecurrenceIntervalUnit `json:"intervalUnit"`
+	IntervalValue int                    `json:"intervalValue"`
+
+	// Mode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+	Mode RecurrenceMode `json:"mode"`
 }
 
 // ItemValidationProblem defines model for ItemValidationProblem.
@@ -193,6 +226,12 @@ type QueryProblem struct {
 
 // QueryProblemParameter defines model for QueryProblem.Parameter.
 type QueryProblemParameter string
+
+// RecurrenceIntervalUnit defines model for RecurrenceIntervalUnit.
+type RecurrenceIntervalUnit string
+
+// RecurrenceMode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+type RecurrenceMode string
 
 // Session defines model for Session.
 type Session struct {
@@ -274,6 +313,9 @@ type UpdateItemRequest struct {
 
 	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes.
 	Notes **string `json:"notes,omitempty"`
+
+	// Recurrence Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn; completions are not yet implemented.
+	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
 
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
 	SubjectId *string `json:"subjectId,omitempty"`

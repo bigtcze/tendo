@@ -184,6 +184,83 @@ func TestCreateStoresValidatedStateAndStartsOpen(t *testing.T) {
 	}
 }
 
+func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
+	e := newEnv("UTC")
+	policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	created := e.create(t, item.NewItem{Title: "repeat", AttentionOn: ptr("2099-01-01"), Recurrence: &policy})
+	if created.Recurrence == nil || created.Recurrence.Mode != schedule.ModeFixed || created.AttentionOn == nil || created.AttentionOn.String() != "2099-01-01" || created.Attention != schedule.Upcoming {
+		t.Fatalf("create: %+v", created)
+	}
+	attention := created.Attention
+	if attention != schedule.Upcoming {
+		t.Fatalf("attention=%q", attention)
+	}
+	changed := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+	updated, err := e.svc.Update(context.Background(), userID, householdID, created.ID, created.Version, item.Patch{Recurrence: item.Some(changed)})
+	if err != nil || updated.Version != 2 || updated.AttentionOn == nil || updated.AttentionOn.String() != "2099-01-01" || updated.Attention != attention || updated.Recurrence == nil || *updated.Recurrence != changed {
+		t.Fatalf("replace: %+v %v", updated, err)
+	}
+	cleared, err := e.svc.Update(context.Background(), userID, householdID, created.ID, updated.Version, item.Patch{Recurrence: item.Null[schedule.Policy]()})
+	if err != nil || cleared.Version != 3 || cleared.Recurrence != nil || cleared.AttentionOn == nil || cleared.AttentionOn.String() != "2099-01-01" || cleared.Attention != attention {
+		t.Fatalf("clear: %+v %v", cleared, err)
+	}
+	omitted, err := e.svc.Update(context.Background(), userID, householdID, created.ID, cleared.Version, item.Patch{Title: ptr("still one-off")})
+	if err != nil || omitted.Version != 4 || omitted.Recurrence != nil || omitted.AttentionOn == nil || omitted.AttentionOn.String() != "2099-01-01" || omitted.Attention != attention {
+		t.Fatalf("omit: %+v %v", omitted, err)
+	}
+	policyAgain := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	enabled, err := e.svc.Update(context.Background(), userID, householdID, created.ID, omitted.Version, item.Patch{Recurrence: item.Some(policyAgain)})
+	if err != nil || enabled.Version != 5 || enabled.Recurrence == nil {
+		t.Fatalf("reenable: %+v %v", enabled, err)
+	}
+	titled, err := e.svc.Update(context.Background(), userID, householdID, created.ID, enabled.Version, item.Patch{Title: ptr("renamed")})
+	if err != nil || titled.Version != 6 || titled.Recurrence == nil || *titled.Recurrence != policyAgain || titled.AttentionOn == nil || titled.AttentionOn.String() != "2099-01-01" || titled.Attention != attention {
+		t.Fatalf("title update changed recurrence or cycle: %+v %v", titled, err)
+	}
+	fluid, err := e.svc.Update(context.Background(), userID, householdID, created.ID, titled.Version, item.Patch{Recurrence: item.Some(changed)})
+	if err != nil || fluid.Version != 7 || fluid.Recurrence == nil || *fluid.Recurrence != changed || fluid.AttentionOn == nil || fluid.AttentionOn.String() != "2099-01-01" || fluid.Attention != attention {
+		t.Fatalf("fluid switch: %+v %v", fluid, err)
+	}
+	off, err := e.svc.Update(context.Background(), userID, householdID, created.ID, fluid.Version, item.Patch{Recurrence: item.Null[schedule.Policy]()})
+	if err != nil || off.Version != 8 || off.Recurrence != nil || off.AttentionOn == nil || off.AttentionOn.String() != "2099-01-01" || off.Attention != attention {
+		t.Fatalf("off: %+v %v", off, err)
+	}
+	falsePolicy := schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	canonical, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "disabled maps to off", Recurrence: &falsePolicy})
+	if err != nil || canonical.Recurrence != nil {
+		t.Fatalf("disabled policy not canonicalized: %+v %v", canonical, err)
+	}
+	canonical, err = e.svc.Update(context.Background(), userID, householdID, created.ID, off.Version, item.Patch{Recurrence: item.Some(falsePolicy)})
+	if err != nil || canonical.Recurrence != nil || canonical.Version != 9 {
+		t.Fatalf("disabled patch not canonicalized: %+v %v", canonical, err)
+	}
+	if _, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "one off"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInvalidRecurrenceDoesNotPersist(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		policy schedule.Policy
+		code   string
+	}{
+		{"zero", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 0, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}, "invalid_interval"},
+		{"high", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1000, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}, "invalid_interval"},
+		{"unit", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: "fortnight"}, Mode: schedule.ModeFixed}, "invalid_interval_unit"},
+		{"mode", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: "mystery"}, "invalid_mode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv("UTC")
+			_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "invalid", Recurrence: &tc.policy})
+			validation(t, err, "recurrence", tc.code)
+			if e.repo.Count() != 0 {
+				t.Fatal("invalid policy persisted")
+			}
+		})
+	}
+}
+
 func TestCreateRejectsInvalidInputWithoutPersisting(t *testing.T) {
 	e := newEnv("UTC")
 	ctx := context.Background()
