@@ -17,7 +17,7 @@ const householdName = 'Veselí';
 const problems: string[] = [];
 const failedResponses = new Set<string>();
 // The only browser-initiated HTTP errors the journey may cause: the anonymous session probe, the
-// wrong-setup-code onboarding submit, and the wrong-password login. page.request calls are not reported.
+// wrong-setup-code onboarding submit, and the wrong-password login, plus the one deliberate stale subject save (412, added by that test). page.request calls are not reported.
 const allowedFailedResponses = ['GET /api/v1/session 401', 'PUT /api/v1/auth/setup 401', 'POST /api/v1/session 401'];
 const expectedFailedPaths = new Set(['/api/v1/session', '/api/v1/auth/setup']);
 const wrongSetupCode = 'A'.repeat(43) + '=';
@@ -50,6 +50,7 @@ test.describe('Tendo production journey', () => {
   let page: Page;
   let householdId = '';
   let sessionToken = '';
+  let vehicleId = '';
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
@@ -231,6 +232,7 @@ test.describe('Tendo production journey', () => {
     const before = (await serverSubjects(false)).find((s) => s.name === 'Octavia');
     expect(before).toBeDefined();
     const id = before!.id;
+    vehicleId = id;
     const initial = await page.request.get(`/api/v1/households/${householdId}/subjects/${id}`);
     expect(initial.headers()['etag']).toBe('"1"');
 
@@ -248,34 +250,76 @@ test.describe('Tendo production journey', () => {
     expect(await after.json()).toMatchObject({ id, name: 'Octavia Combi', type: 'vehicle', archived: false });
   });
 
-  test('k. archiving hides a subject, and Show archived lets you restore it', async () => {
-    await page.getByRole('button', { name: en['subjects.archive.label'].replace('{name}', 'Octavia Combi') }).click();
+  test('k. a stale save gets a conflict notice and never overwrites the newer server name', async () => {
+    const subjectPath = `/api/v1/households/${householdId}/subjects/${vehicleId}`;
+    // Chromium logs a console error for the failed PATCH; the response check in the last test pins the exact failure.
+    expectedFailedPaths.add(subjectPath);
+    const editLabel = en['subjects.edit.label'].replace('{name}', 'Octavia Combi');
+    await page.getByRole('button', { name: editLabel }).click();
+    const form = page.getByRole('form', { name: editLabel });
+    await expect(form.getByLabel(en['subjects.name'])).toHaveValue('Octavia Combi');
+
+    const outOfBand = await page.request.patch(subjectPath, {
+      headers: { 'If-Match': '"2"', Origin: baseURL },
+      data: { name: 'Octavia Wagon' },
+    });
+    expect(outOfBand.status()).toBe(200);
+    expect(outOfBand.headers()['etag']).toBe('"3"');
+
+    await form.getByLabel(en['subjects.name']).fill('Octavia RS');
+    await form.getByRole('button', { name: en['subjects.save'] }).click();
+
+    await expect(page.getByText(en['subjects.notice.conflict'])).toBeVisible();
     await expect(
-      page.getByRole('status').filter({ hasText: en['subjects.notice.archived'].replace('{name}', 'Octavia Combi') }),
+      page.getByText(
+        en['subjects.notice.yourEntry'].replace('{name}', `Octavia RS (${en['subjects.type.vehicle']})`),
+      ),
+    ).toBeVisible();
+    const latestForm = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Octavia Wagon') });
+    await expect(latestForm.getByLabel(en['subjects.name'])).toHaveValue('Octavia Wagon');
+
+    const unchanged = await page.request.get(subjectPath);
+    expect(unchanged.headers()['etag']).toBe('"3"');
+    expect(await unchanged.json()).toMatchObject({ id: vehicleId, name: 'Octavia Wagon' });
+
+    await latestForm.getByLabel(en['subjects.name']).fill('Octavia RS');
+    await latestForm.getByRole('button', { name: en['subjects.save'] }).click();
+    await expect(row('Octavia RS')).toBeVisible();
+    await expect(page.getByRole('form')).toHaveCount(0);
+
+    const saved = await page.request.get(subjectPath);
+    expect(saved.headers()['etag']).toBe('"4"');
+    expect(await saved.json()).toMatchObject({ id: vehicleId, name: 'Octavia RS', archived: false });
+  });
+
+  test('l. archiving hides a subject, and Show archived lets you restore it', async () => {
+    await page.getByRole('button', { name: en['subjects.archive.label'].replace('{name}', 'Octavia RS') }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: en['subjects.notice.archived'].replace('{name}', 'Octavia RS') }),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: en['subjects.undo'] })).toBeVisible();
-    await expect(row('Octavia Combi')).toHaveCount(0);
+    await expect(row('Octavia RS')).toHaveCount(0);
     await expect(row('Anička')).toBeVisible();
 
-    expect((await serverSubjects(true)).map((s) => s.name)).toEqual(['Octavia Combi']);
+    expect((await serverSubjects(true)).map((s) => s.name)).toEqual(['Octavia RS']);
     expect((await serverSubjects(false)).map((s) => s.name)).toEqual(['Anička']);
 
     await page.getByRole('button', { name: en['subjects.showArchived'] }).click();
     await expect(page.getByRole('heading', { level: 2, name: en['subjects.archived.title'] })).toBeVisible();
-    await expect(row('Octavia Combi')).toBeVisible();
-    await page.getByRole('button', { name: en['subjects.restore.label'].replace('{name}', 'Octavia Combi') }).click();
-    await expect(row('Octavia Combi')).toHaveCount(0);
+    await expect(row('Octavia RS')).toBeVisible();
+    await page.getByRole('button', { name: en['subjects.restore.label'].replace('{name}', 'Octavia RS') }).click();
+    await expect(row('Octavia RS')).toHaveCount(0);
 
     expect(await serverSubjects(true)).toEqual([]);
-    expect((await serverSubjects(false)).map((s) => s.name).sort()).toEqual(['Anička', 'Octavia Combi']);
+    expect((await serverSubjects(false)).map((s) => s.name).sort()).toEqual(['Anička', 'Octavia RS']);
 
     await page.getByRole('button', { name: en['subjects.showCurrent'] }).click();
     await expect(page.getByRole('heading', { level: 2, name: en['subjects.archived.title'] })).toHaveCount(0);
-    await expect(row('Octavia Combi')).toBeVisible();
+    await expect(row('Octavia RS')).toBeVisible();
     await expect(row('Anička')).toBeVisible();
   });
 
-  test('l. /people survives reload and deep links, and browser Back returns home', async () => {
+  test('m. /people survives reload and deep links, and browser Back returns home', async () => {
     await page.reload();
     expect(new URL(page.url()).pathname).toBe('/people');
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
@@ -291,7 +335,7 @@ test.describe('Tendo production journey', () => {
     await expect(row('Anička')).toBeVisible();
   });
 
-  test('m. the people screen fits 360px with the add form open and switches to Czech and back', async () => {
+  test('n. the people screen fits 360px with the add form open and switches to Czech and back', async () => {
     await page.setViewportSize({ width: 360, height: 740 });
     try {
       await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
@@ -315,7 +359,7 @@ test.describe('Tendo production journey', () => {
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
-  test('n. sign out returns to login and revokes the session server-side', async () => {
+  test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     // Replay the old cookie from a clean client: only server-side revocation can make this fail.
@@ -328,7 +372,7 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('o. wrong password shows an alert and clears the password field', async () => {
+  test('p. wrong password shows an alert and clears the password field', async () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     await signIn(page, 'definitely the wrong password');
@@ -336,7 +380,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByLabel(en['login.password'])).toHaveValue('');
   });
 
-  test('p. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
+  test('q. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
     await page.goto('/');
     const login = page.getByLabel(en['login.login']);
     await expect(login).toBeVisible();
@@ -357,7 +401,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
   });
 
-  test('q. security headers are present and the journey produced no console errors', async () => {
+  test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
     expect(response?.headers()['x-frame-options']).toBe('DENY');
@@ -368,7 +412,8 @@ test.describe('Tendo production journey', () => {
     expect(asset).toContain('/assets/');
     const assetResponse = await page.request.get(asset);
     expect(assetResponse.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses].sort());
+    const subjectConflict = `PATCH /api/v1/households/${householdId}/subjects/${vehicleId} 412`;
+    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, subjectConflict].sort());
     expect(problems).toEqual([]);
   });
 });

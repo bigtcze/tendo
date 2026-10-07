@@ -79,6 +79,12 @@ export function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
   // Signing in from onboarding or login always lands on home, even when the page was opened at /people.
+  // /people without a household has nothing to show; keep the address bar honest and land on home.
+  const noHouseholdOnPeople =
+    state.kind === 'signedIn' && people && !state.session.defaultHouseholdId;
+  useEffect(() => {
+    if (noHouseholdOnPeople) window.history.replaceState(null, '', '/');
+  }, [noHouseholdOnPeople]);
   const signedIn = useCallback((session: Session) => {
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');

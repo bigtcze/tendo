@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -627,15 +627,24 @@ describe('Czech', () => {
 });
 
 describe('stale responses', () => {
-  it('a slow "Show more" from one view never lands in another', async () => {
+  /** A promise the test releases by hand, plus a flag that says the server finished answering. */
+  function gate() {
     let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
+    const open = new Promise<void>((r) => (release = r));
+    const state = { answered: false };
+    return { open, release, state };
+  }
+  const settle = () => act(async () => {});
+
+  it('a slow "Show more" from one view never lands in another', async () => {
+    const g = gate();
     const archivedOcta = { ...octavia, archived: true };
     installFakeServer({
       ...signedIn,
       [listKey]: async (req) => {
         if (req.query.get('cursor') === 'abc') {
-          await gate;
+          await g.open;
+          g.state.answered = true;
           return page([subject('s-3', 'Late active', 'pet')]);
         }
         return req.query.get('archived') === 'true' ? page([archivedOcta]) : page([anna], 'abc');
@@ -647,21 +656,22 @@ describe('stale responses', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Show more' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Show archived' }));
     expect(await screen.findByText('Octavia')).toBeVisible();
-    release();
-    await new Promise((r) => setTimeout(r, 20));
+    g.release();
+    await waitFor(() => expect(g.state.answered).toBe(true));
+    await settle();
     expect(screen.queryByText('Late active')).not.toBeInTheDocument();
     expect(screen.getByText('Octavia')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 
-  it('an edit read that resolves after switching views does not reopen the form', async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
+  it('an edit read that resolves after switching views and back does not open the form', async () => {
+    const g = gate();
     installFakeServer({
       ...signedIn,
       [listKey]: (req) => (req.query.get('archived') === 'true' ? page([]) : page([anna])),
       [itemKey('s-1')]: async () => {
-        await gate;
+        await g.open;
+        g.state.answered = true;
         return etagged(anna, '"1"');
       },
     });
@@ -670,9 +680,36 @@ describe('stale responses', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     await userEvent.click(screen.getByRole('button', { name: 'Show archived' }));
     expect(await screen.findByText('Nothing is archived.')).toBeVisible();
-    release();
-    await new Promise((r) => setTimeout(r, 20));
+    await userEvent.click(screen.getByRole('button', { name: 'Back to the list' }));
+    expect(await screen.findByText('Anna')).toBeVisible();
+    g.release();
+    await waitFor(() => expect(g.state.answered).toBe(true));
+    await settle();
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
+  });
+
+  it('an add that finishes after a view switch still says it was added', async () => {
+    const g = gate();
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => (req.query.get('archived') === 'true' ? page([]) : page([anna])),
+      [createKey]: async () => {
+        await g.open;
+        g.state.answered = true;
+        return json(201, subject('s-9', 'Zuzka'), { ETag: '"1"' });
+      },
+    });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    await userEvent.type(screen.getByLabelText('Name'), 'Zuzka{Enter}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Show archived' }));
+    expect(await screen.findByText('Nothing is archived.')).toBeVisible();
+    g.release();
+    await waitFor(() => expect(g.state.answered).toBe(true));
+    expect(await screen.findByText('Zuzka was added.')).toBeVisible();
+    // The archived list must not have taken the new active row.
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
   });
 });
 
@@ -894,5 +931,97 @@ describe('other failures and edge cases', () => {
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     expect(window.location.pathname).toBe('/');
+  });
+});
+
+describe('changed meanwhile', () => {
+  it('opening the editor on a subject archived by someone else shows the changed notice instead', async () => {
+    let lists = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: () => (++lists === 1 ? page([anna, octavia]) : page([anna])),
+      [itemKey('s-2')]: etagged({ ...octavia, archived: true }, '"5"'),
+    });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Octavia' }));
+    expect(await screen.findByText('That changed just now. The list is up to date.')).toBeVisible();
+    expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Octavia')).not.toBeInTheDocument());
+    expect(lists).toBe(2);
+  });
+
+  it('a conflict re-read that finds the subject archived closes the editor with the changed notice', async () => {
+    let gets = 0;
+    let lists = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: () => (++lists === 1 ? page([octavia]) : page([])),
+      [itemKey('s-2')]: () => (++gets === 1 ? etagged(octavia, '"7"') : etagged({ ...octavia, archived: true }, '"8"')),
+      [itemKey('s-2', 'PATCH')]: problem(412),
+    });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Octavia' }));
+    await userEvent.type(await screen.findByLabelText('Name'), 'x');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('That changed just now. The list is up to date.')).toBeVisible();
+    expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    await waitFor(() => expect(lists).toBe(2));
+  });
+});
+
+describe('failed undo', () => {
+  it('keeps the notice and Undo, shows the alert, and focus stays on the notice', async () => {
+    let patches = 0;
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([anna, octavia]),
+      // The server really holds the archived state after the first PATCH, so Undo has work to do.
+      [itemKey('s-2')]: () => (patches === 0 ? etagged(octavia, '"5"') : etagged({ ...octavia, archived: true }, '"6"')),
+      [itemKey('s-2', 'PATCH')]: () =>
+        ++patches === 1 ? json(200, { ...octavia, archived: true }, { ETag: '"6"' }) : problem(503),
+    });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await screen.findByText('Octavia was archived.');
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('That didn’t work.');
+    expect(screen.getByText('Octavia was archived.')).toBeVisible();
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    expect(undo).toBeEnabled();
+    expect(document.body).not.toHaveFocus();
+    await waitFor(() => expect(screen.getByText('Octavia was archived.').closest('[role="status"]')).toHaveFocus());
+    expect(sent(fake.requests, 'PATCH')).toHaveLength(2);
+
+    // And it can simply be tried again.
+    await userEvent.click(undo);
+    await waitFor(() => expect(sent(fake.requests, 'PATCH')).toHaveLength(3));
+  });
+});
+
+describe('Czech name errors', () => {
+  it('say "Jméno nebo název" consistently', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ ...signedIn, [listKey]: page([]) });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Lidé a věci' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Přidat' }));
+    await userEvent.click(within(screen.getByRole('form')).getByRole('button', { name: 'Přidat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Zadejte jméno nebo název.');
+  });
+});
+
+describe('no household on /people', () => {
+  it('lands on home and puts / in the address bar', async () => {
+    window.history.replaceState(null, '', '/people');
+    installFakeServer({ 'GET /api/v1/session': json(200, session(false)) });
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
+      'Your account isn’t part of a household yet.',
+    );
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
   });
 });

@@ -108,6 +108,7 @@ export function SubjectsScreen({
 
   const reload = useCallback(() => {
     generation.current += 1;
+    focusKey.current = null;
     setAttempt((n) => n + 1);
   }, []);
 
@@ -184,6 +185,11 @@ export function SubjectsScreen({
       }
       if (started !== generation.current) return;
       if (result.kind === 'ok') {
+        // Archived or restored by someone else since the list loaded: it no longer belongs in this view.
+        if (result.subject.archived !== showArchived) {
+          changedMeanwhile();
+          return;
+        }
         updateRow(result.subject);
         setAdding(false);
         setEditing({ subject: result.subject, etag: result.etag, conflict: false });
@@ -195,7 +201,8 @@ export function SubjectsScreen({
   function changeArchived(subject: Subject, archived: boolean, isUndo: boolean) {
     const started = generation.current;
     void guarded(subject.id, async () => {
-      setNotice(null);
+      // An undo keeps its notice (and the Undo button) until it has worked.
+      if (!isUndo) setNotice(null);
       const result = await setArchived(householdId, subject.id, archived);
       if (result.kind === 'unauthenticated') {
         onSignedOut();
@@ -204,6 +211,7 @@ export function SubjectsScreen({
       if (started !== generation.current) return;
       if (result.kind === 'ok') {
         if (isUndo) {
+          setNotice(null);
           // Put the row back where it belongs and land on it, rather than refetching the whole list.
           focusKey.current = `row:${subject.id}`;
           setList((current) =>
@@ -219,7 +227,11 @@ export function SubjectsScreen({
         }
       } else if (result.kind === 'notFound') gone();
       else if (result.kind === 'conflict') changedMeanwhile();
-      else setActionFailed(true);
+      else {
+        setActionFailed(true);
+        // The Undo button just stopped being usable; keep focus inside the notice rather than on the page.
+        if (isUndo) noticeRef.current?.focus();
+      }
     });
   }
 
@@ -234,15 +246,18 @@ export function SubjectsScreen({
       onSignedOut();
       return { kind: 'handled' };
     }
-    if (started !== generation.current) return { kind: 'handled' };
     if (result.kind === 'ok') {
-      setList((current) =>
-        current.kind === 'ready' ? { ...current, items: mergeById(current.items, [result.subject]) } : current,
-      );
+      // It was created even if the view changed meanwhile, so say so; only the current list may take the row.
+      if (started === generation.current) {
+        setList((current) =>
+          current.kind === 'ready' ? { ...current, items: mergeById(current.items, [result.subject]) } : current,
+        );
+      }
       setAdding(false);
       setNotice({ kind: 'added', subject: result.subject });
       return { kind: 'done' };
     }
+    if (started !== generation.current) return { kind: 'handled' };
     if (result.kind === 'invalid') return result;
     return { kind: 'failed' };
   }
@@ -278,6 +293,10 @@ export function SubjectsScreen({
         }
         if (started !== generation.current) return { kind: 'handled' };
         if (latest.kind === 'ok') {
+          if (latest.subject.archived !== showArchived) {
+            changedMeanwhile();
+            return { kind: 'handled' };
+          }
           updateRow(latest.subject);
           setEditing({ subject: latest.subject, etag: latest.etag, conflict: true, mine: values });
           return { kind: 'handled' };
