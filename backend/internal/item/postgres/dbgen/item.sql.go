@@ -14,7 +14,7 @@ import (
 const createItem = `-- name: CreateItem :one
 INSERT INTO items (household_id, subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode)
 VALUES ($1, $2, $3, $4::text, $5::date, $6::integer, $7::text, $8::text)
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type CreateItemParams struct {
@@ -81,7 +81,7 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 }
 
 const getItem = `-- name: GetItem :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
 WHERE items.household_id = $1 AND items.id = $2
 `
@@ -135,7 +135,7 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 }
 
 const listItems = `-- name: ListItems :many
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
 WHERE items.household_id = $1 AND archived = $2 AND done = $3 AND items.id > $4
 ORDER BY id ASC
@@ -226,7 +226,7 @@ SET title = COALESCE($1::text, title),
     version = version + 1,
     updated_at = now()
 WHERE items.household_id = $13 AND items.id = $14 AND version = $15
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type UpdateItemParams struct {

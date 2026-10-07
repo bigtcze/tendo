@@ -287,6 +287,17 @@ fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':
 status,_,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
 assert status==201 and receipt['completedOn']=='2026-10-06' and receipt['nextAttentionOn']=='2027-09-01',('fixed completion',status,receipt)
 assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2027-09-01|2|false','fixed completion persistence'
+fixed_undo_path=cpath(fixed_late['id'])+'/'+receipt['id']
+CUNDO='/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}'
+CITEM_PATCH='/api/v1/households/{householdId}/items/{itemId}'
+status,_,undone=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'})
+assert status==200 and undone['undoneAt'] and undone['undoneByUserId'] and undone['id']==receipt['id'],('undo receipt',status,undone)
+assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2026-09-01|3|false' and psql(f"SELECT undone_at IS NOT NULL FROM item_completions WHERE id='{receipt['id']}'")== 't','undo restored state and receipt'
+status,_,item_after_undo=ireq('GET',ibase+'/'+fixed_late['id'],IITEM,headers=cookie_header);assert status==200 and item_after_undo['lastCompletedOn'] is None,('undo lastCompletedOn',status,item_after_undo)
+status,_,undo_replay=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"1\"'},record=False);assert status==200 and undo_replay['id']==undone['id'] and undo_replay['undoneAt']==undone['undoneAt'] and psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")== '3',('undo replay',status,undo_replay)
+status,_,active_one=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'\"3\"','Idempotency-Key':'active-one'});assert status==201,('first active retry completion',status,active_one)
+status,_,active_two=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'\"4\"','Idempotency-Key':'active-two'});assert status==201,('second active completion',status,active_two)
+status,_,not_latest=ireq('PATCH',cpath(fixed_late['id'])+'/'+active_one['id'],CUNDO,{'undone':True},{**mut,'If-Match':'\"5\"'});assert status==409 and not_latest['code']=='completion_not_latest',('not-latest undo',status,not_latest)
 fluid=ireq('POST',ibase,ICOLL,{'title':'Completion fluid late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':12,'intervalUnit':'month','mode':'after_completion'}},mut)[2]
 status,_,fluid_receipt=ireq('POST',cpath(fluid['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fluid-late'})
 assert status==201 and fluid_receipt['nextAttentionOn']=='2027-10-06' and psql(f"SELECT attention_on::text FROM items WHERE id='{fluid['id']}'")== '2027-10-06',('fluid completion',status,fluid_receipt)
@@ -314,10 +325,17 @@ cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert cleared[0]=='tendo_session=' and 'max-age=0' in cleared and 'httponly' in cleared and 'samesite=lax' in cleared and 'path=/' in cleared,cleared
 status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=False);assert status==403,('logout without Origin',status)
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
+status,_,b=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{'Origin':origin,'Cookie':f'tendo_session={token}','If-Match':'"3"'});assert status==401 and b['code']=='unauthenticated',('undo with revoked cookie',status,b)
 status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
+login_headers={'Origin':origin,'Content-Type':'application/json'}
+login_req=urllib.request.Request(origin+'/api/v1/session',data=json.dumps({'login':'owner_smoke','password':'correct horse battery'}).encode(),headers=login_headers,method='POST')
+with opener.open(login_req,timeout=8) as login_resp: login_cookie=login_resp.headers.get_all('Set-Cookie')[0].split(';',1)[0]
+new_token=login_cookie.split('=',1)[1]
+replay_version=psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")
+status,_,undone_retry=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{'Origin':origin,'Cookie':login_cookie,'If-Match':'"3"','Idempotency-Key':'fixed-late'});assert status==201 and undone_retry['id']==receipt['id'] and undone_retry['undoneAt']==undone['undoneAt'] and undone_retry['undoneByUserId']==undone['undoneByUserId'] and psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")== replay_version,('undone completion-key replay',status,undone_retry)
 stale=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert stale[0]=='tendo_session=' and 'max-age=0' in stale and 'httponly' in stale and 'samesite=lax' in stale and 'path=/' in stale,stale
-assert psql('SELECT count(*) FROM user_sessions')=='0','session row survived logout'
+assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{__import__('hashlib').sha256(new_token.encode()).hexdigest()}','hex')")== '1','new session row should remain'
 with open(os.environ['SETUP_SMOKE_FIXTURES'],'w',encoding='utf-8') as f:json.dump(fixtures,f)
 PY
 API_RESPONSE_FIXTURES="$session_fixtures" node "$root/api/check-health.mjs"

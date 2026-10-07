@@ -11,13 +11,17 @@ import (
 type Querier interface {
 	CreateItem(ctx context.Context, arg CreateItemParams) (CreateItemRow, error)
 	GetCompletionByKey(ctx context.Context, arg GetCompletionByKeyParams) (GetCompletionByKeyRow, error)
+	GetCompletionForUndo(ctx context.Context, arg GetCompletionForUndoParams) (GetCompletionForUndoRow, error)
 	GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, error)
 	InsertCompletion(ctx context.Context, arg InsertCompletionParams) (InsertCompletionRow, error)
+	LatestActiveCompletionVersion(ctx context.Context, arg LatestActiveCompletionVersionParams) (int64, error)
 	ListCompletions(ctx context.Context, arg ListCompletionsParams) ([]ListCompletionsRow, error)
 	ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error)
 	LockItemForCompletion(ctx context.Context, arg LockItemForCompletionParams) (LockItemForCompletionRow, error)
+	MarkCompletionUndone(ctx context.Context, arg MarkCompletionUndoneParams) (int64, error)
 	UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateItemRow, error)
 	UpdateItemForCompletion(ctx context.Context, arg UpdateItemForCompletionParams) error
+	UpdateItemForUndo(ctx context.Context, arg UpdateItemForUndoParams) error
 }
 
 var _ Querier = (*Queries)(nil)

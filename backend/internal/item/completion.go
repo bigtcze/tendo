@@ -15,6 +15,7 @@ var (
 	ErrArchived             = errors.New("item archived")
 	ErrDone                 = errors.New("item done")
 	ErrIdempotencyKeyReused = errors.New("idempotency key reused")
+	ErrCompletionNotLatest  = errors.New("completion not latest")
 )
 
 type Completion struct {
@@ -28,6 +29,8 @@ type Completion struct {
 	IdempotencyKey                             string
 	Fingerprint                                [32]byte
 	CreatedAt                                  time.Time
+	UndoneAt                                   *time.Time
+	UndoneByUserID                             *string
 }
 
 type CompletionPlan struct {
@@ -39,6 +42,15 @@ type CompletionDecider func(Item, *Completion) (CompletionPlan, error)
 type CompletionRequest struct {
 	CompletedOn *string
 }
+
+type CompletionUndoPlan struct {
+	Receipt        Completion
+	Item           Item
+	Apply          bool
+	UndoneAt       time.Time
+	UndoneByUserID string
+}
+type CompletionUndoDecider func(Item, Completion, *int64) (CompletionUndoPlan, error)
 
 func ValidateIdempotencyKey(key string) bool {
 	if len(key) < 1 || len(key) > 128 {
@@ -81,6 +93,9 @@ func (s *Service) Complete(ctx context.Context, userID, householdID, itemID stri
 		if existing != nil {
 			if existing.Fingerprint != fingerprint {
 				return CompletionPlan{}, ErrIdempotencyKeyReused
+			}
+			if existing.UndoneAt != nil {
+				return CompletionPlan{Receipt: *existing, Item: current}, nil
 			}
 			return CompletionPlan{Receipt: *existing, Item: current}, nil
 		}
@@ -137,6 +152,47 @@ func (s *Service) Complete(ctx context.Context, userID, householdID, itemID stri
 		return Completion{}, false, ErrUnavailable
 	}
 	return result, replayed, nil
+}
+
+func (s *Service) UndoCompletion(ctx context.Context, userID, householdID, itemID, completionID string, expectedVersion int64) (Completion, error) {
+	if !validUUID(itemID) || !validUUID(completionID) {
+		return Completion{}, ErrNotFound
+	}
+	householdID, _, err := s.check(ctx, userID, householdID)
+	if err != nil {
+		return Completion{}, err
+	}
+	itemID, completionID = strings.ToLower(itemID), strings.ToLower(completionID)
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	decide := func(current Item, receipt Completion, latest *int64) (CompletionUndoPlan, error) {
+		if receipt.UndoneAt != nil {
+			return CompletionUndoPlan{Receipt: receipt}, nil
+		}
+		if current.Version != expectedVersion {
+			return CompletionUndoPlan{}, ErrVersionMismatch
+		}
+		if current.Archived {
+			return CompletionUndoPlan{}, ErrArchived
+		}
+		if latest == nil || *latest != receipt.ItemVersionBefore {
+			return CompletionUndoPlan{}, ErrCompletionNotLatest
+		}
+		updated := current
+		updated.AttentionOn = receipt.CycleAttentionOn
+		updated.WorkflowState = receipt.PriorWorkflowState
+		updated.Done = false
+		updated.Version++
+		return CompletionUndoPlan{Receipt: receipt, Item: updated, Apply: true, UndoneAt: s.now().UTC(), UndoneByUserID: userID}, nil
+	}
+	result, err := s.repository.UndoCompletion(ctx, householdID, itemID, completionID, decide)
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrVersionMismatch) || errors.Is(err, ErrArchived) || errors.Is(err, ErrCompletionNotLatest) {
+		return Completion{}, err
+	}
+	if err != nil {
+		return Completion{}, ErrUnavailable
+	}
+	return result, nil
 }
 
 func policyOrDisabled(policy *schedule.Policy) schedule.Policy {

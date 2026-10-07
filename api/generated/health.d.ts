@@ -160,13 +160,33 @@ export interface paths {
         put?: never;
         /**
          * Complete an item
-         * @description Creates a durable completion receipt. Evaluation order: authentication, origin/authority, If-Match presence and syntax, Idempotency-Key, media/body validation, membership and item existence, idempotency lookup under the item row lock, completedOn validation/default, stored version, archived/done state, recurrence overflow, then commit. The key is scoped to the item. Its fingerprint includes actor and submitted-date presence/value but excludes If-Match and resolved today. An identical retry replays the original receipt and Location without incrementing the item version, even across household-local midnight; a different request with the key returns 422. Omitted completedOn resolves to household-local today only for a new completion. Requires canonical Origin.
+         * @description Creates a durable completion receipt. Evaluation order: authentication, origin/authority, If-Match presence and syntax, Idempotency-Key, media/body validation, membership and item existence, idempotency lookup under the item row lock, completedOn validation/default, stored version, archived/done state, recurrence overflow, then commit. The key is scoped to the item. Its fingerprint includes actor and submitted-date presence/value but excludes If-Match and resolved today. An identical retry replays the original receipt and Location without incrementing the item version, even across household-local midnight; a same-key retry after that receipt is undone still replays the original (now marked undone) and does not re-complete. A different request with the key returns 422. Omitted completedOn resolves to household-local today only for a new completion. Requires canonical Origin.
          */
         post: operations["createItemCompletion"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Undo the latest active completion
+         * @description Evaluation order is authentication, canonical Origin/authority, exactly one syntactically valid strong If-Match, media/body validation including undone=true, membership and item/receipt existence, item row lock, receipt lookup, and then the stored-version check, archived state, latest-active receipt and commit. Missing If-Match returns 428; malformed, weak, wildcard, or list returns 412. Body missing undone, null, wrong type, unknown fields, or malformed JSON returns 400 invalid_request; undone=false returns 422 with field undone and code invalid_value. An already-undone receipt replays unchanged after request validation and locking, skipping only the stored-version comparison. Undo restores cycleAttentionOn and priorWorkflowState from the receipt snapshot, clears done, and increments item version. Thus an attentionOn edit after completion is intentionally overwritten by undo. Recurrence policy, title, notes, and subject are user choices and remain unchanged. A previously undone receipt is no longer latest active; chaining undos therefore restores earlier cycles. Completion receipts are never deleted. Requires canonical Origin.
+         */
+        patch: operations["undoItemCompletion"];
         trace?: never;
     };
     "/api/v1/households/{householdId}/items/{itemId}": {
@@ -366,7 +386,7 @@ export interface components {
             readonly done: boolean;
             /**
              * Format: date
-             * @description Nullable business date from the completion with the greatest item_version_before, representing the most recently completed cycle regardless of submitted date.
+             * @description Greatest item_version_before among non-undone receipts, or null if none; business date order is not used.
              */
             readonly lastCompletedOn: string | null;
             /** Format: date-time */
@@ -380,6 +400,10 @@ export interface components {
              * @description YYYY-MM-DD business date; omitted uses household-local today.
              */
             completedOn?: string;
+        };
+        UndoCompletionRequest: {
+            /** @enum {boolean} */
+            undone: true;
         };
         Completion: {
             /** Format: uuid */
@@ -397,6 +421,10 @@ export interface components {
             nextAttentionOn: string | null;
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            undoneAt: string | null;
+            /** Format: uuid */
+            undoneByUserId: string | null;
         };
         CompletionList: {
             items: components["schemas"]["Completion"][];
@@ -404,7 +432,7 @@ export interface components {
         };
         CompletionProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            field?: "completedOn" | "recurrence";
+            field?: "completedOn" | "recurrence" | "undone";
         };
         ItemList: {
             items: components["schemas"]["Item"][];
@@ -2013,7 +2041,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["QueryProblem"];
                 };
             };
-            /** @description No valid session cookie. Unknown, expired, or revoked sessions also clear the cookie. */
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
             401: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -2228,6 +2256,191 @@ export interface operations {
                 };
             };
             /** @description Codes are invalid_date or future_date (field completedOn), idempotency_key_reused (fingerprint differs; field omitted), and date_overflow (field recurrence). */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["CompletionProblem"];
+                };
+            };
+            /** @description Missing If-Match. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undoItemCompletion: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Exactly one syntactically valid strong item ETag is required on every request. Missing returns 428; malformed, weak, wildcard, or list returns 412. For an already-undone replay only the stored-version comparison is skipped.
+                 * @example "3"
+                 */
+                "If-Match": string;
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Item identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+                 */
+                itemId: components["parameters"]["ItemId"];
+                completionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /** @example {
+                 *       "undone": true
+                 *     } */
+                "application/json": components["schemas"]["UndoCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Receipt marked undone. No ETag; GET the item for its current ETag. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Completion"];
+                };
+            };
+            /** @description Malformed JSON or unknown fields. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid Origin. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Membership, item, or completion not found (uniform; malformed IDs included). */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description item_archived or completion_not_latest. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["CompletionProblem"];
+                };
+            };
+            /** @description Malformed, weak, or stale If-Match. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid authority. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description undone=false returns 422 with field undone; missing, null, wrong type, unknown fields, and malformed JSON return 400 invalid_request. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
