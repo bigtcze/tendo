@@ -156,6 +156,7 @@ export const en = {
   'items.notice.added': '“{title}” was added.',
   'items.notice.done': '“{title}” is done.',
   'items.notice.doneNext': '“{title}” is done. Next time: {date}',
+  'items.notice.alreadyUndone': 'That was already undone. The list is up to date.',
   'items.notice.gone': 'That item is gone. The list is up to date.',
   'items.notice.changed': 'That changed just now. The list is up to date.',
   'items.notice.conflict': 'That item is already done or can’t be completed now. The list is up to date.',

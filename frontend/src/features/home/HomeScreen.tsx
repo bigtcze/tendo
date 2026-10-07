@@ -77,7 +77,7 @@ export function HomeScreen({
         <section className="settle">
           <Heading className="font-display text-4xl leading-tight sm:text-5xl">{household.name}</Heading>
           <div className="mt-8">
-            <ItemsScreen householdId={householdId!} onOpenPeople={onOpenPeople} onSignedOut={onSignedOut} />
+            <ItemsScreen userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onSignedOut={onSignedOut} />
           </div>
           <NavLink
             href="/people"

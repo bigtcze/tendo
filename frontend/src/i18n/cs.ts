@@ -159,6 +159,7 @@ export const cs: Record<MessageKey, string> = {
   'items.notice.added': 'Položka „{title}“ byla přidána.',
   'items.notice.done': 'Položka „{title}“ je hotová.',
   'items.notice.doneNext': 'Položka „{title}“ je hotová. Příště: {date}',
+  'items.notice.alreadyUndone': 'Toto dokončení už bylo vráceno. Seznam je aktuální.',
   'items.notice.gone': 'Položka už neexistuje. Seznam je aktuální.',
   'items.notice.changed': 'Právě se to změnilo. Seznam je aktuální.',
   'items.notice.conflict': 'Položka už je hotová nebo ji teď nelze dokončit. Seznam je aktuální.',

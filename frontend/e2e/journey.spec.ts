@@ -387,8 +387,12 @@ test.describe('Tendo production journey', () => {
   // Anchors are chosen relative to today so fixed and fluid outcomes always differ, even with a one-day
   // drift between test and server: a yearly anchor 15 days off today's month-day, a weekly anchor 3 days
   // off today's weekday. Both are well over a year/week in the past, so the completion is late.
+  // Date.UTC rolls invalid days over (today 02-29 two years back), and 29 February is skipped so the
+  // yearly anchor's month-day exists in every year and clamping never applies.
   function yearlyAnchor(): string {
-    return addDays(`${Number(pragueToday().slice(0, 4)) - 2}${pragueToday().slice(4)}`, 15);
+    const [y, m, d] = pragueToday().split('-').map(Number);
+    const anchor = new Date(Date.UTC(y - 2, m - 1, d + 15)).toISOString().slice(0, 10);
+    return anchor.endsWith('-02-29') ? addDays(anchor, 1) : anchor;
   }
   function weeklyAnchor(): string {
     return addDays(pragueToday(), -(7 * 60 + 3));

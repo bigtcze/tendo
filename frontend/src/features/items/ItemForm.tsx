@@ -21,7 +21,7 @@ function errorMessage(error: FormError | null, t: (key: MessageKey) => string): 
   return t('items.error.interval');
 }
 
-export function ItemForm({ subjects, onSubmit, onCancel }: { subjects: Subject[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void }) {
+export function ItemForm({ subjects, onSubmit, onCancel, busy = false }: { subjects: Subject[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean }) {
   const { t, locale } = useI18n();
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -54,7 +54,7 @@ export function ItemForm({ subjects, onSubmit, onCancel }: { subjects: Subject[]
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (submitting.current) return;
+    if (submitting.current || busy) return;
     if (!title.trim()) return fail({ kind: 'empty' });
     if (!subjectId) return fail({ kind: 'invalid', field: 'subjectId', code: 'invalid_reference' });
     if (repeat && (!Number.isInteger(Number(interval)) || Number(interval) < 1 || Number(interval) > 999)) return fail({ kind: 'invalid', field: 'recurrence', code: 'invalid_interval' });
@@ -89,6 +89,6 @@ export function ItemForm({ subjects, onSubmit, onCancel }: { subjects: Subject[]
       {notesOpen ? <div className="mt-2 space-y-2"><Label htmlFor={`${id}-notes`}>{t('items.notes')}</Label><textarea ref={notesRef} id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={4000} aria-invalid={field === 'notes'} aria-describedby={field === 'notes' ? errorId : undefined} className="min-h-24 w-full rounded-xl border border-line bg-white p-3" /></div> : null}
     </div>
     <div id={errorId} role="alert" className="text-danger">{errorMessage(error, t)}</div>
-    <div className="flex flex-wrap gap-2"><Button type="submit" disabled={pending}>{pending ? t('items.add.submitting') : t('items.add.submit')}</Button><Button type="button" variant="quiet" onClick={onCancel} disabled={pending}>{t('items.cancel')}</Button></div>
+    <div className="flex flex-wrap gap-2"><Button type="submit" disabled={pending || busy}>{pending ? t('items.add.submitting') : t('items.add.submit')}</Button><Button type="button" variant="quiet" onClick={onCancel} disabled={pending || busy}>{t('items.cancel')}</Button></div>
   </form>;
 }

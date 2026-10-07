@@ -3,6 +3,7 @@ import { LoginScreen } from '../features/auth/LoginScreen';
 import { OnboardingScreen } from '../features/auth/OnboardingScreen';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
 import { HomeScreen } from '../features/home/HomeScreen';
+import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { useI18n } from '../i18n';
 import { ScreenTransitionContext } from './Heading';
@@ -53,6 +54,7 @@ export function App() {
   }, []);
 
   const signedOut = useCallback(() => {
+    clearPendingCompletions();
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setPeople(false);

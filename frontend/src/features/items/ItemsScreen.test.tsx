@@ -38,7 +38,7 @@ describe('item creation', () => {
     app();
     const form = await openForm();
     expect(within(form).getByRole('switch', { name: 'Repeat' })).not.toBeChecked();
-    expect(within(form).queryByLabelText('Every')).not.toBeInTheDocument();
+    expect(within(form).queryByRole('spinbutton', { name: 'Repeat every' })).not.toBeInTheDocument();
     expect(within(form).queryByRole('switch', { name: /Count the next repeat/ })).not.toBeInTheDocument();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Renew passport');
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
@@ -218,6 +218,122 @@ describe('Home items', () => {
     expect(posts[1]!.headers.get('Idempotency-Key')).toBe(key);
   });
 
+  it('keeps the unresolved completion key when Home unmounts for People and things', async () => {
+    let posts = 0;
+    const fake = installFakeServer({
+      ...routes,
+      [itemList]: page([item()]),
+      [subjectList]: json(200, { items: [], nextCursor: null }),
+      [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }),
+      [`POST ${donePath}`]: () => { if (++posts === 1) throw new Error('response lost'); return json(201, { id: 'c-nav', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }); },
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    const key = requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
+    await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
+    await screen.findByRole('heading', { name: 'People and things' });
+    await userEvent.click(screen.getByRole('link', { name: 'Back to home' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
+    const postsSent = requestsOf(fake.requests, 'POST', donePath);
+    expect(postsSent).toHaveLength(2);
+    expect(postsSent[0]!.headers.get('If-Match')).toBe('"7"');
+    expect(postsSent[1]!.headers.get('If-Match')).toBe('"7"');
+    expect(postsSent[1]!.headers.get('Idempotency-Key')).toBe(key);
+  });
+
+  it('retries a lost response from the server receipt using the exact stored receipt and advances once', async () => {
+    let storedReceipt: Record<string, unknown> | undefined;
+    let advanceCount = 0;
+    const fake = installFakeServer({
+      ...routes,
+      [itemList]: () => page([item({ attention: advanceCount ? 'upcoming' : 'needs_attention', attentionOn: advanceCount ? '2027-01-01' : null })]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: () => json(200, item({ attention: advanceCount ? 'upcoming' : 'needs_attention', attentionOn: advanceCount ? '2027-01-01' : null }), { ETag: `"${1 + advanceCount}"` }),
+      [`POST ${donePath}`]: (request) => {
+        const key = request.headers.get('Idempotency-Key')!;
+        if (storedReceipt) return json(201, storedReceipt);
+        expect(request.body).toBe('{}');
+        advanceCount++;
+        storedReceipt = { id: 'c-stored', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: session().userId, cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null, requestKey: key };
+        throw new Error('server committed; response lost');
+      },
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await screen.findByText('“Renew passport” is done.');
+    const posts = requestsOf(fake.requests, 'POST', donePath);
+    expect(posts).toHaveLength(2);
+    expect(posts[1]!.headers.get('Idempotency-Key')).toBe(posts[0]!.headers.get('Idempotency-Key'));
+    expect(advanceCount).toBe(1);
+    expect(storedReceipt?.requestKey).toBe(posts[0]!.headers.get('Idempotency-Key'));
+  });
+
+  it('persists an unresolved attempt across a fresh App render', async () => {
+    sessionStorage.clear();
+    let posts = 0;
+    const server = {
+      ...routes,
+      [itemList]: page([item()]),
+      [subjectList]: json(200, { items: [], nextCursor: null }),
+      [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }),
+      [`POST ${donePath}`]: () => { if (++posts === 1) throw new Error('response lost'); return json(201, { id: 'c-reload', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }); },
+    };
+    const first = installFakeServer(server);
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    const key = requestsOf(first.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
+    cleanup();
+    const reloaded = installFakeServer(server);
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await screen.findByText('“Renew passport” is done.');
+    expect(requestsOf(reloaded.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key')).toBe(key);
+  });
+
+  it('clears stored completion attempts on sign out', async () => {
+    const key = 'a'.repeat(32);
+    sessionStorage.setItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`, key);
+    const fake = installFakeServer({ ...routes, [itemList]: page([item()]), [subjectList]: subjects, 'DELETE /api/v1/session': json(204), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
+    expect(requestsOf(fake.requests, 'DELETE', '/api/v1/session')).toHaveLength(1);
+  });
+
+  it('keeps Add item focused after an undone receipt is replayed', async () => {
+    installFakeServer({ ...routes, [itemList]: page([item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }), [`POST ${donePath}`]: json(201, { id: 'c-undone', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-02T00:00:00Z', undoneByUserId: 'u-1' }) });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('That was already undone. The list is up to date.')).toBeVisible();
+    await waitFor(() => expect(screen.getByText('That was already undone. The list is up to date.').closest('[tabindex="-1"]')).toHaveFocus());
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Add and Done available but form submit disabled while Done is pending', async () => {
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const fake = installFakeServer({ ...routes, [itemList]: page([item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: async () => { await waiting; return json(200, item(), { ETag: '"7"' }); }, [`POST ${donePath}`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'item_done' }), [`POST ${base}/items`]: json(201, item()) });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    const add = await screen.findByRole('button', { name: 'Add item' });
+    await userEvent.click(add);
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(form).getByLabelText('What needs doing?')).toBeEnabled();
+    const submit = within(form).getByRole('button', { name: 'Add item' });
+    expect(submit).toBeDisabled();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Another item');
+    await userEvent.click(submit);
+    expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(0);
+    expect(add).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+    release();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Add item' })).toBeEnabled());
+  });
+
   it('restores the row and focuses its Done action after undo', async () => {
     const fake = installFakeServer({
       ...routes,
@@ -255,6 +371,7 @@ describe('Home items', () => {
     app();
     await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('If-Match')).toBe('"7"');
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText(/Next time: Jan 1, 2027/)).toBeVisible();
     const posts = requestsOf(fake.requests, 'POST', donePath);
@@ -282,10 +399,10 @@ describe('Home items', () => {
       [`PATCH ${donePath}/c-undo`]: json(200, { id: 'c-undo', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-01T00:00:00Z', undoneByUserId: 'u-1' }),
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    const doneButton = await screen.findByRole('button', { name: 'Done' });
+    await userEvent.click(doneButton);
     expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
-    // The Done button that had focus is gone with the row; focus lands on the notice, not the page body.
-    expect(document.activeElement).not.toBe(document.body);
+    await waitFor(() => expect(screen.getByText('“Renew passport” is done.').closest('[tabindex="-1"]')).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(screen.queryByText('“Renew passport” is done.')).not.toBeInTheDocument());
     const patch = requestsOf(fake.requests, 'PATCH', `${donePath}/c-undo`)[0]!;
