@@ -39,6 +39,17 @@ For behavior/API/schema changes:
 14. Enable auto-merge only when repository rules permit.
 15. After merge: checkout/sync main, verify expected content + green main CI, remove stale local branch when safe.
 
+## Delegation discipline
+
+- The orchestrator owns triage, dependency order, and final validation. Subagents own bounded work packets, not the whole PR.
+- Before delegating review feedback, group findings by owning concern and dependency. Never forward a cross-domain review report wholesale to one writing subagent.
+- A writing packet must have one coherent concern, explicit acceptance criteria, and targeted validation. It ends when those checks pass or a new blocker is evidenced.
+- Use only one writing subagent at a time in the same worktree. Read-only review and analysis may overlap.
+- A worker must not silently absorb newly discovered unrelated or cross-cutting failures. Return exact evidence to the orchestrator for re-triage.
+- Consult `oracle` before implementation when a finding changes API/domain contracts, auth or household boundaries, transaction semantics, migration/schema invariants, concurrency/idempotency semantics, or another architecture boundary.
+- The orchestrator owns full-suite/release validation after bounded implementation packets. A validation failure is re-triaged to its owning concern; the worker that happened to trigger the suite does not automatically own every failure.
+- Keep packets few and dependency-aware. Do not split tightly coupled work merely to maximize agent count.
+
 ## Architecture discipline
 - Do not bypass application services from frontend/integrations.
 - Do not introduce generic abstraction until a real use needs it, except locked platform seams.

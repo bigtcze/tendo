@@ -30,3 +30,5 @@ Hard requirements:
 Use available tools/agents for implementation and independent review. Resolve failures rather than hiding them. If blocked, record exact evidence and choose safe independent V1 work.
 
 Completion is not a direct-main action. When all V1 DoD items are proven on main, follow FLOW's final completion-PR protocol.
+
+- Triage multi-domain review feedback into bounded, dependency-aware worker packets. Never forward a cross-domain review wholesale to one writing worker. Route cross-cutting design to `oracle`; the orchestrator owns full validation and failure re-triage.
