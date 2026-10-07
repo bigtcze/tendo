@@ -230,6 +230,41 @@ status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'O
 status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},cookie_header);assert status==403,('missing Origin POST',status,b)
 status,_,b=sreq('PATCH',spath,ITEM,{'name':'x'},{**cookie_header,'Origin':'http://foreign.example','If-Match':'"4"'});assert status==403,('foreign Origin PATCH',status,b)
 assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")=='2' and psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|4','rejected requests changed subjects'
+# Item API smoke: persistence, derived attention, ETags, archive, and boundaries.
+ICOLL='/api/v1/households/{householdId}/items'
+IITEM='/api/v1/households/{householdId}/items/{itemId}'
+def ireq(method,url,template,body=None,headers=None,record=True):
+ h={**(headers or {})};data=None
+ if body is not None:h['Content-Type']='application/json';data=json.dumps(body,ensure_ascii=False).encode()
+ r=urllib.request.Request(origin+url,data=data,headers=h,method=method)
+ try:
+  with opener.open(r,timeout=8) as x:status,hs,raw=x.status,x.headers,x.read()
+ except urllib.error.HTTPError as e:status,hs,raw=e.code,e.headers,e.read()
+ result=json.loads(raw) if raw else None
+ if record:fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
+ return status,hs,result
+ibase=f'/api/v1/households/{household}/items'
+status,h,immediate=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění 🚗  ','subjectId':person['id'],'notes':'Poznámka 家族'},mut)
+assert status==201 and immediate['title']=='Připomenout pojištění 🚗' and immediate['attention']=='needs_attention' and h['ETag']=='"1"',('create immediate item',status,immediate)
+assert psql(f"SELECT title||'|'||notes||'|'||workflow_state||'|'||archived||'|'||version FROM items WHERE id='{immediate['id']}' AND household_id='{household}'")== 'Připomenout pojištění 🚗|Poznámka 家族|open|false|1','persisted item row'
+status,h,future=ireq('POST',ibase,ICOLL,{'title':'Future item','subjectId':person['id'],'attentionOn':'2099-12-31'},mut)
+assert status==201 and future['attention']=='upcoming',('future attention',status,future)
+ipath=ibase+'/'+immediate['id']
+status,h,got=ireq('GET',ipath,IITEM,headers=cookie_header)
+assert status==200 and got==immediate and h['ETag']=='"1"',('item get',status,got)
+status,h,patched=ireq('PATCH',ipath,IITEM,{'title':'Insurance follow-up','workflowState':'in_progress','attentionOn':None},{**mut,'If-Match':'"1"'})
+assert status==200 and patched['title']=='Insurance follow-up' and patched['workflowState']=='in_progress' and patched['attentionOn'] is None and patched['attention']=='needs_attention' and h['ETag']=='"2"',('item patch',status,patched)
+assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::text,'NULL')||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|NULL|2','item patch persisted'
+status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert status==428 and b['code']=='precondition_required',('item missing If-Match',status,b)
+status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
+status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
+status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id']],('active items',status,active_items)
+status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
+status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},mut);assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
+status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)
+status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)
+status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign origin items',status,b)
+assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '2' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]

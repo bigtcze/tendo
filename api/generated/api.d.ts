@@ -121,6 +121,54 @@ export interface paths {
         patch: operations["updateSubject"];
         trace?: never;
     };
+    "/api/v1/households/{householdId}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List items
+         * @description Returns items of the household in creation order (ascending id) using keyset cursor pagination. The default page lists active items; archived=true lists archived items only. nextCursor is always present and is null on the last page. The cursor is opaque. Unknown query parameters are ignored. The derived attention value is computed per request in the household timezone.
+         */
+        get: operations["listItems"];
+        put?: never;
+        /**
+         * Create a one-off item
+         * @description Creates a household-scoped one-off backlog item with workflowState open. Any household member may create items. subjectId must name an active subject of the same household. The title is stored trimmed; notes are stored exactly as given. attentionOn is optional; without it the item needs attention immediately. A past attentionOn is allowed. Requires the canonical Origin header.
+         */
+        post: operations["createItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/items/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read an item
+         * @description Returns the item, archived or not, when the caller is a household member. The strong ETag identifies the stored item version used for If-Match; the attention field is derived per request using the household timezone and can change at household-local midnight without a version change. Responses are Cache-Control: no-store.
+         */
+        get: operations["getItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update, move, change state of, archive, or unarchive an item
+         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.
+         */
+        patch: operations["updateItem"];
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -253,6 +301,66 @@ export interface components {
             /** @enum {string} */
             code: "invalid_characters" | "invalid_length" | "invalid_type";
         };
+        /** @enum {string} */
+        WorkflowState: "open" | "in_progress" | "waiting" | "paused";
+        /**
+         * @description Derived server-side from attentionOn and today's date in the household timezone; never set by clients. needs_attention when attentionOn is null or not after today, otherwise upcoming.
+         * @enum {string}
+         */
+        ItemAttention: "upcoming" | "needs_attention";
+        Item: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            subjectId: string;
+            title: string;
+            notes: string | null;
+            /**
+             * Format: date
+             * @description Current attention date; null means needs attention immediately.
+             */
+            attentionOn: string | null;
+            workflowState: components["schemas"]["WorkflowState"];
+            attention: components["schemas"]["ItemAttention"];
+            archived: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ItemList: {
+            items: components["schemas"]["Item"][];
+            /** @description Opaque cursor for the next page; null on the last page. */
+            nextCursor: string | null;
+        };
+        CreateItemRequest: {
+            /** @description 1 to 200 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. */
+            title: string;
+            /** @description Identifier of an active subject in the same household; otherwise 422 invalid_reference. */
+            subjectId: string;
+            /** @description Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. */
+            notes?: string | null;
+            /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
+            attentionOn?: string | null;
+        };
+        UpdateItemRequest: {
+            /** @description 1 to 200 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. */
+            title?: string;
+            /** @description Identifier of an active subject in the same household; otherwise 422 invalid_reference. */
+            subjectId?: string;
+            /** @description Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes. */
+            notes?: string | null;
+            /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
+            attentionOn?: string | null;
+            workflowState?: components["schemas"]["WorkflowState"];
+            archived?: boolean;
+        };
+        ItemValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "title" | "subjectId" | "notes" | "attentionOn" | "workflowState";
+            /** @enum {string} */
+            code: "invalid_characters" | "invalid_length" | "invalid_date" | "invalid_workflow_state" | "invalid_reference";
+        };
         ValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             field: "login" | "password" | "householdName" | "timezone";
@@ -280,11 +388,16 @@ export interface components {
          * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70
          */
         SubjectId: string;
+        /**
+         * @description Item identifier.
+         * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+         */
+        ItemId: string;
         /** @description Maximum number of items per page. */
         Limit: number;
         /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
         Cursor: string;
-        /** @description false (default) lists active subjects; true lists archived subjects only. */
+        /** @description false (default) lists active resources; true lists archived resources only. */
         Archived: boolean;
     };
     requestBodies: never;
@@ -956,7 +1069,7 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description false (default) lists active subjects; true lists archived subjects only. */
+                /** @description false (default) lists active resources; true lists archived resources only. */
                 archived?: components["parameters"]["Archived"];
             };
             header?: {
@@ -1472,6 +1585,557 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["SubjectValidationProblem"];
+                };
+            };
+            /** @description The If-Match header is missing. A present but unsupported value (wildcard *, weak or list entity tags) returns 412, not 428. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listItems: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description false (default) lists active resources; true lists archived resources only. */
+                archived?: components["parameters"]["Archived"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of items. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemList"];
+                };
+            };
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createItem: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /** @example {
+                 *       "title": "Renew car insurance",
+                 *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                 *       "notes": "Compare two quotes first.",
+                 *       "attentionOn": "2026-11-01"
+                 *     } */
+                "application/json": components["schemas"]["CreateItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Item created. */
+            201: {
+                headers: {
+                    /**
+                     * @description Canonical URL of the created item.
+                     * @example /api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61/items/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+                     */
+                    Location?: string;
+                    /**
+                     * @description Strong entity tag identifying the stored item version used for If-Match.
+                     * @example "1"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            /** @description Malformed JSON, unknown or duplicate keys, null for a field that does not accept null, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Field validation failed. field is title, subjectId, notes, attentionOn, or workflowState. Codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ItemValidationProblem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getItem: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Item identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+                 */
+                itemId: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Item visible to the caller. */
+            200: {
+                headers: {
+                    /**
+                     * @description Strong entity tag identifying the stored item version used for If-Match.
+                     * @example "1"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            /** @description Trusted forwarded request metadata is malformed or inconsistent. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The household or item identifier is malformed, the item does not exist in that household, or the caller is not a member. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateItem: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Single strong entity tag of the version being replaced. The wildcard *, weak tags, and lists are rejected with 412.
+                 * @example "1"
+                 */
+                "If-Match": string;
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Item identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+                 */
+                itemId: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /** @example {
+                 *       "workflowState": "in_progress"
+                 *     } */
+                "application/json": components["schemas"]["UpdateItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Item updated; the ETag carries the new version. */
+            200: {
+                headers: {
+                    /**
+                     * @description Strong entity tag derived from the item version.
+                     * @example "2"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            /** @description Malformed JSON, unknown or duplicate keys, null for a field that does not accept null, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The household or item identifier is malformed, the item does not exist in that household, or the caller is not a member. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match is malformed, weak, a list of tags, the wildcard *, or does not match the current item version. If-Match: * and weak or list entity tags are not supported and are rejected with 412. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Field validation failed. field is title, subjectId, notes, attentionOn, or workflowState. Codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ItemValidationProblem"];
                 };
             };
             /** @description The If-Match header is missing. A present but unsupported value (wildcard *, weak or list entity tags) returns 412, not 428. */

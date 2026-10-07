@@ -14,6 +14,30 @@ const (
 	SetupTokenScopes    = "SetupToken.Scopes"
 )
 
+// Defines values for ItemAttention.
+const (
+	NeedsAttention ItemAttention = "needs_attention"
+	Upcoming       ItemAttention = "upcoming"
+)
+
+// Defines values for ItemValidationProblemCode.
+const (
+	ItemValidationProblemCodeInvalidCharacters    ItemValidationProblemCode = "invalid_characters"
+	ItemValidationProblemCodeInvalidDate          ItemValidationProblemCode = "invalid_date"
+	ItemValidationProblemCodeInvalidLength        ItemValidationProblemCode = "invalid_length"
+	ItemValidationProblemCodeInvalidReference     ItemValidationProblemCode = "invalid_reference"
+	ItemValidationProblemCodeInvalidWorkflowState ItemValidationProblemCode = "invalid_workflow_state"
+)
+
+// Defines values for ItemValidationProblemField.
+const (
+	ItemValidationProblemFieldAttentionOn   ItemValidationProblemField = "attentionOn"
+	ItemValidationProblemFieldNotes         ItemValidationProblemField = "notes"
+	ItemValidationProblemFieldSubjectId     ItemValidationProblemField = "subjectId"
+	ItemValidationProblemFieldTitle         ItemValidationProblemField = "title"
+	ItemValidationProblemFieldWorkflowState ItemValidationProblemField = "workflowState"
+)
+
 // Defines values for QueryProblemParameter.
 const (
 	QueryProblemParameterArchived QueryProblemParameter = "archived"
@@ -32,9 +56,9 @@ const (
 
 // Defines values for SubjectValidationProblemCode.
 const (
-	InvalidCharacters SubjectValidationProblemCode = "invalid_characters"
-	InvalidLength     SubjectValidationProblemCode = "invalid_length"
-	InvalidType       SubjectValidationProblemCode = "invalid_type"
+	SubjectValidationProblemCodeInvalidCharacters SubjectValidationProblemCode = "invalid_characters"
+	SubjectValidationProblemCodeInvalidLength     SubjectValidationProblemCode = "invalid_length"
+	SubjectValidationProblemCodeInvalidType       SubjectValidationProblemCode = "invalid_type"
 )
 
 // Defines values for SubjectValidationProblemField.
@@ -50,6 +74,29 @@ const (
 	Password      ValidationProblemField = "password"
 	Timezone      ValidationProblemField = "timezone"
 )
+
+// Defines values for WorkflowState.
+const (
+	InProgress WorkflowState = "in_progress"
+	Open       WorkflowState = "open"
+	Paused     WorkflowState = "paused"
+	Waiting    WorkflowState = "waiting"
+)
+
+// CreateItemRequest defines model for CreateItemRequest.
+type CreateItemRequest struct {
+	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422.
+	AttentionOn **string `json:"attentionOn,omitempty"`
+
+	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear.
+	Notes **string `json:"notes,omitempty"`
+
+	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
+	SubjectId string `json:"subjectId"`
+
+	// Title 1 to 200 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422.
+	Title string `json:"title"`
+}
 
 // CreateSubjectRequest defines model for CreateSubjectRequest.
 type CreateSubjectRequest struct {
@@ -67,6 +114,53 @@ type Household struct {
 	// Timezone Named IANA timezone.
 	Timezone string `json:"timezone"`
 }
+
+// Item defines model for Item.
+type Item struct {
+	Archived bool `json:"archived"`
+
+	// Attention Derived server-side from attentionOn and today's date in the household timezone; never set by clients. needs_attention when attentionOn is null or not after today, otherwise upcoming.
+	Attention ItemAttention `json:"attention"`
+
+	// AttentionOn Current attention date; null means needs attention immediately.
+	AttentionOn   *string       `json:"attentionOn"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	Id            string        `json:"id"`
+	Notes         *string       `json:"notes"`
+	SubjectId     string        `json:"subjectId"`
+	Title         string        `json:"title"`
+	UpdatedAt     time.Time     `json:"updatedAt"`
+	WorkflowState WorkflowState `json:"workflowState"`
+}
+
+// ItemAttention Derived server-side from attentionOn and today's date in the household timezone; never set by clients. needs_attention when attentionOn is null or not after today, otherwise upcoming.
+type ItemAttention string
+
+// ItemList defines model for ItemList.
+type ItemList struct {
+	Items []Item `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// ItemValidationProblem defines model for ItemValidationProblem.
+type ItemValidationProblem struct {
+	Code                 ItemValidationProblemCode  `json:"code"`
+	Detail               *string                    `json:"detail,omitempty"`
+	Field                ItemValidationProblemField `json:"field"`
+	Instance             *string                    `json:"instance,omitempty"`
+	Status               int                        `json:"status"`
+	Title                string                     `json:"title"`
+	Type                 string                     `json:"type"`
+	AdditionalProperties map[string]interface{}     `json:"-"`
+}
+
+// ItemValidationProblemCode defines model for ItemValidationProblem.Code.
+type ItemValidationProblemCode string
+
+// ItemValidationProblemField defines model for ItemValidationProblem.Field.
+type ItemValidationProblemField string
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
@@ -171,6 +265,24 @@ type SubjectValidationProblemCode string
 // SubjectValidationProblemField defines model for SubjectValidationProblem.Field.
 type SubjectValidationProblemField string
 
+// UpdateItemRequest defines model for UpdateItemRequest.
+type UpdateItemRequest struct {
+	Archived *bool `json:"archived,omitempty"`
+
+	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422.
+	AttentionOn **string `json:"attentionOn,omitempty"`
+
+	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes.
+	Notes **string `json:"notes,omitempty"`
+
+	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
+	SubjectId *string `json:"subjectId,omitempty"`
+
+	// Title 1 to 200 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422.
+	Title         *string        `json:"title,omitempty"`
+	WorkflowState *WorkflowState `json:"workflowState,omitempty"`
+}
+
 // UpdateSubjectRequest defines model for UpdateSubjectRequest.
 type UpdateSubjectRequest struct {
 	Archived *bool `json:"archived,omitempty"`
@@ -195,6 +307,9 @@ type ValidationProblem struct {
 // ValidationProblemField defines model for ValidationProblem.Field.
 type ValidationProblemField string
 
+// WorkflowState defines model for WorkflowState.
+type WorkflowState string
+
 // Archived defines model for Archived.
 type Archived = bool
 
@@ -203,6 +318,9 @@ type Cursor = string
 
 // HouseholdId defines model for HouseholdId.
 type HouseholdId = string
+
+// ItemId defines model for ItemId.
+type ItemId = string
 
 // Limit defines model for Limit.
 type Limit = int
@@ -234,6 +352,42 @@ type GetHouseholdParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// ListItemsParams defines parameters for ListItems.
+type ListItemsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Archived false (default) lists active resources; true lists archived resources only.
+	Archived *Archived `form:"archived,omitempty" json:"archived,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateItemParams defines parameters for CreateItem.
+type CreateItemParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetItemParams defines parameters for GetItem.
+type GetItemParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateItemParams defines parameters for UpdateItem.
+type UpdateItemParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Single strong entity tag of the version being replaced. The wildcard *, weak tags, and lists are rejected with 412.
+	IfMatch string `json:"If-Match"`
+}
+
 // ListSubjectsParams defines parameters for ListSubjects.
 type ListSubjectsParams struct {
 	// Limit Maximum number of items per page.
@@ -242,7 +396,7 @@ type ListSubjectsParams struct {
 	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Archived false (default) lists active subjects; true lists archived subjects only.
+	// Archived false (default) lists active resources; true lists archived resources only.
 	Archived *Archived `form:"archived,omitempty" json:"archived,omitempty"`
 
 	// XRequestID Optional caller-supplied correlation ID.
@@ -309,6 +463,12 @@ type GetReadinessParams struct {
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest
 
+// CreateItemJSONRequestBody defines body for CreateItem for application/json ContentType.
+type CreateItemJSONRequestBody = CreateItemRequest
+
+// UpdateItemJSONRequestBody defines body for UpdateItem for application/json ContentType.
+type UpdateItemJSONRequestBody = UpdateItemRequest
+
 // CreateSubjectJSONRequestBody defines body for CreateSubject for application/json ContentType.
 type CreateSubjectJSONRequestBody = CreateSubjectRequest
 
@@ -317,6 +477,154 @@ type UpdateSubjectJSONRequestBody = UpdateSubjectRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// Getter for additional properties for ItemValidationProblem. Returns the specified
+// element and whether it was found
+func (a ItemValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for ItemValidationProblem
+func (a *ItemValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for ItemValidationProblem to handle AdditionalProperties
+func (a *ItemValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for ItemValidationProblem to handle AdditionalProperties
+func (a ItemValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for Problem. Returns the specified
 // element and whether it was found
