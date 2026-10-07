@@ -73,7 +73,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	params, ok := httpx.ParseListParams(w, r, subject.MaxLimit)
+	params, ok := httpx.ParseListParamsFor(w, r, subject.MaxLimit, httpx.ListFilterArchived)
 	if !ok {
 		return
 	}

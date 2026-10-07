@@ -126,6 +126,14 @@ func stored(t *testing.T, f *fixture) item.Item {
 	return i
 }
 
+func TestListDoneQueryValidation(t *testing.T) {
+	f := newFixture(true)
+	w := f.do("GET", base+"?done=bad", "", nil)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"done"`) {
+		t.Fatalf("bad done query status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	f := newFixture(true)
 	created := f.do("POST", base, `{"title":"  New item  ","subjectId":"`+sid+`","notes":"  keep\n ","attentionOn":"2026-03-02"}`, nil)
@@ -144,7 +152,7 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	if created.Code != 201 || created.Header().Get("ETag") != `"1"` || created.Header().Get("Location") != base+"/"+id || created.Header().Get("Content-Type") != "application/json" || created.Header().Get("Cache-Control") != "no-store" || row.Title != "New item" || row.Notes == nil || *row.Notes != "  keep\n " || row.Version != 1 || row.WorkflowState != item.StateOpen {
 		t.Fatalf("status=%d headers=%v body=%s row=%+v", created.Code, created.Header(), created.Body, row)
 	}
-	want := `{"id":"` + id + `","subjectId":"` + sid + `","title":"New item","notes":"  keep\n ","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z","recurrence":null}`
+	want := `{"id":"` + id + `","subjectId":"` + sid + `","title":"New item","notes":"  keep\n ","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z","recurrence":null}`
 	bodyEqual(t, created.Body.String(), want)
 	get := f.do("GET", base+"/"+id, "", nil)
 	if get.Code != 200 || get.Header().Get("ETag") != `"1"` || get.Header().Get("Cache-Control") != "no-store" {
@@ -155,14 +163,14 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	if list.Code != 200 {
 		t.Fatalf("list=%d %s", list.Code, list.Body)
 	}
-	seeded := `{"id":"` + iid + `","subjectId":"` + sid + `","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-03-01T23:30:00Z","recurrence":null}`
+	seeded := `{"id":"` + iid + `","subjectId":"` + sid + `","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-03-01T23:30:00Z","recurrence":null}`
 	bodyEqual(t, list.Body.String(), `{"items":[`+want+`,`+seeded+`],"nextCursor":null}`)
 	patched := f.do("PATCH", base+"/"+id, `{"notes":null,"attentionOn":null,"workflowState":"paused"}`, map[string]string{"If-Match": `"1"`})
 	updated, exists := f.repo.Row(id)
 	if !exists || patched.Code != 200 || patched.Header().Get("ETag") != `"2"` || updated.Version != 2 || updated.Notes != nil || updated.AttentionOn != nil || updated.WorkflowState != item.StatePaused {
 		t.Fatalf("patch=%d %s row=%+v exists=%v", patched.Code, patched.Body, updated, exists)
 	}
-	bodyEqual(t, patched.Body.String(), `{"id":"`+id+`","subjectId":"`+sid+`","title":"New item","notes":null,"attentionOn":null,"recurrence":null,"workflowState":"paused","attention":"needs_attention","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+	bodyEqual(t, patched.Body.String(), `{"id":"`+id+`","subjectId":"`+sid+`","title":"New item","notes":null,"attentionOn":null,"recurrence":null,"workflowState":"paused","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 }
 
 func TestRecurrenceStrictDecodingAndValidation(t *testing.T) {
@@ -199,7 +207,7 @@ func TestRecurrenceStrictDecodingAndValidation(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("clear recurrence: %d %s", w.Code, w.Body)
 	}
-	bodyEqual(t, w.Body.String(), `{"id":"`+iid+`","subjectId":"`+sid+`","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","recurrence":null,"workflowState":"open","attention":"needs_attention","archived":false,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+	bodyEqual(t, w.Body.String(), `{"id":"`+iid+`","subjectId":"`+sid+`","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","recurrence":null,"workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 }
 
 func TestRecurrenceIntegerRangeErrorsDoNotPersist(t *testing.T) {
@@ -240,7 +248,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &fixedBody); err != nil {
 		t.Fatal(err)
 	}
-	fixedWant := `{"id":"` + fixedBody.Id + `","subjectId":"` + sid + `","title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":{"intervalValue":1,"intervalUnit":"year","mode":"fixed"},"workflowState":"open","attention":"upcoming","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	fixedWant := `{"id":"` + fixedBody.Id + `","subjectId":"` + sid + `","title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":{"intervalValue":1,"intervalUnit":"year","mode":"fixed"},"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
 	bodyEqual(t, w.Body.String(), fixedWant)
 	got := f.do("GET", base+"/"+fixedBody.Id, "", nil)
 	if got.Code != 200 {
@@ -255,7 +263,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &fluidBody); err != nil {
 		t.Fatal(err)
 	}
-	fluidWant := `{"id":"` + fluidBody.Id + `","subjectId":"` + sid + `","title":"Fluid","notes":null,"attentionOn":"2099-02-01","recurrence":{"intervalValue":2,"intervalUnit":"month","mode":"after_completion"},"workflowState":"open","attention":"upcoming","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	fluidWant := `{"id":"` + fluidBody.Id + `","subjectId":"` + sid + `","title":"Fluid","notes":null,"attentionOn":"2099-02-01","recurrence":{"intervalValue":2,"intervalUnit":"month","mode":"after_completion"},"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
 	bodyEqual(t, w.Body.String(), fluidWant)
 	list := f.do("GET", base, "", nil)
 	if list.Code != 200 {
@@ -275,7 +283,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if clear.Code != 200 {
 		t.Fatalf("clear=%d %s", clear.Code, clear.Body)
 	}
-	bodyEqual(t, clear.Body.String(), `{"id":"`+fixedBody.Id+`","subjectId":"`+sid+`","title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":null,"workflowState":"open","attention":"upcoming","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+	bodyEqual(t, clear.Body.String(), `{"id":"`+fixedBody.Id+`","subjectId":"`+sid+`","title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":null,"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 	storedRow, _ := f.repo.Row(fixedBody.Id)
 	if storedRow.Recurrence != nil || storedRow.AttentionOn == nil || storedRow.AttentionOn.String() != "2099-01-01" || storedRow.Version != 2 {
 		t.Fatalf("clear row=%+v", storedRow)
@@ -373,11 +381,17 @@ func TestStrictBodiesValidationAndNullSemantics(t *testing.T) {
 	}
 	for _, tc := range []struct{ body, field, code string }{
 		{`{"workflowState":"done"}`, "workflowState", "invalid_workflow_state"},
+		{`{"done":true}`, "done", "invalid_request"},
+		{`{"lastCompletedOn":"2026-01-01"}`, "lastCompletedOn", "invalid_request"},
 		{`{"title":" "}`, "title", "invalid_length"},
 		{`{"attentionOn":"2026-02-30"}`, "attentionOn", "invalid_date"},
 	} {
 		w := f.do("PATCH", one, tc.body, map[string]string{"If-Match": `"1"`})
-		if w.Code != 422 || !strings.Contains(w.Body.String(), `"field":"`+tc.field+`"`) || !strings.Contains(w.Body.String(), `"code":"`+tc.code+`"`) {
+		wantStatus := 422
+		if tc.code == "invalid_request" {
+			wantStatus = 400
+		}
+		if w.Code != wantStatus || (wantStatus == 422 && (!strings.Contains(w.Body.String(), `"field":"`+tc.field+`"`) || !strings.Contains(w.Body.String(), `"code":"`+tc.code+`"`))) || (wantStatus == 400 && !strings.Contains(w.Body.String(), `"code":"invalid_request"`)) {
 			t.Fatalf("%s: %d %s", tc.body, w.Code, w.Body)
 		}
 	}

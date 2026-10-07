@@ -10,9 +10,14 @@ import (
 
 type Querier interface {
 	CreateItem(ctx context.Context, arg CreateItemParams) (CreateItemRow, error)
+	GetCompletionByKey(ctx context.Context, arg GetCompletionByKeyParams) (GetCompletionByKeyRow, error)
 	GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, error)
+	InsertCompletion(ctx context.Context, arg InsertCompletionParams) (InsertCompletionRow, error)
+	ListCompletions(ctx context.Context, arg ListCompletionsParams) ([]ListCompletionsRow, error)
 	ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error)
+	LockItemForCompletion(ctx context.Context, arg LockItemForCompletionParams) (LockItemForCompletionRow, error)
 	UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateItemRow, error)
+	UpdateItemForCompletion(ctx context.Context, arg UpdateItemForCompletionParams) error
 }
 
 var _ Querier = (*Queries)(nil)

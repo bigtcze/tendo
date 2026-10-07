@@ -17,7 +17,7 @@ import (
 //go:embed *.sql
 var migrations embed.FS
 
-const currentVersion int64 = 6
+const currentVersion int64 = 7
 const advisoryLock int64 = 784193214
 
 type migrationConn interface {
@@ -87,7 +87,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
 			_ = tx.Rollback(cleanup)
 			cancel()
-			return errors.New("migration failed")
+			return fmt.Errorf("migration failed: %w", beginErr)
 		}
 		if beginErr = tx.Commit(bounded); beginErr != nil {
 			return errors.New("migration commit failed")

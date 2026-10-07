@@ -130,7 +130,7 @@ export interface paths {
         };
         /**
          * List items
-         * @description Returns items of the household in creation order (ascending id) using keyset cursor pagination. The default page lists active items; archived=true lists archived items only. nextCursor is always present and is null on the last page. The cursor is opaque. Unknown query parameters are ignored. The derived attention value is computed per request in the household timezone.
+         * @description Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. Unknown query parameters are ignored. Derived attention uses the household timezone.
          */
         get: operations["listItems"];
         put?: never;
@@ -139,6 +139,30 @@ export interface paths {
          * @description Creates a household-scoped one-off backlog item with workflowState open. Any household member may create items. subjectId must name an active subject of the same household. The title is stored trimmed; notes are stored exactly as given. attentionOn is optional; without it the item needs attention immediately. A past attentionOn is allowed. Requires the canonical Origin header.
          */
         post: operations["createItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/items/{itemId}/completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List item completion receipts
+         * @description Returns receipts in ascending UUIDv7 id order using keyset pagination. Limit defaults to 50 and is capped at 100; cursor is unpadded base64url for versioned c1:<uuid>. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.
+         */
+        get: operations["listItemCompletions"];
+        put?: never;
+        /**
+         * Complete an item
+         * @description Creates a durable completion receipt. Evaluation order: authentication, origin/authority, If-Match presence and syntax, Idempotency-Key, media/body validation, membership and item existence, idempotency lookup under the item row lock, completedOn validation/default, stored version, archived/done state, recurrence overflow, then commit. The key is scoped to the item. Its fingerprint includes actor and submitted-date presence/value but excludes If-Match and resolved today. An identical retry replays the original receipt and Location without incrementing the item version, even across household-local midnight; a different request with the key returns 422. Omitted completedOn resolves to household-local today only for a new completion. Requires canonical Origin.
+         */
+        post: operations["createItemCompletion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -164,7 +188,7 @@ export interface paths {
         head?: never;
         /**
          * Update, move, change state of, archive, or unarchive an item
-         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.
+         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. The read-only done and lastCompletedOn fields cannot be written. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.
          */
         patch: operations["updateItem"];
         trace?: never;
@@ -293,7 +317,7 @@ export interface components {
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            parameter?: "limit" | "cursor" | "archived";
+            parameter?: "limit" | "cursor" | "archived" | "done";
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -311,11 +335,11 @@ export interface components {
         /** @enum {string} */
         RecurrenceIntervalUnit: "day" | "week" | "month" | "year";
         /**
-         * @description fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+         * @description fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion and never changes attentionOn.
          * @enum {string}
          */
         RecurrenceMode: "fixed" | "after_completion";
-        /** @description Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn. */
+        /** @description Recurrence only affects what happens at the next completion and never changes attentionOn. */
         ItemRecurrence: {
             intervalValue: number;
             intervalUnit: components["schemas"]["RecurrenceIntervalUnit"];
@@ -333,15 +357,54 @@ export interface components {
              * @description Current attention date; null means needs attention immediately.
              */
             attentionOn: string | null;
-            /** @description Recurrence policy; null disables repeat. Policy changes affect only the next completion and never change attentionOn. Completions are not yet implemented. */
+            /** @description Recurrence policy; null disables repeat. Policy changes affect the next completion and never change attentionOn. */
             recurrence: components["schemas"]["ItemRecurrence"] | null;
             workflowState: components["schemas"]["WorkflowState"];
             attention: components["schemas"]["ItemAttention"];
             archived: boolean;
+            /** @description Read-only lifecycle marker. A one-off item becomes done after completion; recurring items stay active and do not become done. */
+            readonly done: boolean;
+            /**
+             * Format: date
+             * @description Nullable business date from the completion with the greatest item_version_before, representing the most recently completed cycle regardless of submitted date.
+             */
+            readonly lastCompletedOn: string | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        CreateCompletionRequest: {
+            /**
+             * Format: date
+             * @description YYYY-MM-DD business date; omitted uses household-local today.
+             */
+            completedOn?: string;
+        };
+        Completion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            itemId: string;
+            /** Format: date */
+            completedOn: string;
+            /** Format: uuid */
+            completedByUserId: string;
+            /** Format: date */
+            cycleAttentionOn: string | null;
+            recurrence: components["schemas"]["ItemRecurrence"] | null;
+            /** Format: date */
+            nextAttentionOn: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CompletionList: {
+            items: components["schemas"]["Completion"][];
+            nextCursor: string | null;
+        };
+        CompletionProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field?: "completedOn" | "recurrence";
         };
         ItemList: {
             items: components["schemas"]["Item"][];
@@ -357,7 +420,7 @@ export interface components {
             notes?: string | null;
             /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
             attentionOn?: string | null;
-            /** @description Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn; completions are not yet implemented. */
+            /** @description Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn. */
             recurrence?: components["schemas"]["ItemRecurrence"] | null;
         };
         UpdateItemRequest: {
@@ -370,7 +433,7 @@ export interface components {
             /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
             attentionOn?: string | null;
             workflowState?: components["schemas"]["WorkflowState"];
-            /** @description Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn; completions are not yet implemented. */
+            /** @description Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn. */
             recurrence?: components["schemas"]["ItemRecurrence"] | null;
             archived?: boolean;
         };
@@ -416,8 +479,10 @@ export interface components {
         Limit: number;
         /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
         Cursor: string;
-        /** @description false (default) lists active resources; true lists archived resources only. */
+        /** @description false (default) lists active items; true lists archived items only, independently of done status. */
         Archived: boolean;
+        /** @description false (default) lists unfinished items; true lists completed one-off items. */
+        Done: boolean;
     };
     requestBodies: never;
     headers: {
@@ -1088,7 +1153,7 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description false (default) lists active resources; true lists archived resources only. */
+                /** @description false (default) lists active items; true lists archived items only, independently of done status. */
                 archived?: components["parameters"]["Archived"];
             };
             header?: {
@@ -1120,7 +1185,7 @@ export interface operations {
                     "application/json": components["schemas"]["SubjectList"];
                 };
             };
-            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1637,8 +1702,10 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description false (default) lists active resources; true lists archived resources only. */
+                /** @description false (default) lists active items; true lists archived items only, independently of done status. */
                 archived?: components["parameters"]["Archived"];
+                /** @description false (default) lists unfinished items; true lists completed one-off items. */
+                done?: components["parameters"]["Done"];
             };
             header?: {
                 /**
@@ -1669,7 +1736,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemList"];
                 };
             };
-            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1878,6 +1945,308 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ItemValidationProblem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listItemCompletions: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Item identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+                 */
+                itemId: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completion page. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletionList"];
+                };
+            };
+            /** @description Invalid limit or cursor. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description No valid session cookie. Unknown, expired, or revoked sessions also clear the cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household membership or item not found. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createItemCompletion: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Single strong ETag for the current item version. Missing returns 428; malformed, weak, wildcard, list, or stale values return 412.
+                 * @example "3"
+                 */
+                "If-Match": string;
+                /**
+                 * @description Required, case-sensitive, 1–128 printable ASCII bytes (0x21–0x7E); no normalization. Missing returns 400 idempotency_key_required; invalid or repeated headers return 400 invalid_idempotency_key.
+                 * @example completion-20261007-a1
+                 */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Item identifier.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80
+                 */
+                itemId: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Completion receipt created or idempotently replayed. No ETag is returned; GET the item for its current ETag. */
+            201: {
+                headers: {
+                    /**
+                     * @description Canonical URL for the created or replayed completion receipt.
+                     * @example /api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61/items/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80/completions/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90
+                     */
+                    Location?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Completion"];
+                };
+            };
+            /** @description Malformed JSON or missing/invalid Idempotency-Key: idempotency_key_required if absent; invalid_idempotency_key if invalid or repeated. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["CompletionProblem"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household membership or item not found. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Codes are item_archived when the item is archived and item_done when it is already done. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["CompletionProblem"];
+                };
+            };
+            /** @description If-Match invalid or stale. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Codes are invalid_date or future_date (field completedOn), idempotency_key_reused (fingerprint differs; field omitted), and date_overflow (field recurrence). */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["CompletionProblem"];
+                };
+            };
+            /** @description Missing If-Match. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description Persistence unavailable. */

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,55 @@ func pool(t *testing.T, ctx context.Context, url string) *pgxpool.Pool {
 	t.Cleanup(p.Close)
 	return p
 }
+func TestMigrationUpgradeFromV6PreservesData(t *testing.T) {
+	_, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin := pool(t, ctx, adminURL)
+	const dbName = "tendo_upgrade_v6_items_test"
+	_, _ = admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
+	if _, err := admin.Exec(ctx, `CREATE DATABASE `+dbName); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(context.Background(), `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
+	cfg, err := pgxpool.ParseConfig(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.Database = dbName
+	upAdmin, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upAdmin.Close()
+	if _, err = admin.Exec(ctx, `GRANT CONNECT ON DATABASE `+dbName+` TO tendo`); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; DELETE FROM tendo_schema_migrations WHERE version=7`); err != nil {
+		t.Fatal(err)
+	}
+	var hid, sid, iid string
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('Upgrade v6','UTC') RETURNING id::text`).Scan(&hid); err != nil {
+		t.Fatal(err)
+	}
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','upgrade') RETURNING id::text`, hid).Scan(&sid); err != nil {
+		t.Fatal(err)
+	}
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,title) VALUES($1::uuid,$2::uuid,'legacy') RETURNING id::text`, hid, sid).Scan(&iid); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var done bool
+	if err = upAdmin.QueryRow(ctx, `SELECT done FROM items WHERE id=$1::uuid`, iid).Scan(&done); err != nil || done {
+		t.Fatalf("done=%v err=%v", done, err)
+	}
+}
+
 func TestItemsAgainstPostgres(t *testing.T) {
 	appURL, adminURL := integrationURLs(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -76,6 +126,13 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		return s
 	}
 	sA, sB := newSubject(hA, "Person A"), newSubject(hB, "Person B")
+	var completionUser string
+	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES ('item_completion_actor') RETURNING id::text`).Scan(&completionUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, completionUser, hA); err != nil {
+		t.Fatal(err)
+	}
 	repo := NewRepository(app)
 	create := func(hid, sid, title string, notes *string, attention *schedule.Date) item.Item {
 		t.Helper()
@@ -157,7 +214,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		var got []string
 		after := "00000000-0000-0000-0000-000000000000"
 		for {
-			rows, err := repo.List(ctx, h, false, after, 3)
+			rows, err := repo.List(ctx, h, false, false, after, 3)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -176,11 +233,11 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if _, err := repo.Update(ctx, h, ids[1], 1, item.Change{Archived: &yes}); err != nil {
 			t.Fatal(err)
 		}
-		active, err := repo.List(ctx, h, false, "00000000-0000-0000-0000-000000000000", 100)
+		active, err := repo.List(ctx, h, false, false, "00000000-0000-0000-0000-000000000000", 100)
 		if err != nil || len(active) != 6 {
 			t.Fatalf("active=%d err=%v", len(active), err)
 		}
-		archived, err := repo.List(ctx, h, true, "00000000-0000-0000-0000-000000000000", 100)
+		archived, err := repo.List(ctx, h, true, false, "00000000-0000-0000-0000-000000000000", 100)
 		if err != nil || len(archived) != 1 || archived[0].ID != ids[1] {
 			t.Fatalf("archived=%+v err=%v", archived, err)
 		}
@@ -231,8 +288,316 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			t.Fatalf("success=%d stale=%d", ok, stale)
 		}
 	})
+	t.Run("completion concurrency", func(t *testing.T) {
+		anchor, _ := schedule.NewDate(2026, time.October, 7)
+		next, _ := schedule.NewDate(2027, time.October, 7)
+		i := create(hA, sA.ID, "completion concurrency", nil, &anchor)
+		var version int64 = 1
+		makeDecide := func(key string) item.CompletionDecider {
+			return func(current item.Item, existing *item.Completion) (item.CompletionPlan, error) {
+				if existing != nil {
+					return item.CompletionPlan{Receipt: *existing, Item: current}, nil
+				}
+				if current.Version != version {
+					return item.CompletionPlan{}, item.ErrVersionMismatch
+				}
+				receipt := item.Completion{HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: anchor, PriorWorkflowState: current.WorkflowState, ItemVersionBefore: current.Version, IdempotencyKey: key}
+				change := current
+				change.AttentionOn = &next
+				change.Version++
+				return item.CompletionPlan{Receipt: receipt, Item: change}, nil
+			}
+		}
+		const workers = 12
+		start := make(chan struct{})
+		errs := make([]error, workers)
+		var wg sync.WaitGroup
+		for x := range workers {
+			wg.Add(1)
+			go func(n int) {
+				defer wg.Done()
+				<-start
+				key := "different-" + strconv.Itoa(n)
+				_, _, errs[n] = repo.Complete(ctx, hA, i.ID, key, [32]byte{byte(n + 1)}, makeDecide(key))
+			}(x)
+		}
+		close(start)
+		wg.Wait()
+		wins := 0
+		for _, err := range errs {
+			if err == nil {
+				wins++
+			} else if !errors.Is(err, item.ErrVersionMismatch) {
+				t.Fatalf("concurrent err=%v unwrap=%v", err, errors.Unwrap(err))
+			}
+		}
+		if wins != 1 {
+			t.Fatalf("wins=%d errors=%v", wins, errs)
+		}
+		var rows int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&rows); err != nil || rows != 1 {
+			t.Fatalf("completion count=%d err=%v", rows, err)
+		}
+		current, _ := repo.Get(ctx, hA, i.ID)
+		version = current.Version
+		start2 := make(chan struct{})
+		results := make([]item.Completion, workers)
+		errs2 := make([]error, workers)
+		for x := range workers {
+			wg.Add(1)
+			go func(n int) {
+				defer wg.Done()
+				<-start2
+				results[n], _, errs2[n] = repo.Complete(ctx, hA, i.ID, "same-key", [32]byte{99}, makeDecide("same-key"))
+			}(x)
+		}
+		close(start2)
+		wg.Wait()
+		id := results[0].ID
+		for x := range workers {
+			if errs2[x] != nil || results[x].ID != id {
+				t.Fatalf("same key result %d=%+v err=%v first=%s", x, results[x], errs2[x], id)
+			}
+		}
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&rows); err != nil || rows != 2 {
+			t.Fatalf("same-key count=%d err=%v", rows, err)
+		}
+	})
+	t.Run("completion vs patch race", func(t *testing.T) {
+		anchor, _ := schedule.NewDate(2026, time.October, 7)
+		next, _ := schedule.NewDate(2027, time.October, 7)
+		i := create(hA, sA.ID, "completion patch race", nil, &anchor)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		var ce, pe error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, ce = repo.Complete(ctx, hA, i.ID, "race-key", [32]byte{77}, func(cur item.Item, ex *item.Completion) (item.CompletionPlan, error) {
+				if ex != nil {
+					return item.CompletionPlan{Receipt: *ex, Item: cur}, nil
+				}
+				if cur.Version != 1 {
+					return item.CompletionPlan{}, item.ErrVersionMismatch
+				}
+				receipt := item.Completion{HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: anchor, PriorWorkflowState: cur.WorkflowState, ItemVersionBefore: 1, IdempotencyKey: "race-key"}
+				updated := cur
+				updated.AttentionOn = &next
+				updated.Version++
+				return item.CompletionPlan{Receipt: receipt, Item: updated}, nil
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			title := "patched"
+			_, pe = repo.Update(ctx, hA, i.ID, 1, item.Change{Title: &title})
+		}()
+		close(start)
+		wg.Wait()
+		if ce != nil && !errors.Is(ce, item.ErrVersionMismatch) {
+			t.Fatalf("completion error %v", ce)
+		}
+		if pe != nil && !errors.Is(pe, item.ErrVersionMismatch) {
+			t.Fatalf("patch error %v", pe)
+		}
+		if (ce == nil) == (pe == nil) {
+			t.Fatalf("expected exactly one winner completion=%v patch=%v", ce, pe)
+		}
+		stored, err := repo.Get(ctx, hA, i.ID)
+		if err != nil || stored.Version != 2 {
+			t.Fatalf("state=%+v err=%v", stored, err)
+		}
+		var count int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if ce == nil && (count != 1 || stored.AttentionOn == nil || stored.AttentionOn.String() != "2027-10-07") {
+			t.Fatalf("completion winner state=%+v receipts=%d", stored, count)
+		}
+		if pe == nil && (count != 0 || stored.Title != "patched" || stored.AttentionOn == nil || stored.AttentionOn.String() != "2026-10-07") {
+			t.Fatalf("patch winner state=%+v receipts=%d", stored, count)
+		}
+	})
+	t.Run("completion rollback after insert hook", func(t *testing.T) {
+		anchor, _ := schedule.NewDate(2026, time.October, 7)
+		i := create(hA, sA.ID, "hook rollback", nil, &anchor)
+		completeAfterInsertHook = func() error { return item.ErrUnavailable }
+		_, _, err := repo.Complete(ctx, hA, i.ID, "hook-rollback", [32]byte{88}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
+			receipt := item.Completion{HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: anchor, PriorWorkflowState: cur.WorkflowState, ItemVersionBefore: cur.Version, IdempotencyKey: "hook-rollback"}
+			changed := cur
+			changed.Done = true
+			changed.Version++
+			return item.CompletionPlan{Receipt: receipt, Item: changed}, nil
+		})
+		completeAfterInsertHook = nil
+		if !errors.Is(err, item.ErrUnavailable) {
+			t.Fatalf("forced failure err=%v", err)
+		}
+		stored, err := repo.Get(ctx, hA, i.ID)
+		if err != nil || stored.Version != 1 || stored.Done {
+			t.Fatalf("stored after rollback=%+v err=%v", stored, err)
+		}
+		var count int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("receipt after rollback=%d err=%v", count, err)
+		}
+	})
+	t.Run("completion overflow rolls back", func(t *testing.T) {
+		end, _ := schedule.NewDate(9999, time.December, 31)
+		iid := create(hA, sA.ID, "overflow completion", nil, &end).ID
+		policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+		_, err := repo.Update(ctx, hA, iid, 1, item.Change{Recurrence: item.Some(policy)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, err := repo.Get(ctx, hA, iid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var historyBefore int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, iid).Scan(&historyBefore); err != nil || historyBefore != 0 {
+			t.Fatalf("pre-overflow history=%d err=%v", historyBefore, err)
+		}
+		houses := func(context.Context, string, string) (string, error) { return "UTC", nil }
+		subjects := func(context.Context, string, string, string) (bool, error) { return false, nil }
+		svc := item.NewService(repo, houses, subjects, func() time.Time { return time.Date(9999, time.December, 31, 12, 0, 0, 0, time.UTC) })
+		_, _, err = svc.Complete(ctx, completionUser, hA, iid, before.Version, "overflow", item.CompletionRequest{})
+		var validation *item.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "recurrence" || validation.Code != "date_overflow" {
+			t.Fatalf("overflow err=%v", err)
+		}
+		after, err := repo.Get(ctx, hA, iid)
+		if err != nil || after.Version != before.Version || after.Done != before.Done || after.AttentionOn.String() != before.AttentionOn.String() || after.Title != before.Title || after.Recurrence == nil || *after.Recurrence != *before.Recurrence {
+			t.Fatalf("overflow changed item before=%+v after=%+v err=%v", before, after, err)
+		}
+		var n int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, iid).Scan(&n); err != nil || n != historyBefore {
+			t.Fatalf("overflow receipt count=%d err=%v", n, err)
+		}
+	})
+
+	t.Run("completion receipts", func(t *testing.T) {
+		anchor, _ := schedule.NewDate(2026, time.October, 7)
+		next, _ := schedule.NewDate(2027, time.October, 7)
+		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+		i := create(hA, sA.ID, "completion target", nil, &anchor)
+		updated, err := repo.Update(ctx, hA, i.ID, 1, item.Change{Recurrence: item.Some(*policy)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		decide := func(current item.Item, existing *item.Completion) (item.CompletionPlan, error) {
+			if existing != nil {
+				return item.CompletionPlan{Receipt: *existing, Item: current}, nil
+			}
+			receipt := item.Completion{HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: anchor, CycleAttentionOn: updated.AttentionOn, Recurrence: updated.Recurrence, PriorWorkflowState: updated.WorkflowState, NextAttentionOn: &next, ItemVersionBefore: updated.Version, IdempotencyKey: "same"}
+			change := current
+			change.AttentionOn = &next
+			change.Version++
+			return item.CompletionPlan{Receipt: receipt, Item: change}, nil
+		}
+		finger := [32]byte{1}
+		first, replayed, err := repo.Complete(ctx, hA, i.ID, "same", finger, decide)
+		if err != nil || replayed {
+			t.Fatalf("complete=%+v replay=%v err=%v", first, replayed, err)
+		}
+		after, _ := repo.Get(ctx, hA, i.ID)
+		if after.Version != 3 || after.AttentionOn == nil || after.AttentionOn.String() != "2027-10-07" {
+			t.Fatalf("stored item=%+v", after)
+		}
+		replay, replayed, err := repo.Complete(ctx, hA, i.ID, "same", finger, decide)
+		if err != nil || !replayed || replay.ID != first.ID {
+			t.Fatalf("replay=%+v replayed=%v err=%v", replay, replayed, err)
+		}
+		after, _ = repo.Get(ctx, hA, i.ID)
+		if after.Version != 3 || replay.CompletedOn != first.CompletedOn || replay.ID != first.ID {
+			t.Fatalf("replay changed receipt or version first=%+v replay=%+v item=%+v", first, replay, after)
+		}
+		rows, err := repo.ListCompletions(ctx, hA, i.ID, "00000000-0000-0000-0000-000000000000", 10)
+		if err != nil || len(rows) != 1 || rows[0].Recurrence == nil || rows[0].NextAttentionOn.String() != "2027-10-07" {
+			t.Fatalf("history=%+v err=%v", rows, err)
+		}
+		if _, err = repo.ListCompletions(ctx, hA, first.ID, "00000000-0000-0000-0000-000000000000", 10); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("foreign/nonexistent item list=%v", err)
+		}
+	})
+	t.Run("descending completion dates preserve version-order latest", func(t *testing.T) {
+		anchor, _ := schedule.NewDate(2026, time.March, 1)
+		policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+		i := create(hA, sA.ID, "descending dates", nil, &anchor)
+		updated, err := repo.Update(ctx, hA, i.ID, 1, item.Change{Recurrence: item.Some(policy)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dates := []string{"2026-03-20", "2026-03-10"}
+		version := updated.Version
+		var lastID string
+		for n := range dates {
+			on, _ := schedule.NewDate(2026, time.March, 20-10*n)
+			next, _ := schedule.NewDate(2027, time.March, 1)
+			key := strconv.Itoa(n)
+			created, _, err := repo.Complete(ctx, hA, i.ID, key, [32]byte{byte(n + 1)}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
+				receipt := item.Completion{ID: "", HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: on, PriorWorkflowState: cur.WorkflowState, Recurrence: cur.Recurrence, ItemVersionBefore: cur.Version, IdempotencyKey: key, NextAttentionOn: &next}
+				changed := cur
+				changed.Version++
+				changed.AttentionOn = &next
+				return item.CompletionPlan{Receipt: receipt, Item: changed}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			lastID = created.ID
+			version++
+		}
+		got, err := repo.Get(ctx, hA, i.ID)
+		if err != nil || got.LastCompletedOn == nil || got.LastCompletedOn.String() != "2026-03-10" {
+			t.Fatalf("last completion=%v err=%v", got.LastCompletedOn, err)
+		}
+		var storedDate string
+		if err = admin.QueryRow(ctx, `SELECT completed_on::text FROM item_completions WHERE id=$1::uuid`, lastID).Scan(&storedDate); err != nil || storedDate != "2026-03-10" {
+			t.Fatalf("stored latest receipt date=%s err=%v", storedDate, err)
+		}
+		list, err := repo.List(ctx, hA, false, false, "00000000-0000-0000-0000-000000000000", 100)
+		if err != nil || len(list) == 0 || list[len(list)-1].LastCompletedOn == nil || list[len(list)-1].LastCompletedOn.String() != "2026-03-10" {
+			t.Fatalf("list latest=%+v err=%v", list, err)
+		}
+		title := "after dates"
+		patched, err := repo.Update(ctx, hA, i.ID, version, item.Change{Title: &title})
+		if err != nil || patched.LastCompletedOn == nil || patched.LastCompletedOn.String() != "2026-03-10" {
+			t.Fatalf("patch latest=%+v err=%v", patched, err)
+		}
+	})
+	t.Run("foreign household completion is not found", func(t *testing.T) {
+		i := create(hB, sB.ID, "foreign completion", nil, nil)
+		decide := func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
+			return item.CompletionPlan{}, errors.New("decide should not be called")
+		}
+		if _, _, err := repo.Complete(ctx, hA, i.ID, "foreign", [32]byte{1}, decide); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("complete err=%v", err)
+		}
+		if _, err := repo.ListCompletions(ctx, hA, i.ID, "00000000-0000-0000-0000-000000000000", 10); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("list err=%v", err)
+		}
+		stored, err := repo.Get(ctx, hB, i.ID)
+		if err != nil || stored.Version != 1 || stored.Done {
+			t.Fatalf("foreign item mutated: %+v err=%v", stored, err)
+		}
+		var n int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("foreign receipts=%d err=%v", n, err)
+		}
+	})
 	t.Run("household isolation and foreign subject rejected", func(t *testing.T) {
 		i := create(hB, sB.ID, "private", nil, nil)
+		beforeItem, err := repo.Get(ctx, hB, i.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var beforeCount int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&beforeCount); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := repo.Get(ctx, hA, i.ID); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("get=%v", err)
 		}
@@ -240,7 +605,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if _, err := repo.Update(ctx, hA, i.ID, 1, item.Change{Title: &title}); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("update=%v", err)
 		}
-		rows, err := repo.List(ctx, hA, false, "00000000-0000-0000-0000-000000000000", 100)
+		rows, err := repo.List(ctx, hA, false, false, "00000000-0000-0000-0000-000000000000", 100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,6 +614,11 @@ func TestItemsAgainstPostgres(t *testing.T) {
 				t.Fatalf("foreign list entry=%+v", v)
 			}
 		}
+		if _, _, err := repo.Complete(ctx, hA, i.ID, "foreign-key", [32]byte{5}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
+			return item.CompletionPlan{}, errors.New("should not reach decision")
+		}); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("foreign completion post err=%v", err)
+		}
 		if _, err := repo.Create(ctx, hA, item.Draft{SubjectID: sB.ID, Title: "bad"}); !errors.Is(err, item.ErrInvalidReference) {
 			t.Fatalf("foreign subject err=%v", err)
 		}
@@ -256,6 +626,58 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid AND subject_id=$2::uuid`, hA, sB.ID).Scan(&foreignCount); err != nil || foreignCount != 0 {
 			t.Fatalf("foreign item persisted; count=%d err=%v", foreignCount, err)
 		}
+		afterItem, err := repo.Get(ctx, hB, i.ID)
+		if err != nil || afterItem != beforeItem {
+			t.Fatalf("foreign POST changed item before=%+v after=%+v err=%v", beforeItem, afterItem, err)
+		}
+		var afterCount int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&afterCount); err != nil || afterCount != beforeCount {
+			t.Fatalf("foreign POST changed receipts before=%d after=%d err=%v", beforeCount, afterCount, err)
+		}
+	})
+	t.Run("completion table restrictions and constraints", func(t *testing.T) {
+		i := create(hA, sA.ID, "completion protected", nil, nil)
+		uid := completionUser
+		if _, err := admin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) VALUES($1::uuid,$2::uuid,'2026-10-07',$3::uuid,'open',1,'key',decode(repeat('01',32),'hex'))`, hA, i.ID, uid); err != nil {
+			t.Fatalf("baseline receipt insert: %v", err)
+		}
+		var n int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, i.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("baseline receipt count=%d want=1", n)
+		}
+		for _, stmt := range []string{`UPDATE item_completions SET id=uuidv7()`, `DELETE FROM item_completions`, `TRUNCATE item_completions`} {
+			if _, err := app.Exec(ctx, stmt); err == nil {
+				t.Fatalf("runtime role allowed %s", stmt)
+			} else {
+				var pgErr *pgconn.PgError
+				if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+					t.Fatalf("%s error=%v", stmt, err)
+				}
+			}
+		}
+		for _, tc := range []struct{ name, key, fp, value, unit, mode, state string }{{"key", "bad key ", strings.Repeat("01", 32), "", "", "", "open"}, {"fingerprint", "bad-fingerprint", "01", "", "", "", "open"}, {"partial recurrence", "partial", strings.Repeat("01", 32), "1", "", "", "open"},
+			{"interval null value", "null-value", strings.Repeat("01", 32), "", "day", "fixed", "open"},
+			{"interval null unit", "null-unit", strings.Repeat("01", 32), "1", "", "fixed", "open"},
+			{"interval null mode", "null-mode", strings.Repeat("01", 32), "1", "day", "", "open"}, {"interval lower bound", "low", strings.Repeat("01", 32), "0", "day", "fixed", "open"}, {"interval upper bound", "high", strings.Repeat("01", 32), "1000", "day", "fixed", "open"}, {"unit enum", "unit", strings.Repeat("01", 32), "1", "fortnight", "fixed", "open"}, {"mode enum", "mode", strings.Repeat("01", 32), "1", "day", "weekly", "open"}, {"workflow enum", "state", strings.Repeat("01", 32), "", "", "", "done"}} {
+			_, err := admin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) VALUES($1::uuid,$2::uuid,'2026-10-07',$3::uuid,$4,2,$5,decode($6,'hex'),NULLIF($7,'')::int,NULLIF($8,''),NULLIF($9,''))`, hA, i.ID, uid, tc.state, tc.key, tc.fp, tc.value, tc.unit, tc.mode)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Fatalf("%s SQLSTATE err=%v", tc.name, err)
+			}
+			want := map[string]string{"key": "item_completions_idempotency_key_check", "fingerprint": "item_completions_request_fingerprint_check", "partial recurrence": "item_completions_check", "interval null value": "item_completions_check", "interval null unit": "item_completions_check", "interval null mode": "item_completions_check", "interval lower bound": "item_completions_recurrence_interval_value_check", "interval upper bound": "item_completions_recurrence_interval_value_check", "unit enum": "item_completions_recurrence_interval_unit_check", "mode enum": "item_completions_recurrence_mode_check", "workflow enum": "item_completions_prior_workflow_state_check"}[tc.name]
+			if pgErr.ConstraintName != want {
+				t.Fatalf("%s constraint=%s want=%s err=%v", tc.name, pgErr.ConstraintName, want, err)
+			}
+		}
+		_, err := admin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) VALUES($1::uuid,uuidv7(),'2026-10-07',$2::uuid,'open',2,'bad-fk',decode(repeat('01',32),'hex'))`, hA, uid)
+		var fk *pgconn.PgError
+		if !errors.As(err, &fk) || fk.Code != "23503" || fk.ConstraintName != "item_completions_household_id_item_id_fkey" {
+			t.Fatalf("composite FK err=%v", err)
+		}
+		_ = n
 	})
 	t.Run("runtime permissions and database constraints", func(t *testing.T) {
 		i := create(hA, sA.ID, "protected", nil, nil)
@@ -295,7 +717,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		} {
 			_, err := admin.Exec(ctx, tc.statement, hA, sA.ID)
 			var pgErr *pgconn.PgError
-			if !errors.As(err, &pgErr) || pgErr.Code != "23514" || (pgErr.ConstraintName != "" && pgErr.ConstraintName != tc.constraint) {
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != tc.constraint {
 				t.Fatalf("%s constraint err=%v pgErr=%+v want=%s", tc.name, err, pgErr, tc.constraint)
 			}
 		}
@@ -309,6 +731,10 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}
 		if count(h) != 0 {
 			t.Fatal("items survived household deletion")
+		}
+		var completionCount int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE household_id=$1::uuid`, h).Scan(&completionCount); err != nil || completionCount != 0 {
+			t.Fatalf("completion rows survived household deletion count=%d err=%v", completionCount, err)
 		}
 	})
 }
@@ -356,7 +782,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; DELETE FROM tendo_schema_migrations WHERE version=6`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; DELETE FROM tendo_schema_migrations WHERE version IN (6,7)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, iid string
@@ -370,7 +796,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("v5 schema accepted by v6 application")
+		t.Fatal("v5 schema accepted by v7 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -383,7 +809,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatalf("legacy item=%+v err=%v", got, err)
 	}
 	var max int64
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 6 {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 7 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 }
@@ -431,7 +857,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; DELETE FROM tendo_schema_migrations WHERE version IN (5,6)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE item_completions; DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; DELETE FROM tendo_schema_migrations WHERE version IN (5,6,7)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid string
@@ -442,7 +868,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("v4 database accepted by v6 application")
+		t.Fatal("v4 database accepted by v7 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -460,7 +886,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 6 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 7 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

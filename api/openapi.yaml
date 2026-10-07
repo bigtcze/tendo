@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Tendo API
   version: 1.0.0
-  description: Initial owner setup, local login sessions, membership-checked household reads, household-scoped subjects, and operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration. Sessions are opaque server-side records carried in an HttpOnly cookie.
+  description: Initial owner setup, local login sessions, membership-checked household reads, household-scoped subjects and items, item completion receipts, and operational health endpoints. Setup is an operator-authorized bootstrap, not public visitor registration. Sessions are opaque server-side records carried in an HttpOnly cookie.
 servers:
   - url: /
 paths:
@@ -311,7 +311,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SubjectList' }
               example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Octavia, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null }
-        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
+        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
@@ -419,7 +419,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Item' }
-              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
         '400': { description: 'Malformed JSON, unknown or duplicate keys, null for a field that does not accept null, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
@@ -432,7 +432,7 @@ paths:
     get:
       operationId: listItems
       summary: List items
-      description: Returns items of the household in creation order (ascending id) using keyset cursor pagination. The default page lists active items; archived=true lists archived items only. nextCursor is always present and is null on the last page. The cursor is opaque. Unknown query parameters are ignored. The derived attention value is computed per request in the household timezone.
+      description: 'Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. Unknown query parameters are ignored. Derived attention uses the household timezone.'
       tags: [Items]
       security:
         - SessionCookie: []
@@ -442,6 +442,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Archived'
+        - $ref: '#/components/parameters/Done'
       responses:
         '200':
           description: One page of items.
@@ -451,13 +452,141 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ItemList' }
-              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null }
-        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
+              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null }
+        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/households/{householdId}/items/{itemId}/completions:
+    post:
+      operationId: createItemCompletion
+      summary: Complete an item
+      description: 'Creates a durable completion receipt. Evaluation order: authentication, origin/authority, If-Match presence and syntax, Idempotency-Key, media/body validation, membership and item existence, idempotency lookup under the item row lock, completedOn validation/default, stored version, archived/done state, recurrence overflow, then commit. The key is scoped to the item. Its fingerprint includes actor and submitted-date presence/value but excludes If-Match and resolved today. An identical retry replays the original receipt and Location without incrementing the item version, even across household-local midnight; a different request with the key returns 422. Omitted completedOn resolves to household-local today only for a new completion. Requires canonical Origin.'
+      tags: [Completions]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+        - $ref: '#/components/parameters/ItemId'
+        - name: If-Match
+          in: header
+          required: true
+          description: Single strong ETag for the current item version. Missing returns 428; malformed, weak, wildcard, list, or stale values return 412.
+          schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
+          example: '"3"'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Required, case-sensitive, 1–128 printable ASCII bytes (0x21–0x7E); no normalization. Missing returns 400 idempotency_key_required; invalid or repeated headers return 400 invalid_idempotency_key.
+          schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]{1,128}$' }
+          example: completion-20261007-a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCompletionRequest' }
+            examples:
+              today: { value: {} }
+              historical: { value: { completedOn: '2026-10-06' } }
+      responses:
+        '201':
+          description: Completion receipt created or idempotently replayed. No ETag is returned; GET the item for its current ETag.
+          headers:
+            Location: { description: Canonical URL for the created or replayed completion receipt., schema: { type: string, pattern: '^/api/v1/households/[0-9a-fA-F-]{36}/items/[0-9a-fA-F-]{36}/completions/[0-9a-fA-F-]{36}$' }, example: /api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61/items/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80/completions/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90 }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Completion' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90, itemId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, completedOn: '2026-10-07', completedByUserId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, cycleAttentionOn: '2026-10-01', recurrence: null, nextAttentionOn: null, createdAt: '2026-10-07T10:00:00Z' }
+        '400':
+          description: 'Malformed JSON or missing/invalid Idempotency-Key: idempotency_key_required if absent; invalid_idempotency_key if invalid or repeated.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/CompletionProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_idempotency_key } } }
+        '401':
+          description: Unauthenticated.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } }
+        '403':
+          description: Request Origin is missing, foreign, malformed, or duplicated.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } }
+        '404':
+          description: Household membership or item not found.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } }
+        '409':
+          description: Codes are item_archived when the item is archived and item_done when it is already done.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/CompletionProblem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: item_done } } }
+        '412':
+          description: If-Match invalid or stale.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Failed, status: 412, code: precondition_failed } } }
+        '413':
+          description: Request body exceeds 4 KiB.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: 'Content Too Large', status: 413, code: content_too_large } } }
+        '415':
+          description: Unsupported request media type.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: 'Unsupported Media Type', status: 415, code: unsupported_media_type } } }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } }
+        '422':
+          description: Codes are invalid_date or future_date (field completedOn), idempotency_key_reused (fingerprint differs; field omitted), and date_overflow (field recurrence).
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/CompletionProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: future_date, field: completedOn } } }
+        '428':
+          description: Missing If-Match.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required } } }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } }
+    get:
+      operationId: listItemCompletions
+      summary: List item completion receipts
+      description: 'Returns receipts in ascending UUIDv7 id order using keyset pagination. Limit defaults to 50 and is capped at 100; cursor is unpadded base64url for versioned c1:<uuid>. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.'
+      tags: [Completions]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/HouseholdId'
+        - $ref: '#/components/parameters/ItemId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200': { description: Completion page., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/CompletionList' }, example: { items: [], nextCursor: null } } } }
+        '400':
+          description: Invalid limit or cursor.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } }
+        '401':
+          description: No valid session cookie. Unknown, expired, or revoked sessions also clear the cookie.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } }
+        '403':
+          description: Request Origin is missing, foreign, malformed, or duplicated.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } }
+        '404':
+          description: Household membership or item not found.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } }
   /api/v1/households/{householdId}/items/{itemId}:
     get:
       operationId: getItem
@@ -480,7 +609,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Item' }
-              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
         '400': { description: 'Trusted forwarded request metadata is malformed or inconsistent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
@@ -490,7 +619,7 @@ paths:
     patch:
       operationId: updateItem
       summary: Update, move, change state of, archive, or unarchive an item
-      description: 'Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.'
+      description: 'Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. The read-only done and lastCompletedOn fields cannot be written. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.'
       tags: [Items]
       security:
         - SessionCookie: []
@@ -520,7 +649,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Item' }
-              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: { intervalValue: 1, intervalUnit: year, mode: fixed }, workflowState: open, attention: upcoming, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T11:00:00Z' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: { intervalValue: 1, intervalUnit: year, mode: fixed }, workflowState: open, attention: upcoming, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T11:00:00Z' }
         '400': { description: 'Malformed JSON, unknown or duplicate keys, null for a field that does not accept null, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
@@ -652,7 +781,13 @@ components:
       name: archived
       in: query
       required: false
-      description: false (default) lists active resources; true lists archived resources only.
+      description: false (default) lists active items; true lists archived items only, independently of done status.
+      schema: { type: boolean, default: false }
+    Done:
+      name: done
+      in: query
+      required: false
+      description: false (default) lists unfinished items; true lists completed one-off items.
       schema: { type: boolean, default: false }
   schemas:
     Problem:
@@ -750,7 +885,7 @@ components:
         - $ref: '#/components/schemas/Problem'
         - type: object
           properties:
-            parameter: { type: string, enum: [limit, cursor, archived] }
+            parameter: { type: string, enum: [limit, cursor, archived, done] }
     SubjectValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'
@@ -772,12 +907,12 @@ components:
     RecurrenceMode:
       type: string
       enum: [fixed, after_completion]
-      description: 'fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.'
+      description: 'fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion and never changes attentionOn.'
     ItemRecurrence:
       type: object
       additionalProperties: false
       required: [intervalValue, intervalUnit, mode]
-      description: Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+      description: Recurrence only affects what happens at the next completion and never changes attentionOn.
       properties:
         intervalValue: { type: integer, minimum: 1, maximum: 999 }
         intervalUnit: { $ref: '#/components/schemas/RecurrenceIntervalUnit' }
@@ -785,19 +920,52 @@ components:
     Item:
       type: object
       additionalProperties: false
-      required: [id, subjectId, title, notes, attentionOn, recurrence, workflowState, attention, archived, createdAt, updatedAt]
+      required: [id, subjectId, title, notes, attentionOn, recurrence, workflowState, attention, archived, done, lastCompletedOn, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid, x-go-type: string }
         subjectId: { type: string, format: uuid, x-go-type: string }
         title: { type: string, minLength: 1, maxLength: 200 }
         notes: { type: [string, 'null'], x-go-type: '*string', maxLength: 4000 }
         attentionOn: { type: [string, 'null'], format: date, x-go-type: '*string', description: Current attention date; null means needs attention immediately. }
-        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: Recurrence policy; null disables repeat. Policy changes affect only the next completion and never change attentionOn. Completions are not yet implemented. }
+        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: Recurrence policy; null disables repeat. Policy changes affect the next completion and never change attentionOn. }
         workflowState: { $ref: '#/components/schemas/WorkflowState' }
         attention: { $ref: '#/components/schemas/ItemAttention' }
         archived: { type: boolean }
+        done: { type: boolean, readOnly: true, description: Read-only lifecycle marker. A one-off item becomes done after completion; recurring items stay active and do not become done. }
+        lastCompletedOn: { type: [string, 'null'], format: date, x-go-type: '*string', readOnly: true, description: 'Nullable business date from the completion with the greatest item_version_before, representing the most recently completed cycle regardless of submitted date.' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    CreateCompletionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        completedOn: { type: string, format: date, x-go-type: string, description: YYYY-MM-DD business date; omitted uses household-local today. }
+    Completion:
+      type: object
+      additionalProperties: false
+      required: [id, itemId, completedOn, completedByUserId, cycleAttentionOn, recurrence, nextAttentionOn, createdAt]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        itemId: { type: string, format: uuid, x-go-type: string }
+        completedOn: { type: string, format: date, x-go-type: string }
+        completedByUserId: { type: string, format: uuid, x-go-type: string }
+        cycleAttentionOn: { type: [string, 'null'], format: date, x-go-type: '*string' }
+        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence' }
+        nextAttentionOn: { type: [string, 'null'], format: date, x-go-type: '*string' }
+        createdAt: { type: string, format: date-time }
+    CompletionList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/Completion' } }
+        nextCursor: { type: [string, 'null'], x-go-type: '*string' }
+    CompletionProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            field: { type: string, enum: [completedOn, recurrence] }
     ItemList:
       type: object
       additionalProperties: false
@@ -817,7 +985,7 @@ components:
         subjectId: { type: string, description: Identifier of an active subject in the same household; otherwise 422 invalid_reference. }
         notes: { type: [string, 'null'], x-go-type: '*string', description: 'Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear.' }
         attentionOn: { type: [string, 'null'], x-go-type: '*string', description: 'Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422.' }
-        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: 'Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn; completions are not yet implemented.' }
+        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: 'Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn.' }
     UpdateItemRequest:
       type: object
       additionalProperties: false
@@ -828,7 +996,7 @@ components:
         notes: { type: [string, 'null'], x-go-type: '*string', description: 'Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes.' }
         attentionOn: { type: [string, 'null'], x-go-type: '*string', description: 'Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Omitted leaves the current date unchanged; null clears it and makes the item need attention immediately. Past dates are allowed. Invalid values are rejected with 422.' }
         workflowState: { $ref: '#/components/schemas/WorkflowState' }
-        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: 'Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn; completions are not yet implemented.' }
+        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: 'Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn.' }
         archived: { type: boolean }
     ItemValidationProblem:
       allOf:

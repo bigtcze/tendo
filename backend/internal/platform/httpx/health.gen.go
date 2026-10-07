@@ -14,6 +14,12 @@ const (
 	SetupTokenScopes    = "SetupToken.Scopes"
 )
 
+// Defines values for CompletionProblemField.
+const (
+	CompletionProblemFieldCompletedOn CompletionProblemField = "completedOn"
+	CompletionProblemFieldRecurrence  CompletionProblemField = "recurrence"
+)
+
 // Defines values for ItemAttention.
 const (
 	NeedsAttention ItemAttention = "needs_attention"
@@ -46,6 +52,7 @@ const (
 const (
 	QueryProblemParameterArchived QueryProblemParameter = "archived"
 	QueryProblemParameterCursor   QueryProblemParameter = "cursor"
+	QueryProblemParameterDone     QueryProblemParameter = "done"
 	QueryProblemParameterLimit    QueryProblemParameter = "limit"
 )
 
@@ -101,6 +108,45 @@ const (
 	Waiting    WorkflowState = "waiting"
 )
 
+// Completion defines model for Completion.
+type Completion struct {
+	CompletedByUserId string          `json:"completedByUserId"`
+	CompletedOn       string          `json:"completedOn"`
+	CreatedAt         time.Time       `json:"createdAt"`
+	CycleAttentionOn  *string         `json:"cycleAttentionOn"`
+	Id                string          `json:"id"`
+	ItemId            string          `json:"itemId"`
+	NextAttentionOn   *string         `json:"nextAttentionOn"`
+	Recurrence        *ItemRecurrence `json:"recurrence"`
+}
+
+// CompletionList defines model for CompletionList.
+type CompletionList struct {
+	Items      []Completion `json:"items"`
+	NextCursor *string      `json:"nextCursor"`
+}
+
+// CompletionProblem defines model for CompletionProblem.
+type CompletionProblem struct {
+	Code                 *string                 `json:"code,omitempty"`
+	Detail               *string                 `json:"detail,omitempty"`
+	Field                *CompletionProblemField `json:"field,omitempty"`
+	Instance             *string                 `json:"instance,omitempty"`
+	Status               int                     `json:"status"`
+	Title                string                  `json:"title"`
+	Type                 string                  `json:"type"`
+	AdditionalProperties map[string]interface{}  `json:"-"`
+}
+
+// CompletionProblemField defines model for CompletionProblem.Field.
+type CompletionProblemField string
+
+// CreateCompletionRequest defines model for CreateCompletionRequest.
+type CreateCompletionRequest struct {
+	// CompletedOn YYYY-MM-DD business date; omitted uses household-local today.
+	CompletedOn *string `json:"completedOn,omitempty"`
+}
+
 // CreateItemRequest defines model for CreateItemRequest.
 type CreateItemRequest struct {
 	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422.
@@ -109,7 +155,7 @@ type CreateItemRequest struct {
 	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear.
 	Notes **string `json:"notes,omitempty"`
 
-	// Recurrence Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn; completions are not yet implemented.
+	// Recurrence Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn.
 	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
 
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
@@ -146,10 +192,16 @@ type Item struct {
 	// AttentionOn Current attention date; null means needs attention immediately.
 	AttentionOn *string   `json:"attentionOn"`
 	CreatedAt   time.Time `json:"createdAt"`
-	Id          string    `json:"id"`
-	Notes       *string   `json:"notes"`
 
-	// Recurrence Recurrence policy; null disables repeat. Policy changes affect only the next completion and never change attentionOn. Completions are not yet implemented.
+	// Done Read-only lifecycle marker. A one-off item becomes done after completion; recurring items stay active and do not become done.
+	Done *bool  `json:"done,omitempty"`
+	Id   string `json:"id"`
+
+	// LastCompletedOn Nullable business date from the completion with the greatest item_version_before, representing the most recently completed cycle regardless of submitted date.
+	LastCompletedOn **string `json:"lastCompletedOn,omitempty"`
+	Notes           *string  `json:"notes"`
+
+	// Recurrence Recurrence policy; null disables repeat. Policy changes affect the next completion and never change attentionOn.
 	Recurrence    *ItemRecurrence `json:"recurrence"`
 	SubjectId     string          `json:"subjectId"`
 	Title         string          `json:"title"`
@@ -168,12 +220,12 @@ type ItemList struct {
 	NextCursor *string `json:"nextCursor"`
 }
 
-// ItemRecurrence Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+// ItemRecurrence Recurrence only affects what happens at the next completion and never changes attentionOn.
 type ItemRecurrence struct {
 	IntervalUnit  RecurrenceIntervalUnit `json:"intervalUnit"`
 	IntervalValue int                    `json:"intervalValue"`
 
-	// Mode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+	// Mode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion and never changes attentionOn.
 	Mode RecurrenceMode `json:"mode"`
 }
 
@@ -230,7 +282,7 @@ type QueryProblemParameter string
 // RecurrenceIntervalUnit defines model for RecurrenceIntervalUnit.
 type RecurrenceIntervalUnit string
 
-// RecurrenceMode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion (completions are not yet implemented) and never changes attentionOn.
+// RecurrenceMode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion and never changes attentionOn.
 type RecurrenceMode string
 
 // Session defines model for Session.
@@ -314,7 +366,7 @@ type UpdateItemRequest struct {
 	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. Null clears the notes.
 	Notes **string `json:"notes,omitempty"`
 
-	// Recurrence Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn; completions are not yet implemented.
+	// Recurrence Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn.
 	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
 
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
@@ -357,6 +409,9 @@ type Archived = bool
 
 // Cursor defines model for Cursor.
 type Cursor = string
+
+// Done defines model for Done.
+type Done = bool
 
 // HouseholdId defines model for HouseholdId.
 type HouseholdId = string
@@ -402,8 +457,11 @@ type ListItemsParams struct {
 	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Archived false (default) lists active resources; true lists archived resources only.
+	// Archived false (default) lists active items; true lists archived items only, independently of done status.
 	Archived *Archived `form:"archived,omitempty" json:"archived,omitempty"`
+
+	// Done false (default) lists unfinished items; true lists completed one-off items.
+	Done *Done `form:"done,omitempty" json:"done,omitempty"`
 
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
@@ -430,6 +488,30 @@ type UpdateItemParams struct {
 	IfMatch string `json:"If-Match"`
 }
 
+// ListItemCompletionsParams defines parameters for ListItemCompletions.
+type ListItemCompletionsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateItemCompletionParams defines parameters for CreateItemCompletion.
+type CreateItemCompletionParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Single strong ETag for the current item version. Missing returns 428; malformed, weak, wildcard, list, or stale values return 412.
+	IfMatch string `json:"If-Match"`
+
+	// IdempotencyKey Required, case-sensitive, 1–128 printable ASCII bytes (0x21–0x7E); no normalization. Missing returns 400 idempotency_key_required; invalid or repeated headers return 400 invalid_idempotency_key.
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // ListSubjectsParams defines parameters for ListSubjects.
 type ListSubjectsParams struct {
 	// Limit Maximum number of items per page.
@@ -438,7 +520,7 @@ type ListSubjectsParams struct {
 	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Archived false (default) lists active resources; true lists archived resources only.
+	// Archived false (default) lists active items; true lists archived items only, independently of done status.
 	Archived *Archived `form:"archived,omitempty" json:"archived,omitempty"`
 
 	// XRequestID Optional caller-supplied correlation ID.
@@ -511,6 +593,9 @@ type CreateItemJSONRequestBody = CreateItemRequest
 // UpdateItemJSONRequestBody defines body for UpdateItem for application/json ContentType.
 type UpdateItemJSONRequestBody = UpdateItemRequest
 
+// CreateItemCompletionJSONRequestBody defines body for CreateItemCompletion for application/json ContentType.
+type CreateItemCompletionJSONRequestBody = CreateCompletionRequest
+
 // CreateSubjectJSONRequestBody defines body for CreateSubject for application/json ContentType.
 type CreateSubjectJSONRequestBody = CreateSubjectRequest
 
@@ -519,6 +604,158 @@ type UpdateSubjectJSONRequestBody = UpdateSubjectRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// Getter for additional properties for CompletionProblem. Returns the specified
+// element and whether it was found
+func (a CompletionProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for CompletionProblem
+func (a *CompletionProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for CompletionProblem to handle AdditionalProperties
+func (a *CompletionProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for CompletionProblem to handle AdditionalProperties
+func (a CompletionProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Code != nil {
+		object["code"], err = json.Marshal(a.Code)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'code': %w", err)
+		}
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	if a.Field != nil {
+		object["field"], err = json.Marshal(a.Field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'field': %w", err)
+		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for ItemValidationProblem. Returns the specified
 // element and whether it was found

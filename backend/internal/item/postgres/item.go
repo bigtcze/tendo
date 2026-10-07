@@ -12,16 +12,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Repository stores items through the runtime-role connection. Every query
-// filters by household and item id, so cross-household access is impossible at
-// the SQL level regardless of authorization. A composite foreign key ties each
-// item to a subject of the same household.
-type Repository struct {
-	queries *dbgen.Queries
+type TxDB interface {
+	dbgen.DBTX
+	Begin(context.Context) (pgx.Tx, error)
 }
 
-func NewRepository(db dbgen.DBTX) *Repository {
-	return &Repository{queries: dbgen.New(db)}
+// Repository stores items through the runtime-role connection. Every query
+// filters by household and item id, so cross-household access is impossible at
+// the SQL level regardless of authorization.
+type Repository struct {
+	queries *dbgen.Queries
+	db      TxDB
+}
+
+func NewRepository(db TxDB) *Repository {
+	return &Repository{queries: dbgen.New(db), db: db}
 }
 
 var errPersistence = errors.New("item persistence failed")
@@ -43,12 +48,14 @@ type row struct {
 	RecurrenceMode                    pgtype.Text
 	WorkflowState                     string
 	Archived                          bool
+	Done                              bool
+	LastCompletedOn                   pgtype.Date
 	CreatedAt, UpdatedAt              pgtype.Timestamptz
 	Version                           int64
 }
 
 func toItem(r row) (item.Item, error) {
-	out := item.Item{ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, Title: r.Title, WorkflowState: item.WorkflowState(r.WorkflowState), Archived: r.Archived, CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), Version: r.Version}
+	out := item.Item{ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, Title: r.Title, WorkflowState: item.WorkflowState(r.WorkflowState), Archived: r.Archived, Done: r.Done, CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), Version: r.Version}
 	if r.Notes.Valid {
 		notes := r.Notes.String
 		out.Notes = &notes
@@ -75,6 +82,13 @@ func toItem(r row) (item.Item, error) {
 			return item.Item{}, errPersistence
 		}
 		out.Recurrence = policy
+	}
+	if r.LastCompletedOn.Valid {
+		d, err := schedule.NewDate(r.LastCompletedOn.Time.Year(), r.LastCompletedOn.Time.Month(), r.LastCompletedOn.Time.Day())
+		if err != nil {
+			return item.Item{}, errPersistence
+		}
+		out.LastCompletedOn = &d
 	}
 	if r.AttentionOn.Valid {
 		if r.AttentionOn.InfinityModifier != pgtype.Finite {
@@ -132,7 +146,7 @@ func (r *Repository) Create(ctx context.Context, householdID string, d item.Draf
 	if err != nil {
 		return item.Item{}, errPersistence
 	}
-	return toItem(row(created))
+	return toItem(row{ID: created.ID, HouseholdID: created.HouseholdID, SubjectID: created.SubjectID, Title: created.Title, Notes: created.Notes, AttentionOn: created.AttentionOn, RecurrenceIntervalValue: created.RecurrenceIntervalValue, RecurrenceIntervalUnit: created.RecurrenceIntervalUnit, RecurrenceMode: created.RecurrenceMode, WorkflowState: created.WorkflowState, Archived: created.Archived, Done: created.Done, LastCompletedOn: created.LastCompletedOn, CreatedAt: created.CreatedAt, UpdatedAt: created.UpdatedAt, Version: created.Version})
 }
 
 func (r *Repository) Get(ctx context.Context, householdID, itemID string) (item.Item, error) {
@@ -148,22 +162,22 @@ func (r *Repository) Get(ctx context.Context, householdID, itemID string) (item.
 	if err != nil {
 		return item.Item{}, errPersistence
 	}
-	return toItem(row(found))
+	return toItem(row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue, RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState, Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version})
 }
 
-func (r *Repository) List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]item.Item, error) {
+func (r *Repository) List(ctx context.Context, householdID string, archived, done bool, afterID string, limit int) ([]item.Item, error) {
 	hid, ok1 := parseUUID(householdID)
 	after, ok2 := parseUUID(afterID)
 	if !ok1 || !ok2 {
 		return nil, item.ErrNotFound
 	}
-	rows, err := r.queries.ListItems(ctx, dbgen.ListItemsParams{HouseholdID: hid, Archived: archived, AfterID: after, RowLimit: int32(limit)})
+	rows, err := r.queries.ListItems(ctx, dbgen.ListItemsParams{HouseholdID: hid, Archived: archived, Done: done, AfterID: after, RowLimit: int32(limit)})
 	if err != nil {
 		return nil, errPersistence
 	}
 	items := make([]item.Item, 0, len(rows))
 	for _, found := range rows {
-		converted, err := toItem(row(found))
+		converted, err := toItem(row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue, RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState, Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version})
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +227,7 @@ func (r *Repository) Update(ctx context.Context, householdID, itemID string, exp
 	}
 	updated, err := r.queries.UpdateItem(ctx, params)
 	if err == nil {
-		return toItem(row(updated))
+		return toItem(row{ID: updated.ID, HouseholdID: updated.HouseholdID, SubjectID: updated.SubjectID, Title: updated.Title, Notes: updated.Notes, AttentionOn: updated.AttentionOn, RecurrenceIntervalValue: updated.RecurrenceIntervalValue, RecurrenceIntervalUnit: updated.RecurrenceIntervalUnit, RecurrenceMode: updated.RecurrenceMode, WorkflowState: updated.WorkflowState, Archived: updated.Archived, Done: updated.Done, LastCompletedOn: updated.LastCompletedOn, CreatedAt: updated.CreatedAt, UpdatedAt: updated.UpdatedAt, Version: updated.Version})
 	}
 	if isForeignKey(err) {
 		return item.Item{}, item.ErrInvalidReference

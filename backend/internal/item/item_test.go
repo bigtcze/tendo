@@ -29,13 +29,14 @@ type env struct {
 	repo       *itemtest.Repo
 	svc        *item.Service
 	zone       string
+	now        time.Time
 	housErr    error
 	subjectErr error
 	subjectHit []string
 }
 
 func newEnv(zone string) *env {
-	e := &env{repo: itemtest.New(), zone: zone}
+	e := &env{repo: itemtest.New(), zone: zone, now: fixedNow}
 	houses := func(_ context.Context, uid, hid string) (string, error) {
 		if e.housErr != nil {
 			return "", e.housErr
@@ -61,7 +62,7 @@ func newEnv(zone string) *env {
 		}
 		return false, item.ErrNotFound // foreignID and unknown ids
 	}
-	e.svc = item.NewService(e.repo, houses, subjects, func() time.Time { return fixedNow })
+	e.svc = item.NewService(e.repo, houses, subjects, func() time.Time { return e.now })
 	return e
 }
 
