@@ -12,6 +12,8 @@ var testFields = map[string]Field{
 	"a": {Kind: KindString, Required: true},
 	"n": {Kind: KindNullableString},
 	"b": {Kind: KindBool},
+	"i": {Kind: KindInteger},
+	"o": {Kind: KindNullableObject, Fields: map[string]Field{"n": {Kind: KindInteger, Required: true}, "s": {Kind: KindString, Required: true}}},
 }
 
 func TestDecodeObjectStrictness(t *testing.T) {
@@ -55,6 +57,19 @@ func TestDecodeObjectNullableDistinguishesNullFromOmitted(t *testing.T) {
 	got, err = DecodeObject([]byte(`{"a":"x","n":"s","b":true}`), testFields)
 	if err != nil || got["n"] != "s" || got["b"] != true || got["a"] != "x" {
 		t.Fatalf("got=%#v err=%v", got, err)
+	}
+}
+
+func TestDecodeIntegerAndNullableObject(t *testing.T) {
+	for _, body := range []string{`{"a":"x","i":12}`, `{"a":"x","o":null}`} {
+		if _, err := DecodeObject([]byte(body), testFields); err != nil {
+			t.Fatalf("valid %s: %v", body, err)
+		}
+	}
+	for _, body := range []string{`{"a":"x","i":1.5}`, `{"a":"x","i":1e2}`, `{"a":"x","i":"12"}`, `{"a":"x","i":true}`, `{"a":"x","i":9223372036854775808}`, `{"a":"x","o":{"n":1,"s":"x","extra":true}}`, `{"a":"x","o":{"n":1,"s":"x","n":2}}`, `{"a":"x","o":{"n":1}}`, `{"a":"x","o":{"n":"1","s":"x"}}`, `{"a":"x","o":{"n":null,"s":"x"}}`} {
+		if _, err := DecodeObject([]byte(body), testFields); err == nil {
+			t.Fatalf("accepted %s", body)
+		}
 	}
 }
 

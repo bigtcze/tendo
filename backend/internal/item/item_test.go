@@ -184,6 +184,54 @@ func TestCreateStoresValidatedStateAndStartsOpen(t *testing.T) {
 	}
 }
 
+func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
+	e := newEnv("UTC")
+	policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	created := e.create(t, item.NewItem{Title: "repeat", Recurrence: &policy})
+	if created.Recurrence == nil || created.Recurrence.Mode != schedule.ModeFixed || created.AttentionOn != nil {
+		t.Fatalf("create: %+v", created)
+	}
+	attention := created.Attention
+	changed := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+	updated, err := e.svc.Update(context.Background(), userID, householdID, created.ID, created.Version, item.Patch{Recurrence: item.Some(changed)})
+	if err != nil || updated.Version != 2 || updated.AttentionOn != nil || updated.Attention != attention || updated.Recurrence == nil || *updated.Recurrence != changed {
+		t.Fatalf("replace: %+v %v", updated, err)
+	}
+	cleared, err := e.svc.Update(context.Background(), userID, householdID, created.ID, updated.Version, item.Patch{Recurrence: item.Null[schedule.Policy]()})
+	if err != nil || cleared.Version != 3 || cleared.Recurrence != nil || cleared.Attention != attention {
+		t.Fatalf("clear: %+v %v", cleared, err)
+	}
+	omitted, err := e.svc.Update(context.Background(), userID, householdID, created.ID, cleared.Version, item.Patch{Title: ptr("still one-off")})
+	if err != nil || omitted.Version != 4 || omitted.Recurrence != nil {
+		t.Fatalf("omit: %+v %v", omitted, err)
+	}
+	if _, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "one off"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInvalidRecurrenceDoesNotPersist(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		policy schedule.Policy
+		code   string
+	}{
+		{"zero", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 0, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}, "invalid_interval"},
+		{"high", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1000, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}, "invalid_interval"},
+		{"unit", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: "fortnight"}, Mode: schedule.ModeFixed}, "invalid_interval_unit"},
+		{"mode", schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: "mystery"}, "invalid_mode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv("UTC")
+			_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "invalid", Recurrence: &tc.policy})
+			validation(t, err, "recurrence", tc.code)
+			if e.repo.Count() != 0 {
+				t.Fatal("invalid policy persisted")
+			}
+		})
+	}
+}
+
 func TestCreateRejectsInvalidInputWithoutPersisting(t *testing.T) {
 	e := newEnv("UTC")
 	ctx := context.Background()
