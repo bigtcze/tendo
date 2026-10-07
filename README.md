@@ -11,7 +11,7 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. You can set up the first household in the browser, sign in, and see an empty home screen. The backend has a subjects API (create, list, read, rename, archive), but there is no UI for it, and there are no items or invitations yet, so this is not yet a usable household product.
+> **Project status:** early development. You can set up the first household in the browser, sign in, and add people and things (such as a child, your home, or the car), rename them, archive them, and restore them. There are no items or invitations yet, so this is not yet a usable household product.
 
 ## Development runtime
 
@@ -64,6 +64,7 @@ For configuration, health checks, and stop/start details, see [runtime developme
 
 ## Documentation
 
+- [People and things](docs/user/people-and-things.md)
 - [Runtime development](docs/development/runtime.md)
 - [Frontend development](docs/development/frontend.md)
 - [Configuration reference](docs/admin/configuration.md)
