@@ -6,6 +6,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   document.documentElement.lang = 'en';
+  window.history.replaceState(null, '', '/');
 });
 
 // Node's Request rejects relative URLs (browsers resolve them against the page origin).

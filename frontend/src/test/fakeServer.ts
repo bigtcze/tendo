@@ -4,17 +4,18 @@ import type { components } from '../../../api/generated/api';
 export interface RecordedRequest {
   method: string;
   path: string;
+  query: URLSearchParams;
   body: string;
   headers: Headers;
 }
 
 type Handler = (req: RecordedRequest) => Response | Promise<Response>;
 
-export function json(status: number, body?: unknown): Response {
+export function json(status: number, body?: unknown, headers: Record<string, string> = {}): Response {
   if (status === 204) return new Response(null, { status });
   return new Response(body === undefined ? null : JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
   });
 }
 
@@ -25,7 +26,11 @@ export function installFakeServer(routes: Record<string, Handler | Response>) {
     'fetch',
     vi.fn(async (input: Request) => {
       const url = new URL(input.url);
-      const req: RecordedRequest = { method: input.method, path: url.pathname, body: await input.text(),
+      const req: RecordedRequest = {
+        method: input.method,
+        path: url.pathname,
+        query: url.searchParams,
+        body: await input.text(),
         headers: input.headers,
       };
       requests.push(req);

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccountActions } from '../../app/AccountActions';
 import { Layout } from '../../app/Layout';
+import { NavLink } from '../../app/NavLink';
 import { ErrorScreen, LoadingScreen } from '../../app/StatusScreens';
-import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { api } from '../../lib/api';
-import { logout, type Session } from '../auth/sessionApi';
+import type { Session } from '../auth/sessionApi';
 import { Heading } from '../../app/Heading';
 
 type HouseholdState =
@@ -13,15 +14,21 @@ type HouseholdState =
   | { kind: 'none' }
   | { kind: 'error' };
 
-export function HomeScreen({ session, onSignedOut }: { session: Session; onSignedOut: () => void }) {
+export function HomeScreen({
+  session,
+  onSignedOut,
+  onOpenPeople,
+}: {
+  session: Session;
+  onSignedOut: () => void;
+  onOpenPeople: () => void;
+}) {
   const { t } = useI18n();
   const householdId = session.defaultHouseholdId;
   const [household, setHousehold] = useState<HouseholdState>(
     householdId ? { kind: 'loading' } : { kind: 'none' },
   );
   const [attempt, setAttempt] = useState(0);
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutFailed, setSignOutFailed] = useState(false);
 
   useEffect(() => {
     if (!householdId) return;
@@ -53,34 +60,8 @@ export function HomeScreen({ session, onSignedOut }: { session: Session; onSigne
     setAttempt((n) => n + 1);
   }, []);
 
-  async function signOut() {
-    setSigningOut(true);
-    setSignOutFailed(false);
-    const result = await logout();
-    if (result === 'ok') {
-      onSignedOut();
-      return;
-    }
-    setSigningOut(false);
-    setSignOutFailed(true);
-  }
-
-  const actions = (
-    <div className="flex items-center gap-1 text-sm text-muted">
-      <span className="max-w-[10rem] truncate sm:max-w-xs">{t('header.signedInAs', { login: session.login })}</span>
-      <Button type="button" variant="quiet" size="small" onClick={signOut} disabled={signingOut}>
-        {signingOut ? t('header.signingOut') : t('header.signOut')}
-      </Button>
-    </div>
-  );
-
   return (
-    <Layout actions={actions}>
-      {signOutFailed ? (
-        <p role="alert" className="mb-6 text-danger">
-          {t('header.signOutError')}
-        </p>
-      ) : null}
+    <Layout actions={<AccountActions login={session.login} onSignedOut={onSignedOut} />}>
       {household.kind === 'loading' ? <LoadingScreen message={t('home.loading')} /> : null}
       {household.kind === 'error' ? <ErrorScreen onRetry={retry} /> : null}
       {household.kind === 'none' ? (
@@ -96,6 +77,13 @@ export function HomeScreen({ session, onSignedOut }: { session: Session; onSigne
             <h2 className="font-display text-2xl leading-snug">{t('home.empty.title')}</h2>
             <p className="mt-3 text-muted">{t('home.empty.body')}</p>
           </div>
+          <NavLink
+            href="/people"
+            onNavigate={onOpenPeople}
+            className="mt-6 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {t('home.people')}
+          </NavLink>
         </section>
       ) : null}
     </Layout>

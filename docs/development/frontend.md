@@ -2,7 +2,7 @@
 
 The web UI is a React 19, TypeScript, Vite, and Tailwind CSS single-page app in `frontend/`. In production it is embedded in the Go binary. See [ADR 0003](../adr/0003-ui-foundation.md) for the reasoning.
 
-Today the UI shows first-run onboarding when setup has not been completed (setup code, household name, login, password, and a time zone pre-filled from the browser), a sign-in page, and, after sign-in, a home screen with the household name and an empty state. The UI does not use the subjects API yet; items and invitations do not exist.
+Today the UI shows first-run onboarding when setup has not been completed (setup code, household name, login, password, and a time zone pre-filled from the browser), a sign-in page, and, after sign-in, a home screen with the household name and an empty state. A "People and things" screen lets members add, rename, archive, and restore subjects through the subjects API. Items and invitations do not exist.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 ## Structure
 
 - `src/app`: shell, layout, and top-level status screens
-- `src/features/<feature>`: one folder per feature (`auth`, `home`) with its screens and API calls
+- `src/features/<feature>`: one folder per feature (`auth`, `home`, `subjects`) with its screens and API calls
 - `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
 - `src/i18n`: translations (`en.ts`, `cs.ts`) and the language provider
 - `src/lib`: the API client and small helpers
@@ -63,7 +63,7 @@ From the repository root, after `npm ci` in `frontend/`:
 bash scripts/e2e-smoke.sh
 ```
 
-It runs Playwright in the `mcr.microsoft.com/playwright:v1.63.0-noble` container against the production Compose stack with real PostgreSQL. The container uses `--network host`, which works on Linux Docker hosts (CI is Linux). The image version must match `@playwright/test` in `frontend/package.json`; the script checks this. It covers browser onboarding (proposed time zone from a fixed browser time zone, correcting it, a wrong setup code, and the household name and time zone stored by the server), closing setup after first use, failed and successful sign-in, the home screen, reloading a deep link, Czech and English, narrow and wide viewports, keyboard use, sign out, and security headers.
+It runs Playwright in the `mcr.microsoft.com/playwright:v1.63.0-noble` container against the production Compose stack with real PostgreSQL. The container uses `--network host`, which works on Linux Docker hosts (CI is Linux). The image version must match `@playwright/test` in `frontend/package.json`; the script checks this. It covers browser onboarding (proposed time zone from a fixed browser time zone, correcting it, a wrong setup code, and the household name and time zone stored by the server), closing setup after first use, failed and successful sign-in, the home screen, creating, renaming, archiving, and restoring people and things (checked against the API, including that no account is created), reloading `/people` and a deep link, Czech and English, narrow and wide viewports, keyboard use, sign out, and security headers.
 
 ## Production build
 
@@ -72,3 +72,5 @@ It runs Playwright in the `mcr.microsoft.com/playwright:v1.63.0-noble` container
 Go serves `index.html` for app routes with a strict same-origin Content-Security-Policy (no inline scripts or styles) and `X-Frame-Options: DENY`, and serves hashed files under `/assets/` with immutable caching. Unknown `/api` and `/health` paths still return `application/problem+json`.
 
 App routes whose last path segment contains a dot are treated as files and return 404 instead of `index.html`. Client routes must not end in a file-like segment.
+
+There is no router. The only client path is `/people`; `App` switches between it and the home screen with the History API (`pushState` and `popstate`), so browser Back and reloads work. Go serves `index.html` for `/people` like any other app route.

@@ -3,10 +3,13 @@ import { LoginScreen } from '../features/auth/LoginScreen';
 import { OnboardingScreen } from '../features/auth/OnboardingScreen';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
 import { HomeScreen } from '../features/home/HomeScreen';
+import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { useI18n } from '../i18n';
 import { ScreenTransitionContext } from './Heading';
 import { Layout } from './Layout';
 import { ErrorScreen, LoadingScreen } from './StatusScreens';
+
+const PEOPLE_PATH = '/people';
 
 type BootState =
   | { kind: 'loading' }
@@ -29,6 +32,7 @@ export function App() {
   const { t } = useI18n();
   const [state, setState] = useState<BootState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [people, setPeople] = useState(() => window.location.pathname === PEOPLE_PATH);
   // Flipped on the first screen change so later headings take focus; initial load keeps natural focus.
   const transitioned = useRef(false);
 
@@ -50,17 +54,47 @@ export function App() {
 
   const signedOut = useCallback(() => {
     transitioned.current = true;
+    if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    setPeople(false);
     setState({ kind: 'signedOut' });
   }, []);
+
+  // Two screens only, so a path flag plus popstate is enough for Back to work; no router.
+  const openPeople = useCallback(() => {
+    transitioned.current = true;
+    window.history.pushState(null, '', PEOPLE_PATH);
+    setPeople(true);
+  }, []);
+  const closePeople = useCallback(() => {
+    transitioned.current = true;
+    window.history.pushState(null, '', '/');
+    setPeople(false);
+  }, []);
+  useEffect(() => {
+    const onPop = () => {
+      transitioned.current = true;
+      setPeople(window.location.pathname === PEOPLE_PATH);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  // Signing in from onboarding or login always lands on home, even when the page was opened at /people.
   const signedIn = useCallback((session: Session) => {
     transitioned.current = true;
+    if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    setPeople(false);
     setState({ kind: 'signedIn', session });
   }, []);
 
   if (state.kind === 'signedIn') {
+    const householdId = state.session.defaultHouseholdId;
     return (
       <ScreenTransitionContext value={transitioned}>
-        <HomeScreen session={state.session} onSignedOut={signedOut} />
+        {people && householdId ? (
+          <SubjectsScreen householdId={householdId} login={state.session.login} onBack={closePeople} onSignedOut={signedOut} />
+        ) : (
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} />
+        )}
       </ScreenTransitionContext>
     );
   }

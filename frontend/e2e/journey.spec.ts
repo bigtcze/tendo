@@ -174,7 +174,148 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('h. sign out returns to login and revokes the session server-side', async () => {
+  const subjectKeys = ['archived', 'createdAt', 'id', 'name', 'type', 'updatedAt'];
+  type ServerSubject = Record<string, unknown> & { id: string; name: string; type: string; archived: boolean };
+
+  async function serverSubjects(archived: boolean): Promise<ServerSubject[]> {
+    const response = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=${archived}`);
+    expect(response.status()).toBe(200);
+    return ((await response.json()) as { items: ServerSubject[] }).items;
+  }
+
+  function row(name: string) {
+    return page.getByRole('listitem').filter({ hasText: name });
+  }
+
+  test('h. People and things opens from home at /people and starts empty', async () => {
+    await page.goto('/');
+    await page.getByRole('link', { name: en['home.people'] }).click();
+    await expect(page).toHaveURL(/\/people$/);
+    expect(new URL(page.url()).pathname).toBe('/people');
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    await expect(page.getByRole('heading', { name: en['subjects.empty.title'] })).toBeVisible();
+    expect(await serverSubjects(false)).toEqual([]);
+  });
+
+  test('i. adding a person and a vehicle shows them and stores subjects without any account field', async () => {
+    await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+    const form = page.getByRole('form', { name: en['subjects.add.formLabel'] });
+    await form.getByLabel(en['subjects.name']).fill('Anička');
+    await form.getByRole('radio', { name: en['subjects.type.person'] }).check();
+    await form.getByRole('button', { name: en['subjects.add.submit'] }).click();
+
+    await expect(page.getByRole('status').filter({ hasText: 'Anička' })).toHaveText(
+      en['subjects.notice.added'].replace('{name}', 'Anička'),
+    );
+    await expect(row('Anička')).toBeVisible();
+    await expect(row('Anička')).toContainText(en['subjects.type.person']);
+
+    const afterPerson = await serverSubjects(false);
+    expect(afterPerson).toHaveLength(1);
+    expect(afterPerson[0]).toMatchObject({ name: 'Anička', type: 'person', archived: false });
+    expect(Object.keys(afterPerson[0]).sort()).toEqual(subjectKeys);
+
+    await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+    const second = page.getByRole('form', { name: en['subjects.add.formLabel'] });
+    await second.getByLabel(en['subjects.name']).fill('Octavia');
+    await second.getByRole('radio', { name: en['subjects.type.vehicle'] }).check();
+    await second.getByRole('button', { name: en['subjects.add.submit'] }).click();
+    await expect(row('Octavia')).toBeVisible();
+    await expect(row('Octavia')).toContainText(en['subjects.type.vehicle']);
+
+    const both = await serverSubjects(false);
+    expect(both.map((s) => `${s.name}:${s.type}`).sort()).toEqual(['Anička:person', 'Octavia:vehicle']);
+  });
+
+  test('j. renaming a vehicle saves it and advances the server version', async () => {
+    const before = (await serverSubjects(false)).find((s) => s.name === 'Octavia');
+    expect(before).toBeDefined();
+    const id = before!.id;
+    const initial = await page.request.get(`/api/v1/households/${householdId}/subjects/${id}`);
+    expect(initial.headers()['etag']).toBe('"1"');
+
+    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', 'Octavia') }).click();
+    const form = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Octavia') });
+    await form.getByLabel(en['subjects.name']).fill('Octavia Combi');
+    await form.getByRole('button', { name: en['subjects.save'] }).click();
+
+    await expect(row('Octavia Combi')).toBeVisible();
+    await expect(page.getByRole('form')).toHaveCount(0);
+
+    const after = await page.request.get(`/api/v1/households/${householdId}/subjects/${id}`);
+    expect(after.status()).toBe(200);
+    expect(after.headers()['etag']).toBe('"2"');
+    expect(await after.json()).toMatchObject({ id, name: 'Octavia Combi', type: 'vehicle', archived: false });
+  });
+
+  test('k. archiving hides a subject, and Show archived lets you restore it', async () => {
+    await page.getByRole('button', { name: en['subjects.archive.label'].replace('{name}', 'Octavia Combi') }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: en['subjects.notice.archived'].replace('{name}', 'Octavia Combi') }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: en['subjects.undo'] })).toBeVisible();
+    await expect(row('Octavia Combi')).toHaveCount(0);
+    await expect(row('Anička')).toBeVisible();
+
+    expect((await serverSubjects(true)).map((s) => s.name)).toEqual(['Octavia Combi']);
+    expect((await serverSubjects(false)).map((s) => s.name)).toEqual(['Anička']);
+
+    await page.getByRole('button', { name: en['subjects.showArchived'] }).click();
+    await expect(page.getByRole('heading', { level: 2, name: en['subjects.archived.title'] })).toBeVisible();
+    await expect(row('Octavia Combi')).toBeVisible();
+    await page.getByRole('button', { name: en['subjects.restore.label'].replace('{name}', 'Octavia Combi') }).click();
+    await expect(row('Octavia Combi')).toHaveCount(0);
+
+    expect(await serverSubjects(true)).toEqual([]);
+    expect((await serverSubjects(false)).map((s) => s.name).sort()).toEqual(['Anička', 'Octavia Combi']);
+
+    await page.getByRole('button', { name: en['subjects.showCurrent'] }).click();
+    await expect(page.getByRole('heading', { level: 2, name: en['subjects.archived.title'] })).toHaveCount(0);
+    await expect(row('Octavia Combi')).toBeVisible();
+    await expect(row('Anička')).toBeVisible();
+  });
+
+  test('l. /people survives reload and deep links, and browser Back returns home', async () => {
+    await page.reload();
+    expect(new URL(page.url()).pathname).toBe('/people');
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    await expect(row('Anička')).toBeVisible();
+
+    await page.goBack();
+    expect(new URL(page.url()).pathname).toBe('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+    const response = await page.goto('/people');
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    await expect(row('Anička')).toBeVisible();
+  });
+
+  test('m. the people screen fits 360px with the add form open and switches to Czech and back', async () => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+      await expect(page.getByRole('form', { name: en['subjects.add.formLabel'] })).toBeVisible();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      );
+      expect(overflow, '360px horizontal overflow on people screen').toBeLessThanOrEqual(0);
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+
+    await page.getByRole('button', { name: 'Čeština' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
+    await expect(page.getByRole('form', { name: cs['subjects.add.formLabel'] })).toBeVisible();
+    await page.getByRole('button', { name: 'English' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+
+    await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
+  });
+
+  test('n. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     // Replay the old cookie from a clean client: only server-side revocation can make this fail.
@@ -187,7 +328,7 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('i. wrong password shows an alert and clears the password field', async () => {
+  test('o. wrong password shows an alert and clears the password field', async () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     await signIn(page, 'definitely the wrong password');
@@ -195,7 +336,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByLabel(en['login.password'])).toHaveValue('');
   });
 
-  test('j. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
+  test('p. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
     await page.goto('/');
     const login = page.getByLabel(en['login.login']);
     await expect(login).toBeVisible();
@@ -216,7 +357,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
   });
 
-  test('k. security headers are present and the journey produced no console errors', async () => {
+  test('q. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
     expect(response?.headers()['x-frame-options']).toBe('DENY');
