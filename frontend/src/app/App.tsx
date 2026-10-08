@@ -3,6 +3,7 @@ import { LoginScreen } from '../features/auth/LoginScreen';
 import { OnboardingScreen } from '../features/auth/OnboardingScreen';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
 import { HomeScreen } from '../features/home/HomeScreen';
+import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { useI18n } from '../i18n';
@@ -11,6 +12,15 @@ import { Layout } from './Layout';
 import { ErrorScreen, LoadingScreen } from './StatusScreens';
 
 const PEOPLE_PATH = '/people';
+type Route = { kind: 'home' | 'people' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
+function readRoute(): Route {
+  const path = window.location.pathname;
+  if (path === PEOPLE_PATH) return { kind: 'people' };
+  if (path === '/') return { kind: 'home' };
+  const match = /^\/items\/([^/]+)$/.exec(path);
+  if (match) return /^[0-9a-f-]{36}$/i.test(match[1]!) ? { kind: 'item', itemId: match[1]! } : { kind: 'invalidItem' };
+  return { kind: 'home' };
+}
 
 type BootState =
   | { kind: 'loading' }
@@ -34,7 +44,7 @@ export function App() {
   const { t } = useI18n();
   const [state, setState] = useState<BootState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
-  const [people, setPeople] = useState(() => window.location.pathname === PEOPLE_PATH);
+  const [route, setRoute] = useState(() => readRoute());
   // Flipped on the first screen change so later headings take focus; initial load keeps natural focus.
   const transitioned = useRef(false);
 
@@ -58,25 +68,26 @@ export function App() {
     clearPendingCompletions();
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
-    setPeople(false);
+    setRoute({ kind: 'home' });
     setState({ kind: 'signedOut' });
   }, []);
 
-  // Two screens only, so a path flag plus popstate is enough for Back to work; no router.
+  // A small route value plus popstate keeps these few app screens navigable without a router.
   const openPeople = useCallback(() => {
     transitioned.current = true;
     window.history.pushState(null, '', PEOPLE_PATH);
-    setPeople(true);
+    setRoute({ kind: 'people' });
   }, []);
-  const closePeople = useCallback(() => {
+  // Back links from People and item details push home so browser Back still returns to them.
+  const goHome = useCallback(() => {
     transitioned.current = true;
     window.history.pushState(null, '', '/');
-    setPeople(false);
+    setRoute({ kind: 'home' });
   }, []);
   useEffect(() => {
     const onPop = () => {
       transitioned.current = true;
-      setPeople(window.location.pathname === PEOPLE_PATH);
+      setRoute(readRoute());
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -84,14 +95,14 @@ export function App() {
   // Signing in from onboarding or login always lands on home, even when the page was opened at /people.
   // /people without a household has nothing to show; keep the address bar honest and land on home.
   const noHouseholdOnPeople =
-    state.kind === 'signedIn' && people && !state.session.defaultHouseholdId;
+    state.kind === 'signedIn' && route.kind === 'people' && !state.session.defaultHouseholdId;
   useEffect(() => {
     if (noHouseholdOnPeople) window.history.replaceState(null, '', '/');
   }, [noHouseholdOnPeople]);
   const signedIn = useCallback((session: Session) => {
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
-    setPeople(false);
+    setRoute({ kind: 'home' });
     setState({ kind: 'signedIn', session });
   }, []);
 
@@ -99,10 +110,14 @@ export function App() {
     const householdId = state.session.defaultHouseholdId;
     return (
       <ScreenTransitionContext value={transitioned}>
-        {people && householdId ? (
-          <SubjectsScreen householdId={householdId} login={state.session.login} onBack={closePeople} onSignedOut={signedOut} />
+        {route.kind === 'people' && householdId ? (
+          <SubjectsScreen householdId={householdId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+        ) : route.kind === 'item' && householdId ? (
+          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+        ) : route.kind === 'invalidItem' && householdId ? (
+          <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : (
-          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} />
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
     );

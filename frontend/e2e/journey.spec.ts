@@ -524,6 +524,89 @@ test.describe('Tendo production journey', () => {
     expect(history[0].undoneAt).not.toBeNull();
   });
 
+  test('n4. item detail workflow preserves a fixed monthly schedule and history through archive/restore', async () => {
+    const anchor = addDays(pragueToday(), -420);
+    const title = 'Inspect the roof';
+    await addItem({ title, subject: 'Anička', attentionOn: anchor, repeat: { value: '1', unit: 'month', fluid: false } });
+    await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
+    const created = await serverItem(title);
+    const itemId = created.id;
+    expect(created).toMatchObject({ attentionOn: anchor, lastCompletedOn: null, recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' } });
+
+    async function openDetail() {
+      await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
+      await expect(page).toHaveURL(new RegExp(`/items/${itemId}$`));
+      await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+    }
+    async function detailItem() {
+      const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+      expect(response.status()).toBe(200);
+      return (await response.json()) as ServerItem & { workflowState: string; archived: boolean };
+    }
+    async function backHome() {
+      await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    }
+
+    await openDetail();
+    await page.getByRole('button', { name: en['itemDetail.start'] }).click();
+    await expect.poll(async () => (await detailItem()).workflowState).toBe('in_progress');
+    expect(await detailItem()).toMatchObject({ attentionOn: anchor, lastCompletedOn: null });
+    await backHome();
+    await expect(group(en['items.group.inProgress']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
+
+    await openDetail();
+    await page.getByRole('button', { name: en['itemDetail.waitingAction'] }).click();
+    await expect.poll(async () => (await detailItem()).workflowState).toBe('waiting');
+    expect(await detailItem()).toMatchObject({ attentionOn: anchor, lastCompletedOn: null });
+    expect(await serverCompletions(itemId)).toEqual([]);
+
+    await backHome();
+    await row(title).getByRole('button', { name: en['items.done'] }).click();
+    await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
+    const [completion] = await serverCompletions(itemId);
+    const [anchorYear, anchorMonth, anchorDay] = anchor.split('-').map(Number);
+    const monthFromAnchor = (offset: number) => {
+      const target = new Date(Date.UTC(anchorYear, anchorMonth - 1 + offset, 1));
+      const year = target.getUTCFullYear();
+      const month = target.getUTCMonth() + 1;
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(anchorDay, lastDay)).padStart(2, '0')}`;
+    };
+    let monthOffset = 1;
+    let expected = monthFromAnchor(monthOffset);
+    while (expected <= completion.completedOn) expected = monthFromAnchor(++monthOffset);
+    expect(completion).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected, undoneAt: null });
+    expect(await serverCompletions(itemId)).toHaveLength(1);
+    expect(await detailItem()).toMatchObject({ attentionOn: expected, workflowState: 'open', lastCompletedOn: completion.completedOn });
+
+    await openDetail();
+    const displayDate = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+    await expect(page.getByRole('heading', { level: 2, name: en['itemDetail.history'] })).toBeVisible();
+    const history = page.locator('ol').getByRole('listitem');
+    await expect(history).toHaveCount(1);
+    await expect(history).toContainText(en['itemDetail.historyDone'].replace('{date}', displayDate(completion.completedOn)));
+    await expect(history).toContainText(en['itemDetail.historyNext'].replace('{date}', displayDate(expected)));
+
+    await page.getByRole('button', { name: en['itemDetail.pause'] }).click();
+    await expect.poll(async () => (await detailItem()).workflowState).toBe('paused');
+    await page.getByRole('button', { name: en['itemDetail.resume'] }).click();
+    await expect.poll(async () => (await detailItem()).workflowState).toBe('open');
+    await page.getByRole('button', { name: en['subjects.archive'] }).click();
+    await expect.poll(async () => (await detailItem()).archived).toBe(true);
+    await expect(history).toHaveCount(1);
+    await expect(history).toContainText(en['itemDetail.historyDone'].replace('{date}', displayDate(completion.completedOn)));
+    await page.getByRole('button', { name: en['subjects.restore'] }).click();
+    await expect.poll(async () => (await detailItem()).archived).toBe(false);
+
+    for (const viewport of [{ width: 360, height: 740 }, { width: 1280, height: 800 }]) {
+      await page.setViewportSize(viewport);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, `${viewport.width}px horizontal overflow on item detail`).toBeLessThanOrEqual(0);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();

@@ -149,7 +149,7 @@ describe('Home items', () => {
     expect(headings).toEqual(['Needs attention', 'In progress', 'Waiting', 'Coming up', 'Paused']);
     expect(screen.getByText(/Nov 1, 2026/)).toBeVisible();
     const rows = screen.getAllByRole('listitem');
-    expect(rows.map((row) => row.querySelector('p')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
+    expect(rows.map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
   it('reuses the unresolved key when the server committed but the response was lost', async () => {

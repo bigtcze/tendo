@@ -13,6 +13,38 @@ const itemPath = '/api/v1/households/{householdId}/items/{itemId}';
 const completionPath = '/api/v1/households/{householdId}/items/{itemId}/completions';
 const undoPath = '/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}';
 
+export type CompletionPage = { kind: 'ok'; completions: Completion[]; nextCursor: string | null } | Failure | { kind: 'notFound' };
+export async function listCompletions(householdId: string, itemId: string, cursor?: string): Promise<CompletionPage> {
+  try {
+    const { data, response } = await api.GET(completionPath, { params: { path: { householdId, itemId }, query: { limit: 100, ...(cursor ? { cursor } : {}) } } });
+    if (data && response.status === 200) return { kind: 'ok', completions: data.items, nextCursor: data.nextCursor };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 404) return { kind: 'notFound' };
+  } catch { /* network failure */ }
+  return { kind: 'error' };
+}
+
+export type ItemPatch = { kind: 'ok'; item: Item } | { kind: 'notFound' | 'changed' } | { kind: 'invalid'; field: string; code: string } | Failure;
+export async function patchItem(householdId: string, itemId: string, etag: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
+  try {
+    const { data, error, response } = await api.PATCH(itemPath, { params: { path: { householdId, itemId }, header: { 'If-Match': etag } }, body });
+    if (data && response.status === 200) return { kind: 'ok', item: data };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 412) return { kind: 'changed' };
+    if (response.status === 422) { const problem = (error ?? {}) as Problem; return { kind: 'invalid', field: problem.field ?? 'unknown', code: problem.code ?? 'unknown' }; }
+  } catch { /* network failure */ }
+  return { kind: 'error' };
+}
+
+export async function changeItem(householdId: string, itemId: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
+  const current = await getItem(householdId, itemId);
+  if (current.kind === 'unauthenticated' || current.kind === 'error') return current;
+  if (current.kind === 'notFound') return { kind: 'notFound' };
+  if (current.kind !== 'ok') return { kind: 'error' };
+  return patchItem(householdId, itemId, current.etag, body);
+}
+
 type Problem = { code?: string; field?: string };
 type ConflictCode = 'item_done' | 'item_archived' | 'completion_not_latest' | 'unknown';
 export type ItemPage = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'noHousehold' } | Failure;
