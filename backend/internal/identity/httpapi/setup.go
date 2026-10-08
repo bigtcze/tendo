@@ -16,6 +16,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -30,7 +31,7 @@ type Handler struct {
 }
 
 func New(s service, token string) *Handler {
-	return &Handler{service: s, token: token, limiter: newLimiter(5, 2)}
+	return &Handler{service: s, token: token, limiter: newLimiter(5)}
 }
 func (h *Handler) Register(r chi.Router) {
 	r.Get("/api/v1/auth/setup", h.get)
@@ -75,12 +76,6 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := SetupRequest{Login: values["login"], Password: values["password"], HouseholdName: values["householdName"], Timezone: values["timezone"]}
-	if !h.limiter.acquire() {
-		w.Header().Set("Retry-After", "60")
-		problem(w, 429, "rate_limited")
-		return
-	}
-	defer h.limiter.release()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -88,6 +83,11 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.service.CreateOwner(ctx, identity.SetupInput{Login: payload.Login, Password: payload.Password, HouseholdName: payload.HouseholdName, Timezone: payload.Timezone})
+	if errors.Is(err, security.ErrPasswordWorkLimit) {
+		w.Header().Set("Retry-After", "60")
+		problem(w, 429, "rate_limited")
+		return
+	}
 	if errors.Is(err, identity.ErrComplete) {
 		problem(w, 409, "setup_complete")
 		return

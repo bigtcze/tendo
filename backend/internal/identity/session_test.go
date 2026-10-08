@@ -20,6 +20,7 @@ type fakeSessionRepo struct {
 	prunedAt   []time.Time
 	findCalls  int
 	deleteCall int
+	writes     int
 	findErr    error
 }
 
@@ -35,12 +36,14 @@ func (f *fakeSessionRepo) FindLogin(_ context.Context, login string) (LoginRecor
 	return r, nil
 }
 func (f *fakeSessionRepo) PruneExpired(_ context.Context, userID string, now time.Time) error {
+	f.writes++
 	f.pruned = append(f.pruned, userID)
 	f.prunedAt = append(f.prunedAt, now)
 	return nil
 }
 func (f *fakeSessionRepo) CreateSession(_ context.Context, s NewSession) (string, error) {
 	f.created = append(f.created, s)
+	f.writes++
 	id := "session-id"
 	f.sessions[string(s.TokenHash)] = SessionInfo{ID: id, ExpiresAt: s.ExpiresAt, Principal: Principal{UserID: s.UserID, Login: "owner_1", DefaultHouseholdID: "house-1"}}
 	return id, nil

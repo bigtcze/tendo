@@ -31,10 +31,18 @@ type SetupRepository interface {
 type OwnerHouseholdService interface {
 	CreateOwnerHousehold(context.Context, household.Bootstrap, string) (string, error)
 }
-type SetupService struct{ repository SetupRepository }
+type SetupService struct {
+	repository   SetupRepository
+	hashPassword func(string) (string, error)
+}
 
 func NewSetupService(repository SetupRepository) *SetupService {
-	return &SetupService{repository: repository}
+	return &SetupService{repository: repository, hashPassword: security.HashPassword}
+}
+func (s *SetupService) SetPasswordHasher(hasher func(string) (string, error)) {
+	if hasher != nil {
+		s.hashPassword = hasher
+	}
 }
 
 var ErrComplete = errors.New("setup is already complete")
@@ -49,12 +57,19 @@ func (s *SetupService) Required(ctx context.Context) (bool, error) {
 	return s.repository.IsRequired(bounded)
 }
 
-func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error {
-	if !loginPattern.MatchString(input.Login) {
+func validateCredentials(login, password string) error {
+	if !loginPattern.MatchString(login) {
 		return &ValidationError{"login", "invalid_format"}
 	}
-	if !utf8.ValidString(input.Password) || utf8.RuneCountInString(input.Password) < 15 || utf8.RuneCountInString(input.Password) > 128 || len(input.Password) > 512 {
+	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 15 || utf8.RuneCountInString(password) > 128 || len(password) > 512 {
 		return &ValidationError{"password", "invalid_length"}
+	}
+	return nil
+}
+
+func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error {
+	if err := validateCredentials(input.Login, input.Password); err != nil {
+		return err
 	}
 	name, err := household.Validate(input.HouseholdName, input.Timezone)
 	if err != nil {
@@ -69,7 +84,10 @@ func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error 
 	if err := bounded.Err(); err != nil {
 		return err
 	}
-	hash, err := security.HashPassword(input.Password)
+	hash, err := s.hashPassword(input.Password)
+	if errors.Is(err, ErrPasswordWorkLimit) {
+		return ErrPasswordWorkLimit
+	}
 	if err != nil {
 		return errors.New("password hashing failed")
 	}

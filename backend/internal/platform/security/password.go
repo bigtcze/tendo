@@ -22,6 +22,7 @@ const (
 )
 
 var errInvalidPasswordHash = errors.New("invalid password hash")
+var ErrPasswordWorkLimit = errors.New("password work limit reached")
 
 // HashPassword creates a versioned Argon2id PHC string using the fixed parameters
 // selected for local account password storage.

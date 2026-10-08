@@ -2,8 +2,88 @@ package security
 
 import (
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+func TestPasswordGateBoundsConcurrentHoldersAndAdmitsAfterRelease(t *testing.T) {
+	const limit = 3
+	gate := NewPasswordGate(limit)
+	start := make(chan struct{})
+	release := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	entered := make(chan struct{}, limit+1)
+	released := make(chan struct{}, limit)
+	for i := 0; i < limit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if !gate.Acquire() {
+				return
+			}
+			entered <- struct{}{}
+			<-release
+			gate.Release()
+			released <- struct{}{}
+		}()
+	}
+	close(start)
+	for i := 0; i < limit; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			close(release)
+			wg.Wait()
+			t.Fatal("holder did not acquire gate")
+		}
+	}
+	if active := gate.Active(); active != limit {
+		close(release)
+		wg.Wait()
+		t.Fatalf("active=%d, want limit %d", active, limit)
+	}
+	if gate.Acquire() {
+		gate.Release()
+		close(release)
+		wg.Wait()
+		t.Fatal("gate admitted N+1 while full")
+	}
+	release <- struct{}{}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		close(release)
+		wg.Wait()
+		t.Fatal("holder did not release slot")
+	}
+	if !gate.Acquire() {
+		close(release)
+		wg.Wait()
+		t.Fatal("gate did not admit waiter after release")
+	}
+	gate.Release()
+	close(release)
+	wg.Wait()
+	if active := gate.Active(); active != 0 {
+		t.Fatalf("active holders after cleanup=%d", active)
+	}
+}
+
+func TestPasswordGateReleasesSlotAfterHashError(t *testing.T) {
+	gate := NewPasswordGate(1)
+	if _, err := gate.HashPassword(strings.Repeat("x", maxPasswordBytes+1)); err == nil {
+		t.Fatal("expected password length error")
+	}
+	if active := gate.Active(); active != 0 {
+		t.Fatalf("hash error leaked gate slot: %d", active)
+	}
+	if !gate.Acquire() {
+		t.Fatal("slot unavailable after hash error")
+	}
+	gate.Release()
+}
 
 func TestPasswordHashAndVerify(t *testing.T) {
 	password := " p\u00e4ssword "

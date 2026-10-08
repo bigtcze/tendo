@@ -112,3 +112,32 @@ func (q *Queries) FindLogin(ctx context.Context, login string) (FindLoginRow, er
 	)
 	return i, err
 }
+
+const memberLogins = `-- name: MemberLogins :many
+SELECT id::text AS user_id, login FROM user_accounts WHERE id = ANY($1::uuid[])
+`
+
+type MemberLoginsRow struct {
+	UserID string
+	Login  string
+}
+
+func (q *Queries) MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error) {
+	rows, err := q.db.Query(ctx, memberLogins, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MemberLoginsRow{}
+	for rows.Next() {
+		var i MemberLoginsRow
+		if err := rows.Scan(&i.UserID, &i.Login); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -21,6 +21,41 @@ const (
 	CompletionProblemFieldUndone      CompletionProblemField = "undone"
 )
 
+// Defines values for InvitationRole.
+const (
+	InvitationRoleMember InvitationRole = "member"
+)
+
+// Defines values for InvitationCreatedRole.
+const (
+	InvitationCreatedRoleMember InvitationCreatedRole = "member"
+)
+
+// Defines values for InvitationStatus.
+const (
+	Accepted InvitationStatus = "accepted"
+	Expired  InvitationStatus = "expired"
+	Pending  InvitationStatus = "pending"
+	Revoked  InvitationStatus = "revoked"
+)
+
+// Defines values for InvitationValidationProblemCode.
+const (
+	InvitationValidationProblemCodeInvalidFormat InvitationValidationProblemCode = "invalid_format"
+	InvitationValidationProblemCodeInvalidLength InvitationValidationProblemCode = "invalid_length"
+)
+
+// Defines values for InvitationValidationProblemField.
+const (
+	InvitationValidationProblemFieldLogin    InvitationValidationProblemField = "login"
+	InvitationValidationProblemFieldPassword InvitationValidationProblemField = "password"
+)
+
+// Defines values for InvitedAccountRole.
+const (
+	InvitedAccountRoleMember InvitedAccountRole = "member"
+)
+
 // Defines values for ItemAttention.
 const (
 	NeedsAttention ItemAttention = "needs_attention"
@@ -52,6 +87,17 @@ const (
 	ItemValidationProblemFieldSubjectId             ItemValidationProblemField = "subjectId"
 	ItemValidationProblemFieldTitle                 ItemValidationProblemField = "title"
 	ItemValidationProblemFieldWorkflowState         ItemValidationProblemField = "workflowState"
+)
+
+// Defines values for MemberRole.
+const (
+	MemberRoleMember MemberRole = "member"
+	MemberRoleOwner  MemberRole = "owner"
+)
+
+// Defines values for MembershipRole.
+const (
+	MembershipRoleMember MembershipRole = "member"
 )
 
 // Defines values for QueryProblemParameter.
@@ -87,9 +133,9 @@ const (
 
 // Defines values for SubjectValidationProblemCode.
 const (
-	SubjectValidationProblemCodeInvalidCharacters SubjectValidationProblemCode = "invalid_characters"
-	SubjectValidationProblemCodeInvalidLength     SubjectValidationProblemCode = "invalid_length"
-	SubjectValidationProblemCodeInvalidType       SubjectValidationProblemCode = "invalid_type"
+	InvalidCharacters SubjectValidationProblemCode = "invalid_characters"
+	InvalidLength     SubjectValidationProblemCode = "invalid_length"
+	InvalidType       SubjectValidationProblemCode = "invalid_type"
 )
 
 // Defines values for SubjectValidationProblemField.
@@ -105,10 +151,10 @@ const (
 
 // Defines values for ValidationProblemField.
 const (
-	HouseholdName ValidationProblemField = "householdName"
-	Login         ValidationProblemField = "login"
-	Password      ValidationProblemField = "password"
-	Timezone      ValidationProblemField = "timezone"
+	ValidationProblemFieldHouseholdName ValidationProblemField = "householdName"
+	ValidationProblemFieldLogin         ValidationProblemField = "login"
+	ValidationProblemFieldPassword      ValidationProblemField = "password"
+	ValidationProblemFieldTimezone      ValidationProblemField = "timezone"
 )
 
 // Defines values for WorkflowState.
@@ -118,6 +164,20 @@ const (
 	Paused     WorkflowState = "paused"
 	Waiting    WorkflowState = "waiting"
 )
+
+// AcceptInvitationNewAccountRequest defines model for AcceptInvitationNewAccountRequest.
+type AcceptInvitationNewAccountRequest struct {
+	Login string `json:"login"`
+
+	// Password Maximum 512 UTF-8 bytes.
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
+// AcceptInvitationRequest defines model for AcceptInvitationRequest.
+type AcceptInvitationRequest struct {
+	Token string `json:"token"`
+}
 
 // Completion defines model for Completion.
 type Completion struct {
@@ -188,6 +248,9 @@ type CreateSubjectRequest struct {
 	Type SubjectType `json:"type"`
 }
 
+// EmptyObject defines model for EmptyObject.
+type EmptyObject = map[string]interface{}
+
 // Household defines model for Household.
 type Household struct {
 	CreatedAt time.Time `json:"createdAt"`
@@ -197,6 +260,73 @@ type Household struct {
 	// Timezone Named IANA timezone.
 	Timezone string `json:"timezone"`
 }
+
+// Invitation defines model for Invitation.
+type Invitation struct {
+	AcceptedAt *time.Time       `json:"acceptedAt"`
+	CreatedAt  time.Time        `json:"createdAt"`
+	ExpiresAt  time.Time        `json:"expiresAt"`
+	Id         string           `json:"id"`
+	RevokedAt  *time.Time       `json:"revokedAt"`
+	Role       InvitationRole   `json:"role"`
+	Status     InvitationStatus `json:"status"`
+}
+
+// InvitationRole defines model for Invitation.Role.
+type InvitationRole string
+
+// InvitationCreated defines model for InvitationCreated.
+type InvitationCreated struct {
+	AcceptedAt *time.Time            `json:"acceptedAt"`
+	CreatedAt  time.Time             `json:"createdAt"`
+	ExpiresAt  time.Time             `json:"expiresAt"`
+	Id         string                `json:"id"`
+	RevokedAt  *time.Time            `json:"revokedAt"`
+	Role       InvitationCreatedRole `json:"role"`
+	Status     InvitationStatus      `json:"status"`
+	Token      string                `json:"token"`
+}
+
+// InvitationCreatedRole defines model for InvitationCreated.Role.
+type InvitationCreatedRole string
+
+// InvitationList defines model for InvitationList.
+type InvitationList struct {
+	Items      []Invitation `json:"items"`
+	NextCursor *string      `json:"nextCursor"`
+}
+
+// InvitationStatus defines model for InvitationStatus.
+type InvitationStatus string
+
+// InvitationValidationProblem defines model for InvitationValidationProblem.
+type InvitationValidationProblem struct {
+	Code                 InvitationValidationProblemCode  `json:"code"`
+	Detail               *string                          `json:"detail,omitempty"`
+	Field                InvitationValidationProblemField `json:"field"`
+	Instance             *string                          `json:"instance,omitempty"`
+	Status               int                              `json:"status"`
+	Title                string                           `json:"title"`
+	Type                 string                           `json:"type"`
+	AdditionalProperties map[string]interface{}           `json:"-"`
+}
+
+// InvitationValidationProblemCode defines model for InvitationValidationProblem.Code.
+type InvitationValidationProblemCode string
+
+// InvitationValidationProblemField defines model for InvitationValidationProblem.Field.
+type InvitationValidationProblemField string
+
+// InvitedAccount defines model for InvitedAccount.
+type InvitedAccount struct {
+	HouseholdId string             `json:"householdId"`
+	Login       string             `json:"login"`
+	Role        InvitedAccountRole `json:"role"`
+	UserId      string             `json:"userId"`
+}
+
+// InvitedAccountRole defines model for InvitedAccount.Role.
+type InvitedAccountRole string
 
 // Item defines model for Item.
 type Item struct {
@@ -268,6 +398,32 @@ type LoginRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
 }
+
+// Member defines model for Member.
+type Member struct {
+	Login  string     `json:"login"`
+	Role   MemberRole `json:"role"`
+	UserId string     `json:"userId"`
+}
+
+// MemberList defines model for MemberList.
+type MemberList struct {
+	Items      []Member `json:"items"`
+	NextCursor *string  `json:"nextCursor"`
+}
+
+// MemberRole defines model for MemberRole.
+type MemberRole string
+
+// Membership defines model for Membership.
+type Membership struct {
+	HouseholdId string         `json:"householdId"`
+	Role        MembershipRole `json:"role"`
+	UserId      string         `json:"userId"`
+}
+
+// MembershipRole defines model for Membership.Role.
+type MembershipRole string
 
 // Problem defines model for Problem.
 type Problem struct {
@@ -440,6 +596,9 @@ type Done = bool
 // HouseholdId defines model for HouseholdId.
 type HouseholdId = string
 
+// InvitationId defines model for InvitationId.
+type InvitationId = string
+
 // ItemId defines model for ItemId.
 type ItemId = string
 
@@ -451,6 +610,12 @@ type RequestId = string
 
 // SubjectId defines model for SubjectId.
 type SubjectId = string
+
+// AcceptInvitationWithNewAccountParams defines parameters for AcceptInvitationWithNewAccount.
+type AcceptInvitationWithNewAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
 
 // GetInitialSetupParams defines parameters for GetInitialSetup.
 type GetInitialSetupParams struct {
@@ -469,6 +634,31 @@ type CreateInitialOwnerParams struct {
 
 // GetHouseholdParams defines parameters for GetHousehold.
 type GetHouseholdParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// ListInvitationsParams defines parameters for ListInvitations.
+type ListInvitationsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateInvitationParams defines parameters for CreateInvitation.
+type CreateInvitationParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID     *RequestId `json:"X-Request-ID,omitempty"`
+	IdempotencyKey string     `json:"Idempotency-Key"`
+}
+
+// RevokeInvitationParams defines parameters for RevokeInvitation.
+type RevokeInvitationParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
@@ -545,6 +735,18 @@ type UndoItemCompletionParams struct {
 	IfMatch string `json:"If-Match"`
 }
 
+// ListMembersParams defines parameters for ListMembers.
+type ListMembersParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // ListSubjectsParams defines parameters for ListSubjects.
 type ListSubjectsParams struct {
 	// Limit Maximum number of items per page.
@@ -579,6 +781,12 @@ type UpdateSubjectParams struct {
 
 	// IfMatch Single strong entity tag of the version being replaced. The wildcard *, weak tags, and lists are rejected with 412.
 	IfMatch string `json:"If-Match"`
+}
+
+// AcceptInvitationParams defines parameters for AcceptInvitation.
+type AcceptInvitationParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
 // DeleteSessionParams defines parameters for DeleteSession.
@@ -617,8 +825,14 @@ type GetReadinessParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// AcceptInvitationWithNewAccountJSONRequestBody defines body for AcceptInvitationWithNewAccount for application/json ContentType.
+type AcceptInvitationWithNewAccountJSONRequestBody = AcceptInvitationNewAccountRequest
+
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest
+
+// CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
+type CreateInvitationJSONRequestBody = EmptyObject
 
 // CreateItemJSONRequestBody defines body for CreateItem for application/json ContentType.
 type CreateItemJSONRequestBody = CreateItemRequest
@@ -637,6 +851,9 @@ type CreateSubjectJSONRequestBody = CreateSubjectRequest
 
 // UpdateSubjectJSONRequestBody defines body for UpdateSubject for application/json ContentType.
 type UpdateSubjectJSONRequestBody = UpdateSubjectRequest
+
+// AcceptInvitationJSONRequestBody defines body for AcceptInvitation for application/json ContentType.
+type AcceptInvitationJSONRequestBody = AcceptInvitationRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
@@ -760,6 +977,154 @@ func (a CompletionProblem) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'field': %w", err)
 		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for InvitationValidationProblem. Returns the specified
+// element and whether it was found
+func (a InvitationValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for InvitationValidationProblem
+func (a *InvitationValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for InvitationValidationProblem to handle AdditionalProperties
+func (a *InvitationValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for InvitationValidationProblem to handle AdditionalProperties
+func (a InvitationValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
 	}
 
 	if a.Instance != nil {

@@ -73,9 +73,10 @@ type SessionRepository interface {
 }
 
 type SessionService struct {
-	repository SessionRepository
-	clock      func() time.Time
-	dummyHash  string
+	repository     SessionRepository
+	clock          func() time.Time
+	dummyHash      string
+	verifyPassword func(string, string) (bool, error)
 }
 
 // NewSessionService builds the service. A nil clock means time.Now.
@@ -90,7 +91,13 @@ func NewSessionService(repository SessionRepository, clock func() time.Time) (*S
 	if err != nil {
 		return nil, err
 	}
-	return &SessionService{repository: repository, clock: clock, dummyHash: dummy}, nil
+	return &SessionService{repository: repository, clock: clock, dummyHash: dummy, verifyPassword: security.VerifyPassword}, nil
+}
+
+func (s *SessionService) SetPasswordVerifier(verifier func(string, string) (bool, error)) {
+	if verifier != nil {
+		s.verifyPassword = verifier
+	}
 }
 
 // now is UTC truncated to whole seconds so the value persisted at login and
@@ -110,13 +117,20 @@ func (s *SessionService) Login(ctx context.Context, login, password string) (Ses
 	defer cancel()
 	record, err := s.repository.FindLogin(ctx, login)
 	if errors.Is(err, ErrNotFound) {
-		_, _ = security.VerifyPassword(s.dummyHash, password)
+		_, verifyErr := s.verifyPassword(s.dummyHash, password)
+		if errors.Is(verifyErr, ErrPasswordWorkLimit) {
+			return Session{}, ErrPasswordWorkLimit
+		}
 		return Session{}, ErrInvalidCredentials
 	}
 	if err != nil {
 		return Session{}, errors.New("session persistence failed")
 	}
-	if valid, verifyErr := security.VerifyPassword(record.PasswordHash, password); verifyErr != nil || !valid {
+	valid, verifyErr := s.verifyPassword(record.PasswordHash, password)
+	if errors.Is(verifyErr, ErrPasswordWorkLimit) {
+		return Session{}, ErrPasswordWorkLimit
+	}
+	if verifyErr != nil || !valid {
 		return Session{}, ErrInvalidCredentials
 	}
 	var raw [32]byte

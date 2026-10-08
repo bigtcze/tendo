@@ -9,9 +9,14 @@ import (
 )
 
 type Querier interface {
+	AddInvitedMember(ctx context.Context, arg AddInvitedMemberParams) error
 	AddOwner(ctx context.Context, arg AddOwnerParams) error
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (string, error)
 	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
+	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
+	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
+	HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error)
+	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

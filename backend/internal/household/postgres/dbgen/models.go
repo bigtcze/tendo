@@ -16,6 +16,18 @@ type Household struct {
 	Version   int64
 }
 
+type HouseholdInvitation struct {
+	ID              pgtype.UUID
+	HouseholdID     pgtype.UUID
+	CreatedByUserID pgtype.UUID
+	CreationKey     string
+	TokenHash       []byte
+	CreatedAt       pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	AcceptedAt      pgtype.Timestamptz
+	RevokedAt       pgtype.Timestamptz
+}
+
 type HouseholdMembership struct {
 	UserID      pgtype.UUID
 	HouseholdID pgtype.UUID
