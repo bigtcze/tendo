@@ -746,6 +746,127 @@ test.describe('Tendo production journey', () => {
     expect(await serverCompletions(ordinary.id)).toEqual([]);
   });
 
+  test('n7. an owner invites a second person who joins as a member with member-only access', async ({ browser }) => {
+    test.setTimeout(60_000);
+    await page.goto('/');
+    await page.getByRole('link', { name: en['home.members'] }).click();
+    await expect(page).toHaveURL(/\/members$/);
+    await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+    const ownerRow = page.getByRole('listitem').filter({ hasText: ownerLogin });
+    await expect(ownerRow).toContainText(en['members.role.owner']);
+    await expect(ownerRow).toContainText(en['members.you']);
+
+    await page.getByRole('button', { name: en['members.invite.action'] }).click();
+    const inviteField = page.getByRole('textbox', { name: en['members.invite.link'] });
+    const firstLink = await inviteField.inputValue();
+    expect(firstLink.startsWith(`${baseURL}/invite#`)).toBe(true);
+    expect(new URL(firstLink).hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
+    const invitationList = page.getByRole('heading', { name: en['members.invitations.title'] }).locator('..');
+    await expect(invitationList).toContainText(en['members.invitation.status.pending']);
+    const invitationPath = `/api/v1/households/${householdId}/invitations`;
+    const beforeSecondInvite = (await (await page.request.get(invitationPath)).json()).items as Array<{ id: string }>;
+
+    await page.getByRole('button', { name: en['members.invite.action'] }).click();
+    const secondLink = await inviteField.inputValue();
+    expect(secondLink).not.toBe(firstLink);
+    const afterSecondInvite = (await (await page.request.get(invitationPath)).json()).items as Array<{ id: string }>;
+    const secondInviteId = afterSecondInvite.find((item) => !beforeSecondInvite.some((existing) => existing.id === item.id))?.id;
+    expect(secondInviteId).toBeTruthy();
+    const secondInviteIndex = afterSecondInvite.findIndex((item) => item.id === secondInviteId);
+    const invitationRows = invitationList.locator('ul').getByRole('listitem');
+    await invitationRows.nth(secondInviteIndex).getByRole('button', { name: en['members.invitation.revoke'] }).click();
+    await invitationRows.nth(secondInviteIndex).getByRole('button', { name: en['members.invitation.yes'] }).click();
+    await expect(invitationList).toContainText(en['members.invitation.status.revoked']);
+
+    const memberContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const memberPage = await memberContext.newPage();
+    const memberProblems: string[] = [];
+    const memberFailedResponses = new Set<string>();
+    const expectedMemberConsoleFailurePaths = new Set(['/api/v1/session', '/api/v1/auth/invitations/accept', '/api/v1/invitations/accept']);
+    memberPage.on('console', (message) => {
+      if (message.type() === 'error' && !expectedMemberConsoleFailurePaths.has(new URL(message.location().url || 'about:blank').pathname)) memberProblems.push(`console: ${message.text()}`);
+    });
+    memberPage.on('pageerror', (error) => memberProblems.push(`pageerror: ${error.message}`));
+    memberPage.on('response', (response) => {
+      const path = new URL(response.url()).pathname;
+      // The initial signed-out session probe is routine; collect unexpected failures and the explicit invite failures below.
+      if (response.status() >= 400 && !(response.request().method() === 'GET' && path === '/api/v1/session' && response.status() === 401)) memberFailedResponses.add(`${response.request().method()} ${path} ${response.status()}`);
+    });
+    try {
+      await memberPage.goto(firstLink);
+      expect(new URL(memberPage.url()).pathname).toBe('/invite');
+      await expect(memberPage.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
+      await memberPage.locator('#invite-login').fill('member_e2e');
+      await memberPage.locator('#invite-password').fill(`${ownerPassword}-member`);
+      await memberPage.getByRole('button', { name: en['invite.create'] }).click();
+      await expect(memberPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await expect(memberPage.locator('body')).not.toContainText(householdId);
+
+      await memberPage.getByRole('link', { name: en['home.members'] }).click();
+      await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      const memberRows = memberPage.getByRole('listitem');
+      await expect(memberRows.filter({ hasText: ownerLogin })).toContainText(en['members.role.owner']);
+      await expect(memberRows.filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
+      await expect(memberPage.getByRole('button', { name: en['members.invite.action'] })).toHaveCount(0);
+      await expect(memberPage.getByText(en['members.ownerOnly'])).toBeVisible();
+
+      await memberPage.getByRole('button', { name: en['header.signOut'] }).click();
+      await expect(memberPage.getByRole('heading', { name: en['login.title'] })).toBeVisible();
+      await memberPage.goto(secondLink);
+      await memberPage.locator('#invite-login').fill('member_e2e_two');
+      await memberPage.locator('#invite-password').fill(`${ownerPassword}-member-two`);
+      await memberPage.getByRole('button', { name: en['invite.create'] }).click();
+      await expect(memberPage.getByRole('status')).toContainText(en['invite.error.invalid']);
+      await expect(memberPage.locator('#invite-login')).toHaveCount(0);
+      await memberPage.goto('/');
+      await memberPage.locator('#login').fill('member_e2e');
+      await memberPage.locator('#password').fill(`${ownerPassword}-member`);
+      await memberPage.getByRole('button', { name: en['login.submit'] }).click();
+      await expect(memberPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+      const invitationPath = `/api/v1/households/${householdId}/invitations`;
+      const forbiddenList = await memberPage.request.get(invitationPath);
+      expect(forbiddenList.status()).toBe(403);
+      expect((await forbiddenList.json()).code).toBe('owner_required');
+      const forbiddenCreate = await memberPage.request.post(invitationPath, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-member-try' }, data: {} });
+      expect(forbiddenCreate.status()).toBe(403);
+      expect((await forbiddenCreate.json()).code).toBe('owner_required');
+      const memberSessionResponse = await memberPage.request.get('/api/v1/session');
+      expect((await memberSessionResponse.json()).defaultHouseholdId).toBe(householdId);
+      expect((await memberPage.request.get(`/api/v1/households/${householdId}/items`)).status()).toBe(200);
+
+      await page.goto('/members');
+      await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      const refreshedInvitations = page.getByRole('heading', { name: en['members.invitations.title'] }).locator('..');
+      await expect(refreshedInvitations).toContainText(en['members.invitation.status.accepted']);
+      await expect(page.getByRole('listitem').filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
+
+      await memberPage.goto(firstLink);
+      await memberPage.getByRole('button', { name: en['invite.join'] }).click();
+      const usedTokenNotice = memberPage.getByRole('status');
+      await expect(usedTokenNotice).toContainText(en['invite.error.invalid']);
+      const expectedMemberFailures = [
+        `POST /api/v1/auth/invitations/accept 404`,
+        `POST /api/v1/invitations/accept 404`,
+      ];
+      expect([...memberFailedResponses].sort()).toEqual(expectedMemberFailures.sort());
+      expect(memberProblems).toEqual([]);
+    } finally {
+      await memberContext.close();
+    }
+
+    await page.getByRole('button', { name: en['members.invite.action'] }).click();
+    const mobileInviteField = page.getByRole('textbox', { name: en['members.invite.link'] });
+    await expect(mobileInviteField).toBeVisible();
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, '360px horizontal overflow on members with an invite link').toBeLessThanOrEqual(0);
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
