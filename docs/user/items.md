@@ -1,6 +1,6 @@
 # Items
 
-Items keep household obligations in view without needing an exact date. From Home, choose **Add item**, enter a title, and choose the person or thing it is for. Leave the attention date empty if it should need attention now; choose a date to keep it in Coming up until then. Notes are optional.
+Items keep household obligations in view without needing an exact date. From Home, choose **Add item**, enter a title, and choose the person or thing it is for. Leave the attention date empty if it should need attention now; choose a date to keep it in Coming up until then. Notes are optional. Assigning a responsible member is not yet available in the web app.
 
 ## Repeat an item
 

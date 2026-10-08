@@ -261,7 +261,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 1 schema: no sessions table, no households.version column, no subjects table, and no version 2/3/4 metadata rows.
-	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (2,3,4,5,6,7,8,9)`); err != nil {
+	if _, err := upgradeAdmin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (2,3,4,5,6,7,8,9,10)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
@@ -275,7 +275,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 9 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 10 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string
@@ -348,7 +348,7 @@ func TestMigrationUpgradeFromVersionTwoAddsHouseholdVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 2 schema.
-	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (3,4,5,6,7,8,9)`); err != nil {
+	if _, err := upgradeAdmin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (3,4,5,6,7,8,9,10)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {

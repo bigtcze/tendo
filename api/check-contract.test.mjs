@@ -103,13 +103,45 @@ test('item create schema accepts omission and a historical date but rejects null
   assert.equal(validate(base), true)
   assert.equal(validate({ ...base, historicalCompletedOn: '2025-10-31' }), true)
   assert.equal(validate({ ...base, historicalCompletedOn: null }), false)
+  assert.equal(validate({ ...base, responsibleUserId: null }), true)
+  assert.equal(validate({ ...base, responsibleUserId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60' }), true)
+  assert.equal(validate({ ...base, responsibleUserId: 7 }), false)
+
+  const itemSchema = contract.components.schemas.Item
+  const validateItem = ajv.compile(itemSchema)
+  const representation = {
+    id: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80',
+    subjectId: base.subjectId,
+    responsibleUserId: null,
+    title: 'A valid item',
+    notes: null,
+    attentionOn: null,
+    recurrence: null,
+    workflowState: 'open',
+    attention: 'needs_attention',
+    archived: false,
+    done: false,
+    lastCompletedOn: null,
+    createdAt: '2026-10-07T10:00:00Z',
+    updatedAt: '2026-10-07T10:00:00Z',
+  }
+  assert.equal(validateItem(representation), true)
+  const missingResponsible = { ...representation }
+  delete missingResponsible.responsibleUserId
+  assert.equal(validateItem(missingResponsible), false)
+
+  const patchSchema = contract.components.schemas.UpdateItemRequest
+  const validatePatch = ajv.compile(patchSchema)
+  assert.equal(validatePatch({ responsibleUserId: null }), true)
+  assert.equal(validatePatch({ responsibleUserId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60' }), true)
+  assert.equal(validatePatch({ responsibleUserId: 7 }), false)
 })
 
 test('historically initialized item-create response is checked against OpenAPI', async () => {
   const fixturePath = await mkdtemp(join(tmpdir(), 'tendo-api-item-')).then(directory => join(directory, 'responses.json'))
   const household = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'
   const id = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80'
-  const fixture = { path: '/api/v1/households/{householdId}/items', method: 'post', status: 201, headers: { 'content-type': 'application/json', 'x-request-id': 'contract-check', 'cache-control': 'no-store', etag: '"2"', location: `/api/v1/households/${household}/items/${id}` }, body: { id, subjectId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70', title: 'Replace water filter', notes: null, attentionOn: '2027-04-06', recurrence: { intervalValue: 6, intervalUnit: 'month', mode: 'fixed' }, workflowState: 'open', attention: 'upcoming', archived: false, done: false, lastCompletedOn: '2026-10-06', createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' } }
+  const fixture = { path: '/api/v1/households/{householdId}/items', method: 'post', status: 201, headers: { 'content-type': 'application/json', 'x-request-id': 'contract-check', 'cache-control': 'no-store', etag: '"2"', location: `/api/v1/households/${household}/items/${id}` }, body: { id, subjectId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70', responsibleUserId: null, title: 'Replace water filter', notes: null, attentionOn: '2027-04-06', recurrence: { intervalValue: 6, intervalUnit: 'month', mode: 'fixed' }, workflowState: 'open', attention: 'upcoming', archived: false, done: false, lastCompletedOn: '2026-10-06', createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' } }
   await writeFile(fixturePath, JSON.stringify([fixture]))
   const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
   let stderr = ''

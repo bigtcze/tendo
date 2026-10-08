@@ -183,7 +183,7 @@ func (r *Repo) Create(_ context.Context, householdID string, d item.Draft) (item
 	}
 	r.seq++
 	id := "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
-	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, Recurrence: d.Recurrence, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
+	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, ResponsibleUserID: d.ResponsibleUserID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, Recurrence: d.Recurrence, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
 	if d.InitializationReceipt != nil {
 		i.Version = 2
 		r.seq++
@@ -253,6 +253,9 @@ func (r *Repo) Update(_ context.Context, householdID, itemID string, expected in
 	}
 	if c.SubjectID != nil {
 		i.SubjectID = *c.SubjectID
+	}
+	if c.ResponsibleUserID.Set {
+		i.ResponsibleUserID = c.ResponsibleUserID.Value
 	}
 	if c.Notes.Set {
 		i.Notes = c.Notes.Value

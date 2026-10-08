@@ -55,6 +55,7 @@ type Item struct {
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
 	Done                    bool
+	ResponsibleUserID       pgtype.UUID
 }
 
 type ItemCompletion struct {

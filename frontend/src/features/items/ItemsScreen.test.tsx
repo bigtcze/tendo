@@ -19,7 +19,7 @@ const subjects = json(200, { items: [subject], nextCursor: null });
 const subjectPages = (request: RecordedRequest) => json(200, { items: request.query.get('archived') === 'true' ? [] : [subject], nextCursor: null });
 const page = (items: Item[], nextCursor: string | null = null) => json(200, { items, nextCursor });
 function item(overrides: Partial<Item> = {}): Item {
-  return { id: 'i-1', subjectId: 's-1', title: 'Renew passport', notes: null, attentionOn: null, recurrence: null, workflowState: 'open', attention: 'needs_attention', archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...overrides };
+  return { id: 'i-1', subjectId: 's-1', responsibleUserId: null, title: 'Renew passport', notes: null, attentionOn: null, recurrence: null, workflowState: 'open', attention: 'needs_attention', archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...overrides };
 }
 function app() { return render(<I18nProvider><App /></I18nProvider>); }
 function requestsOf(requests: RecordedRequest[], method: string, path: string) { return requests.filter((request) => request.method === method && request.path === path); }

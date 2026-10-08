@@ -392,6 +392,32 @@ assert st==200 and {(m['login'],m['role']) for m in owner_members['items']}=={('
 st,_,joined_members,_=xreq('GET',f'/api/v1/households/{household}/members',MEMBERS,headers=member_cookie)
 assert st==200 and {(m['login'],m['role']) for m in joined_members['items']}=={('owner_smoke','owner'),('member_smoke','member')},('member member list',st,joined_members)
 assert psql(f"SELECT m.role||'|'||(u.default_household_id=m.household_id)::text FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id WHERE u.login='member_smoke' AND m.household_id='{household}'")=='member|true','membership/default household persistence'
+# Responsible-member API persistence and membership-validation smoke.
+member_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='member_smoke')
+owner_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
+responsible_item={'title':'Responsible member smoke','subjectId':person['id'],'responsibleUserId':member_user_id}
+st,rih,responsible=ireq('POST',ibase,ICOLL,responsible_item,mut)
+assert st==201 and responsible['responsibleUserId']==member_user_id and rih['ETag']=='"1"',('assigned item create',st,responsible)
+assert psql(f"SELECT responsible_user_id::text||'|'||version FROM items WHERE id='{responsible['id']}' AND household_id='{household}'")==member_user_id+'|1','assigned create DB column'
+responsible_path=ibase+'/'+responsible['id']
+st,_,responsible_get=ireq('GET',responsible_path,IITEM,headers=cookie_header)
+assert st==200 and responsible_get['responsibleUserId']==member_user_id,('assigned item get',st,responsible_get)
+st,_,responsible_list=ireq('GET',ibase,ICOLL,headers=cookie_header)
+responsible_list_item=next((x for x in responsible_list['items'] if x['id']==responsible['id']),None)
+assert st==200 and responsible_list_item is not None and responsible_list_item['responsibleUserId']==member_user_id,('assigned item list',st,responsible_list_item)
+st,rh,assigned_owner=ireq('PATCH',responsible_path,IITEM,{'responsibleUserId':owner_user_id},{**mut,'If-Match':'"1"'})
+assert st==200 and assigned_owner['responsibleUserId']==owner_user_id and rh['ETag']=='"2"',('assign owner',st,assigned_owner)
+st,rh,title_preserved=ireq('PATCH',responsible_path,IITEM,{'title':'Responsible title changed'},{**mut,'If-Match':'"2"'})
+assert st==200 and title_preserved['responsibleUserId']==owner_user_id and rh['ETag']=='"3"',('unrelated patch preserves assignment',st,title_preserved)
+st,rh,cleared_responsible=ireq('PATCH',responsible_path,IITEM,{'responsibleUserId':None},{**mut,'If-Match':'"3"'})
+assert st==200 and cleared_responsible['responsibleUserId'] is None and rh['ETag']=='"4"',('clear assignment',st,cleared_responsible)
+assert psql(f"SELECT COALESCE(responsible_user_id::text,'NULL')||'|'||version FROM items WHERE id='{responsible['id']}'")== 'NULL|4','clear assignment DB NULL/version'
+foreign_user=psql(f"INSERT INTO user_accounts(login) VALUES ('other_household_only') RETURNING id").splitlines()[0]
+psql(f"INSERT INTO household_memberships(user_id,household_id,role) VALUES ('{foreign_user}','{other_id}','member')")
+for invalid_responsible in ('not-a-uuid',random_id,foreign_user):
+ st,_,problem=ireq('PATCH',responsible_path,IITEM,{'responsibleUserId':invalid_responsible},{**mut,'If-Match':'"4"'})
+ assert st==422 and problem['field']=='responsibleUserId' and problem['code']=='invalid_reference',('invalid responsible user',invalid_responsible,st,problem)
+ assert psql(f"SELECT COALESCE(responsible_user_id::text,'NULL')||'|'||version FROM items WHERE id='{responsible['id']}'")== 'NULL|4','invalid assignment changed item/version'
 st,_,reuse,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':invitation_token,'login':'second_smoke','password':'a sufficiently long second passphrase'},{'Origin':origin})
 assert st==404 and reuse['code']=='invalid_invitation',('reused invitation',st,reuse)
 st,_,malformed,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':'malformed','login':'second_smoke','password':'a sufficiently long second passphrase'},{'Origin':origin})
