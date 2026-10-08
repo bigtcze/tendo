@@ -18,6 +18,16 @@ Select an item's title on the home screen to see its details, notes, current sta
 
 Starting, waiting, pausing, or resuming never changes the next attention date. Only marking an item **Done** moves a repeating item to its next date.
 
+## Editing an item
+
+On the item screen, choose **Edit** to change the title, the person or thing it is for, the attention date, notes, or the repeat settings, then choose **Save changes**. Clearing the attention date makes the item need attention now.
+
+Changing repeat settings applies from the next time you mark the item done. It does not move the current attention date and does not change past completions. Turning **Repeat** off keeps the history; the next **Done** then finishes the item instead of starting a new cycle.
+
+If someone else changed the item while you were editing, Tendo shows the latest saved version and keeps what you typed, so you can check it and save again. Archived and finished items cannot be edited; restore an archived item first.
+
+## History
+
 The history lists completions from newest to oldest. An undone completion remains visible and is marked as undone.
 
 ## Archive
