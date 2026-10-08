@@ -1,0 +1,6 @@
+# Isolated E2E only; never use this override for installs.
+services:
+  app:
+    environment:
+      TENDO_TEST_CLOCK_NOW: ${TENDO_TEST_CLOCK_NOW:?Set TENDO_TEST_CLOCK_NOW for isolated E2E}
+      TENDO_TEST_CLOCK_ACK: ${TENDO_TEST_CLOCK_ACK:?Set TENDO_TEST_CLOCK_ACK for isolated E2E}

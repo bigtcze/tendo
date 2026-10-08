@@ -68,6 +68,77 @@ func TestLoadFromProxyCIDRs(t *testing.T) {
 	}
 }
 
+func TestTestClockConfiguration(t *testing.T) {
+	const instant = "2026-01-15T22:59:59Z"
+	base := map[string]string{"DATABASE_URL": "postgres://user:db-password@localhost:5432/tendo?sslmode=verify-full", "TENDO_PUBLIC_URL": "http://localhost:8080", "TENDO_SETUP_TOKEN": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+	tests := []struct {
+		name, public, now, ack, proxies string
+		clockSet, ackSet, proxiesSet    bool
+		want, wantErr                   string
+	}{
+		{name: "default nil"},
+		{name: "localhost accepted", public: "http://localhost:8080", now: instant, ack: "isolated-e2e-only", clockSet: true, ackSet: true, want: instant},
+		{name: "ipv4 accepted", public: "http://127.0.0.1:8080", now: instant, ack: "isolated-e2e-only", clockSet: true, ackSet: true, want: instant},
+		{name: "ipv6 accepted", public: "http://[::1]:8080", now: instant, ack: "isolated-e2e-only", clockSet: true, ackSet: true, want: instant},
+		{name: "missing ack", now: instant, clockSet: true, wantErr: "TENDO_TEST_CLOCK_ACK"},
+		{name: "missing instant", ack: "isolated-e2e-only", ackSet: true, wantErr: "TENDO_TEST_CLOCK_NOW"},
+		{name: "empty instant", now: "", ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_NOW"},
+		{name: "empty ack", now: instant, ack: "", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_ACK"},
+		{name: "wrong ack", now: instant, ack: "wrong", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_ACK"},
+		{name: "invalid timestamp", now: "not-a-time", ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_NOW"},
+		{name: "fractional", now: "2026-01-15T22:59:59.1Z", ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_NOW"},
+		{name: "offset", now: "2026-01-15T23:59:59+01:00", ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_NOW"},
+		{name: "year zero", now: "0000-01-15T22:59:59Z", ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_TEST_CLOCK_NOW"},
+		{name: "https localhost", public: "https://localhost", now: instant, ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_PUBLIC_URL"},
+		{name: "https remote", public: "https://tendo.example", now: instant, ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_PUBLIC_URL"},
+		{name: "remote http", public: "http://tendo.example", now: instant, ack: "isolated-e2e-only", clockSet: true, ackSet: true, wantErr: "TENDO_PUBLIC_URL"},
+		{name: "trusted proxies", public: "http://localhost:8080", now: instant, ack: "isolated-e2e-only", proxies: "127.0.0.1/32", clockSet: true, ackSet: true, proxiesSet: true, wantErr: "TENDO_TRUSTED_PROXY_CIDRS"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]string{}
+			for key, value := range base {
+				values[key] = value
+			}
+			if tc.public != "" {
+				values["TENDO_PUBLIC_URL"] = tc.public
+			}
+			if tc.clockSet {
+				values["TENDO_TEST_CLOCK_NOW"] = tc.now
+			}
+			if tc.ackSet {
+				values["TENDO_TEST_CLOCK_ACK"] = tc.ack
+			}
+			if tc.proxiesSet {
+				values["TENDO_TRUSTED_PROXY_CIDRS"] = tc.proxies
+			}
+			cfg, err := LoadFrom(func(k string) (string, bool) { v, ok := values[k]; return v, ok })
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err=%v want error naming %s", err, tc.wantErr)
+				}
+				if strings.Contains(err.Error(), "db-password") || strings.Contains(err.Error(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
+					t.Fatalf("secret leaked: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" {
+				if cfg.TestClockNow != nil {
+					t.Fatalf("default clock=%v", cfg.TestClockNow)
+				}
+				return
+			}
+			want, _ := time.Parse(time.RFC3339, tc.want)
+			if cfg.TestClockNow == nil || !cfg.TestClockNow.Equal(want) {
+				t.Fatalf("clock=%v want %v", cfg.TestClockNow, want)
+			}
+		})
+	}
+}
+
 func TestLoadFrom(t *testing.T) {
 	base := map[string]string{"DATABASE_URL": "postgres://user:pass@localhost:5432/tendo?sslmode=verify-full", "TENDO_PUBLIC_URL": "https://tendo.test"}
 	for _, tc := range []struct {

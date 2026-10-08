@@ -11,6 +11,8 @@ function required(name: string): string {
 const baseURL = required('E2E_BASE_URL');
 const setupToken = required('E2E_SETUP_TOKEN');
 const ownerPassword = required('E2E_OWNER_PASSWORD');
+const e2eClockNow = required('E2E_CLOCK_NOW');
+const expectedCompletionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date(e2eClockNow));
 const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
 
@@ -379,16 +381,14 @@ test.describe('Tendo production journey', () => {
     return ((await response.json()) as { items: ServerCompletion[] }).items;
   }
 
-  // Household today in Europe/Prague as the browser sees it; the server may differ by a day around midnight.
+  // Household today in Europe/Prague derived from the server's deterministic test business clock.
   function pragueToday(): string {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date());
+    return expectedCompletionDate;
   }
 
-  // Anchors are chosen relative to today so fixed and fluid outcomes always differ, even with a one-day
-  // drift between test and server: a yearly anchor 15 days off today's month-day, a weekly anchor 3 days
-  // off today's weekday. Both are well over a year/week in the past, so the completion is late.
-  // Date.UTC rolls invalid days over (today 02-29 two years back), and 29 February is skipped so the
-  // yearly anchor's month-day exists in every year and clamping never applies.
+  // Anchors are chosen relative to the deterministic test date so fixed and fluid outcomes always differ.
+  // Both anchors are well over a year/week in the past, so the completion is late. Date.UTC rolls invalid
+  // days over, and 29 February is skipped so the yearly anchor's month-day exists in every year.
   function yearlyAnchor(): string {
     const [y, m, d] = pragueToday().split('-').map(Number);
     const anchor = new Date(Date.UTC(y - 2, m - 1, d + 15)).toISOString().slice(0, 10);
@@ -461,8 +461,8 @@ test.describe('Tendo production journey', () => {
     expect(done.done).toBe(true);
     const history = await serverCompletions(done.id);
     expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({ nextAttentionOn: null, recurrence: null, undoneAt: null });
-    expect(done.lastCompletedOn).toBe(history[0].completedOn);
+    expect(history[0]).toMatchObject({ nextAttentionOn: null, recurrence: null, undoneAt: null, completedOn: expectedCompletionDate });
+    expect(done.lastCompletedOn).toBe(expectedCompletionDate);
 
     await page.getByRole('button', { name: en['items.undo'] }).click();
     await expect(row('Book dental check')).toBeVisible();
@@ -474,8 +474,11 @@ test.describe('Tendo production journey', () => {
 
     await row('Book dental check').getByRole('button', { name: en['items.done'] }).click();
     await expect(row('Book dental check')).toHaveCount(0);
-    expect((await serverItem('Book dental check', true)).done).toBe(true);
-    expect(await serverCompletions(done.id)).toHaveLength(2);
+    const completedAgain = await serverItem('Book dental check', true);
+    expect(completedAgain).toMatchObject({ done: true, lastCompletedOn: expectedCompletionDate });
+    const secondHistory = await serverCompletions(done.id);
+    expect(secondHistory).toHaveLength(2);
+    expect(secondHistory[1]).toMatchObject({ completedOn: expectedCompletionDate });
   });
 
   test('n2. a fixed yearly item (Repeat on, Fluid off) completed late keeps its planned date', async () => {
@@ -493,9 +496,9 @@ test.describe('Tendo production journey', () => {
     while (expected <= receipt.completedOn) expected = addYearsClamped(anchor, Number(expected.slice(0, 4)) - Number(anchor.slice(0, 4)) + 1);
     expect(expected.slice(5)).toBe(anchor.slice(5));
     expect(expected).not.toBe(addYearsClamped(receipt.completedOn, 1));
-    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected });
+    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected, completedOn: expectedCompletionDate });
     const after = await serverItem('Service the boiler');
-    expect(after).toMatchObject({ attentionOn: expected, attention: 'upcoming', done: false, lastCompletedOn: receipt.completedOn });
+    expect(after).toMatchObject({ attentionOn: expected, attention: 'upcoming', done: false, lastCompletedOn: expectedCompletionDate });
     await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: 'Service the boiler' })).toBeVisible();
   });
 
@@ -512,7 +515,7 @@ test.describe('Tendo production journey', () => {
     // A fixed weekly cadence would land on the anchor's weekday, which is never the completion's weekday here.
     const fixedDays = (Date.parse(expected) - Date.parse(anchor)) / 86_400_000;
     expect(fixedDays % 7).not.toBe(0);
-    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected });
+    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected, completedOn: expectedCompletionDate });
     expect(await serverItem('Water the plants')).toMatchObject({ attentionOn: expected, attention: 'upcoming' });
     await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
 
@@ -576,7 +579,7 @@ test.describe('Tendo production journey', () => {
     let monthOffset = 1;
     let expected = monthFromAnchor(monthOffset);
     while (expected <= completion.completedOn) expected = monthFromAnchor(++monthOffset);
-    expect(completion).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected, undoneAt: null });
+    expect(completion).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected, undoneAt: null, completedOn: expectedCompletionDate });
     expect(await serverCompletions(itemId)).toHaveLength(1);
     expect(await detailItem()).toMatchObject({ attentionOn: expected, workflowState: 'open', lastCompletedOn: completion.completedOn });
 
@@ -618,7 +621,7 @@ test.describe('Tendo production journey', () => {
     await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
     const history = await serverCompletions(itemId);
     const next = addYearsClamped(anchor, 1);
-    expect(history[0]).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: next, undoneAt: null });
+    expect(history[0]).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: next, undoneAt: null, completedOn: expectedCompletionDate });
 
     async function detailItem() {
       const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
@@ -662,7 +665,7 @@ test.describe('Tendo production journey', () => {
     await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(2);
     const after = await serverCompletions(itemId);
     expect(after[0]).toEqual(history[0]);
-    expect(after[1]).toMatchObject({ cycleAttentionOn: next, nextAttentionOn: null, recurrence: null });
+    expect(after[1]).toMatchObject({ cycleAttentionOn: next, nextAttentionOn: null, recurrence: null, completedOn: expectedCompletionDate });
     expect(await detailItem()).toMatchObject({ done: true });
   });
 
