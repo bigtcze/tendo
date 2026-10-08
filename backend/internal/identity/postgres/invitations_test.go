@@ -142,6 +142,80 @@ func TestInvitationPostgresDigestIdempotencyConcurrencyAndAdmission(t *testing.T
 		t.Fatalf("credential valid=%v err=%v", valid, e)
 	}
 }
+func TestInvitationPostgresPasswordHashDoesNotHoldInvitationLock(t *testing.T) {
+	ctx, admin, app := invitationPools(t)
+	owner, house := invitationFixture(t, ctx, admin)
+	svc, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
+	invite, err := svc.CreateInvitation(ctx, owner, house, "hash-lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblockHasher := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblockHasher()
+	var enteredOnce sync.Once
+	svc.SetPasswordHasher(func(string) (string, error) {
+		enteredOnce.Do(func() { close(entered) })
+		select {
+		case <-release:
+			return "test-hash", nil
+		case <-time.After(5 * time.Second):
+			return "", context.DeadlineExceeded
+		}
+	})
+	acceptResult := make(chan error, 1)
+	login := "hash_lock_invitee"
+	go func() {
+		_, e := svc.AcceptInvitationNewAccount(ctx, invite.Token, login, "a sufficiently long password")
+		acceptResult <- e
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("password hasher did not begin")
+	}
+	lockCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	revokeResult := make(chan error, 1)
+	go func() { revokeResult <- svc.RevokeInvitation(lockCtx, owner, house, invite.Invitation.ID) }()
+	select {
+	case err := <-revokeResult:
+		if err != nil {
+			t.Fatalf("revoke while hasher blocked: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("revocation blocked while password hashing was in progress")
+	}
+	unblockHasher()
+	select {
+	case err := <-acceptResult:
+		if !errors.Is(err, identity.ErrInvalidInvitation) {
+			t.Fatalf("accept after concurrent revoke=%v, want ErrInvalidInvitation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("acceptance did not return after releasing hasher")
+	}
+	for query, want := range map[string]int{
+		`SELECT count(*) FROM user_accounts WHERE login=$1`:                                                         0,
+		`SELECT count(*) FROM local_credentials WHERE user_id IN (SELECT id FROM user_accounts WHERE login=$1)`:     0,
+		`SELECT count(*) FROM household_memberships WHERE user_id IN (SELECT id FROM user_accounts WHERE login=$1)`: 0,
+	} {
+		var count int
+		if err := admin.QueryRow(ctx, query, login).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Errorf("query %q count=%d want=%d", query, count, want)
+		}
+	}
+}
+
 func TestInvitationPostgresConcurrentAcceptAndRevoke(t *testing.T) {
 	ctx, admin, app := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)

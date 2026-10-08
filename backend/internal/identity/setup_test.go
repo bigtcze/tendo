@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"reflect"
 	"testing"
@@ -16,31 +17,119 @@ type setupRepo struct {
 	passwordInput      SetupPersistenceInput
 	bootstrapHousehold string
 	called             bool
+	writes             int
 }
 type setupTx struct{ repo *setupRepo }
 
 func (tx setupTx) LockRequired(context.Context) (bool, error) { return true, nil }
 func (tx setupTx) CreateUser(_ context.Context, login string) (string, error) {
 	tx.repo.called = true
+	tx.repo.writes++
 	return login, nil
 }
 func (tx setupTx) CreateCredential(_ context.Context, userID, hash string) error {
+	tx.repo.writes++
 	tx.repo.passwordInput = SetupPersistenceInput{Login: userID, PasswordHash: hash}
 	tx.repo.hash = hash
 	return nil
 }
-func (tx setupTx) SetDefaultHousehold(context.Context, string, string) error { return nil }
-func (tx setupTx) CompleteSetup(context.Context) error                       { return nil }
+func (tx setupTx) SetDefaultHousehold(context.Context, string, string) error {
+	tx.repo.writes++
+	return nil
+}
+func (tx setupTx) CompleteSetup(context.Context) error { tx.repo.writes++; return nil }
 
 type setupHousehold struct{ repo *setupRepo }
 
 func (h setupHousehold) CreateOwnerHousehold(_ context.Context, input household.Bootstrap, _ string) (string, error) {
+	h.repo.writes++
 	h.repo.bootstrapHousehold = input.Name
 	return "household", nil
 }
 func (r *setupRepo) IsRequired(ctx context.Context) (bool, error) { return true, ctx.Err() }
 func (r *setupRepo) WithSetupTransaction(_ context.Context, work func(SetupTransaction, OwnerHouseholdService) error) error {
 	return work(setupTx{r}, setupHousehold{r})
+}
+
+func TestRealIdentityServicesShareOnePasswordGate(t *testing.T) {
+	gate := security.NewPasswordGate(1)
+	setupRepo := &setupRepo{}
+	setupService := NewSetupService(setupRepo)
+	setupService.SetPasswordHasher(gate.HashPassword)
+
+	sessionRepo := newFakeSessionRepo()
+	passwordHash, err := security.HashPassword(testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionRepo.logins["known_login"] = LoginRecord{Principal: Principal{UserID: "known-user", Login: "known_login"}, PasswordHash: passwordHash}
+	sessionService, err := NewSessionService(sessionRepo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService.SetPasswordVerifier(gate.VerifyPassword)
+
+	invitationRepo := &invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: time.Now().Add(time.Hour)}}
+	invitationService, err := NewInvitationService(invitationRepo, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitationService.SetPasswordHasher(gate.HashPassword)
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+
+	if !gate.Acquire() {
+		t.Fatal("could not occupy shared password gate")
+	}
+	checks := []struct {
+		name   string
+		writes func() int
+		run    func() error
+	}{
+		{"setup", func() int { return setupRepo.writes }, func() error {
+			return setupService.CreateOwner(context.Background(), SetupInput{Login: "owner_1", Password: testPassword, HouseholdName: "Home", Timezone: "UTC"})
+		}},
+		{"known login", func() int { return sessionRepo.writes }, func() error {
+			_, e := sessionService.Login(context.Background(), "known_login", testPassword)
+			return e
+		}},
+		{"unknown login dummy verification", func() int { return sessionRepo.writes }, func() error {
+			_, e := sessionService.Login(context.Background(), "unknown_login", testPassword)
+			return e
+		}},
+		{"new-account invitation", func() int { return invitationRepo.writes }, func() error {
+			_, e := invitationService.AcceptInvitationNewAccount(context.Background(), token, "invited_user", testPassword)
+			return e
+		}},
+	}
+	for _, check := range checks {
+		before := check.writes()
+		err := check.run()
+		if !errors.Is(err, security.ErrPasswordWorkLimit) {
+			t.Errorf("%s error=%v, want ErrPasswordWorkLimit", check.name, err)
+		}
+		if after := check.writes(); after != before {
+			t.Errorf("%s wrote while gate held: %d -> %d", check.name, before, after)
+		}
+		if active := gate.Active(); active != 1 {
+			t.Errorf("%s changed gate active to %d", check.name, active)
+		}
+	}
+	gate.Release()
+	if err := setupService.CreateOwner(context.Background(), SetupInput{Login: "owner_1", Password: testPassword, HouseholdName: "Home", Timezone: "UTC"}); err != nil {
+		t.Fatalf("setup after release: %v", err)
+	}
+	if _, err := sessionService.Login(context.Background(), "known_login", testPassword); err != nil {
+		t.Fatalf("known login after release: %v", err)
+	}
+	if _, err := sessionService.Login(context.Background(), "unknown_login", testPassword); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("unknown login after release=%v", err)
+	}
+	if _, err := invitationService.AcceptInvitationNewAccount(context.Background(), token, "invited_user", testPassword); err != nil {
+		t.Fatalf("invitation after release: %v", err)
+	}
+	if active := gate.Active(); active != 0 {
+		t.Fatalf("gate active after work=%d", active)
+	}
 }
 
 func TestCreateOwnerValidatesAndHashesExactPassword(t *testing.T) {
