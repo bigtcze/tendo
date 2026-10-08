@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -162,6 +162,96 @@ describe('item details', () => {
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
     installFakeServer(common({ [`GET ${path}`]: json(401) })); app();
     expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+  });
+
+  it('prefills edit values and patches only changed fields with the ETag from edit-open GET', async () => {
+    let reads = 0;
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => json(200, item(), { ETag: `"${++reads}"` }),
+      [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }),
+      [`PATCH ${path}`]: (request) => json(200, item({ title: JSON.parse(request.body).title }), { ETag: '"saved"' }),
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    expect(screen.getByLabelText('What needs doing?')).toHaveValue('Renew passport');
+    expect(screen.getByLabelText('For')).toHaveValue('s-1');
+    expect(screen.getByLabelText('When should this need attention?')).toHaveValue('2026-10-10');
+    expect(screen.getByLabelText('Notes')).toHaveValue('Bring old passport');
+    await userEvent.clear(screen.getByLabelText('What needs doing?'));
+    await userEvent.type(screen.getByLabelText('What needs doing?'), 'Renew passport soon');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    const patch = requestsOf(fake.requests, 'PATCH', path)[0]!;
+    expect(JSON.parse(patch.body)).toEqual({ title: 'Renew passport soon' });
+    expect(patch.headers.get('If-Match')).toBe('"2"');
+    expect(await screen.findByText('Item updated.')).toBeVisible();
+  });
+
+  it('sends a complete changed recurrence only, and sends null when Repeat is turned off', async () => {
+    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: json(200, item()) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.click(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ recurrence: { intervalValue: 2, intervalUnit: 'year', mode: 'after_completion' } });
+    cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
+    const second = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: json(200, item()) })); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const secondForm = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.click(screen.getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(within(secondForm).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(second.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(second.requests, 'PATCH', path)[0]!.body)).toEqual({ recurrence: null });
+  });
+
+  it('sends null when the attention date and notes are cleared', async () => {
+    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: json(200, item()) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.clear(screen.getByLabelText('When should this need attention?'));
+    await userEvent.clear(screen.getByLabelText('Notes'));
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ attentionOn: null, notes: null });
+  });
+
+  it('keeps edits after a 412 and retries with the newly fetched ETag', async () => {
+    let reads = 0; let writes = 0;
+    const latest = item({ title: 'Saved elsewhere' });
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => json(200, ++reads <= 2 ? item() : latest, { ETag: `"${reads}"` }),
+      [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }),
+      [`PATCH ${path}`]: (request) => { writes++; return writes === 1 ? json(412) : json(200, item({ title: JSON.parse(request.body).title })); },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    const titleInput = screen.getByLabelText('What needs doing?');
+    await userEvent.clear(titleInput); await userEvent.type(titleInput, 'My unsaved title');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText(/Someone else changed this item/)).toBeVisible();
+    expect(screen.getByText('Latest saved: Saved elsewhere')).toBeVisible();
+    expect(screen.getByLabelText('What needs doing?')).toHaveValue('My unsaved title');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(requestsOf(fake.requests, 'PATCH', path).map((request) => request.headers.get('If-Match'))).toEqual(['"2"', '"3"']);
+    expect(await screen.findByText('Item updated.')).toBeVisible();
+  });
+
+  it('does not patch unchanged values and offers Edit in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Upravit' }));
+    const form = await screen.findByRole('form', { name: 'Upravit položku' });
+    expect(screen.getByRole('button', { name: 'Uložit změny' })).toBeVisible();
+    await userEvent.click(within(form).getByRole('button', { name: 'Uložit změny' }));
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Upravit položku' })).not.toBeInTheDocument());
+    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(0);
   });
 
   it('renders Czech copy and browser Back returns home', async () => {

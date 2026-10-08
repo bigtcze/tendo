@@ -6,9 +6,12 @@ import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import { getSubject } from '../subjects/subjectsApi';
-import { listCompletions, getItem, changeItem, type Completion, type Item, type Recurrence } from './itemsApi';
+import { listCompletions, getItem, changeItem, patchItem, listActiveSubjects, type Completion, type Item, type Recurrence, type Subject, type ItemField } from './itemsApi';
+import { ItemForm, type ItemFormValues } from './ItemForm';
 
 const MAX_HISTORY_PAGES = 1000;
+const MAX_SUBJECT_PAGES = 20;
+type Editing = { etag: string; baseline: Item; conflict: boolean; latest?: Item; mine?: ItemFormValues };
 function formatDate(value: string, locale: string) {
   const [year, month, day] = value.split('-').map(Number);
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
@@ -31,6 +34,11 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   const [undoArchive, setUndoArchive] = useState(false);
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [editSubjects, setEditSubjects] = useState<Subject[]>([]);
+  const [editLoading, setEditLoading] = useState(false);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const returnEditFocus = useRef(false);
   const active = useRef(false);
   const generation = useRef(0);
   const busyRef = useRef(false);
@@ -61,7 +69,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
 
   const load = useCallback(async (token: number, preserveArchiveNotice = false) => {
     if (!/^[0-9a-f-]{36}$/i.test(itemId)) { if (current(token)) setState('gone'); return; }
-    setState('loading'); setHistory([]); setHistoryState('loading');
+    setState('loading'); setHistory([]); setHistoryState('loading'); setEditing(null); setEditLoading(false);
     if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); }
     const result = await getItem(householdId, itemId);
     if (!current(token)) return;
@@ -82,6 +90,73 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     return () => { if (generation.current === token) generation.current = token + 1; };
   }, [load, attempt]);
   useEffect(() => { if (focusAfterMutation.current && notice) { focusRef.current?.focus(); focusAfterMutation.current = false; } }, [notice]);
+  useEffect(() => { if (!editing && !editLoading && returnEditFocus.current) { editButtonRef.current?.focus(); returnEditFocus.current = false; } }, [editing, editLoading]);
+
+  async function beginEdit() {
+    if (busyRef.current || editLoading) return;
+    const token = generation.current;
+    setNotice(null);
+    setEditLoading(true);
+    const result = await getItem(householdId, itemId);
+    if (!current(token)) return;
+    setEditLoading(false);
+    if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+    if (result.kind === 'notFound') { setState('gone'); return; }
+    if (result.kind !== 'ok') { setNotice('itemDetail.actionFailed'); return; }
+    const subjects: Subject[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_SUBJECT_PAGES; page++) {
+      const listed = await listActiveSubjects(householdId, false, cursor);
+      if (!current(token)) return;
+      if (listed.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (listed.kind !== 'ok') { setNotice('items.subjects.error'); return; }
+      subjects.push(...listed.subjects);
+      if (!listed.nextCursor) break;
+      cursor = listed.nextCursor;
+    }
+    const included = subjects.some((subject) => subject.id === result.item.subjectId);
+    if (!included) subjects.push({ id: result.item.subjectId, name: subjectName || t('items.subject.unknown'), type: 'custom', archived: true, createdAt: result.item.createdAt, updatedAt: result.item.updatedAt });
+    setItem(result.item);
+    setEditSubjects(subjects);
+    setEditing({ etag: result.etag, baseline: result.item, conflict: false });
+  }
+
+  async function saveEdit(values: ItemFormValues) {
+    if (!editing || !item) return { kind: 'handled' as const };
+    const original = editing.baseline;
+    const recurrence: Recurrence | null = values.recurrence;
+    const body = {
+      ...(values.title !== original.title ? { title: values.title } : {}),
+      ...(values.subjectId !== original.subjectId ? { subjectId: values.subjectId } : {}),
+      ...(values.attentionOn !== (original.attentionOn ?? '') ? { attentionOn: values.attentionOn || null } : {}),
+      ...((values.notes.trim() ? values.notes : null) !== (original.notes?.trim() ? original.notes : null) ? { notes: values.notes.trim() ? values.notes : null } : {}),
+      ...(JSON.stringify(recurrence) !== JSON.stringify(original.recurrence) ? { recurrence } : {}),
+    };
+    if (!Object.keys(body).length) { returnEditFocus.current = true; setEditing(null); return { kind: 'done' as const }; }
+    if (busyRef.current) return { kind: 'handled' as const };
+    busyRef.current = true; setBusy(true);
+    const token = generation.current;
+    try {
+      const result = await patchItem(householdId, itemId, editing.etag, body);
+      if (!current(token)) return { kind: 'handled' as const };
+      if (result.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
+      if (result.kind === 'notFound') { setState('gone'); setEditing(null); return { kind: 'handled' as const }; }
+      if (result.kind === 'changed') {
+        const latest = await getItem(householdId, itemId);
+        if (!current(token)) return { kind: 'handled' as const };
+        if (latest.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
+        if (latest.kind === 'notFound') { setState('gone'); setEditing(null); return { kind: 'handled' as const }; }
+        if (latest.kind === 'ok') { setItem(latest.item); setEditing({ etag: latest.etag, baseline: latest.item, conflict: true, latest: latest.item, mine: values }); return { kind: 'handled' as const }; }
+        return { kind: 'failed' as const };
+      }
+      if (result.kind === 'invalid') {
+        const allowed = ['title', 'subjectId', 'attentionOn', 'notes', 'recurrence'];
+        return allowed.includes(result.field) ? { kind: 'invalid' as const, field: result.field as ItemField, code: result.code } : { kind: 'failed' as const };
+      }
+      if (result.kind === 'ok') { setItem(result.item); setEditing(null); setNotice('itemDetail.updated'); focusAfterMutation.current = true; return { kind: 'done' as const }; }
+      return { kind: 'failed' as const };
+    } finally { if (current(token)) { busyRef.current = false; setBusy(false); } }
+  }
 
   async function mutate(body: { workflowState?: 'open' | 'in_progress' | 'waiting' | 'paused'; archived?: boolean }, archiveAction = false) {
     if (busyRef.current) return;
@@ -131,18 +206,23 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
       <p className="mt-2 text-muted">{subjectName}</p>
       {item.archived ? <p className="mt-5 rounded-xl bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
       {notice ? <div className="mt-4 rounded-xl bg-sand px-4 py-3"><p ref={focusRef} tabIndex={-1} role="status" aria-live="polite" className="outline-none">{t(notice)}</p>{undoArchive ? <Button type="button" variant="quiet" className="mt-1" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.undo')}</Button> : null}</div> : null}
-      <div className="mt-6 space-y-5 rounded-2xl border border-line bg-white/70 p-5 sm:p-7">
+      {!editing ? <div className="mt-6 space-y-5 rounded-2xl border border-line bg-white/70 p-5 sm:p-7">
         <p className="font-medium">{t(status)}</p>
         {item.attentionOn ? <p className="text-muted">{t(item.attention === 'upcoming' ? 'itemDetail.nextAttention' : 'itemDetail.attentionDate', { date: formatDate(item.attentionOn, locale) })}</p> : null}
         {item.lastCompletedOn ? <p className="text-muted">{t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) })}</p> : null}
         {item.recurrence ? <div><p>{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p><p className="mt-1 text-sm text-muted">{t(item.recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed')}</p></div> : null}
         {item.notes ? <div className="border-t border-line pt-4"><h2 className="text-sm font-medium text-muted">{t('items.notes')}</h2><p className="mt-2 whitespace-pre-wrap break-words">{item.notes}</p></div> : null}
-      </div>
-      {!item.done && !item.archived ? <div className="mt-5 flex flex-wrap gap-2">
+      </div> : null}
+      {editing ? <div className="mt-6 space-y-4">
+        {editing.conflict && editing.latest ? <div className="rounded-xl border border-line bg-sand/70 px-4 py-3 text-sm"><p className="font-medium">{t('itemDetail.edit.conflict')}</p><p className="mt-1">{t('itemDetail.edit.latest', { title: editing.latest.title })}</p><p className="mt-1 text-muted">{t('items.subject')}: {editSubjects.find((entry) => entry.id === editing.latest?.subjectId)?.name ?? subjectName} · {t('items.attentionDate')}: {editing.latest.attentionOn ? formatDate(editing.latest.attentionOn, locale) : '—'}</p></div> : null}
+        <ItemForm key={`${editing.baseline.id}:${editing.etag}`} mode="edit" initialValues={editing.conflict ? editing.mine : { title: editing.baseline.title, subjectId: editing.baseline.subjectId, attentionOn: editing.baseline.attentionOn ?? '', notes: editing.baseline.notes ?? '', recurrence: editing.baseline.recurrence }} subjects={editSubjects} busy={busy} notice={editing.conflict ? t('itemDetail.edit.conflictHint') : undefined} onSubmit={saveEdit} onCancel={() => { returnEditFocus.current = true; setEditing(null); }} />
+      </div> : null}
+      {!item.done && !item.archived && !editing ? <Button ref={editButtonRef} type="button" variant="quiet" className="mt-5" disabled={busy || editLoading} onClick={() => void beginEdit()}>{t(editLoading ? 'itemDetail.edit.loading' : 'itemDetail.edit.button')}</Button> : null}
+      {!item.done && !item.archived && !editing ? <div className="mt-5 flex flex-wrap gap-2">
         {(item.workflowState === 'open' || item.workflowState === 'waiting') ? <Button type="button" disabled={busy} onClick={() => void mutate({ workflowState: 'in_progress' })}>{t(item.workflowState === 'waiting' ? 'itemDetail.resumeWork' : 'itemDetail.start')}</Button> : null}
         {item.workflowState !== 'paused' ? <><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'waiting' })}>{t('itemDetail.waitingAction')}</Button><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'paused' })}>{t('itemDetail.pause')}</Button></> : <Button type="button" disabled={busy} onClick={() => void mutate({ workflowState: 'open' })}>{t('itemDetail.resume')}</Button>}
       </div> : null}
-      {!item.archived ? <div className="mt-5 border-t border-line pt-4"><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ archived: true }, true)}>{t('subjects.archive')}</Button></div> : <Button type="button" variant="quiet" className="mt-5" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.restore')}</Button>}
+      {!editing && (!item.archived ? <div className="mt-5 border-t border-line pt-4"><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ archived: true }, true)}>{t('subjects.archive')}</Button></div> : <Button type="button" variant="quiet" className="mt-5" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.restore')}</Button>)}
       <section className="mt-8 border-t border-line pt-6"><h2 className="font-display text-2xl">{t('itemDetail.history')}</h2>{historyState === 'loading' ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.historyLoading')}</p> : historyState === 'error' ? <div className="mt-3 space-y-2"><p className="text-sm text-muted">{t('itemDetail.historyError')}</p><Button type="button" variant="quiet" onClick={() => void loadHistory(generation.current)}>{t('app.error.retry')}</Button></div> : history.length ? <>{historyPartial ? <p className="mt-3 text-sm text-muted">{t('itemDetail.historyPartial')}</p> : null}<ol className="mt-3 space-y-2">{history.map((completion) => <li key={completion.id} className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted opacity-65' : ''}`}><p>{t(completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone', { date: formatDate(completion.completedOn, locale) })}</p>{completion.cycleAttentionOn ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}{completion.nextAttentionOn ? <p className="text-muted">{t('itemDetail.historyNext', { date: formatDate(completion.nextAttentionOn, locale) })}</p> : null}</li>)}</ol></> : <p className="mt-3 text-sm text-muted">{t('itemDetail.historyEmpty')}</p>}</section>
     </> : null}
   </section></Layout>;

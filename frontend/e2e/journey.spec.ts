@@ -1,4 +1,4 @@
-import { expect, request, test, type ConsoleMessage, type Page } from '@playwright/test';
+import { expect, request, test, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 
@@ -605,6 +605,65 @@ test.describe('Tendo production journey', () => {
       expect(overflow, `${viewport.width}px horizontal overflow on item detail`).toBeLessThanOrEqual(0);
     }
     await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
+  test('n5. editing Repeat and Fluid on the detail screen keeps the attention date and completion history', async () => {
+    const anchor = addDays(pragueToday(), -30);
+    const title = 'Descale the kettle';
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await addItem({ title, subject: 'Anička', attentionOn: anchor, repeat: { value: '1', unit: 'year', fluid: false } });
+    const itemId = (await serverItem(title)).id;
+    await row(title).getByRole('button', { name: en['items.done'] }).click();
+    await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
+    const history = await serverCompletions(itemId);
+    const next = addYearsClamped(anchor, 1);
+    expect(history[0]).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: next, undoneAt: null });
+
+    async function detailItem() {
+      const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+      expect(response.status()).toBe(200);
+      return (await response.json()) as ServerItem & { notes: string | null };
+    }
+    async function saveEdit(change: (form: Locator) => Promise<void>) {
+      await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const form = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(form.getByLabel(en['items.title'])).toHaveValue(title);
+      await change(form);
+      await form.getByRole('button', { name: en['itemDetail.save'] }).click();
+      await expect(page.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toHaveCount(0);
+      await expect(page.getByRole('status').filter({ hasText: en['itemDetail.updated'] })).toBeVisible();
+    }
+
+    await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
+    await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+
+    await saveEdit(async (form) => {
+      await expect(form.getByRole('switch', { name: en['items.repeat'], exact: true })).toBeChecked();
+      const fluid = form.getByRole('switch', { name: en['items.fluid'] });
+      await expect(fluid).not.toBeChecked();
+      await fluid.check();
+      await form.getByRole('button', { name: en['items.notes.show'] }).click();
+      await form.getByLabel(en['items.notes']).fill('Call the technician first');
+    });
+    expect(await detailItem()).toMatchObject({ attentionOn: next, notes: 'Call the technician first', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'after_completion' } });
+    expect(await serverCompletions(itemId)).toEqual(history);
+
+    await saveEdit(async (form) => {
+      await form.getByRole('switch', { name: en['items.repeat'], exact: true }).uncheck();
+      await expect(form.getByRole('switch', { name: en['items.fluid'] })).toHaveCount(0);
+    });
+    expect(await detailItem()).toMatchObject({ attentionOn: next, recurrence: null, done: false });
+    expect(await serverCompletions(itemId)).toEqual(history);
+    await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
+
+    await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+    await row(title).getByRole('button', { name: en['items.done'] }).click();
+    await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(2);
+    const after = await serverCompletions(itemId);
+    expect(after[0]).toEqual(history[0]);
+    expect(after[1]).toMatchObject({ cycleAttentionOn: next, nextAttentionOn: null, recurrence: null });
+    expect(await detailItem()).toMatchObject({ done: true });
   });
 
   test('o. sign out returns to login and revokes the session server-side', async () => {
