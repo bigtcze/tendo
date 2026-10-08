@@ -10,11 +10,19 @@ import (
 	"testing"
 	"time"
 
+	householdapp "github.com/bigtcze/tendo/backend/internal/household"
+	householdhttp "github.com/bigtcze/tendo/backend/internal/household/httpapi"
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
+
+type membersStub struct{}
+
+func (*membersStub) ListMembers(context.Context, string, string, string, int) ([]householdapp.Member, string, error) {
+	return nil, "", nil
+}
 
 type invitationFakeService struct {
 	create identity.InvitationResult
@@ -98,7 +106,7 @@ func TestInvitationHTTPCreateRetryListAndRevokeExactResponses(t *testing.T) {
 	hid := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
 	iid := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90"
 	inv := identity.Invitation{ID: iid, HouseholdID: hid, CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour), Status: "pending"}
-	f := &invitationFakeService{create: identity.InvitationResult{Invitation: inv, Token: "only-once-secret", Created: true}, items: []identity.Invitation{inv}, next: "n1cursor"}
+	f := &invitationFakeService{create: identity.InvitationResult{Invitation: inv, Token: "only-once-secret", Created: true}, items: []identity.Invitation{inv}, next: "n1Y3Vyc29y"}
 	r := makeRouter(f, nilAuth, true)
 	headers := map[string][]string{"Idempotency-Key": {"key"}}
 	w := req(r, "POST", "/api/v1/households/"+strings.ToUpper(hid)+"/invitations", "{}", "application/json", headers)
@@ -113,7 +121,7 @@ func TestInvitationHTTPCreateRetryListAndRevokeExactResponses(t *testing.T) {
 		t.Fatalf("retry=%d %s", w.Code, w.Body.String())
 	}
 	w = req(r, "GET", "/api/v1/households/"+hid+"/invitations?limit=1", "", "", nil)
-	listWant := map[string]any{"items": []any{want}, "nextCursor": "n1cursor"}
+	listWant := map[string]any{"items": []any{want}, "nextCursor": "n1Y3Vyc29y"}
 	if w.Code != 200 || !sameJSON(bodyMap(t, w), listWant) || strings.Contains(w.Body.String(), "token") {
 		t.Fatalf("list=%d %s", w.Code, w.Body.String())
 	}
@@ -126,10 +134,12 @@ func nilAuth(next http.Handler) http.Handler { return next }
 func TestProtectedInvitationRoutesReturn401BeforeService(t *testing.T) {
 	f := &invitationFakeService{}
 	r := makeRouter(f, nilAuth, false)
+	members := householdhttp.NewMembers(&membersStub{}, nilAuth, func(context.Context) (string, bool) { return "actor", false })
+	members.Register(r)
 	routes := []struct {
 		method, path, body string
 		headers            map[string][]string
-	}{{"POST", "/api/v1/households/h/invitations", "{}", map[string][]string{"Idempotency-Key": {"key"}, "Content-Type": {"application/json"}}}, {"GET", "/api/v1/households/h/invitations", "", nil}, {"DELETE", "/api/v1/households/h/invitations/i", "", nil}, {"POST", "/api/v1/invitations/accept", `{"token":"x"}`, map[string][]string{"Content-Type": {"application/json"}}}}
+	}{{"POST", "/api/v1/households/h/invitations", "{}", map[string][]string{"Idempotency-Key": {"key"}, "Content-Type": {"application/json"}}}, {"GET", "/api/v1/households/h/invitations", "", nil}, {"DELETE", "/api/v1/households/h/invitations/i", "", nil}, {"POST", "/api/v1/invitations/accept", `{"token":"x"}`, map[string][]string{"Content-Type": {"application/json"}}}, {"GET", "/api/v1/households/h/members", "", nil}}
 	for _, tc := range routes {
 		w := req(r, tc.method, tc.path, tc.body, headerValue(tc.headers, "Content-Type"), tc.headers)
 		assertInvitationProblem(t, w, 401, "unauthenticated")
@@ -144,7 +154,7 @@ func TestCreateIdempotencyHeaderAndStrictBodyFailures(t *testing.T) {
 	for _, tc := range []struct {
 		headers    map[string][]string
 		body, code string
-	}{{nil, "{}", "idempotency_key_required"}, {map[string][]string{"Idempotency-Key": {"bad key"}}, "{}", "invalid_idempotency_key"}, {map[string][]string{"Idempotency-Key": {"a", "b"}}, "{}", "invalid_idempotency_key"}, {map[string][]string{"Idempotency-Key": {strings.Repeat("x", 129)}}, "{}", "invalid_idempotency_key"}, {map[string][]string{"Idempotency-Key": {"x"}}, `{"a":1}`, "invalid_request"}, {map[string][]string{"Idempotency-Key": {"x"}}, `[]`, "invalid_request"}, {map[string][]string{"Idempotency-Key": {"x"}}, `null`, "invalid_request"}} {
+	}{{nil, "{}", "idempotency_key_required"}, {map[string][]string{"Idempotency-Key": {""}}, "{}", "idempotency_key_required"}, {map[string][]string{"Idempotency-Key": {"bad key"}}, "{}", "invalid_idempotency_key"}, {map[string][]string{"Idempotency-Key": {"a", "b"}}, "{}", "invalid_idempotency_key"}, {map[string][]string{"Idempotency-Key": {strings.Repeat("x", 129)}}, "{}", "invalid_idempotency_key"}, {map[string][]string{"Idempotency-Key": {"x"}}, `{"a":1}`, "invalid_request"}, {map[string][]string{"Idempotency-Key": {"x"}}, `[]`, "invalid_request"}, {map[string][]string{"Idempotency-Key": {"x"}}, `null`, "invalid_request"}} {
 		h := map[string][]string{"Content-Type": {"application/json"}}
 		for k, v := range tc.headers {
 			h[k] = v
@@ -235,11 +245,6 @@ func TestPerClientAcceptanceRateLimits(t *testing.T) {
 		f := &invitationFakeService{err: identity.ErrInvalidInvitation}
 		r := makeRouter(f, nilAuth, true)
 		for i := 0; i < tc.max+1; i++ {
-			if i < tc.max {
-				f.err = identity.ErrInvalidInvitation
-			} else {
-				f.err = security.ErrPasswordWorkLimit
-			}
 			q := httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body))
 			q.Header.Set("Content-Type", "application/json")
 			q.RemoteAddr = "192.0.2.1:1"

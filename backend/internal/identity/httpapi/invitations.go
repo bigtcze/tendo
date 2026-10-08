@@ -52,7 +52,7 @@ func (h *InvitationHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
+	if len(keys) == 0 || len(keys) == 1 && keys[0] == "" {
 		httpx.ProblemResponse(w, 400, "idempotency_key_required")
 		return
 	}

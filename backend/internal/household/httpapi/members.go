@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"net/http"
 
@@ -48,7 +47,7 @@ func (h *MembersHandler) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if cursor != "" {
-			cursor = "m1" + base64.RawURLEncoding.EncodeToString([]byte(decoded))
+			cursor = household.EncodeMemberCursor(decoded)
 		}
 	}
 	items, next, e := h.service.ListMembers(r.Context(), uid, chi.URLParam(r, "householdId"), cursor, limit)

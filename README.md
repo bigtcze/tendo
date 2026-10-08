@@ -65,6 +65,7 @@ For configuration, health checks, and stop/start details, see [runtime developme
 ## Documentation
 
 - [People and things](docs/user/people-and-things.md)
+- [Household invitations and members](docs/user/household-members.md)
 - [Runtime development](docs/development/runtime.md)
 - [Frontend development](docs/development/frontend.md)
 - [Configuration reference](docs/admin/configuration.md)

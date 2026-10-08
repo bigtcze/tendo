@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This development Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, and a read-only household endpoint (`GET /api/v1/households/{householdId}`, members only), and a subjects API (`/api/v1/households/{householdId}/subjects`, members only, used by the "People and things" screen). It does not provide OIDC, items, or invitations. It is not a finished household product. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This development Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Invitation management is currently API-only; no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). OIDC is not available. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
 Copy `.env.example` to `.env` and generate two independent hexadecimal database passwords:
 

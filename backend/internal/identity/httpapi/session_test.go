@@ -63,6 +63,9 @@ type loginServiceFake struct {
 
 func (f *loginServiceFake) Login(_ context.Context, _ string, password string) (identity.Session, error) {
 	f.calls++
+	if f.err != nil {
+		return identity.Session{}, f.err
+	}
 	_, err := f.verify(f.validHash, password)
 	if err != nil {
 		return identity.Session{}, err
@@ -273,7 +276,7 @@ func TestLoginPasswordVerifierGateErrorMapsTo429(t *testing.T) {
 	if w.Header().Get("Retry-After") != "60" || service.calls != 1 {
 		t.Fatalf("Retry-After=%q calls=%d", w.Header().Get("Retry-After"), service.calls)
 	}
-	service.verify = gate.VerifyPassword
+	service.verify = security.VerifyPassword
 	service.validHash, _ = security.HashPassword("correct horse battery")
 	service.err = identity.ErrInvalidCredentials
 	if w := serve(mux, loginRequest(validLogin)); w.Code != 401 {

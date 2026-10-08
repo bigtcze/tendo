@@ -41,12 +41,15 @@ test('invitation request and response examples satisfy contract schemas', async 
   const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
   const ajv = new Ajv2020({ strict: false }); addFormats(ajv)
   for (const [name, schema] of Object.entries(contract.components.schemas)) ajv.addSchema(schema, `#/components/schemas/${name}`)
-  for (const name of ['EmptyObject','AcceptInvitationRequest','AcceptInvitationNewAccountRequest','Invitation','InvitationCreated','InvitationList','Membership','MemberList']) assert.ok(ajv.compile(contract.components.schemas[name]), `${name} schema compiles`)
+  for (const name of ['EmptyObject','AcceptInvitationRequest','AcceptInvitationNewAccountRequest','Invitation','InvitationCreated','InvitationList','Membership','InvitedAccount','MemberList']) assert.ok(ajv.compile(contract.components.schemas[name]), `${name} schema compiles`)
   assert.equal(ajv.compile(contract.components.schemas.EmptyObject)({}), true)
   assert.equal(ajv.compile(contract.components.schemas.EmptyObject)({a:1}), false)
   const invitation = {id:'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90',role:'member',status:'pending',createdAt:'2026-10-08T10:00:00Z',expiresAt:'2026-10-15T10:00:00Z',acceptedAt:null,revokedAt:null}
   assert.equal(ajv.compile(contract.components.schemas.Invitation)(invitation),true)
   assert.equal(ajv.compile(contract.components.schemas.InvitationCreated)({...invitation,token:'A'.repeat(43)}),true)
+  assert.equal(ajv.compile(contract.components.schemas.InvitedAccount)({userId:invitation.id,login:'invited',householdId:invitation.id,role:'member'}),true)
+  assert.equal(ajv.compile(contract.components.schemas.Membership)({userId:invitation.id,householdId:invitation.id,role:'member'}),true)
+  assert.equal(ajv.compile(contract.components.schemas.Membership)({userId:invitation.id,login:'must-not-be-present',householdId:invitation.id,role:'member'}),false)
 })
 
 test('item create schema accepts omission and a historical date but rejects null', async () => {
