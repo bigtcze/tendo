@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 type InvitationHouseholdService interface {
 	RequireOwner(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
+	HasMembershipElsewhere(context.Context, string, string) (bool, error)
 	AddInvitedMember(context.Context, string, string) error
 }
 type InvitationHouseholdServiceFactory func(householddb.DBTX) InvitationHouseholdService
@@ -44,7 +44,11 @@ func (r *InvitationRepository) WithInvitationTransaction(ctx context.Context, wo
 	if e != nil {
 		return e
 	}
-	defer tx.Rollback(context.Background())
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
 	if r.factory == nil {
 		return errors.New("invitation transaction unavailable")
 	}
@@ -69,6 +73,9 @@ func (t *invitationTx) RequireOwner(c context.Context, u, h string) error {
 func (t *invitationTx) GetMembership(c context.Context, u, h string) (string, error) {
 	return t.h.GetMembership(c, u, h)
 }
+func (t *invitationTx) HasOtherMembership(c context.Context, u, h string) (bool, error) {
+	return t.h.HasMembershipElsewhere(c, u, h)
+}
 func (t *invitationTx) CreateInvitation(c context.Context, in identity.CreateInvitationInput) (identity.Invitation, bool, error) {
 	var h, u pgtype.UUID
 	if e := h.Scan(in.HouseholdID); e != nil {
@@ -90,14 +97,7 @@ func (t *invitationTx) ListInvitations(c context.Context, hid, cursor string, li
 		return nil, "", household.ErrNotFound
 	}
 	if cursor != "" {
-		if len(cursor) < 3 || cursor[:2] != "n1" {
-			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
-		}
-		b, e := base64.RawURLEncoding.Strict().DecodeString(cursor[2:])
-		if e != nil || len(b) != 36 {
-			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
-		}
-		if e := after.Scan(string(b)); e != nil {
+		if e := after.Scan(cursor); e != nil {
 			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 	}
@@ -156,16 +156,7 @@ func (t *invitationTx) LockUser(c context.Context, id string) (string, error) {
 	}
 	return row.DefaultHouseholdID, e
 }
-func (t *invitationTx) HasOtherMembership(c context.Context, u, h string) (bool, error) {
-	var uid, hid pgtype.UUID
-	if e := uid.Scan(u); e != nil {
-		return false, identity.ErrNotFound
-	}
-	if e := hid.Scan(h); e != nil {
-		return false, household.ErrNotFound
-	}
-	return t.q.HasMembershipElsewhere(c, identitydb.HasMembershipElsewhereParams{UserID: uid, HouseholdID: hid})
-}
+
 func (t *invitationTx) CreateUser(c context.Context, l string) (string, error) {
 	id, e := t.q.CreateUser(c, l)
 	var pe *pgconn.PgError

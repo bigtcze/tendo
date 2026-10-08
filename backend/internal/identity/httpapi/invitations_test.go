@@ -252,16 +252,32 @@ func TestPerClientAcceptanceRateLimits(t *testing.T) {
 				q = httpx.WithRequestMetadata(q, httpx.RequestMetadata{ClientIP: "192.0.2.1"})
 			}
 			w := httptest.NewRecorder()
+			beforeCalls := f.calls
 			r.ServeHTTP(w, q)
-			if i < tc.max && w.Code != 404 {
+			if i < tc.max && (w.Code != 404 || f.calls != beforeCalls+1) {
 				t.Fatalf("attempt %d status=%d", i, w.Code)
 			}
 			if i == tc.max {
 				assertInvitationProblem(t, w, 429, "rate_limited")
+				if f.calls != beforeCalls {
+					t.Fatalf("over-limit request reached service: calls %d -> %d", beforeCalls, f.calls)
+				}
 				if w.Header().Get("Retry-After") != "60" {
 					t.Fatalf("retry-after=%q", w.Header().Get("Retry-After"))
 				}
 			}
+		}
+		other := httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body))
+		other.Header.Set("Content-Type", "application/json")
+		other.RemoteAddr = "192.0.2.2:1"
+		if !strings.Contains(tc.path, "/households/") {
+			other = httpx.WithRequestMetadata(other, httpx.RequestMetadata{ClientIP: "192.0.2.2"})
+		}
+		w := httptest.NewRecorder()
+		before := f.calls
+		r.ServeHTTP(w, other)
+		if w.Code != 404 || f.calls != before+1 {
+			t.Fatalf("different client not admitted: status=%d calls=%d before=%d", w.Code, f.calls, before)
 		}
 	}
 }

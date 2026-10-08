@@ -15,8 +15,8 @@ type MembershipRepository struct{ queries *dbgen.Queries }
 func NewMembershipRepository(db dbgen.DBTX) *MembershipRepository {
 	return &MembershipRepository{dbgen.New(db)}
 }
-func MembershipServiceFor(db dbgen.DBTX) *household.MembershipService {
-	return household.NewMembershipService(NewMembershipRepository(db))
+func MembershipServiceFor(db dbgen.DBTX, loginLookup ...household.LoginLookup) *household.MembershipService {
+	return household.NewMembershipService(NewMembershipRepository(db), loginLookup...)
 }
 func (r *MembershipRepository) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
 	var u, h pgtype.UUID
@@ -29,6 +29,16 @@ func (r *MembershipRepository) GetMembership(ctx context.Context, userID, househ
 	}
 	return v, e
 }
+func (r *MembershipRepository) HasMembershipElsewhere(ctx context.Context, userID, householdID string) (bool, error) {
+	var u, h pgtype.UUID
+	if u.Scan(userID) != nil {
+		return false, household.ErrNotFound
+	}
+	if h.Scan(householdID) != nil {
+		return false, household.ErrNotFound
+	}
+	return r.queries.HasMembershipElsewhere(ctx, dbgen.HasMembershipElsewhereParams{UserID: u, HouseholdID: h})
+}
 func (r *MembershipRepository) AddInvitedMember(ctx context.Context, userID, householdID string) error {
 	var u, h pgtype.UUID
 	if e := u.Scan(userID); e != nil {
@@ -39,20 +49,13 @@ func (r *MembershipRepository) AddInvitedMember(ctx context.Context, userID, hou
 	}
 	return r.queries.AddInvitedMember(ctx, dbgen.AddInvitedMemberParams{UserID: u, HouseholdID: h})
 }
-func (r *MembershipRepository) ListMembers(ctx context.Context, householdID, cursor string, limit int) ([]household.Member, string, error) {
-	decodedCursor, err := household.DecodeMemberCursor(cursor)
-	if err != nil {
-		return nil, "", err
-	}
-	if decodedCursor == "" && cursor != "" {
-		return nil, "", &household.ValidationError{Field: "cursor", Code: "invalid_format"}
-	}
+func (r *MembershipRepository) ListMembers(ctx context.Context, householdID, cursor string, limit int) ([]household.MembershipRecord, string, error) {
 	var h, after pgtype.UUID
 	if e := h.Scan(householdID); e != nil {
 		return nil, "", household.ErrNotFound
 	}
-	if decodedCursor != "" {
-		if e := after.Scan(decodedCursor); e != nil {
+	if cursor != "" {
+		if e := after.Scan(cursor); e != nil {
 			return nil, "", &household.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 	}
@@ -65,12 +68,12 @@ func (r *MembershipRepository) ListMembers(ctx context.Context, householdID, cur
 		rows = rows[:limit]
 		next = household.EncodeMemberCursor(rows[len(rows)-1].UserID)
 	}
-	out := make([]household.Member, 0, len(rows))
+	out := make([]household.MembershipRecord, 0, len(rows))
 	for _, m := range rows {
 		if m.Role != household.RoleOwner && m.Role != household.RoleMember {
 			return nil, "", errors.New("membership persistence returned unknown role")
 		}
-		out = append(out, household.Member{UserID: m.UserID, Login: m.Login, Role: m.Role})
+		out = append(out, household.MembershipRecord{UserID: m.UserID, Role: m.Role})
 	}
 	return out, next, nil
 }

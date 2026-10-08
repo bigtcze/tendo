@@ -15,14 +15,37 @@ import (
 	householdpostgres "github.com/bigtcze/tendo/backend/internal/household/postgres"
 	householddb "github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
 	"github.com/bigtcze/tendo/backend/internal/identity"
+	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type txLoginLookup struct{ tx householddb.DBTX }
+
+func (l txLoginLookup) LoginsByUserIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	uuids := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		var u pgtype.UUID
+		if e := u.Scan(id); e != nil {
+			return nil, e
+		}
+		uuids = append(uuids, u)
+	}
+	rows, e := identitydb.New(l.tx).MemberLogins(ctx, uuids)
+	if e != nil {
+		return nil, e
+	}
+	out := map[string]string{}
+	for _, r := range rows {
+		out[r.UserID] = r.Login
+	}
+	return out, nil
+}
 func invitationFactory(tx householddb.DBTX) InvitationHouseholdService {
-	return householdpostgres.MembershipServiceFor(tx)
+	return householdpostgres.MembershipServiceFor(tx, txLoginLookup{tx})
 }
 func invitationPools(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.Pool) {
 	t.Helper()
@@ -187,6 +210,61 @@ func TestInvitationPostgresRuntimePrivilegesConstraintsAndCascade(t *testing.T) 
 		t.Fatalf("cascade count=%d err=%v", remains, e)
 	}
 }
+func TestInvitationPostgresAcceptanceRollbackLeavesInvitationRedeemable(t *testing.T) {
+	ctx, admin, app := invitationPools(t)
+	owner, house := invitationFixture(t, ctx, admin)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
+	var target string
+	if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('rollback_collision') RETURNING id::text`).Scan(&target); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, target, house); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := admin.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2::uuid WHERE id=$1::uuid`, target, house); e != nil {
+		t.Fatal(e)
+	}
+	inv, e := svc.CreateInvitation(ctx, owner, house, "rollback-accept")
+	if e != nil {
+		t.Fatal(e)
+	}
+	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
+	// The deferred CHECK fails only at the final invitation update, after user, credential,
+	// membership, and default-household writes have run in the transaction.
+	if _, e = admin.Exec(ctx, `ALTER TABLE household_invitations ADD CONSTRAINT reject_rollback_token CHECK (accepted_at IS NULL OR creation_key <> 'rollback-accept')`); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = admin.Exec(cleanupCtx, `ALTER TABLE household_invitations DROP CONSTRAINT IF EXISTS reject_rollback_token`)
+	})
+	_, e = svc.AcceptInvitationNewAccount(ctx, inv.Token, "rollback_joiner", "a sufficiently long rollback password")
+	if e == nil {
+		t.Fatal("expected transactional final-write failure")
+	}
+	var users, credentials, members int
+	for q, dst := range map[string]*int{`SELECT count(*) FROM user_accounts WHERE login='rollback_joiner'`: &users, `SELECT count(*) FROM local_credentials WHERE user_id IN(SELECT id FROM user_accounts WHERE login='rollback_joiner')`: &credentials, `SELECT count(*) FROM household_memberships WHERE user_id IN(SELECT id FROM user_accounts WHERE login='rollback_joiner')`: &members} {
+		if e = admin.QueryRow(ctx, q).Scan(dst); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if users != 0 || credentials != 0 || members != 0 {
+		t.Fatalf("partial state user=%d credential=%d membership=%d", users, credentials, members)
+	}
+	var defaultID string
+	if e = admin.QueryRow(ctx, `SELECT default_household_id::text FROM user_accounts WHERE id=$1::uuid`, target).Scan(&defaultID); e != nil || defaultID != house {
+		t.Fatalf("preexisting default=%q err=%v", defaultID, e)
+	}
+	if _, e = admin.Exec(ctx, `ALTER TABLE household_invitations DROP CONSTRAINT reject_rollback_token`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = svc.AcceptInvitationNewAccount(ctx, inv.Token, "rollback_joiner", "a sufficiently long rollback password"); e != nil {
+		t.Fatalf("invitation not redeemable after rollback: %v", e)
+	}
+}
+
 func TestInvitationPostgresLoginCollisionLeavesReusableInvitation(t *testing.T) {
 	ctx, admin, app := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
@@ -222,6 +300,7 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	ctx, admin, app := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
 	for i := 0; i < 5; i++ {
 		if _, e := svc.CreateInvitation(ctx, owner, house, fmt.Sprintf("page-%d", i)); e != nil {
 			t.Fatal(e)
@@ -250,10 +329,19 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	if _, _, e := svc.ListInvitations(ctx, owner, house, 2, "bad"); e == nil {
 		t.Fatal("invalid cursor accepted")
 	}
-	otherOwner, other := invitationFixture(t, ctx, admin)
-	_ = otherOwner
+	var other string
+	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('second household same owner','UTC') RETURNING id::text`).Scan(&other); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, owner, other); e != nil {
+		t.Fatal(e)
+	}
 	if e := svc.RevokeInvitation(ctx, owner, other, ids[0]); !errors.Is(e, household.ErrNotFound) {
 		t.Fatalf("cross-house revoke=%v", e)
+	}
+	var pending bool
+	if e := admin.QueryRow(ctx, `SELECT revoked_at IS NULL FROM household_invitations WHERE id=$1::uuid`, ids[0]).Scan(&pending); e != nil || !pending {
+		t.Fatalf("household A invitation pending=%v err=%v", pending, e)
 	}
 }
 func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.T) {

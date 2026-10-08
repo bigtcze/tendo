@@ -198,22 +198,6 @@ func (q *Queries) FindLoginForInvitation(ctx context.Context, login string) (str
 	return id, err
 }
 
-const hasMembershipElsewhere = `-- name: HasMembershipElsewhere :one
-SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1 AND household_id<>$2)
-`
-
-type HasMembershipElsewhereParams struct {
-	UserID      pgtype.UUID
-	HouseholdID pgtype.UUID
-}
-
-func (q *Queries) HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error) {
-	row := q.db.QueryRow(ctx, hasMembershipElsewhere, arg.UserID, arg.HouseholdID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const invitationExistsInHousehold = `-- name: InvitationExistsInHousehold :one
 SELECT EXISTS(SELECT 1 FROM household_invitations WHERE household_id=$1 AND id=$2)
 `

@@ -25,11 +25,11 @@ type Querier interface {
 	FindInvitationByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindInvitationByTokenForUpdateRow, error)
 	FindLogin(ctx context.Context, login string) (FindLoginRow, error)
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
-	HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error)
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (LockUserForInvitationRow, error)
+	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 }

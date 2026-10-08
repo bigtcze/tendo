@@ -57,11 +57,27 @@ func (q *Queries) GetMembershipForInvitation(ctx context.Context, arg GetMembers
 	return role, err
 }
 
+const hasMembershipElsewhere = `-- name: HasMembershipElsewhere :one
+SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1 AND household_id<>$2)
+`
+
+type HasMembershipElsewhereParams struct {
+	UserID      pgtype.UUID
+	HouseholdID pgtype.UUID
+}
+
+func (q *Queries) HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasMembershipElsewhere, arg.UserID, arg.HouseholdID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listMembers = `-- name: ListMembers :many
-SELECT u.id::text AS user_id, u.login, m.role
-FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id
-WHERE m.household_id=$1 AND ($2::uuid IS NULL OR u.id > $2::uuid)
-ORDER BY u.id LIMIT $3
+SELECT user_id::text AS user_id, role
+FROM household_memberships
+WHERE household_id=$1 AND ($2::uuid IS NULL OR user_id > $2::uuid)
+ORDER BY user_id LIMIT $3
 `
 
 type ListMembersParams struct {
@@ -72,7 +88,6 @@ type ListMembersParams struct {
 
 type ListMembersRow struct {
 	UserID string
-	Login  string
 	Role   string
 }
 
@@ -85,7 +100,7 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 	items := []ListMembersRow{}
 	for rows.Next() {
 		var i ListMembersRow
-		if err := rows.Scan(&i.UserID, &i.Login, &i.Role); err != nil {
+		if err := rows.Scan(&i.UserID, &i.Role); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

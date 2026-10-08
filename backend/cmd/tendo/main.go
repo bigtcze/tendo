@@ -120,9 +120,9 @@ func run() error {
 	}
 	householdService := household.NewService(householdpostgres.NewRepository(pool))
 	householdhttp.New(householdService, sessionHandler.RequireSession, principalID).Register(routes)
-	householdhttp.NewMembers(householdpostgres.MembershipServiceFor(pool), sessionHandler.RequireSession, principalID).Register(routes)
+	householdhttp.NewMembers(householdpostgres.MembershipServiceFor(pool, identityRepository), sessionHandler.RequireSession, principalID).Register(routes)
 	invitationRepo := identitypostgres.NewInvitationRepository(pool, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
-		return householdpostgres.MembershipServiceFor(tx)
+		return householdpostgres.MembershipServiceFor(tx, identityRepository)
 	})
 	invitationService, err := identityapp.NewInvitationService(invitationRepo, time.Now)
 	if err != nil {

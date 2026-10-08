@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 )
 
 const testActor = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
@@ -19,6 +20,7 @@ type invitationFake struct {
 	findCalls, txCalls                                int
 	status                                            string
 	created, accepted, revoked                        bool
+	writes                                            int
 }
 type invitationFakeTx struct{ f *invitationFake }
 
@@ -66,25 +68,62 @@ func (t *invitationFakeTx) FindInvitation(context.Context, []byte, bool) (Invita
 	}
 	return t.f.inv, nil
 }
-func (t *invitationFakeTx) FindLogin(context.Context, string) error          { return t.f.loginErr }
+func (t *invitationFakeTx) FindLogin(context.Context, string) error {
+	if t.f.loginErr != nil {
+		return t.f.loginErr
+	}
+	return ErrNotFound
+}
 func (t *invitationFakeTx) LockUser(context.Context, string) (string, error) { return "", nil }
 func (t *invitationFakeTx) HasOtherMembership(context.Context, string, string) (bool, error) {
 	return false, nil
 }
 func (t *invitationFakeTx) CreateUser(context.Context, string) (string, error) {
+	t.f.writes++
 	if t.f.userErr != nil {
 		return "", t.f.userErr
 	}
 	return testActor, nil
 }
-func (*invitationFakeTx) CreateCredential(context.Context, string, string) error    { return nil }
-func (*invitationFakeTx) AddInvitedMember(context.Context, string, string) error    { return nil }
-func (*invitationFakeTx) SetDefaultHousehold(context.Context, string, string) error { return nil }
+func (t *invitationFakeTx) CreateCredential(context.Context, string, string) error {
+	t.f.writes++
+	return nil
+}
+func (t *invitationFakeTx) AddInvitedMember(context.Context, string, string) error {
+	t.f.writes++
+	return nil
+}
+func (t *invitationFakeTx) SetDefaultHousehold(context.Context, string, string) error {
+	t.f.writes++
+	return nil
+}
 func (t *invitationFakeTx) AcceptInvitation(_ context.Context, _ string, now time.Time) error {
 	t.f.accepted = true
 	t.f.inv.AcceptedAt = &now
 	return nil
 }
+func TestInvitationPasswordGateRejectsBeforeWritesThenAllowsAcceptance(t *testing.T) {
+	f := &invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: time.Now().Add(time.Hour)}}
+	s, _ := NewInvitationService(f, nil)
+	gate := security.NewPasswordGate(1)
+	if !gate.Acquire() {
+		t.Fatal("could not occupy password gate")
+	}
+	s.SetPasswordHasher(gate.HashPassword)
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	_, e := s.AcceptInvitationNewAccount(context.Background(), token, "gate_user", "a sufficiently long gate password")
+	if !errors.Is(e, security.ErrPasswordWorkLimit) || f.writes != 0 || f.txCalls != 0 {
+		t.Fatalf("error=%v writes=%d transactions=%d", e, f.writes, f.txCalls)
+	}
+	gate.Release()
+	if _, e = s.AcceptInvitationNewAccount(context.Background(), token, "gate_user", "a sufficiently long gate password"); e != nil {
+		t.Fatal(e)
+	}
+	if f.writes != 4 {
+		t.Fatalf("successful acceptance writes=%d", f.writes)
+	}
+}
+
 func TestInvitationTokenCanonicalFormat(t *testing.T) {
 	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	if !validInvitationToken(token) {
@@ -162,8 +201,46 @@ func TestMalformedTokenDoesNotLookupOrHash(t *testing.T) {
 		t.Fatalf("error=%v find=%d tx=%d", e, f.findCalls, f.txCalls)
 	}
 }
+func TestUnusableInvitationPrecedesCredentialValidationAndHashing(t *testing.T) {
+	now := time.Now().UTC()
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	accepted := now.Add(-time.Minute)
+	revoked := now.Add(-time.Minute)
+	cases := []struct {
+		name string
+		f    *invitationFake
+	}{
+		{"malformed", &invitationFake{}},
+		{"unknown", &invitationFake{}},
+		{"expired", &invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: now.Add(-time.Second)}}},
+		{"revoked", &invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: now.Add(time.Hour), RevokedAt: &revoked}}},
+		{"accepted", &invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: now.Add(time.Hour), AcceptedAt: &accepted}}},
+	}
+	for _, tc := range cases {
+		for _, cred := range []struct{ name, login string }{{"valid creds", "valid_login"}, {"invalid login", "INVALID"}} {
+			t.Run(tc.name+"/"+cred.name, func(t *testing.T) {
+				f := tc.f
+				if tc.name == "unknown" || tc.name == "malformed" {
+					f = &invitationFake{}
+				}
+				s, _ := NewInvitationService(f, func() time.Time { return now })
+				hashCalls := 0
+				s.SetPasswordHasher(func(string) (string, error) { hashCalls++; return "hash", nil })
+				tok := token
+				if tc.name == "malformed" {
+					tok = "bad"
+				}
+				_, err := s.AcceptInvitationNewAccount(context.Background(), tok, cred.login, "a sufficiently long password")
+				if !errors.Is(err, ErrInvalidInvitation) || hashCalls != 0 {
+					t.Fatalf("err=%v hasher calls=%d", err, hashCalls)
+				}
+			})
+		}
+	}
+}
+
 func TestAcceptCredentialValidationMatchesSetup(t *testing.T) {
-	s, _ := NewInvitationService(&invitationFake{}, nil)
+	s, _ := NewInvitationService(&invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: time.Now().Add(time.Hour)}}, nil)
 	tok := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	_, e := s.AcceptInvitationNewAccount(context.Background(), tok, "INVALID", "a sufficiently long password")
 	var v *ValidationError

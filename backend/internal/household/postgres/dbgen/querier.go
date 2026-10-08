@@ -15,6 +15,7 @@ type Querier interface {
 	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
+	HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error)
 	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
 }
 

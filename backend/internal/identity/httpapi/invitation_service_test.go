@@ -132,6 +132,18 @@ func (t *transportInvitationTx) AcceptInvitation(_ context.Context, id string, n
 	return nil
 }
 
+type transportLoginLookup struct{ r *transportInvitationRepo }
+
+func (l transportLoginLookup) LoginsByUserIDs(_ context.Context, ids []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, id := range ids {
+		if login, ok := l.r.users[id]; ok {
+			out[id] = login
+		}
+	}
+	return out, nil
+}
+
 type transportMembersRepo struct{ r *transportInvitationRepo }
 
 func (t *transportMembersRepo) GetMembership(_ context.Context, u, h string) (string, error) {
@@ -141,13 +153,16 @@ func (t *transportMembersRepo) GetMembership(_ context.Context, u, h string) (st
 	return "", household.ErrNotFound
 }
 func (*transportMembersRepo) AddInvitedMember(context.Context, string, string) error { return nil }
-func (t *transportMembersRepo) ListMembers(_ context.Context, h, c string, limit int) ([]household.Member, string, error) {
-	var out []household.Member
+func (*transportMembersRepo) HasMembershipElsewhere(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (t *transportMembersRepo) ListMembers(_ context.Context, h, c string, limit int) ([]household.MembershipRecord, string, error) {
+	var out []household.MembershipRecord
 	for u, role := range t.r.members[h] {
 		if c != "" && u <= c {
 			continue
 		}
-		out = append(out, household.Member{UserID: u, Login: t.r.users[u], Role: role})
+		out = append(out, household.MembershipRecord{UserID: u, Role: role})
 	}
 	return out, "", nil
 }
@@ -160,7 +175,7 @@ func TestInvitationHTTPUsesApplicationServiceForCreateRetryAcceptAndConflict(t *
 	app.SetPasswordHasher(func(string) (string, error) { return "credential-hash", nil })
 	r := chi.NewRouter()
 	NewInvitations(app, nilAuth, func(context.Context) (string, bool) { return repo.owner, true }).Register(r)
-	householdhttp.NewMembers(household.NewMembershipService(&transportMembersRepo{repo}), nilAuth, func(context.Context) (string, bool) { return repo.owner, true }).Register(r)
+	householdhttp.NewMembers(household.NewMembershipService(&transportMembersRepo{repo}, transportLoginLookup{repo}), nilAuth, func(context.Context) (string, bool) { return repo.owner, true }).Register(r)
 	hid := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
 	headers := map[string][]string{"Idempotency-Key": {"app-key"}}
 	w := req(r, "POST", "/api/v1/households/"+hid+"/invitations", "{}", "application/json", headers)
@@ -205,7 +220,7 @@ func TestInvitationHTTPUsesApplicationServiceForCreateRetryAcceptAndConflict(t *
 	service2.SetPasswordHasher(func(string) (string, error) { return "unused", nil })
 	r = chi.NewRouter()
 	NewInvitations(service2, nilAuth, func(context.Context) (string, bool) { return userID, true }).Register(r)
-	householdhttp.NewMembers(household.NewMembershipService(&transportMembersRepo{repo}), nilAuth, func(context.Context) (string, bool) { return userID, true }).Register(r)
+	householdhttp.NewMembers(household.NewMembershipService(&transportMembersRepo{repo}, transportLoginLookup{repo}), nilAuth, func(context.Context) (string, bool) { return userID, true }).Register(r)
 	w = req(r, "POST", "/api/v1/invitations/accept", `{"token":"`+invite.Token+`"}`, "application/json", nil)
 	assertInvitationProblem(t, w, 409, "household_conflict")
 	if repo.rows[invite.Invitation.ID].AcceptedAt != nil {

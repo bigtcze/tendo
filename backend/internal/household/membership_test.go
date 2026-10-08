@@ -19,9 +19,24 @@ func (f *membershipFake) GetMembership(context.Context, string, string) (string,
 	return f.role, f.err
 }
 func (f *membershipFake) AddInvitedMember(context.Context, string, string) error { return nil }
-func (f *membershipFake) ListMembers(context.Context, string, string, int) ([]Member, string, error) {
+func (f *membershipFake) HasMembershipElsewhere(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (f *membershipFake) ListMembers(context.Context, string, string, int) ([]MembershipRecord, string, error) {
 	f.listCalls++
-	return []Member{{UserID: membershipActor, Role: RoleMember}}, "", nil
+	return []MembershipRecord{{UserID: membershipActor, Role: RoleMember}}, "", nil
+}
+
+type memberLoginFake struct{}
+
+func (memberLoginFake) LoginsByUserIDs(context.Context, []string) (map[string]string, error) {
+	return map[string]string{membershipActor: "member"}, nil
+}
+
+type missingMemberLoginFake struct{}
+
+func (missingMemberLoginFake) LoginsByUserIDs(context.Context, []string) (map[string]string, error) {
+	return map[string]string{}, nil
 }
 func TestMembershipAuthorizationPolicy(t *testing.T) {
 	for _, tc := range []struct {
@@ -49,12 +64,16 @@ func TestMembershipAuthorizationPolicy(t *testing.T) {
 }
 func TestListMembersAllowsMemberAndValidatesOpaqueCursor(t *testing.T) {
 	repo := &membershipFake{role: RoleMember}
-	s := NewMembershipService(repo)
+	s := NewMembershipService(repo, memberLoginFake{})
 	got, _, e := s.ListMembers(context.Background(), membershipActor, membershipHouse, "", 10)
 	if e != nil || len(got) != 1 || repo.listCalls != 1 {
 		t.Fatalf("members=%v calls=%d err=%v", got, repo.listCalls, e)
 	}
 	if _, _, e = s.ListMembers(context.Background(), membershipActor, membershipHouse, "bad", 10); e == nil {
 		t.Fatal("malformed cursor accepted")
+	}
+	s = NewMembershipService(repo, missingMemberLoginFake{})
+	if _, _, e = s.ListMembers(context.Background(), membershipActor, membershipHouse, "", 10); e == nil {
+		t.Fatal("missing identity login was silently returned")
 	}
 }

@@ -39,18 +39,7 @@ func (h *MembersHandler) list(w http.ResponseWriter, r *http.Request) {
 	if limit == 0 {
 		limit = 50
 	}
-	cursor := p.Cursor
-	if _, ok := h.service.(*household.MembershipService); ok {
-		decoded, err := household.DecodeMemberCursor(cursor)
-		if err != nil {
-			httpx.QueryProblemResponse(w, "cursor")
-			return
-		}
-		if cursor != "" {
-			cursor = household.EncodeMemberCursor(decoded)
-		}
-	}
-	items, next, e := h.service.ListMembers(r.Context(), uid, chi.URLParam(r, "householdId"), cursor, limit)
+	items, next, e := h.service.ListMembers(r.Context(), uid, chi.URLParam(r, "householdId"), p.Cursor, limit)
 	if e != nil {
 		var validation *household.ValidationError
 		if errors.As(e, &validation) && validation.Field == "cursor" {

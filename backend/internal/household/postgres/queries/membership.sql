@@ -7,8 +7,11 @@ INSERT INTO household_memberships(user_id, household_id, role) VALUES($1, $2, 'm
 -- name: GetMembershipForInvitation :one
 SELECT role FROM household_memberships WHERE user_id=$1 AND household_id=$2;
 
+-- name: HasMembershipElsewhere :one
+SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1 AND household_id<>$2);
+
 -- name: ListMembers :many
-SELECT u.id::text AS user_id, u.login, m.role
-FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id
-WHERE m.household_id=$1 AND ($2::uuid IS NULL OR u.id > $2::uuid)
-ORDER BY u.id LIMIT $3;
+SELECT user_id::text AS user_id, role
+FROM household_memberships
+WHERE household_id=$1 AND ($2::uuid IS NULL OR user_id > $2::uuid)
+ORDER BY user_id LIMIT $3;

@@ -34,6 +34,3 @@ SELECT id::text, login, COALESCE(default_household_id::text, '')::text AS defaul
 
 -- name: FindLoginForInvitation :one
 SELECT id::text FROM user_accounts WHERE login=$1;
-
--- name: HasMembershipElsewhere :one
-SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1 AND household_id<>$2);

@@ -2,6 +2,9 @@
 SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, c.password_hash
 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1;
 
+-- name: MemberLogins :many
+SELECT id::text AS user_id, login FROM user_accounts WHERE id = ANY($1::uuid[]);
+
 -- name: DeleteExpiredSessions :exec
 DELETE FROM user_sessions WHERE user_id=$1 AND expires_at <= $2;
 

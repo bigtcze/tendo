@@ -22,6 +22,7 @@ var (
 )
 
 const InvitationLifetime = 7 * 24 * time.Hour
+const invitationRepositoryBudget = 5 * time.Second
 
 type Invitation struct {
 	ID, HouseholdID, CreatedByUserID string
@@ -133,6 +134,12 @@ func ValidCreationKey(k string) bool {
 	return true
 }
 func (s *InvitationService) CreateInvitation(ctx context.Context, actor, householdID, key string) (InvitationResult, error) {
+	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
+	defer cancel()
+	ctx = bounded
+	if err := ctx.Err(); err != nil {
+		return InvitationResult{}, err
+	}
 	if !validUUID(actor) || !validUUID(householdID) {
 		return InvitationResult{}, household.ErrNotFound
 	}
@@ -183,16 +190,18 @@ func decodeInvitationCursor(c string) (string, error) {
 	return string(b), nil
 }
 func (s *InvitationService) ListInvitations(ctx context.Context, actor, householdID string, limit int, cursor string) ([]Invitation, string, error) {
+	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
+	defer cancel()
+	ctx = bounded
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
 	if !validUUID(actor) || !validUUID(householdID) {
 		return nil, "", household.ErrNotFound
 	}
 	id, e := decodeInvitationCursor(cursor)
 	if e != nil {
 		return nil, "", e
-	}
-	dbCursor := id
-	if id != "" {
-		dbCursor = "n1" + base64.RawURLEncoding.EncodeToString([]byte(id))
 	}
 	if limit <= 0 {
 		limit = 50
@@ -206,7 +215,7 @@ func (s *InvitationService) ListInvitations(ctx context.Context, actor, househol
 			return x
 		}
 		var x error
-		out, _, x = tx.ListInvitations(ctx, householdID, dbCursor, limit+1)
+		out, _, x = tx.ListInvitations(ctx, householdID, id, limit+1)
 		return x
 	})
 	if e != nil {
@@ -224,6 +233,12 @@ func (s *InvitationService) ListInvitations(ctx context.Context, actor, househol
 	return out, next, nil
 }
 func (s *InvitationService) RevokeInvitation(ctx context.Context, actor, householdID, id string) error {
+	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
+	defer cancel()
+	ctx = bounded
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !validUUID(actor) || !validUUID(householdID) || !validUUID(id) {
 		return household.ErrNotFound
 	}
@@ -235,11 +250,11 @@ func (s *InvitationService) RevokeInvitation(ctx context.Context, actor, househo
 	})
 }
 func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, token, login, password string) (InvitationUser, error) {
+	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
+	defer cancel()
+	ctx = bounded
 	if !validInvitationToken(token) {
 		return InvitationUser{}, ErrInvalidInvitation
-	}
-	if err := validateCredentials(login, password); err != nil {
-		return InvitationUser{}, err
 	}
 	digest := digestInvitationToken(token)
 	now := invitationNow(s.clock)
@@ -253,12 +268,18 @@ func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, toke
 	if invitationStatus(inv, now) != "pending" {
 		return InvitationUser{}, ErrInvalidInvitation
 	}
+	if err := validateCredentials(login, password); err != nil {
+		return InvitationUser{}, err
+	}
 	hash, e := s.hashPassword(password)
 	if errors.Is(e, ErrPasswordWorkLimit) {
 		return InvitationUser{}, ErrPasswordWorkLimit
 	}
 	if e != nil {
 		return InvitationUser{}, e
+	}
+	if err := ctx.Err(); err != nil {
+		return InvitationUser{}, err
 	}
 	var result InvitationUser
 	e = s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {
@@ -300,6 +321,12 @@ func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, toke
 	return result, e
 }
 func (s *InvitationService) AcceptInvitationExistingAccount(ctx context.Context, userID, token string) (InvitationUser, error) {
+	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
+	defer cancel()
+	ctx = bounded
+	if err := ctx.Err(); err != nil {
+		return InvitationUser{}, err
+	}
 	if !validUUID(userID) || !validInvitationToken(token) {
 		return InvitationUser{}, ErrInvalidInvitation
 	}

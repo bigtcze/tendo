@@ -8,9 +8,16 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type memberLoginRepo struct{ db *pgxpool.Pool }
+
+func (r memberLoginRepo) LoginsByUserIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	return identitypostgres.New(r.db, nil).LoginsByUserIDs(ctx, ids)
+}
 
 func TestMembershipServiceAgainstPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -56,7 +63,7 @@ func TestMembershipServiceAgainstPostgres(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	svc := household.NewMembershipService(NewMembershipRepository(app))
+	svc := household.NewMembershipService(NewMembershipRepository(app), identitypostgres.New(app, nil))
 	cursor := ""
 	seen := map[string]bool{}
 	for page := 0; page < 2; page++ {
