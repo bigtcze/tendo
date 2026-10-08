@@ -1,0 +1,149 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AccountActions } from '../../app/AccountActions';
+import { Heading } from '../../app/Heading';
+import { Layout } from '../../app/Layout';
+import { NavLink } from '../../app/NavLink';
+import { Button } from '../../components/ui/button';
+import { useI18n, type MessageKey } from '../../i18n';
+import { getSubject } from '../subjects/subjectsApi';
+import { listCompletions, getItem, changeItem, type Completion, type Item, type Recurrence } from './itemsApi';
+
+const MAX_HISTORY_PAGES = 1000;
+function formatDate(value: string, locale: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+function pluralKey(unit: Recurrence['intervalUnit'], count: number, locale: string): MessageKey {
+  const category = new Intl.PluralRules(locale).select(count);
+  const supported: Record<string, readonly string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
+  return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
+}
+type LoadState = 'loading' | 'error' | 'gone' | 'ready';
+export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedOut }: { householdId: string; itemId: string; login: string; onBack: () => void; onSignedOut: () => void }) {
+  const { t, locale } = useI18n();
+  const [state, setState] = useState<LoadState>('loading');
+  const [item, setItem] = useState<Item | null>(null);
+  const [subjectName, setSubjectName] = useState('');
+  const [history, setHistory] = useState<Completion[]>([]);
+  const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [historyPartial, setHistoryPartial] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<MessageKey | null>(null);
+  const [undoArchive, setUndoArchive] = useState(false);
+  const active = useRef(false);
+  const generation = useRef(0);
+  const busyRef = useRef(false);
+  const focusRef = useRef<HTMLParagraphElement>(null);
+  const focusAfterMutation = useRef(false);
+
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
+  const current = (token: number) => active.current && generation.current === token;
+
+  const loadHistory = useCallback(async (token: number) => {
+    setHistoryState('loading'); setHistoryPartial(false);
+    const all: Completion[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
+      const result = await listCompletions(householdId, itemId, cursor);
+      if (!current(token)) return;
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind !== 'ok') { setHistoryState('error'); return; }
+      all.push(...result.completions);
+      if (!result.nextCursor) { setHistory(all.reverse()); setHistoryState('ready'); return; }
+      cursor = result.nextCursor;
+    }
+    setHistory(all.reverse()); setHistoryPartial(true); setHistoryState('ready');
+  }, [householdId, itemId, onSignedOut]);
+
+  const load = useCallback(async (token: number, preserveArchiveNotice = false) => {
+    if (!/^[0-9a-f-]{36}$/i.test(itemId)) { if (current(token)) setState('gone'); return; }
+    setState('loading'); setHistory([]); setHistoryState('loading');
+    if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); }
+    const result = await getItem(householdId, itemId);
+    if (!current(token)) return;
+    if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+    if (result.kind === 'notFound') { setState('gone'); return; }
+    if (result.kind !== 'ok') { setState('error'); return; }
+    setItem(result.item); setState('ready');
+    const subject = await getSubject(householdId, result.item.subjectId);
+    if (!current(token)) return;
+    if (subject.kind === 'unauthenticated') { onSignedOut(); return; }
+    setSubjectName(subject.kind === 'ok' ? subject.subject.name : t('items.subject.unknown'));
+    void loadHistory(token);
+  }, [householdId, itemId, loadHistory, onSignedOut, t]);
+
+  useEffect(() => {
+    const token = ++generation.current;
+    void Promise.resolve().then(() => load(token));
+    return () => { if (generation.current === token) generation.current = token + 1; };
+  }, [load, attempt]);
+  useEffect(() => { if (focusAfterMutation.current && notice) { focusRef.current?.focus(); focusAfterMutation.current = false; } }, [notice]);
+
+  async function mutate(body: { workflowState?: 'open' | 'in_progress' | 'waiting' | 'paused'; archived?: boolean }, archiveAction = false) {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    if (!(archiveAction && undoArchive)) setNotice(null);
+    const token = generation.current;
+    try {
+      const result = await changeItem(householdId, itemId, body);
+      if (!current(token)) return;
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind === 'notFound') { setState('gone'); return; }
+      if (result.kind === 'changed') {
+        const next = ++generation.current;
+        await load(next, archiveAction && undoArchive);
+        if (current(next)) { setNotice('itemDetail.changed'); focusAfterMutation.current = true; busyRef.current = false; setBusy(false); }
+        return;
+      }
+      if (result.kind === 'ok') {
+        setItem(result.item);
+        if (archiveAction) { setNotice(body.archived ? 'itemDetail.archivedNotice' : 'itemDetail.restored'); setUndoArchive(Boolean(body.archived)); }
+        else setNotice('itemDetail.updated');
+        focusAfterMutation.current = true;
+        return;
+      }
+      setNotice(result.kind === 'invalid' ? 'itemDetail.invalid' : 'itemDetail.actionFailed');
+      focusAfterMutation.current = true;
+    } finally {
+      if (current(token)) { busyRef.current = false; setBusy(false); }
+    }
+  }
+
+  const backLink = <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('subjects.backHome')}</NavLink>;
+  let status: MessageKey = 'items.group.needs';
+  if (item?.done) status = 'itemDetail.state.done';
+  else if (item?.workflowState === 'in_progress') status = 'itemDetail.state.progress';
+  else if (item?.workflowState === 'waiting') status = 'itemDetail.state.waiting';
+  else if (item?.workflowState === 'paused') status = 'itemDetail.state.paused';
+  else if (item?.attention === 'upcoming') status = 'items.group.upcoming';
+
+  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
+    {backLink}
+    {state === 'loading' ? <p role="status" className="mt-6 text-muted">{t('items.loading')}</p> : null}
+    {state === 'error' ? <div className="mt-6 space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" onClick={() => setAttempt((n) => n + 1)}>{t('app.error.retry')}</Button></div> : null}
+    {state === 'gone' ? <div className="mt-6 space-y-3"><Heading className="font-display text-3xl">{t('itemDetail.gone')}</Heading><p className="text-muted">{t('itemDetail.goneBody')}</p></div> : null}
+    {state === 'ready' && item ? <>
+      <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>
+      <p className="mt-2 text-muted">{subjectName}</p>
+      {item.archived ? <p className="mt-5 rounded-xl bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
+      {notice ? <div className="mt-4 rounded-xl bg-sand px-4 py-3"><p ref={focusRef} tabIndex={-1} role="status" aria-live="polite" className="outline-none">{t(notice)}</p>{undoArchive ? <Button type="button" variant="quiet" className="mt-1" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.undo')}</Button> : null}</div> : null}
+      <div className="mt-6 space-y-5 rounded-2xl border border-line bg-white/70 p-5 sm:p-7">
+        <p className="font-medium">{t(status)}</p>
+        {item.attentionOn ? <p className="text-muted">{t(item.attention === 'upcoming' ? 'itemDetail.nextAttention' : 'itemDetail.attentionDate', { date: formatDate(item.attentionOn, locale) })}</p> : null}
+        {item.lastCompletedOn ? <p className="text-muted">{t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) })}</p> : null}
+        {item.recurrence ? <div><p>{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p><p className="mt-1 text-sm text-muted">{t(item.recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed')}</p></div> : null}
+        {item.notes ? <div className="border-t border-line pt-4"><h2 className="text-sm font-medium text-muted">{t('items.notes')}</h2><p className="mt-2 whitespace-pre-wrap break-words">{item.notes}</p></div> : null}
+      </div>
+      {!item.done && !item.archived ? <div className="mt-5 flex flex-wrap gap-2">
+        {(item.workflowState === 'open' || item.workflowState === 'waiting') ? <Button type="button" disabled={busy} onClick={() => void mutate({ workflowState: 'in_progress' })}>{t(item.workflowState === 'waiting' ? 'itemDetail.resumeWork' : 'itemDetail.start')}</Button> : null}
+        {item.workflowState !== 'paused' ? <><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'waiting' })}>{t('itemDetail.waitingAction')}</Button><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'paused' })}>{t('itemDetail.pause')}</Button></> : <Button type="button" disabled={busy} onClick={() => void mutate({ workflowState: 'open' })}>{t('itemDetail.resume')}</Button>}
+      </div> : null}
+      {!item.archived ? <div className="mt-5 border-t border-line pt-4"><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ archived: true }, true)}>{t('subjects.archive')}</Button></div> : <Button type="button" variant="quiet" className="mt-5" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.restore')}</Button>}
+      <section className="mt-8 border-t border-line pt-6"><h2 className="font-display text-2xl">{t('itemDetail.history')}</h2>{historyState === 'loading' ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.historyLoading')}</p> : historyState === 'error' ? <div className="mt-3 space-y-2"><p className="text-sm text-muted">{t('itemDetail.historyError')}</p><Button type="button" variant="quiet" onClick={() => void loadHistory(generation.current)}>{t('app.error.retry')}</Button></div> : history.length ? <>{historyPartial ? <p className="mt-3 text-sm text-muted">{t('itemDetail.historyPartial')}</p> : null}<ol className="mt-3 space-y-2">{history.map((completion) => <li key={completion.id} className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted opacity-65' : ''}`}><p>{t(completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone', { date: formatDate(completion.completedOn, locale) })}</p>{completion.cycleAttentionOn ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}{completion.nextAttentionOn ? <p className="text-muted">{t('itemDetail.historyNext', { date: formatDate(completion.nextAttentionOn, locale) })}</p> : null}</li>)}</ol></> : <p className="mt-3 text-sm text-muted">{t('itemDetail.historyEmpty')}</p>}</section>
+    </> : null}
+  </section></Layout>;
+}

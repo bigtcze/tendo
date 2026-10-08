@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
+import { NavLink } from '../../app/NavLink';
 import { useI18n, type MessageKey } from '../../i18n';
 import { ItemForm } from './ItemForm';
 import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
@@ -34,11 +35,11 @@ function NoticeView({ notice, busy, onUndo, onRetry, onRetryFocus }: { notice: N
   </div>;
 }
 
-function ItemRow({ item, subjectName, locale, busy, onDone, rowRef }: { item: Item; subjectName: string; locale: string; busy: boolean; onDone: () => void; rowRef?: (node: HTMLLIElement | null) => void }) {
+function ItemRow({ item, subjectName, locale, busy, onDone, onOpenItem, rowRef }: { item: Item; subjectName: string; locale: string; busy: boolean; onDone: () => void; onOpenItem: (itemId: string) => void; rowRef?: (node: HTMLLIElement | null) => void }) {
   const { t } = useI18n();
   return <li ref={rowRef} data-item-id={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
     <div className="min-w-0 flex-1 basis-48">
-      <p className="break-words text-lg leading-snug">{item.title}</p>
+      <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id)} className="inline-flex min-h-11 min-w-0 max-w-full break-words text-left text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><span aria-hidden="true">{item.title}</span><span className="sr-only">{t('itemDetail.open', { title: item.title })}</span></NavLink>
       <p className="mt-1 text-sm text-muted">{subjectName}{item.attention === 'upcoming' && item.attentionOn ? ` · ${t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}` : ''}</p>
       {item.recurrence ? <p className="mt-1 text-sm text-muted">{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
     </div>
@@ -54,7 +55,7 @@ const groups: { key: MessageKey; matches: (item: Item) => boolean; quiet?: boole
   { key: 'items.group.paused', matches: (item) => item.workflowState === 'paused', quiet: true },
 ];
 
-export function ItemsScreen({ userId, householdId, onOpenPeople, onSignedOut }: { userId: string; householdId: string; onOpenPeople: () => void; onSignedOut: () => void }) {
+export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onSignedOut }: { userId: string; householdId: string; onOpenPeople: () => void; onOpenItem: (itemId: string) => void; onSignedOut: () => void }) {
   const { t, locale } = useI18n();
   const [items, setItems] = useState<Item[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -294,7 +295,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onSignedOut }: 
     {!loading ? groups.map((group) => {
       const grouped = items.filter(group.matches);
       if (!grouped.length) return null;
-      return <section key={group.key} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={sectionHeadingRef} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)}</h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{grouped.map((item) => <ItemRow key={item.id} item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item.id)} />)}</ul></section>;
+      return <section key={group.key} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={sectionHeadingRef} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)}</h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{grouped.map((item) => <ItemRow key={item.id} item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul></section>;
     }) : null}
     {cursor && !loading ? <Button type="button" variant="quiet" disabled={loadingMore} onClick={() => void showMore()}>{loadingMore ? t('items.moreLoading') : t('subjects.more')}</Button> : null}
   </div>;
