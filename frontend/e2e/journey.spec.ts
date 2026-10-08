@@ -414,7 +414,7 @@ test.describe('Tendo production journey', () => {
     return page.locator('section').filter({ has: page.getByRole('heading', { level: 2, name, exact: true }) });
   }
 
-  async function addItem(options: { title: string; subject: string; attentionOn?: string; repeat?: { value: string; unit: string; fluid: boolean } }) {
+  async function addItem(options: { title: string; subject: string; attentionOn?: string; historicalCompletedOn?: string; repeat?: { value: string; unit: string; fluid: boolean } }) {
     await page.getByRole('button', { name: en['items.add'], exact: true }).click();
     const form = page.getByRole('form', { name: en['items.add.formLabel'] });
     await expect(form.getByLabel(en['items.title'])).toBeFocused();
@@ -431,6 +431,10 @@ test.describe('Tendo production journey', () => {
       await form.getByRole('spinbutton').fill(options.repeat.value);
       await form.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption(options.repeat.unit);
       if (options.repeat.fluid) await fluid.check();
+      if (options.historicalCompletedOn) {
+        await form.getByRole('button', { name: en['items.historical.show'] }).click();
+        await form.getByLabel(en['items.historical.label']).fill(options.historicalCompletedOn);
+      }
     }
     await form.getByRole('button', { name: en['items.add.submit'] }).click();
     await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
@@ -667,6 +671,79 @@ test.describe('Tendo production journey', () => {
     expect(after[0]).toEqual(history[0]);
     expect(after[1]).toMatchObject({ cycleAttentionOn: next, nextAttentionOn: null, recurrence: null, completedOn: expectedCompletionDate });
     expect(await detailItem()).toMatchObject({ done: true });
+  });
+
+  test('n6. historical completion initializes recurring cycles, history, undo, and upcoming state', async () => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+    // Exercise the disclosure at the requested narrow width, then create using the same dates.
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const form = page.getByRole('form', { name: en['items.add.formLabel'] });
+      await form.getByLabel(en['items.title']).fill('Historical fixed monthly January');
+      await form.getByLabel(en['items.subject'], { exact: true }).selectOption({ label: 'Anička' });
+      await form.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await form.getByRole('spinbutton').fill('1');
+      await form.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption('month');
+      await form.getByRole('button', { name: en['items.historical.show'] }).click();
+      await expect(form.getByLabel(en['items.historical.label'])).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, '360px horizontal overflow with previous-completion disclosure open').toBeLessThanOrEqual(0);
+      await form.getByRole('button', { name: en['items.cancel'] }).click();
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+
+    const fixedTitle = 'Historical fixed monthly January';
+    await addItem({ title: fixedTitle, subject: 'Anička', historicalCompletedOn: '2025-10-31', repeat: { value: '1', unit: 'month', fluid: false } });
+    const fixed = await serverItem(fixedTitle);
+    expect(fixed).toMatchObject({ attentionOn: '2025-11-30', lastCompletedOn: '2025-10-31', attention: 'needs_attention', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' } });
+    expect(await serverCompletions(fixed.id)).toHaveLength(1);
+    expect(await serverCompletions(fixed.id)).toMatchObject([{ completedOn: '2025-10-31', cycleAttentionOn: null, nextAttentionOn: '2025-11-30', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' }, undoneAt: null }]);
+    await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: fixedTitle })).toBeVisible();
+
+    await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', fixedTitle) }).click();
+    await expect(page.getByRole('heading', { level: 1, name: fixedTitle })).toBeVisible();
+    const dateLabel = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+    await expect(page.getByText(en['itemDetail.lastDone'].replace('{date}', dateLabel('2025-10-31')))).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1, name: fixedTitle })).toBeVisible();
+    await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
+    await expect(page.locator('ol').getByRole('listitem')).toContainText(en['itemDetail.historyDone'].replace('{date}', dateLabel('2025-10-31')));
+
+    await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await row(fixedTitle).getByRole('button', { name: en['items.done'] }).click();
+    await expect.poll(async () => (await serverCompletions(fixed.id)).length).toBe(2);
+    expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: '2026-01-30', lastCompletedOn: expectedCompletionDate });
+    await page.getByRole('button', { name: en['items.undo'] }).click();
+    await expect.poll(async () => (await serverItem(fixedTitle)).attentionOn).toBe('2025-11-30');
+    expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: '2025-11-30', lastCompletedOn: '2025-10-31' });
+
+    const fluidTitle = 'Historical fluid monthly February';
+    await addItem({ title: fluidTitle, subject: 'Anička', historicalCompletedOn: '2025-10-31', repeat: { value: '1', unit: 'month', fluid: true } });
+    const fluid = await serverItem(fluidTitle);
+    expect(fluid).toMatchObject({ attentionOn: '2025-11-30', lastCompletedOn: '2025-10-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'after_completion' } });
+    expect(await serverCompletions(fluid.id)).toHaveLength(1);
+    await row(fluidTitle).getByRole('button', { name: en['items.done'] }).click();
+    await expect.poll(async () => (await serverCompletions(fluid.id)).length).toBe(2);
+    expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: '2026-02-15', lastCompletedOn: expectedCompletionDate });
+
+    const upcomingTitle = 'Historical upcoming monthly February';
+    await addItem({ title: upcomingTitle, subject: 'Anička', historicalCompletedOn: '2025-12-31', repeat: { value: '1', unit: 'month', fluid: false } });
+    const upcoming = await serverItem(upcomingTitle);
+    expect(upcoming).toMatchObject({ attentionOn: '2026-01-31', lastCompletedOn: '2025-12-31', attention: 'upcoming' });
+    const upcomingRow = group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: upcomingTitle });
+    await expect(upcomingRow).toBeVisible();
+    await expect(upcomingRow).toContainText('Jan 31, 2026');
+
+    const ordinaryTitle = 'Ordinary repeating no history';
+    await addItem({ title: ordinaryTitle, subject: 'Anička', repeat: { value: '1', unit: 'month', fluid: false } });
+    const ordinary = await serverItem(ordinaryTitle);
+    expect(ordinary).toMatchObject({ lastCompletedOn: null, attentionOn: null });
+    expect(await serverCompletions(ordinary.id)).toEqual([]);
   });
 
   test('o. sign out returns to login and revokes the session server-side', async () => {

@@ -29,6 +29,9 @@ const (
 
 // Defines values for ItemValidationProblemCode.
 const (
+	ItemValidationProblemCodeConflictingFields    ItemValidationProblemCode = "conflicting_fields"
+	ItemValidationProblemCodeDateOverflow         ItemValidationProblemCode = "date_overflow"
+	ItemValidationProblemCodeFutureDate           ItemValidationProblemCode = "future_date"
 	ItemValidationProblemCodeInvalidCharacters    ItemValidationProblemCode = "invalid_characters"
 	ItemValidationProblemCodeInvalidDate          ItemValidationProblemCode = "invalid_date"
 	ItemValidationProblemCodeInvalidInterval      ItemValidationProblemCode = "invalid_interval"
@@ -37,16 +40,18 @@ const (
 	ItemValidationProblemCodeInvalidMode          ItemValidationProblemCode = "invalid_mode"
 	ItemValidationProblemCodeInvalidReference     ItemValidationProblemCode = "invalid_reference"
 	ItemValidationProblemCodeInvalidWorkflowState ItemValidationProblemCode = "invalid_workflow_state"
+	ItemValidationProblemCodeRequiresRecurrence   ItemValidationProblemCode = "requires_recurrence"
 )
 
 // Defines values for ItemValidationProblemField.
 const (
-	ItemValidationProblemFieldAttentionOn   ItemValidationProblemField = "attentionOn"
-	ItemValidationProblemFieldNotes         ItemValidationProblemField = "notes"
-	ItemValidationProblemFieldRecurrence    ItemValidationProblemField = "recurrence"
-	ItemValidationProblemFieldSubjectId     ItemValidationProblemField = "subjectId"
-	ItemValidationProblemFieldTitle         ItemValidationProblemField = "title"
-	ItemValidationProblemFieldWorkflowState ItemValidationProblemField = "workflowState"
+	ItemValidationProblemFieldAttentionOn           ItemValidationProblemField = "attentionOn"
+	ItemValidationProblemFieldHistoricalCompletedOn ItemValidationProblemField = "historicalCompletedOn"
+	ItemValidationProblemFieldNotes                 ItemValidationProblemField = "notes"
+	ItemValidationProblemFieldRecurrence            ItemValidationProblemField = "recurrence"
+	ItemValidationProblemFieldSubjectId             ItemValidationProblemField = "subjectId"
+	ItemValidationProblemFieldTitle                 ItemValidationProblemField = "title"
+	ItemValidationProblemFieldWorkflowState         ItemValidationProblemField = "workflowState"
 )
 
 // Defines values for QueryProblemParameter.
@@ -157,13 +162,16 @@ type CreateCompletionRequest struct {
 
 // CreateItemRequest defines model for CreateItemRequest.
 type CreateItemRequest struct {
-	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422.
+	// AttentionOn Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately unless historicalCompletedOn supplies the first attention date. Past dates are allowed. Invalid values are rejected with 422.
 	AttentionOn **string `json:"attentionOn,omitempty"`
+
+	// HistoricalCompletedOn Optional known historical business date written YYYY-MM-DD and a real calendar date. Requires enabled recurrence, conflicts with non-null attentionOn, cannot be after household-local today, and initializes the first next attention date. Invalid values are rejected with 422.
+	HistoricalCompletedOn **string `json:"historicalCompletedOn,omitempty"`
 
 	// Notes Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear.
 	Notes **string `json:"notes,omitempty"`
 
-	// Recurrence Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn.
+	// Recurrence Omitted or null means one-off. Recurrence only affects the next completion except explicit historical initialization.
 	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
 
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.

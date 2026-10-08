@@ -137,6 +137,9 @@ func (r *Repository) Create(ctx context.Context, householdID string, d item.Draf
 		params.RecurrenceIntervalUnit = pgtype.Text{String: string(d.Recurrence.Interval.Unit), Valid: true}
 		params.RecurrenceMode = pgtype.Text{String: string(d.Recurrence.Mode), Valid: true}
 	}
+	if d.InitializationReceipt != nil {
+		return r.createInitialized(ctx, hid, d, params)
+	}
 	created, err := r.queries.CreateItem(ctx, params)
 	if isForeignKey(err) {
 		// The subject is not in this household, or a household/subject was
@@ -147,6 +150,46 @@ func (r *Repository) Create(ctx context.Context, householdID string, d item.Draf
 		return item.Item{}, errPersistence
 	}
 	return toItem(row{ID: created.ID, HouseholdID: created.HouseholdID, SubjectID: created.SubjectID, Title: created.Title, Notes: created.Notes, AttentionOn: created.AttentionOn, RecurrenceIntervalValue: created.RecurrenceIntervalValue, RecurrenceIntervalUnit: created.RecurrenceIntervalUnit, RecurrenceMode: created.RecurrenceMode, WorkflowState: created.WorkflowState, Archived: created.Archived, Done: created.Done, LastCompletedOn: created.LastCompletedOn, CreatedAt: created.CreatedAt, UpdatedAt: created.UpdatedAt, Version: created.Version})
+}
+
+func (r *Repository) createInitialized(ctx context.Context, hid pgtype.UUID, d item.Draft, params dbgen.CreateItemParams) (item.Item, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return item.Item{}, errPersistence
+	}
+	defer tx.Rollback(ctx)
+	q := dbgen.New(tx)
+	created, err := q.InsertInitializedItem(ctx, dbgen.InsertInitializedItemParams{HouseholdID: params.HouseholdID, SubjectID: params.SubjectID, Title: params.Title, Notes: params.Notes, RecurrenceIntervalValue: params.RecurrenceIntervalValue, RecurrenceIntervalUnit: params.RecurrenceIntervalUnit, RecurrenceMode: params.RecurrenceMode})
+	if err != nil {
+		if isForeignKey(err) {
+			return item.Item{}, item.ErrInvalidReference
+		}
+		return item.Item{}, errPersistence
+	}
+	receipt := *d.InitializationReceipt
+	stored, err := q.InsertInitializationCompletion(ctx, dbgen.InsertInitializationCompletionParams{HouseholdID: hid, ItemID: uuid(created.ID), CompletedOn: date(&receipt.CompletedOn), CompletedByUserID: uuid(receipt.CompletedByUserID), RecurrenceIntervalValue: pgtype.Int4{Int32: int32(receipt.Recurrence.Interval.Value), Valid: true}, RecurrenceIntervalUnit: pgtype.Text{String: string(receipt.Recurrence.Interval.Unit), Valid: true}, RecurrenceMode: pgtype.Text{String: string(receipt.Recurrence.Mode), Valid: true}, NextAttentionOn: date(receipt.NextAttentionOn), RequestFingerprint: receipt.Fingerprint[:]})
+	if err != nil {
+		return item.Item{}, errPersistence
+	}
+	if completeAfterInsertHook != nil {
+		if err = completeAfterInsertHook(); err != nil {
+			return item.Item{}, errPersistence
+		}
+	}
+	if err = q.UpdateItemForCompletion(ctx, dbgen.UpdateItemForCompletionParams{HouseholdID: hid, ID: uuid(created.ID), AttentionOn: date(receipt.NextAttentionOn), WorkflowState: string(item.StateOpen), Done: false}); err != nil {
+		return item.Item{}, errPersistence
+	}
+	if _, err = completionFromInitializationRow(stored); err != nil {
+		return item.Item{}, errPersistence
+	}
+	final, err := q.GetItem(ctx, dbgen.GetItemParams{HouseholdID: hid, ID: uuid(created.ID)})
+	if err != nil {
+		return item.Item{}, errPersistence
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return item.Item{}, errPersistence
+	}
+	return toItem(row{ID: final.ID, HouseholdID: final.HouseholdID, SubjectID: final.SubjectID, Title: final.Title, Notes: final.Notes, AttentionOn: final.AttentionOn, RecurrenceIntervalValue: final.RecurrenceIntervalValue, RecurrenceIntervalUnit: final.RecurrenceIntervalUnit, RecurrenceMode: final.RecurrenceMode, WorkflowState: final.WorkflowState, Archived: final.Archived, Done: final.Done, LastCompletedOn: final.LastCompletedOn, CreatedAt: final.CreatedAt, UpdatedAt: final.UpdatedAt, Version: final.Version})
 }
 
 func (r *Repository) Get(ctx context.Context, householdID, itemID string) (item.Item, error) {

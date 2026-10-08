@@ -5,7 +5,7 @@ import { Label } from '../../components/ui/label';
 import { useI18n, type MessageKey } from '../../i18n';
 import type { Invalid, Recurrence, Subject } from './itemsApi';
 
-export type ItemFormValues = { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null };
+export type ItemFormValues = { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null; historicalCompletedOn?: string };
 type Values = ItemFormValues;
 type Outcome = { kind: 'done' | 'handled' | 'failed' } | Invalid;
 type FormError = Invalid | { kind: 'empty' } | { kind: 'failed' };
@@ -18,7 +18,14 @@ function errorMessage(error: FormError | null, t: (key: MessageKey) => string): 
   if (error.field === 'title') return error.code === 'invalid_length' ? t('items.error.titleLength') : t('items.error.titleInvalid');
   if (error.field === 'subjectId') return t('items.error.subject');
   if (error.field === 'attentionOn') return t('items.error.date');
+  if (error.field === 'historicalCompletedOn') {
+    if (error.code === 'future_date') return t('items.error.historicalFuture');
+    if (error.code === 'conflicting_fields') return t('items.error.historicalConflict');
+    if (error.code === 'requires_recurrence') return t('items.error.historicalRecurrence');
+    return t('items.error.historicalDate');
+  }
   if (error.field === 'notes') return t('items.error.notes');
+  if (error.field === 'recurrence' && error.code === 'date_overflow') return t('items.error.dateOverflow');
   return t('items.error.interval');
 }
 
@@ -27,12 +34,15 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
+  const historicalCompletedOnRef = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [subjectId, setSubjectId] = useState(initialValues?.subjectId ?? subjects[0]?.id ?? '');
   const [attentionOn, setAttentionOn] = useState(initialValues?.attentionOn ?? '');
   const [notes, setNotes] = useState(initialValues?.notes ?? '');
   const [notesOpen, setNotesOpen] = useState(Boolean(initialValues?.notes));
+  const [historicalOpen, setHistoricalOpen] = useState(false);
+  const [historicalCompletedOn, setHistoricalCompletedOn] = useState('');
   const [repeat, setRepeat] = useState(Boolean(initialValues?.recurrence));
   const [fluid, setFluid] = useState(initialValues?.recurrence?.mode === 'after_completion');
   const [interval, setInterval] = useState(String(initialValues?.recurrence?.intervalValue ?? 1));
@@ -47,12 +57,14 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
     setError(next);
     const target = 'field' in next ? next.field : next.kind === 'empty' ? 'title' : null;
     if (target === 'notes') setNotesOpen(true);
+    if (target === 'historicalCompletedOn') setHistoricalOpen(true);
     setTimeout(() => {
       if (target === 'title') titleRef.current?.focus();
       if (target === 'subjectId') document.getElementById(`${id}-subject`)?.focus();
       if (target === 'attentionOn') document.getElementById(`${id}-date`)?.focus();
       if (target === 'recurrence') document.getElementById(`${id}-interval`)?.focus();
       if (target === 'notes') notesRef.current?.focus();
+      if (target === 'historicalCompletedOn') historicalCompletedOnRef.current?.focus();
     }, 0);
   }
 
@@ -67,7 +79,7 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
     setError(null);
     let result: Outcome;
     try {
-      result = await onSubmit({ title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' : 'fixed' } : null });
+      result = await onSubmit({ title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' : 'fixed' } : null, ...(mode === 'add' && repeat && historicalCompletedOn ? { historicalCompletedOn } : {}) });
     } catch { result = { kind: 'failed' }; }
     submitting.current = false;
     setPending(false);
@@ -87,6 +99,14 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
       </div></fieldset>
       <label className="flex min-h-11 items-center gap-3"><input disabled={pending || (mode === 'edit' && busy)} type="checkbox" role="switch" checked={fluid} onChange={(event) => setFluid(event.target.checked)} className="size-5 accent-accent" />{t('items.fluid')}</label>
       <p className="text-sm text-muted">{t(fluid ? 'items.fluid.on' : 'items.fluid.off')}</p>
+      {mode === 'add' ? <div className="border-t border-line/70 pt-2">
+        <Button type="button" variant="quiet" size="small" disabled={pending} aria-expanded={historicalOpen} onClick={() => setHistoricalOpen((open) => !open)}>{t(historicalOpen ? 'items.historical.hide' : 'items.historical.show')}</Button>
+        {historicalOpen ? <div className="mt-2 space-y-2">
+          <Label htmlFor={`${id}-historical`}>{t('items.historical.label')}</Label>
+          <Input disabled={pending} ref={historicalCompletedOnRef} id={`${id}-historical`} type="date" lang={locale} value={historicalCompletedOn} onChange={(event) => setHistoricalCompletedOn(event.target.value)} aria-invalid={field === 'historicalCompletedOn'} aria-describedby={field === 'historicalCompletedOn' ? errorId : undefined} />
+          <p className="text-sm text-muted">{t('items.historical.hint')}</p>
+        </div> : null}
+      </div> : null}
     </div> : null}
     <div>
       <Button type="button" variant="quiet" size="small" disabled={pending || (mode === 'edit' && busy)} aria-expanded={notesOpen} onClick={() => setNotesOpen((open) => !open)}>{t(notesOpen ? 'items.notes.hide' : 'items.notes.show')}</Button>

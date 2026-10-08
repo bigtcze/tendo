@@ -6,7 +6,7 @@ Items keep household obligations in view without needing an exact date. From Hom
 
 Turn on **Repeat** and choose an interval. With **Count the next repeat from when I complete this** off, the planned dates stay on their cadence even if you finish late. For example, a yearly item planned for 1 September 2026 and completed on 20 September has its next date on 1 September 2027.
 
-Turn that second switch on to count from the day you finish instead. In the same example, finishing on 20 September 2026 makes the next date 20 September 2027. Repeat is off by default, so an ordinary one-off item needs no recurrence settings.
+Turn that second switch on to count from the day you finish instead. In the same example, finishing on 20 September 2026 makes the next date 20 September 2027. Repeat is off by default, so an ordinary one-off item needs no recurrence settings. When adding a repeating item, you can open **Add a previous completion** and enter a past date you know. Tendo uses that date to set the first attention date; it does not guess one. This is only available when adding an item, not when editing it.
 
 ## Mark done and undo
 

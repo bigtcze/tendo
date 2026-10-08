@@ -112,11 +112,12 @@ func Null[T any]() Nullable[T] { return Nullable[T]{Set: true} }
 
 // NewItem is the unvalidated create input.
 type NewItem struct {
-	SubjectID   string
-	Title       string
-	Notes       *string
-	AttentionOn *string
-	Recurrence  *schedule.Policy
+	SubjectID             string
+	Title                 string
+	Notes                 *string
+	AttentionOn           *string
+	HistoricalCompletedOn *string
+	Recurrence            *schedule.Policy
 }
 
 // Patch is the unvalidated partial update input. Unset fields are unchanged;
@@ -137,11 +138,12 @@ func (p Patch) empty() bool {
 
 // Draft is a validated new item handed to the repository.
 type Draft struct {
-	SubjectID   string
-	Title       string
-	Notes       *string
-	AttentionOn *schedule.Date
-	Recurrence  *schedule.Policy
+	SubjectID             string
+	Title                 string
+	Notes                 *string
+	AttentionOn           *schedule.Date
+	Recurrence            *schedule.Policy
+	InitializationReceipt *Completion
 }
 
 // Change is a validated patch handed to the repository.
@@ -295,13 +297,46 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 		}
 		attentionOn = &d
 	}
+	var historicalDate *schedule.Date
+	if n.HistoricalCompletedOn != nil {
+		d, err := ParseDateForField(*n.HistoricalCompletedOn, "historicalCompletedOn")
+		if err != nil {
+			return Item{}, err
+		}
+		historicalDate = &d
+	}
+	if n.HistoricalCompletedOn != nil {
+		d := *historicalDate
+		if n.Recurrence == nil || !n.Recurrence.Enabled {
+			return Item{}, &ValidationError{"historicalCompletedOn", "requires_recurrence"}
+		}
+		if attentionOn != nil {
+			return Item{}, &ValidationError{"historicalCompletedOn", "conflicting_fields"}
+		}
+		if d.Compare(today) > 0 {
+			return Item{}, &ValidationError{"historicalCompletedOn", "future_date"}
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	var receipt *Completion
+	if historicalDate != nil {
+		next, nextErr := schedule.NextCycle(nil, *historicalDate, *n.Recurrence)
+		if errors.Is(nextErr, schedule.ErrDateOverflow) {
+			return Item{}, &ValidationError{"recurrence", "date_overflow"}
+		}
+		if nextErr != nil {
+			return Item{}, ErrUnavailable
+		}
+		attentionOn = next
+		fingerprint := CompletionFingerprint(userID, n.HistoricalCompletedOn)
+		receipt = &Completion{CompletedOn: *historicalDate, CompletedByUserID: userID, Recurrence: n.Recurrence, PriorWorkflowState: StateOpen, NextAttentionOn: next, ItemVersionBefore: 1, Fingerprint: fingerprint}
+	}
 	subjectID, err := s.checkSubject(ctx, userID, householdID, n.SubjectID)
 	if err != nil {
 		return Item{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence})
+	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence, InitializationReceipt: receipt})
 	if err != nil {
 		return Item{}, mapRepoErr(err)
 	}
@@ -511,8 +546,10 @@ func ValidateNotes(notes string) error {
 }
 
 // ParseDate accepts only a real calendar date written exactly YYYY-MM-DD.
-func ParseDate(s string) (schedule.Date, error) {
-	invalid := &ValidationError{"attentionOn", "invalid_date"}
+func ParseDate(s string) (schedule.Date, error) { return ParseDateForField(s, "attentionOn") }
+
+func ParseDateForField(s, field string) (schedule.Date, error) {
+	invalid := &ValidationError{field, "invalid_date"}
 	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
 		return schedule.Date{}, invalid
 	}

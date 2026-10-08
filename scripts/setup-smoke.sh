@@ -14,6 +14,8 @@ TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
 compose=(docker compose --project-name "$project" -f "$root/compose.yaml")
 fixtures=$(mktemp)
+session_fixtures=$(mktemp)
+item_fixtures=$(mktemp)
 cleanup() {
   local result=$?
   trap - EXIT
@@ -21,7 +23,7 @@ cleanup() {
     printf 'Compose cleanup failed\n' >&2
     ((result != 0)) || result=1
   fi
-  if ! rm -f "$fixtures"; then
+  if ! rm -f "$fixtures" "$session_fixtures" "$item_fixtures"; then
     printf 'API fixture cleanup failed\n' >&2
     ((result != 0)) || result=1
   fi
@@ -42,6 +44,7 @@ origin=os.environ['SETUP_SMOKE_ORIGIN']
 token=os.environ['TENDO_SETUP_TOKEN']
 path=os.environ['SETUP_SMOKE_FIXTURES']
 fixtures=[]
+item_fixtures=[]
 def req(method,url,body=None,headers=None):
  h={'Content-Type':'application/json',**(headers or {})}
  data=body if isinstance(body,bytes) else json.dumps(body,ensure_ascii=False).encode() if body is not None else None
@@ -74,12 +77,12 @@ with open(path,'w',encoding='utf-8') as f:json.dump(fixtures,f,ensure_ascii=Fals
 PY
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 "${compose[@]}" exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
-session_fixtures=$(mktemp)
 psql_command="${compose[*]} exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -At"
-SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$session_fixtures" SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
+SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$session_fixtures" SETUP_SMOKE_ITEM_FIXTURES="$item_fixtures" SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
 import base64,hashlib,json,os,shlex,subprocess,urllib.request,urllib.error
 origin=os.environ['SETUP_SMOKE_ORIGIN']
 fixtures=[]
+item_fixtures=[]
 class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,*a,**k): return None
 opener=urllib.request.build_opener(NoRedirect)
@@ -233,6 +236,7 @@ assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")==
 # Item API smoke: persistence, derived attention, ETags, archive, and boundaries.
 ICOLL='/api/v1/households/{householdId}/items'
 IITEM='/api/v1/households/{householdId}/items/{itemId}'
+CITEM='/api/v1/households/{householdId}/items/{itemId}/completions'
 def ireq(method,url,template,body=None,headers=None,record=True):
  h={**(headers or {})};data=None
  if body is not None:h['Content-Type']='application/json';data=json.dumps(body,ensure_ascii=False).encode()
@@ -241,7 +245,7 @@ def ireq(method,url,template,body=None,headers=None,record=True):
   with opener.open(r,timeout=8) as x:status,hs,raw=x.status,x.headers,x.read()
  except urllib.error.HTTPError as e:status,hs,raw=e.code,e.headers,e.read()
  result=json.loads(raw) if raw else None
- if record:fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
+ if record:item_fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
  return status,hs,result
 ibase=f'/api/v1/households/{household}/items'
 status,h,immediate=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění 🚗  ','subjectId':person['id'],'notes':'Poznámka 家族'},mut)
@@ -280,8 +284,17 @@ assert active_by_id[fixed['id']]['recurrence']==fixed['recurrence'] and active_b
 assert active_by_id[fluid['id']]['recurrence']==fluid['recurrence'] and active_by_id[fluid['id']]['attentionOn']==fluid['attentionOn'],('fluid list recurrence/attention',active_by_id[fluid['id']])
 status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},mut);assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
+# Historical create, history and a validation problem are captured against the OpenAPI schemas.
+historical_policy={'intervalValue':1,'intervalUnit':'month','mode':'fixed'}
+status,h,historical=ireq('POST',ibase,ICOLL,{'title':'Smoke historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31','recurrence':historical_policy},mut)
+assert status==201 and h['ETag']=='"2"' and historical['attentionOn']=='2025-11-30' and historical['lastCompletedOn']=='2025-10-31',('historical item create',status,h,historical)
+historical_completions=f'{ibase}/{historical["id"]}/completions'
+status,h,historical_history=ireq('GET',historical_completions,'/api/v1/households/{householdId}/items/{itemId}/completions',headers=cookie_header)
+assert status==200 and len(historical_history['items'])==1 and historical_history['items'][0]['completedOn']=='2025-10-31' and historical_history['items'][0]['cycleAttentionOn'] is None and historical_history['items'][0]['nextAttentionOn']=='2025-11-30',('historical receipt history',status,historical_history)
+status,h,historical_invalid=ireq('POST',ibase,ICOLL,{'title':'Smoke invalid historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31'},mut)
+assert status==422 and historical_invalid['field']=='historicalCompletedOn' and historical_invalid['code']=='requires_recurrence',('historical validation',status,historical_invalid)
+
 # Completion vertical slice: fixed/fluid cadence, one-off lifecycle and receipt idempotency.
-CITEM='/api/v1/households/{householdId}/items/{itemId}/completions'
 cpath=lambda x:ibase+'/'+x+'/completions'
 fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},mut)[2]
 status,_,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
@@ -318,7 +331,7 @@ status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items/{oneoff["id"]}/compl
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)
 status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign origin items',status,b)
-assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '7' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
+assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '8' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
@@ -337,8 +350,11 @@ stale=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert stale[0]=='tendo_session=' and 'max-age=0' in stale and 'httponly' in stale and 'samesite=lax' in stale and 'path=/' in stale,stale
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{__import__('hashlib').sha256(new_token.encode()).hexdigest()}','hex')")== '1','new session row should remain'
 with open(os.environ['SETUP_SMOKE_FIXTURES'],'w',encoding='utf-8') as f:json.dump(fixtures,f)
+with open(os.environ['SETUP_SMOKE_ITEM_FIXTURES'],'w',encoding='utf-8') as f:json.dump(item_fixtures,f)
 PY
 API_RESPONSE_FIXTURES="$session_fixtures" node "$root/api/check-health.mjs"
+API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
+API_RESPONSE_FIXTURES="$item_fixtures" node "$root/api/check-health.mjs"
 rm -f "$session_fixtures"
 "${compose[@]}" restart app >/dev/null
 persisted=0

@@ -33,6 +33,36 @@ async function checkSetupResponse({ status = 201, headers = {}, body = '{"requir
   }
 }
 
+test('item create schema accepts omission and a historical date but rejects null', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const Ajv2020 = (await import('ajv/dist/2020.js')).default
+  const addFormats = (await import('ajv-formats')).default
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const ajv = new Ajv2020({ strict: false })
+  addFormats(ajv)
+  for (const [name, schema] of Object.entries(contract.components.schemas)) ajv.addSchema(schema, `#/components/schemas/${name}`)
+  const schema = contract.components.schemas.CreateItemRequest
+  const validate = ajv.compile(schema)
+  const base = { title: 'A valid item', subjectId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70' }
+  assert.equal(validate(base), true)
+  assert.equal(validate({ ...base, historicalCompletedOn: '2025-10-31' }), true)
+  assert.equal(validate({ ...base, historicalCompletedOn: null }), false)
+})
+
+test('historically initialized item-create response is checked against OpenAPI', async () => {
+  const fixturePath = await mkdtemp(join(tmpdir(), 'tendo-api-item-')).then(directory => join(directory, 'responses.json'))
+  const household = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'
+  const id = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80'
+  const fixture = { path: '/api/v1/households/{householdId}/items', method: 'post', status: 201, headers: { 'content-type': 'application/json', 'x-request-id': 'contract-check', 'cache-control': 'no-store', etag: '"2"', location: `/api/v1/households/${household}/items/${id}` }, body: { id, subjectId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70', title: 'Replace water filter', notes: null, attentionOn: '2027-04-06', recurrence: { intervalValue: 6, intervalUnit: 'month', mode: 'fixed' }, workflowState: 'open', attention: 'upcoming', archived: false, done: false, lastCompletedOn: '2026-10-06', createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' } }
+  await writeFile(fixturePath, JSON.stringify([fixture]))
+  const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+  let stderr = ''
+  child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+  try { const [code] = await once(child, 'close'); assert.equal(code, 0, stderr) }
+  finally { await rm(join(fixturePath, '..'), { recursive: true, force: true }) }
+})
+
 test('setup live validator accepts its documented creation response', async () => {
   const result = await checkSetupResponse({ status: 201, headers: { 'content-type': 'application/json', 'x-request-id': 'contract-check', 'cache-control': 'no-store', location: '/api/v1/auth/setup' }, body: '{"required":false}' })
   assert.equal(result.code, 0, result.stderr)

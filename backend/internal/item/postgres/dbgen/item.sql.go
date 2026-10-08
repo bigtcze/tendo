@@ -134,6 +134,73 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 	return i, err
 }
 
+const insertInitializedItem = `-- name: InsertInitializedItem :one
+INSERT INTO items (household_id, subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version)
+VALUES ($1, $2, $3, $4::text, NULL, $5::integer, $6::text, $7::text, 1)
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, NULL::date AS last_completed_on, created_at, updated_at, version
+`
+
+type InsertInitializedItemParams struct {
+	HouseholdID             pgtype.UUID
+	SubjectID               pgtype.UUID
+	Title                   string
+	Notes                   pgtype.Text
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+}
+
+type InsertInitializedItemRow struct {
+	ID                      string
+	HouseholdID             string
+	SubjectID               string
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           string
+	Archived                bool
+	Done                    bool
+	LastCompletedOn         pgtype.Date
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
+}
+
+func (q *Queries) InsertInitializedItem(ctx context.Context, arg InsertInitializedItemParams) (InsertInitializedItemRow, error) {
+	row := q.db.QueryRow(ctx, insertInitializedItem,
+		arg.HouseholdID,
+		arg.SubjectID,
+		arg.Title,
+		arg.Notes,
+		arg.RecurrenceIntervalValue,
+		arg.RecurrenceIntervalUnit,
+		arg.RecurrenceMode,
+	)
+	var i InsertInitializedItemRow
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.SubjectID,
+		&i.Title,
+		&i.Notes,
+		&i.AttentionOn,
+		&i.RecurrenceIntervalValue,
+		&i.RecurrenceIntervalUnit,
+		&i.RecurrenceMode,
+		&i.WorkflowState,
+		&i.Archived,
+		&i.Done,
+		&i.LastCompletedOn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const listItems = `-- name: ListItems :many
 SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items

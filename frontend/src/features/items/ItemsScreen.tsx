@@ -160,11 +160,11 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   }
   function endMutation() { mutationBusy.current = false; setBusy(false); }
 
-  async function create(values: { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null }) {
+  async function create(values: { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null; historicalCompletedOn?: string }) {
     if (!beginMutation()) return { kind: 'handled' as const };
     const hadFocus = document.activeElement === addRef.current;
     try {
-      const result = await createItem(householdId, { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence });
+      const result = await createItem(householdId, { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence, ...(values.recurrence && values.historicalCompletedOn ? { historicalCompletedOn: values.historicalCompletedOn } : {}) });
       if (result.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
       if (result.kind === 'invalid') return result;
       if (result.kind !== 'ok') return { kind: 'failed' as const };
