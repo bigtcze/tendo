@@ -15,9 +15,10 @@ type Editing = { etag: string; baseline: Item; conflict: boolean; latest?: Item;
 function recurrenceEqual(a: Recurrence | null, b: Recurrence | null) {
   return a === null || b === null ? a === b : a.intervalValue === b.intervalValue && a.intervalUnit === b.intervalUnit && a.mode === b.mode;
 }
+function normalizeNotes(value: string | null | undefined): string | null { return value?.trim() ? value : null; }
 function sameValue(field: keyof ItemFormValues, a: ItemFormValues[keyof ItemFormValues], b: ItemFormValues[keyof ItemFormValues]) {
   if (field === 'recurrence') return recurrenceEqual(a as Recurrence | null, b as Recurrence | null);
-  if (field === 'notes') return ((a as string).trim() || null) === ((b as string).trim() || null);
+  if (field === 'notes') return normalizeNotes(a as string) === normalizeNotes(b as string);
   return a === b;
 }
 function formValues(item: Item): ItemFormValues { return { title: item.title, subjectId: item.subjectId, attentionOn: item.attentionOn ?? '', notes: item.notes ?? '', recurrence: item.recurrence }; }
@@ -152,7 +153,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
       ...(values.title !== original.title ? { title: values.title } : {}),
       ...(values.subjectId !== original.subjectId ? { subjectId: values.subjectId } : {}),
       ...(values.attentionOn !== (original.attentionOn ?? '') ? { attentionOn: values.attentionOn || null } : {}),
-      ...((values.notes.trim() ? values.notes : null) !== (original.notes?.trim() ? original.notes : null) ? { notes: values.notes.trim() ? values.notes : null } : {}),
+      ...(normalizeNotes(values.notes) !== normalizeNotes(original.notes) ? { notes: normalizeNotes(values.notes) } : {}),
       ...(!recurrenceEqual(recurrence, original.recurrence) ? { recurrence } : {}),
     };
     if (!Object.keys(body).length) { returnEditFocus.current = true; setEditing(null); return { kind: 'done' as const }; }
@@ -176,6 +177,9 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
           const latestSubject = await getSubject(householdId, latest.item.subjectId);
           if (!current(token)) return { kind: 'handled' as const };
           if (latestSubject.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
+          const cachedSubject = editSubjects.find((subject) => subject.id === latest.item.subjectId);
+          const safeSubjectName = cachedSubject?.name ?? t('items.subject.unknown');
+          setSubjectName(safeSubjectName); setSubjectOverride(safeSubjectName);
           if (latestSubject.kind === 'ok') { setSubjectName(latestSubject.subject.name); setSubjectOverride(latestSubject.subject.name); }
           setItem(latest.item); setEditing({ etag: latest.etag, baseline: latest.item, conflict: true, latest: latest.item, mine: rebased });
           setEditSubjects((current) => latestSubject.kind === 'ok' && !current.some((subject) => subject.id === latestSubject.subject.id) ? [...current, latestSubject.subject] : current);
@@ -188,6 +192,9 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         return allowed.includes(result.field) ? { kind: 'invalid' as const, field: result.field as ItemField, code: result.code } : { kind: 'failed' as const };
       }
       if (result.kind === 'ok') {
+        const cachedSubject = editSubjects.find((subject) => subject.id === result.item.subjectId);
+        const safeSubjectName = cachedSubject?.name ?? t('items.subject.unknown');
+        setSubjectName(safeSubjectName); setSubjectOverride(safeSubjectName);
         setItem(result.item); setEditing(null); setNotice('itemDetail.updated'); focusAfterMutation.current = true;
         const savedSubject = await getSubject(householdId, result.item.subjectId);
         if (!current(token)) return { kind: 'handled' as const };
@@ -256,7 +263,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         {item.notes ? <div className="border-t border-line pt-4"><h2 className="text-sm font-medium text-muted">{t('items.notes')}</h2><p className="mt-2 whitespace-pre-wrap break-words">{item.notes}</p></div> : null}
       </div> : null}
       {editing ? <div className="mt-6 space-y-4">
-        {editing.conflict && editing.latest ? <div className="space-y-1 rounded-xl border border-line bg-sand/70 px-4 py-3 text-sm"><p className="font-medium">{t('itemDetail.edit.conflict')}</p>{editing.latest.title !== editing.mine?.title ? <p>{t('itemDetail.edit.latest.title', { value: editing.latest.title })}</p> : null}{editing.latest.subjectId !== editing.mine?.subjectId ? <p>{t('itemDetail.edit.latest.subject', { value: editSubjects.find((entry) => entry.id === editing.latest?.subjectId)?.name ?? t('items.subject.unknown') })}</p> : null}{(editing.latest.attentionOn ?? '') !== editing.mine?.attentionOn ? <p>{t('itemDetail.edit.latest.date', { value: editing.latest.attentionOn ? formatDate(editing.latest.attentionOn, locale) : t('itemDetail.edit.noDate') })}</p> : null}{(editing.latest.notes ?? '') !== editing.mine?.notes ? <p className="whitespace-pre-wrap break-words">{t('itemDetail.edit.latest.notes', { value: editing.latest.notes ?? t('itemDetail.edit.noNotes') })}</p> : null}{!recurrenceEqual(editing.latest.recurrence, editing.mine?.recurrence ?? null) ? <p>{t('itemDetail.edit.latest.repeat', { value: editing.latest.recurrence ? t(pluralKey(editing.latest.recurrence.intervalUnit, editing.latest.recurrence.intervalValue, locale), { count: String(editing.latest.recurrence.intervalValue) }) : t('itemDetail.edit.noRepeat') })}</p> : null}</div> : null}
+        {editing.conflict && editing.latest ? <div className="space-y-1 rounded-xl border border-line bg-sand/70 px-4 py-3 text-sm"><p className="font-medium">{t('itemDetail.edit.conflict')}</p>{editing.latest.title !== editing.mine?.title ? <p>{t('itemDetail.edit.latest.title', { value: editing.latest.title })}</p> : null}{editing.latest.subjectId !== editing.mine?.subjectId ? <p>{t('itemDetail.edit.latest.subject', { value: editSubjects.find((entry) => entry.id === editing.latest?.subjectId)?.name ?? t('items.subject.unknown') })}</p> : null}{(editing.latest.attentionOn ?? '') !== editing.mine?.attentionOn ? <p>{t('itemDetail.edit.latest.date', { value: editing.latest.attentionOn ? formatDate(editing.latest.attentionOn, locale) : t('itemDetail.edit.noDate') })}</p> : null}{(editing.latest.notes ?? '') !== editing.mine?.notes ? <p className="whitespace-pre-wrap break-words">{t('itemDetail.edit.latest.notes', { value: editing.latest.notes ?? t('itemDetail.edit.noNotes') })}</p> : null}{!recurrenceEqual(editing.latest.recurrence, editing.mine?.recurrence ?? null) ? <p>{t('itemDetail.edit.latest.repeat', { value: editing.latest.recurrence ? `${t(pluralKey(editing.latest.recurrence.intervalUnit, editing.latest.recurrence.intervalValue, locale), { count: String(editing.latest.recurrence.intervalValue) })} · ${t(editing.latest.recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed')}` : t('itemDetail.edit.noRepeat') })}</p> : null}</div> : null}
         <ItemForm key={`${editing.baseline.id}:${editing.etag}`} mode="edit" initialValues={editing.conflict ? editing.mine : { title: editing.baseline.title, subjectId: editing.baseline.subjectId, attentionOn: editing.baseline.attentionOn ?? '', notes: editing.baseline.notes ?? '', recurrence: editing.baseline.recurrence }} subjects={editSubjects} busy={busy} notice={editing.conflict ? t('itemDetail.edit.conflictHint') : undefined} onSubmit={saveEdit} onCancel={() => { returnEditFocus.current = true; setEditing(null); }} />
       </div> : null}
       {!item.done && !item.archived && !editing ? <Button ref={editButtonRef} type="button" variant="quiet" className="mt-5" disabled={busy || editLoading} onClick={() => void beginEdit()}>{t(editLoading ? 'itemDetail.edit.loading' : 'itemDetail.edit.button')}</Button> : null}

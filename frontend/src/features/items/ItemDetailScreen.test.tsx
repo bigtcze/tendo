@@ -164,6 +164,31 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
   });
 
+  it('does not show the old subject name when the saved subject refresh fails', async () => {
+    const other: Subject = { ...subject, id: 's-2', name: 'Car', type: 'vehicle' };
+    installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject, other], nextCursor: null }), [`GET ${base}/subjects/s-2`]: json(200, other, { ETag: '"cached-s2"' }), [`GET ${base}/subjects/s-2?refresh`]: json(503), [`PATCH ${path}`]: (request) => json(200, item({ subjectId: JSON.parse(request.body).subjectId })) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.selectOptions(screen.getByLabelText('For'), 's-2');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Car')).toBeVisible();
+    expect(screen.queryByText('Anna')).not.toBeInTheDocument();
+  });
+
+  it('does not show an old subject name when the subject refresh after a conflict fails', async () => {
+    let reads = 0;
+    const latest = item({ subjectId: 's-2' });
+    installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? item() : latest, { ETag: `"${reads}"` }), [`GET ${base}/subjects`]: json(200, { items: [subject, { ...subject, id: 's-2', name: 'Car' }], nextCursor: null }), [`GET ${base}/subjects/s-2`]: json(503), [`PATCH ${path}`]: json(412) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Mine');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Car', { selector: 'p' })).toBeVisible();
+    expect(screen.queryByText('Anna', { selector: 'p' })).not.toBeInTheDocument();
+  });
+
   it('updates the subject name in the detail header after changing subject', async () => {
     const other: Subject = { ...subject, id: 's-2', name: 'Car', type: 'vehicle' };
     const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject, other], nextCursor: null }), [`GET ${base}/subjects/s-2`]: json(200, other, { ETag: '"subject-2"' }), [`PATCH ${path}`]: (request) => json(200, item({ subjectId: JSON.parse(request.body).subjectId })) }));
@@ -177,15 +202,17 @@ describe('item details', () => {
   });
 
   it('edit-open refresh uses the actual archived subject name in the header and select', async () => {
-    const archived: Subject = { ...subject, name: 'Old household member', archived: true };
-    const fake = installFakeServer(common({ [`GET ${path}`]: json(200, item(), { ETag: '"open"' }), [`GET ${base}/subjects`]: json(200, { items: [], nextCursor: null }), [`GET ${base}/subjects/s-1`]: json(200, archived, { ETag: '"subject"' }) }));
+    const archived: Subject = { ...subject, id: 's-2', name: 'Old household member', archived: true };
+    let reads = 0;
+    const refreshed = item({ subjectId: 's-2' });
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads === 1 ? item() : refreshed, { ETag: `"${reads}"` }), [`GET ${base}/subjects`]: json(200, { items: [], nextCursor: null }), [`GET ${base}/subjects/s-2`]: json(200, archived, { ETag: '"subject"' }) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await screen.findByRole('heading', { name: 'Renew passport' });
     await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     expect(await screen.findByRole('option', { name: 'Old household member' })).toBeInTheDocument();
-    expect(screen.getByLabelText('For')).toHaveValue('s-1');
-    expect(screen.getByRole('option', { name: 'Old household member' })).toBeInTheDocument();
-    expect(requestsOf(fake.requests, 'GET', `${base}/subjects/s-1`).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('For')).toHaveValue('s-2');
+    expect(screen.getByText('Old household member', { selector: 'p' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects/s-2`).length).toBeGreaterThan(0);
   });
 
   it('prefills edit values and patches only changed fields with the ETag from edit-open GET', async () => {
@@ -260,6 +287,37 @@ describe('item details', () => {
     expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ attentionOn: null, notes: null });
   });
 
+  it('preserves exact whitespace-only notes edits through a conflict retry', async () => {
+    let reads = 0; let writes = 0;
+    const latest = item({ notes: 'Other notes' });
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? item({ notes: 'Bring old passport' }) : latest, { ETag: `"${reads}"` }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: () => { writes++; return writes === 1 ? json(412) : json(200, latest); } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    const notes = screen.getByLabelText('Notes'); await userEvent.clear(notes); await userEvent.type(notes, '  Bring old passport  ');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.getByLabelText('Notes')).toHaveValue('  Bring old passport  '));
+    expect(screen.getByText('Latest saved notes: Other notes')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ notes: '  Bring old passport  ' });
+  });
+
+  it('shows latest recurrence mode during an overlapping mode-only conflict without auto-retrying', async () => {
+    let reads = 0; let writes = 0;
+    const original = item({ recurrence: { intervalUnit: 'year', intervalValue: 2, mode: 'fixed' } });
+    const latest = item({ recurrence: { intervalUnit: 'year', intervalValue: 2, mode: 'fixed' } });
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? original : latest, { ETag: `"${reads}"` }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: () => { writes++; return json(412); } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.click(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText(/Latest saved repeat setting: Repeats every 2 years · Keeps the planned dates\./)).toBeVisible();
+    expect(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' })).toBeChecked();
+    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1); expect(writes).toBe(1);
+  });
+
   it('rebases untouched fields after conflict and retains only the user title change', async () => {
     let reads = 0; let writes = 0;
     const latest = item({ title: 'Renew passport', notes: 'Changed note', attentionOn: '2027-02-02', recurrence: { intervalUnit: 'month', intervalValue: 3, mode: 'after_completion' } });
@@ -301,6 +359,21 @@ describe('item details', () => {
     expect(await screen.findByText('Item updated.')).toBeVisible();
   });
 
+  it('after conflict can select the original value and sends it against latest', async () => {
+    let reads = 0; let writes = 0;
+    const latest = item({ title: 'Other title' });
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? item() : latest, { ETag: `"${reads}"` }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => { writes++; return writes === 1 ? json(412) : json(200, item({ title: JSON.parse(request.body).title })); } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Mine');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    const title = screen.getByLabelText('What needs doing?'); await userEvent.clear(title); await userEvent.type(title, 'Renew passport');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ title: 'Renew passport' });
+  });
+
   it('rebased title can be changed back to latest and is omitted from PATCH', async () => {
     let reads = 0;
     const latest = item({ title: 'Other title' });
@@ -313,7 +386,9 @@ describe('item details', () => {
     const title = screen.getByLabelText('What needs doing?');
     await userEvent.clear(title); await userEvent.type(title, 'Other title');
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit item' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveFocus();
+    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1);
     expect(title).toHaveValue('Other title');
   });
 
@@ -410,10 +485,34 @@ describe('item details', () => {
     await act(async () => release(json(200, item())));
   });
 
+  it('releases the edit lock after edit-open GET failure', async () => {
+    let itemReads = 0;
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(++itemReads === 2 ? 503 : 200, item(), { ETag: '"item"' }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    await screen.findByText('That didn’t work. Check your connection and try again.');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+  });
+
+  it('releases the mutation lock after workflow 412 reload', async () => {
+    let itemReads = 0; let writes = 0;
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, item(), { ETag: `"${++itemReads}"` }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: () => ++writes === 1 ? json(412) : json(200, item({ workflowState: 'in_progress' })) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    await screen.findByText('That changed just now. Here is the latest.');
+    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+  });
+
   it('keeps edit session across language switch and releases patch lock after locale change', async () => {
     let release!: (response: Response) => void;
     const pendingPatch = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: () => pendingPatch }));
+    let writes = 0;
+    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => ++writes === 1 ? pendingPatch : json(200, item({ title: JSON.parse(request.body).title })) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     const edit = await screen.findByRole('button', { name: 'Edit' });
     await userEvent.click(edit);
@@ -427,6 +526,12 @@ describe('item details', () => {
     await act(async () => release(json(200, item({ title: 'Draft title' }))));
     await screen.findByText('Položka byla změněna.');
     expect(screen.getByText('Položka byla změněna.')).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Upravit' }));
+    const secondForm = await screen.findByRole('form', { name: 'Upravit položku' });
+    await userEvent.clear(screen.getByLabelText('Co je potřeba zařídit?')); await userEvent.type(screen.getByLabelText('Co je potřeba zařídit?'), 'Second changed title');
+    await userEvent.click(within(secondForm).getByRole('button', { name: 'Uložit změny' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ title: 'Second changed title' });
   });
 
   it('does not patch unchanged values and offers Edit in Czech', async () => {
