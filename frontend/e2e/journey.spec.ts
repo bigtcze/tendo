@@ -359,6 +359,171 @@ test.describe('Tendo production journey', () => {
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
+  type ServerItem = {
+    id: string; title: string; attentionOn: string | null; attention: string; done: boolean; lastCompletedOn: string | null;
+    recurrence: { intervalValue: number; intervalUnit: string; mode: string } | null;
+  };
+  type ServerCompletion = { id: string; completedOn: string; cycleAttentionOn: string | null; nextAttentionOn: string | null; undoneAt: string | null; recurrence: unknown };
+
+  async function serverItem(title: string, done = false): Promise<ServerItem> {
+    const response = await page.request.get(`/api/v1/households/${householdId}/items?done=${done}`);
+    expect(response.status()).toBe(200);
+    const found = ((await response.json()) as { items: ServerItem[] }).items.find((i) => i.title === title);
+    expect(found, `${title} on the server (done=${done})`).toBeDefined();
+    return found!;
+  }
+
+  async function serverCompletions(itemId: string): Promise<ServerCompletion[]> {
+    const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}/completions`);
+    expect(response.status()).toBe(200);
+    return ((await response.json()) as { items: ServerCompletion[] }).items;
+  }
+
+  // Household today in Europe/Prague as the browser sees it; the server may differ by a day around midnight.
+  function pragueToday(): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date());
+  }
+
+  // Anchors are chosen relative to today so fixed and fluid outcomes always differ, even with a one-day
+  // drift between test and server: a yearly anchor 15 days off today's month-day, a weekly anchor 3 days
+  // off today's weekday. Both are well over a year/week in the past, so the completion is late.
+  // Date.UTC rolls invalid days over (today 02-29 two years back), and 29 February is skipped so the
+  // yearly anchor's month-day exists in every year and clamping never applies.
+  function yearlyAnchor(): string {
+    const [y, m, d] = pragueToday().split('-').map(Number);
+    const anchor = new Date(Date.UTC(y - 2, m - 1, d + 15)).toISOString().slice(0, 10);
+    return anchor.endsWith('-02-29') ? addDays(anchor, 1) : anchor;
+  }
+  function weeklyAnchor(): string {
+    return addDays(pragueToday(), -(7 * 60 + 3));
+  }
+
+  function addYearsClamped(isoDate: string, years: number): string {
+    const [y, m, d] = isoDate.split('-').map(Number);
+    const last = new Date(Date.UTC(y + years, m, 0)).getUTCDate();
+    return `${y + years}-${String(m).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+  }
+
+  function addDays(isoDate: string, days: number): string {
+    const date = new Date(`${isoDate}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function group(name: string) {
+    return page.locator('section').filter({ has: page.getByRole('heading', { level: 2, name, exact: true }) });
+  }
+
+  async function addItem(options: { title: string; subject: string; attentionOn?: string; repeat?: { value: string; unit: string; fluid: boolean } }) {
+    await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+    const form = page.getByRole('form', { name: en['items.add.formLabel'] });
+    await expect(form.getByLabel(en['items.title'])).toBeFocused();
+    const repeat = form.getByRole('switch', { name: en['items.repeat'], exact: true });
+    await expect(repeat).not.toBeChecked();
+    await expect(form.getByRole('switch', { name: en['items.fluid'] })).toHaveCount(0);
+    await form.getByLabel(en['items.title']).fill(options.title);
+    await form.getByLabel(en['items.subject'], { exact: true }).selectOption({ label: options.subject });
+    if (options.attentionOn) await form.getByLabel(en['items.attentionDate']).fill(options.attentionOn);
+    if (options.repeat) {
+      await repeat.check();
+      const fluid = form.getByRole('switch', { name: en['items.fluid'] });
+      await expect(fluid).not.toBeChecked();
+      await form.getByRole('spinbutton').fill(options.repeat.value);
+      await form.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption(options.repeat.unit);
+      if (options.repeat.fluid) await fluid.check();
+    }
+    await form.getByRole('button', { name: en['items.add.submit'] }).click();
+    await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
+  }
+
+  test('n1. a one-off item with Repeat off completes, leaves the active list, keeps history, and undo brings it back', async () => {
+    await page.goto('/');
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+      await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, '360px horizontal overflow with the item form open').toBeLessThanOrEqual(0);
+      await page.getByRole('button', { name: en['subjects.cancel'] }).click();
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+
+    await addItem({ title: 'Book dental check', subject: 'Anička' });
+    await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: 'Book dental check' })).toBeVisible();
+    const created = await serverItem('Book dental check');
+    expect(created).toMatchObject({ recurrence: null, attentionOn: null, attention: 'needs_attention', done: false });
+
+    await row('Book dental check').getByRole('button', { name: en['items.done'] }).click();
+    await expect(page.getByRole('status').filter({ hasText: en['items.notice.done'].replace('{title}', 'Book dental check') })).toBeVisible();
+    await expect(row('Book dental check')).toHaveCount(0);
+    const done = await serverItem('Book dental check', true);
+    expect(done.done).toBe(true);
+    const history = await serverCompletions(done.id);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ nextAttentionOn: null, recurrence: null, undoneAt: null });
+    expect(done.lastCompletedOn).toBe(history[0].completedOn);
+
+    await page.getByRole('button', { name: en['items.undo'] }).click();
+    await expect(row('Book dental check')).toBeVisible();
+    const restored = await serverItem('Book dental check');
+    expect(restored).toMatchObject({ done: false, lastCompletedOn: null, attentionOn: null });
+    const afterUndo = await serverCompletions(done.id);
+    expect(afterUndo).toHaveLength(1);
+    expect(afterUndo[0].undoneAt).not.toBeNull();
+
+    await row('Book dental check').getByRole('button', { name: en['items.done'] }).click();
+    await expect(row('Book dental check')).toHaveCount(0);
+    expect((await serverItem('Book dental check', true)).done).toBe(true);
+    expect(await serverCompletions(done.id)).toHaveLength(2);
+  });
+
+  test('n2. a fixed yearly item (Repeat on, Fluid off) completed late keeps its planned date', async () => {
+    const anchor = yearlyAnchor();
+    await addItem({ title: 'Service the boiler', subject: 'Anička', attentionOn: anchor, repeat: { value: '1', unit: 'year', fluid: false } });
+    await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: 'Service the boiler' })).toBeVisible();
+    const before = await serverItem('Service the boiler');
+    expect(before).toMatchObject({ attentionOn: anchor, recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
+
+    await row('Service the boiler').getByRole('button', { name: en['items.done'] }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Service the boiler' })).toContainText('Next time:');
+    const [receipt] = await serverCompletions(before.id);
+    // First anchor-aligned date strictly after the completion day, never completion + 1 year.
+    let expected = anchor;
+    while (expected <= receipt.completedOn) expected = addYearsClamped(anchor, Number(expected.slice(0, 4)) - Number(anchor.slice(0, 4)) + 1);
+    expect(expected.slice(5)).toBe(anchor.slice(5));
+    expect(expected).not.toBe(addYearsClamped(receipt.completedOn, 1));
+    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected });
+    const after = await serverItem('Service the boiler');
+    expect(after).toMatchObject({ attentionOn: expected, attention: 'upcoming', done: false, lastCompletedOn: receipt.completedOn });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: 'Service the boiler' })).toBeVisible();
+  });
+
+  test('n3. a fluid weekly item (Repeat on, Fluid on) completed late counts from the completion day; undo restores it', async () => {
+    const anchor = weeklyAnchor();
+    await addItem({ title: 'Water the plants', subject: 'Octavia RS', attentionOn: anchor, repeat: { value: '1', unit: 'week', fluid: true } });
+    const before = await serverItem('Water the plants');
+    expect(before.recurrence).toEqual({ intervalValue: 1, intervalUnit: 'week', mode: 'after_completion' });
+
+    await row('Water the plants').getByRole('button', { name: en['items.done'] }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Water the plants' })).toContainText('Next time:');
+    const [receipt] = await serverCompletions(before.id);
+    const expected = addDays(receipt.completedOn, 7);
+    // A fixed weekly cadence would land on the anchor's weekday, which is never the completion's weekday here.
+    const fixedDays = (Date.parse(expected) - Date.parse(anchor)) / 86_400_000;
+    expect(fixedDays % 7).not.toBe(0);
+    expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: expected });
+    expect(await serverItem('Water the plants')).toMatchObject({ attentionOn: expected, attention: 'upcoming' });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
+
+    await page.getByRole('button', { name: en['items.undo'] }).click();
+    await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
+    expect(await serverItem('Water the plants')).toMatchObject({ attentionOn: anchor, attention: 'needs_attention', lastCompletedOn: null });
+    const history = await serverCompletions(before.id);
+    expect(history).toHaveLength(1);
+    expect(history[0].undoneAt).not.toBeNull();
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();

@@ -6,6 +6,7 @@ import { I18nProvider } from '../../i18n';
 import {
   HOUSEHOLD_ID,
   household,
+  emptyHome,
   installFakeServer,
   json,
   session,
@@ -47,6 +48,7 @@ const etagged = (s: Subject, etag: string) => json(200, s, { ETag: etag });
 const signedIn = {
   'GET /api/v1/session': json(200, session()),
   [`GET ${base}`]: json(200, household),
+  ...emptyHome,
 };
 
 beforeEach(() => {
@@ -98,13 +100,13 @@ describe('navigation', () => {
     expect(await screen.findByText('Anna')).toBeVisible();
   });
 
-  it('keeps home calm: one quiet link, no add button', async () => {
+  it('keeps Home calm with one obvious Add item action and one People and things link', async () => {
     installFakeServer(signedIn);
     renderApp();
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    expect(screen.queryByRole('button', { name: /add/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1));
     expect(screen.getByRole('link', { name: 'People and things' })).toBeVisible();
-    expect(screen.queryByRole('link', { name: /add/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^add$/i })).not.toBeInTheDocument();
   });
 });
 
@@ -162,16 +164,15 @@ describe('list', () => {
     expect(await screen.findByText('Octavia')).toBeVisible();
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
-    const lists = fake.requests.filter((r) => r.path === `${base}/subjects`);
+    const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('limit') === '50');
     expect(lists.map((r) => r.query.get('cursor'))).toEqual([null, 'abc']);
-    expect(lists.every((r) => r.query.get('limit') === '50')).toBe(true);
   });
 
   it('a failed load is retryable', async () => {
     let calls = 0;
     installFakeServer({
       ...signedIn,
-      [listKey]: () => (++calls === 1 ? problem(503) : page([anna])),
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++calls === 1 ? problem(503) : page([anna])),
     });
     renderApp();
     await openPeople();
@@ -423,7 +424,7 @@ describe('edit', () => {
     let lists = 0;
     installFakeServer({
       ...signedIn,
-      [listKey]: () => (++lists === 1 ? page([anna, octavia]) : page([anna])),
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++lists === 1 ? page([anna, octavia]) : page([anna])),
       [itemKey('s-2')]: etagged(octavia, '"7"'),
       [itemKey('s-2', 'PATCH')]: problem(404),
     });
@@ -563,7 +564,7 @@ describe('archive and restore', () => {
     let lists = 0;
     const fake = installFakeServer({
       ...signedIn,
-      [listKey]: () => (++lists, page([octavia])),
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++lists, page([octavia])),
       [itemKey('s-2')]: etagged(octavia, '"5"'),
       [itemKey('s-2', 'PATCH')]: problem(412),
     });
@@ -816,7 +817,7 @@ describe('other failures and edge cases', () => {
     let lists = 0;
     installFakeServer({
       ...signedIn,
-      [listKey]: () => (++lists === 1 ? page([anna, octavia]) : page([anna])),
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++lists === 1 ? page([anna, octavia]) : page([anna])),
       [itemKey('s-2')]: problem(404),
     });
     renderApp();
@@ -899,7 +900,7 @@ describe('other failures and edge cases', () => {
     await openPeople();
     expect(await screen.findByText('Your account isn’t part of a household yet.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
-    expect(fake.requests.filter((r) => r.path === `${base}/subjects`)).toHaveLength(1);
+    expect(fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('limit') === '50')).toHaveLength(1);
   });
 
   it('shows who is signed in and Sign out on the people screen, and signing out works', async () => {
@@ -939,7 +940,7 @@ describe('changed meanwhile', () => {
     let lists = 0;
     installFakeServer({
       ...signedIn,
-      [listKey]: () => (++lists === 1 ? page([anna, octavia]) : page([anna])),
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++lists === 1 ? page([anna, octavia]) : page([anna])),
       [itemKey('s-2')]: etagged({ ...octavia, archived: true }, '"5"'),
     });
     renderApp();
@@ -956,7 +957,7 @@ describe('changed meanwhile', () => {
     let lists = 0;
     installFakeServer({
       ...signedIn,
-      [listKey]: () => (++lists === 1 ? page([octavia]) : page([])),
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++lists === 1 ? page([octavia]) : page([])),
       [itemKey('s-2')]: () => (++gets === 1 ? etagged(octavia, '"7"') : etagged({ ...octavia, archived: true }, '"8"')),
       [itemKey('s-2', 'PATCH')]: problem(412),
     });

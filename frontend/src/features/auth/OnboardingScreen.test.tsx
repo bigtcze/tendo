@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
-import { HOUSEHOLD_ID, household, installFakeServer, json, session } from '../../test/fakeServer';
+import { HOUSEHOLD_ID, household, emptyHome, installFakeServer, json, session } from '../../test/fakeServer';
 
 function renderApp() {
   return render(
@@ -75,6 +75,7 @@ describe('onboarding', () => {
       'PUT /api/v1/auth/setup': json(201, { required: false }),
       'POST /api/v1/session': json(201, session()),
       [`GET /api/v1/households/${HOUSEHOLD_ID}`]: json(200, household),
+      ...emptyHome,
     });
     renderApp();
     await fillForm();
@@ -96,7 +97,7 @@ describe('onboarding', () => {
     expect(post.path).toBe('/api/v1/session');
     expect(JSON.parse(post.body)).toEqual({ login: 'anna', password: 'correct horse battery' });
     expect(fake.requests.indexOf(put)).toBeLessThan(fake.requests.indexOf(post));
-    expect(screen.getByText('Nothing needs attention right now.')).toBeVisible();
+    expect(await screen.findByText('Nothing needs attention right now.')).toBeVisible();
   });
 
   it('falls back to the login screen when automatic sign-in fails', async () => {

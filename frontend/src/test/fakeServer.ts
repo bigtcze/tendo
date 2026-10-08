@@ -34,13 +34,19 @@ export function installFakeServer(routes: Record<string, Handler | Response>) {
         headers: input.headers,
       };
       requests.push(req);
-      const route = routes[`${req.method} ${req.path}`];
+      const queryRoute = `${req.method} ${req.path}?${url.searchParams.toString()}`;
+      const route = routes[queryRoute] ?? routes[`${req.method} ${req.path}`];
       if (!route) return json(500, { title: `unhandled ${req.method} ${req.path}` });
       return typeof route === 'function' ? route(req) : route.clone();
     }),
   );
   return { requests };
 }
+
+export const emptyHome = {
+  [`GET /api/v1/households/${'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'}/items`]: json(200, { items: [], nextCursor: null }),
+  [`GET /api/v1/households/${'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'}/subjects`]: json(200, { items: [], nextCursor: null }),
+};
 
 export const HOUSEHOLD_ID = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61';
 
