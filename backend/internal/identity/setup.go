@@ -49,12 +49,19 @@ func (s *SetupService) Required(ctx context.Context) (bool, error) {
 	return s.repository.IsRequired(bounded)
 }
 
-func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error {
-	if !loginPattern.MatchString(input.Login) {
+func validateCredentials(login, password string) error {
+	if !loginPattern.MatchString(login) {
 		return &ValidationError{"login", "invalid_format"}
 	}
-	if !utf8.ValidString(input.Password) || utf8.RuneCountInString(input.Password) < 15 || utf8.RuneCountInString(input.Password) > 128 || len(input.Password) > 512 {
+	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 15 || utf8.RuneCountInString(password) > 128 || len(password) > 512 {
 		return &ValidationError{"password", "invalid_length"}
+	}
+	return nil
+}
+
+func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error {
+	if err := validateCredentials(input.Login, input.Password); err != nil {
+		return err
 	}
 	name, err := household.Validate(input.HouseholdName, input.Timezone)
 	if err != nil {

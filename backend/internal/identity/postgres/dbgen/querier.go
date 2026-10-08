@@ -6,18 +6,31 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	AcceptInvitation(ctx context.Context, arg AcceptInvitationParams) (int64, error)
 	CompleteSetup(ctx context.Context) error
+	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (CreateInvitationRow, error)
 	CreateLocalCredential(ctx context.Context, arg CreateLocalCredentialParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateUser(ctx context.Context, login string) (string, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
+	FindInvitationByCreationKey(ctx context.Context, arg FindInvitationByCreationKeyParams) (FindInvitationByCreationKeyRow, error)
+	FindInvitationByToken(ctx context.Context, tokenHash []byte) (FindInvitationByTokenRow, error)
+	FindInvitationByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindInvitationByTokenForUpdateRow, error)
 	FindLogin(ctx context.Context, login string) (FindLoginRow, error)
+	FindLoginForInvitation(ctx context.Context, login string) (string, error)
+	HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error)
+	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
+	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
+	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (LockUserForInvitationRow, error)
+	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 }
 
