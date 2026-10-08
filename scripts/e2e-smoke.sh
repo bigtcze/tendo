@@ -16,7 +16,9 @@ if [[ "v${installed_playwright}-noble" != "$playwright_image_tag" ]]; then
   exit 1
 fi
 project="tendo-e2e-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
-export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN
+export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_TEST_CLOCK_ACK TENDO_TEST_CLOCK_NOW
+TENDO_TEST_CLOCK_ACK=isolated-e2e-only
+TENDO_TEST_CLOCK_NOW=2026-01-15T22:59:59Z
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
@@ -27,7 +29,7 @@ TENDO_TRUSTED_PROXY_CIDRS=
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml")
+compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.e2e.yaml")
 cleanup() {
   local result=$?
   trap - EXIT
@@ -46,12 +48,29 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "$origin" >&2; exit 1; fi
-mkdir -p "$root/frontend/test-results"
-# Secrets are passed by name only (-e NAME) so they never appear in the command line.
-export E2E_BASE_URL=$origin E2E_SETUP_TOKEN=$TENDO_SETUP_TOKEN E2E_OWNER_PASSWORD
-timeout 600 docker run --rm --network host --ipc=host \
-  --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -e E2E_BASE_URL -e E2E_SETUP_TOKEN -e E2E_OWNER_PASSWORD -e CI \
-  -v "$root":/repo -w /repo/frontend \
-  "$playwright_image" npx --no-install playwright test
+mkdir -p "$root/frontend/test-results/$project"
+# Secrets and clock settings are passed by name only (-e NAME) so values stay out of argv.
+export E2E_BASE_URL=$origin E2E_SETUP_TOKEN=$TENDO_SETUP_TOKEN E2E_OWNER_PASSWORD E2E_CLOCK_NOW=$TENDO_TEST_CLOCK_NOW E2E_CLOCK_FIXTURE_PATH="test-results/$project/attention-clock.json"
+run_playwright() {
+  timeout 600 docker run --rm --network host --ipc=host \
+    --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    -e E2E_BASE_URL -e E2E_SETUP_TOKEN -e E2E_OWNER_PASSWORD -e E2E_CLOCK_NOW -e E2E_CLOCK_PHASE -e E2E_CLOCK_FIXTURE_PATH -e CI \
+    -v "$root":/repo -w /repo/frontend \
+    "$playwright_image" npx --no-install playwright test "$@"
+}
+unset E2E_CLOCK_PHASE
+run_playwright
+export E2E_CLOCK_PHASE=before
+run_playwright e2e/attention-clock.spec.ts
+TENDO_TEST_CLOCK_NOW=2026-01-15T23:00:00Z
+E2E_CLOCK_NOW=$TENDO_TEST_CLOCK_NOW
+"${compose[@]}" up -d --no-deps --force-recreate --wait --wait-timeout 120 app
+ready=0
+for _ in $(seq 1 60); do
+  if curl -fsS --max-time 3 "$origin/health/ready" >/dev/null; then ready=1; break; fi
+  sleep 1
+done
+if (( ready == 0 )); then printf 'App did not become ready after clock recreation: %s/health/ready\n' "$origin" >&2; exit 1; fi
+export E2E_CLOCK_NOW E2E_CLOCK_PHASE=after
+run_playwright e2e/attention-clock.spec.ts
 printf 'Browser E2E smoke passed.\n'

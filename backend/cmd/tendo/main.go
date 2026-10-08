@@ -119,7 +119,13 @@ func run() error {
 	subjectService := subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get))
 	subjecthttp.New(subjectService, sessionHandler.RequireSession, principalID).Register(routes)
 	// Items reach households and subjects only through injected application-service adapters.
-	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), time.Now)
+	itemNow := time.Now
+	if cfg.TestClockNow != nil {
+		fixed := *cfg.TestClockNow
+		itemNow = func() time.Time { return fixed }
+		slog.Warn("test business-date clock enabled", "fixed_instant", fixed.Format(time.RFC3339), "scope", "item_business_dates_only")
+	}
+	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
 	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
 	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)

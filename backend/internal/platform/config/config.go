@@ -22,6 +22,7 @@ type Config struct {
 	DBTimeout         time.Duration
 	ShutdownTimeout   time.Duration
 	SetupToken        string
+	TestClockNow      *time.Time
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -68,6 +69,32 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			}
 			c.TrustedProxyCIDRs = append(c.TrustedProxyCIDRs, network.String())
 		}
+	}
+	clockNow, clockSet := lookup("TENDO_TEST_CLOCK_NOW")
+	clockAck, ackSet := lookup("TENDO_TEST_CLOCK_ACK")
+	if clockSet || ackSet {
+		if !clockSet || strings.TrimSpace(clockNow) == "" {
+			return c, errors.New("TENDO_TEST_CLOCK_NOW and TENDO_TEST_CLOCK_ACK must both be set and nonempty")
+		}
+		if !ackSet || strings.TrimSpace(clockAck) == "" {
+			return c, errors.New("TENDO_TEST_CLOCK_NOW and TENDO_TEST_CLOCK_ACK must both be set and nonempty")
+		}
+		if clockAck != "isolated-e2e-only" {
+			return c, errors.New("TENDO_TEST_CLOCK_ACK must equal isolated-e2e-only")
+		}
+		fixed, parseErr := time.Parse(time.RFC3339, clockNow)
+		if parseErr != nil || fixed.Year() < 1 || fixed.Year() > 9999 || !strings.HasSuffix(clockNow, "Z") || fixed.UTC().Format(time.RFC3339) != clockNow {
+			return c, errors.New("TENDO_TEST_CLOCK_NOW must be canonical whole-second UTC RFC3339 ending in Z")
+		}
+		public, _ := url.Parse(canonical)
+		ip := net.ParseIP(public.Hostname())
+		if public.Scheme != "http" || public.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return c, errors.New("TENDO_PUBLIC_URL must use HTTP and localhost or a literal loopback IP when the test clock is enabled")
+		}
+		if len(c.TrustedProxyCIDRs) != 0 {
+			return c, errors.New("TENDO_TRUSTED_PROXY_CIDRS must be empty when the test clock is enabled")
+		}
+		c.TestClockNow = &fixed
 	}
 	c.ListenAddr, _ = lookup("TENDO_LISTEN_ADDR")
 	if c.ListenAddr == "" {

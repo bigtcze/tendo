@@ -340,6 +340,53 @@ func TestAttentionDerivationUsesHouseholdTimezoneBoundary(t *testing.T) {
 	}
 }
 
+func TestBusinessDateClockBoundaryAndCompletion(t *testing.T) {
+	e := newEnv("Europe/Prague")
+	e.now = time.Date(2026, 1, 15, 22, 59, 59, 0, time.UTC)
+	created := e.create(t, item.NewItem{Title: "one-off", AttentionOn: ptr("2026-01-16")})
+	assertAttention := func(want schedule.Attention) {
+		t.Helper()
+		got, err := e.svc.Get(context.Background(), userID, householdID, created.ID)
+		if err != nil || got.Attention != want {
+			t.Fatalf("get attention=%s err=%v want=%s", got.Attention, err, want)
+		}
+		page, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{})
+		if err != nil || len(page.Items) != 1 || page.Items[0].Attention != want {
+			t.Fatalf("list=%+v err=%v want=%s", page, err, want)
+		}
+	}
+	assertAttention(schedule.Upcoming)
+	before, _ := e.repo.Row(created.ID)
+	e.now = time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
+	assertAttention(schedule.NeedsAttention)
+	after, _ := e.repo.Row(created.ID)
+	if after.Version != before.Version || after.AttentionOn == nil || before.AttentionOn == nil || after.AttentionOn.String() != before.AttentionOn.String() || after.WorkflowState != before.WorkflowState || after.Done != before.Done || after.Archived != before.Archived {
+		t.Fatalf("derived date changed stored item: before=%+v after=%+v", before, after)
+	}
+	history, err := e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "")
+	if err != nil || len(history.Items) != 0 {
+		t.Fatalf("unexpected completions: %+v err=%v", history, err)
+	}
+	future := "2026-01-17"
+	if _, _, err := runCompletion(t, e, created.ID, "future-completion", created.Version, &future); err == nil {
+		t.Fatal("future completion date accepted")
+	} else {
+		validation(t, err, "completedOn", "future_date")
+	}
+	unchanged, _ := e.repo.Row(created.ID)
+	history, err = e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "")
+	if err != nil || len(history.Items) != 0 || unchanged.Version != before.Version || unchanged.Done != before.Done || unchanged.WorkflowState != before.WorkflowState || unchanged.Archived != before.Archived || unchanged.AttentionOn == nil || unchanged.AttentionOn.String() != "2026-01-16" {
+		t.Fatalf("future rejection mutated item/history: item=%+v history=%+v err=%v", unchanged, history, err)
+	}
+	completion, _, err := runCompletion(t, e, created.ID, "default-completion", created.Version, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.CompletedOn.String() != "2026-01-16" {
+		t.Fatalf("completedOn=%s want 2026-01-16", completion.CompletedOn)
+	}
+}
+
 func TestPatchChangesAttentionDerivation(t *testing.T) {
 	e := newEnv("America/New_York")
 	created := e.create(t, item.NewItem{Title: "x", AttentionOn: ptr("2026-03-05")})
