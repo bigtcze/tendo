@@ -1,6 +1,6 @@
 # Items
 
-Items keep household obligations in view without needing an exact date. From Home, choose **Add item**, enter a title, and choose the person or thing it is for. Leave the attention date empty if it should need attention now; choose a date to keep it in Coming up until then. Notes are optional. Assigning a responsible member is not yet available in the web app.
+Items keep household obligations in view without needing an exact date. From Home, choose **Add item**, enter a title, and choose the person or thing it is for. Leave the attention date empty if it should need attention now; choose a date to keep it in Coming up until then. Notes are optional. When your household has more than one member, you can optionally choose who is looking after an item. Any member can assign any household member, and you can change or clear the assignment later by editing the item. If an item already has someone assigned, you can still change or clear it on Edit even when the chooser would otherwise be hidden.
 
 ## Repeat an item
 

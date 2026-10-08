@@ -3,9 +3,10 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n, type MessageKey } from '../../i18n';
+import type { Member } from '../members/membersApi';
 import type { Invalid, Recurrence, Subject } from './itemsApi';
 
-export type ItemFormValues = { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null; historicalCompletedOn?: string };
+export type ItemFormValues = { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null; responsibleUserId: string | null; historicalCompletedOn?: string };
 type Values = ItemFormValues;
 type Outcome = { kind: 'done' | 'handled' | 'failed' } | Invalid;
 type FormError = Invalid | { kind: 'empty' } | { kind: 'failed' };
@@ -17,6 +18,7 @@ function errorMessage(error: FormError | null, t: (key: MessageKey) => string): 
   if (error.kind === 'failed') return t('items.error.save');
   if (error.field === 'title') return error.code === 'invalid_length' ? t('items.error.titleLength') : t('items.error.titleInvalid');
   if (error.field === 'subjectId') return t('items.error.subject');
+  if (error.field === 'responsibleUserId') return t('items.error.responsible');
   if (error.field === 'attentionOn') return t('items.error.date');
   if (error.field === 'historicalCompletedOn') {
     if (error.code === 'future_date') return t('items.error.historicalFuture');
@@ -29,7 +31,7 @@ function errorMessage(error: FormError | null, t: (key: MessageKey) => string): 
   return t('items.error.interval');
 }
 
-export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'add', initialValues, notice }: { subjects: Subject[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean; mode?: 'add' | 'edit'; initialValues?: Values; notice?: string }) {
+export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, mode = 'add', initialValues, notice }: { subjects: Subject[]; members: Member[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean; mode?: 'add' | 'edit'; initialValues?: Values; notice?: string }) {
   const { t, locale } = useI18n();
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -40,6 +42,7 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
   const [subjectId, setSubjectId] = useState(initialValues?.subjectId ?? subjects[0]?.id ?? '');
   const [attentionOn, setAttentionOn] = useState(initialValues?.attentionOn ?? '');
   const [notes, setNotes] = useState(initialValues?.notes ?? '');
+  const [responsibleUserId, setResponsibleUserId] = useState<string | null>(initialValues?.responsibleUserId ?? null);
   const [notesOpen, setNotesOpen] = useState(Boolean(initialValues?.notes));
   const [historicalOpen, setHistoricalOpen] = useState(false);
   const [historicalCompletedOn, setHistoricalCompletedOn] = useState('');
@@ -61,6 +64,7 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
     setTimeout(() => {
       if (target === 'title') titleRef.current?.focus();
       if (target === 'subjectId') document.getElementById(`${id}-subject`)?.focus();
+      if (target === 'responsibleUserId') document.getElementById(`${id}-responsible`)?.focus();
       if (target === 'attentionOn') document.getElementById(`${id}-date`)?.focus();
       if (target === 'recurrence') document.getElementById(`${id}-interval`)?.focus();
       if (target === 'notes') notesRef.current?.focus();
@@ -79,7 +83,7 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
     setError(null);
     let result: Outcome;
     try {
-      result = await onSubmit({ title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' : 'fixed' } : null, ...(mode === 'add' && repeat && historicalCompletedOn ? { historicalCompletedOn } : {}) });
+      result = await onSubmit({ title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' : 'fixed' } : null, responsibleUserId, ...(mode === 'add' && repeat && historicalCompletedOn ? { historicalCompletedOn } : {}) });
     } catch { result = { kind: 'failed' }; }
     submitting.current = false;
     setPending(false);
@@ -108,6 +112,7 @@ export function ItemForm({ subjects, onSubmit, onCancel, busy = false, mode = 'a
         </div> : null}
       </div> : null}
     </div> : null}
+    {members.length > 1 || responsibleUserId !== null ? <div className="space-y-1.5"><Label className="text-sm text-muted" htmlFor={`${id}-responsible`}>{t('items.responsible.label')}</Label><select disabled={pending || (mode === 'edit' && busy)} id={`${id}-responsible`} className="min-h-11 w-full max-w-sm rounded-xl border border-line bg-sand/50 px-3 text-sm" value={responsibleUserId ?? ''} onChange={(event) => setResponsibleUserId(event.target.value || null)} aria-invalid={field === 'responsibleUserId'} aria-describedby={field === 'responsibleUserId' ? errorId : undefined}><option value="">{t('items.responsible.none')}</option>{members.map((member) => <option key={member.userId} value={member.userId}>{member.login}</option>)}{responsibleUserId && !members.some((member) => member.userId === responsibleUserId) ? <option value={responsibleUserId}>{t('items.responsible.unknown')}</option> : null}</select></div> : null}
     <div>
       <Button type="button" variant="quiet" size="small" disabled={pending || (mode === 'edit' && busy)} aria-expanded={notesOpen} onClick={() => setNotesOpen((open) => !open)}>{t(notesOpen ? 'items.notes.hide' : 'items.notes.show')}</Button>
       {notesOpen ? <div className="mt-2 space-y-2"><Label htmlFor={`${id}-notes`}>{t('items.notes')}</Label><textarea disabled={pending || (mode === 'edit' && busy)} ref={notesRef} id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={4000} aria-invalid={field === 'notes'} aria-describedby={field === 'notes' ? errorId : undefined} className="min-h-24 w-full rounded-xl border border-line bg-white p-3" /></div> : null}

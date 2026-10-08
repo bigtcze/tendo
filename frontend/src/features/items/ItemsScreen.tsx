@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { NavLink } from '../../app/NavLink';
 import { useI18n, type MessageKey } from '../../i18n';
-import { ItemForm } from './ItemForm';
+import { ItemForm, type ItemFormValues } from './ItemForm';
+import { listMembers, type Member } from '../members/membersApi';
 import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
 import { completeItem, createItem, getItem, listActiveSubjects, listItems, undoCompletion, type Completion, type Item, type Recurrence, type Subject } from './itemsApi';
 
 type Notice = { text: string; completion?: Completion; itemId?: string; retryKey?: string; retryKind?: 'complete' | 'undo'; undoAvailable?: boolean };
 type SubjectState = 'loading' | 'error' | 'ready';
 const MAX_SUBJECT_PAGES = 20;
+const MAX_MEMBER_PAGES = 20;
 
 function formatDate(value: string, locale: string) {
   const [year, month, day] = value.split('-').map(Number);
@@ -59,6 +61,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const { t, locale } = useI18n();
   const [items, setItems] = useState<Item[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
   const [subjectRetry, setSubjectRetry] = useState(0);
@@ -68,10 +71,13 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const [itemsRequestComplete, setItemsRequestComplete] = useState(false);
   const [error, setError] = useState(false);
   const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
+  const memberLoadGeneration = useRef(0);
+  const mounted = useRef(false);
   const mutationBusy = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
@@ -93,6 +99,12 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   }, [householdId, onSignedOut]);
 
   useEffect(() => {
+    memberLoadGeneration.current++;
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     const started = ++generation.current;
     void listItems(householdId).then((result) => {
@@ -103,6 +115,31 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     });
     return () => { cancelled = true; };
   }, [householdId, onSignedOut]);
+
+  async function openAddForm() {
+    const token = ++memberLoadGeneration.current;
+    addingRef.current = true;
+    setAdding(true);
+    setMembers([]);
+    const collected: Member[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_MEMBER_PAGES; page++) {
+      const result = await listMembers(householdId, cursor);
+      if (!mounted.current || token !== memberLoadGeneration.current || !addingRef.current) return;
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind !== 'ok') { setMembers([]); return; }
+      collected.push(...result.items);
+      if (!result.nextCursor) { setMembers(collected); return; }
+      cursor = result.nextCursor;
+    }
+    if (mounted.current && token === memberLoadGeneration.current && addingRef.current) setMembers([]);
+  }
+
+  function closeAddForm() {
+    memberLoadGeneration.current++;
+    addingRef.current = false;
+    setAdding(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -160,15 +197,17 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   }
   function endMutation() { mutationBusy.current = false; setBusy(false); }
 
-  async function create(values: { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null; historicalCompletedOn?: string }) {
+  async function create(values: ItemFormValues) {
     if (!beginMutation()) return { kind: 'handled' as const };
     const hadFocus = document.activeElement === addRef.current;
     try {
-      const result = await createItem(householdId, { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence, ...(values.recurrence && values.historicalCompletedOn ? { historicalCompletedOn: values.historicalCompletedOn } : {}) });
+      const result = await createItem(householdId, { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence, ...(values.responsibleUserId !== null ? { responsibleUserId: values.responsibleUserId } : {}), ...(values.recurrence && values.historicalCompletedOn ? { historicalCompletedOn: values.historicalCompletedOn } : {}) });
       if (result.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
       if (result.kind === 'invalid') return result;
       if (result.kind !== 'ok') return { kind: 'failed' as const };
       generation.current++;
+      memberLoadGeneration.current++;
+      addingRef.current = false;
       returnFocus.current = true;
       setAdding(false);
       await refresh();
@@ -289,9 +328,9 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
     {subjectState === 'error' && !subjectLoadingArchived ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { subjectLoadBusy.current = true; setSubjectState('loading'); setSubjectRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
     {!loading && !error && items.length === 0 && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
-    {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={() => { setAdding(true); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
-    {adding && subjectState === 'ready' && subjects.some((subject) => !subject.archived) ? <ItemForm busy={busy} subjects={subjects.filter((subject) => !subject.archived)} onSubmit={create} onCancel={() => { returnFocus.current = true; setAdding(false); }} /> : null}
-    {adding && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={onOpenPeople}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={() => setAdding(false)}>{t('items.cancel')}</Button></div> : null}
+    {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={() => { void openAddForm(); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
+    {adding && subjectState === 'ready' && subjects.some((subject) => !subject.archived) ? <ItemForm busy={busy} members={members} subjects={subjects.filter((subject) => !subject.archived)} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
+    {adding && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
     {!loading ? groups.map((group) => {
       const grouped = items.filter(group.matches);
       if (!grouped.length) return null;

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -9,6 +9,10 @@ import type { Item, Subject } from './itemsApi';
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const itemList = `GET ${base}/items`;
 const subjectList = `GET ${base}/subjects`;
+const memberList = `GET ${base}/members`;
+const ownerMember = { userId: 'u-1', login: 'anna', role: 'owner' as const };
+const secondMember = { userId: 'u-2', login: 'petr', role: 'member' as const };
+const memberPage = (items = [ownerMember, secondMember]) => json(200, { items, nextCursor: null });
 const donePath = `${base}/items/i-1/completions`;
 const routes = {
   'GET /api/v1/session': json(200, session()),
@@ -34,7 +38,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resto
 
 describe('item creation', () => {
   it('defaults Repeat off and sends an exact one-off body', async () => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const form = await openForm();
     expect(within(form).getByRole('switch', { name: 'Repeat' })).not.toBeChecked();
@@ -45,10 +49,62 @@ describe('item creation', () => {
     await screen.findByText('“Renew passport” was added.');
     const post = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
     expect(JSON.parse(post.body)).toEqual({ title: 'Renew passport', subjectId: 's-1', recurrence: null });
+    expect(Object.hasOwn(JSON.parse(post.body), 'responsibleUserId')).toBe(false);
+  });
+
+  it('ignores older member pages resolved out of order', async () => {
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    let calls = 0;
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: () => (++calls === 1 ? first : second) });
+    app(); await openForm();
+    await userEvent.click(within(await screen.findByRole('form', { name: 'Add an item' })).getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(calls).toBe(2));
+    await act(async () => resolveSecond(json(200, { items: [ownerMember, secondMember], nextCursor: null })));
+    await waitFor(() => expect(screen.getByLabelText("Who's looking after it")).toBeVisible());
+    await act(async () => resolveFirst(json(200, { items: [ownerMember], nextCursor: null })));
+    expect(screen.getByRole('option', { name: 'petr' })).toBeInTheDocument();
+  });
+
+  it('ignores a stale 401 member response after add is cancelled', async () => {
+    let resolveMembers!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { resolveMembers = resolve; });
+    const signedOut = vi.fn();
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: () => pending });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    await act(async () => resolveMembers(json(401)));
+    expect(signedOut).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
+  it('creates an item with the selected responsible member', async () => {
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title, responsibleUserId: JSON.parse(request.body).responsibleUserId })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Call dentist');
+    await userEvent.selectOptions(within(form).getByLabelText("Who's looking after it"), 'u-2');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Call dentist” was added.');
+    expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'Call dentist', subjectId: 's-1', recurrence: null, responsibleUserId: 'u-2' });
+  });
+
+  it('hides the responsible field for a single-member household', async () => {
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage([ownerMember]) });
+    app();
+    const form = await openForm();
+    expect(within(form).queryByLabelText("Who's looking after it")).not.toBeInTheDocument();
   });
 
   it.each([{ fluid: false, mode: 'fixed' }, { fluid: true, mode: 'after_completion' }])('creates repeat mode $mode with chosen interval', async ({ fluid, mode }) => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Check smoke alarm');
@@ -98,7 +154,7 @@ describe('item creation', () => {
   });
 
   it('maps a 422 title error to a focused accessible field', async () => {
-    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' }) });
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' }) });
     app();
     const form = await openForm();
     const title = within(form).getByLabelText('What needs doing?');
@@ -486,7 +542,7 @@ describe('Home items', () => {
   });
 
   it('maps a notes 422 to the expanded, focused accessible notes field', async () => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'notes', code: 'invalid_characters' }) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'notes', code: 'invalid_characters' }) });
     app();
     await screen.findByRole('heading', { name: 'Veselí' });
     const form = await openForm();
@@ -504,7 +560,7 @@ describe('Home items', () => {
   });
 
   it('reveals historical completion only for repeating add forms and sends only the entered date', async () => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const form = await openForm();
     expect(within(form).queryByRole('button', { name: 'Add a previous completion' })).not.toBeInTheDocument();
@@ -523,7 +579,7 @@ describe('Home items', () => {
   });
 
   it('omits a blank historical date and omits a previously entered date after Repeat is turned off', async () => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Clean filter');
@@ -534,7 +590,7 @@ describe('Home items', () => {
     expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).not.toHaveProperty('historicalCompletedOn');
 
     cleanup();
-    const second = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const second = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const again = await openForm();
     await userEvent.type(within(again).getByLabelText('What needs doing?'), 'Clean filter');
@@ -555,7 +611,7 @@ describe('Home items', () => {
     { code: 'conflicting_fields', message: 'Choose either a previous completion date or an attention date, not both.', attention: true },
     { code: 'future_date', message: 'A previous completion date cannot be in the future.', attention: false },
   ])('shows $code on the previous date, retaining both entered values', async ({ code, message, attention }) => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'historicalCompletedOn', code }) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'historicalCompletedOn', code }) });
     app();
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Renew passport');
@@ -578,7 +634,7 @@ describe('Home items', () => {
   });
 
   it('creates an item and focuses Add after success', async () => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     await screen.findByRole('heading', { name: 'Veselí' });
     const form = await openForm();

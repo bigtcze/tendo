@@ -5,7 +5,7 @@ export type Item = components['schemas']['Item'];
 export type Subject = components['schemas']['Subject'];
 export type Completion = components['schemas']['Completion'];
 export type Recurrence = components['schemas']['ItemRecurrence'];
-export type ItemField = 'title' | 'subjectId' | 'attentionOn' | 'recurrence' | 'notes' | 'historicalCompletedOn';
+export type ItemField = 'title' | 'subjectId' | 'attentionOn' | 'recurrence' | 'notes' | 'historicalCompletedOn' | 'responsibleUserId';
 export type Invalid = { kind: 'invalid'; field: ItemField; code: string };
 type Failure = { kind: 'unauthenticated' } | { kind: 'error' };
 const listPath = '/api/v1/households/{householdId}/items';
@@ -81,7 +81,7 @@ export async function createItem(householdId: string, body: components['schemas'
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 422) {
       const problem = (error ?? {}) as Problem;
-      const allowed: ItemField[] = ['title', 'subjectId', 'attentionOn', 'recurrence', 'notes', 'historicalCompletedOn'];
+      const allowed: ItemField[] = ['title', 'subjectId', 'attentionOn', 'recurrence', 'notes', 'historicalCompletedOn', 'responsibleUserId'];
       return { kind: 'invalid', field: allowed.includes(problem.field as ItemField) ? problem.field as ItemField : 'title', code: problem.code ?? 'unknown' };
     }
   } catch { /* network failure */ }
