@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { Button } from '../components/ui/button';
 import { localeNames, useI18n, type Locale } from '../i18n';
 
@@ -26,10 +26,12 @@ function LanguageSwitch() {
 
 export function Layout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
   const { t } = useI18n();
+  const mainRef = useRef<HTMLElement>(null);
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-5 sm:px-8">
       <a
         href="#main"
+        onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); mainRef.current?.scrollIntoView(); }}
         className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-2 focus-visible:left-2 focus-visible:rounded-lg focus-visible:bg-white focus-visible:p-3"
       >
         {t('app.skipToContent')}
@@ -38,7 +40,7 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
         <span className="font-display text-xl tracking-tight">{t('app.name')}</span>
         {actions}
       </header>
-      <main id="main" tabIndex={-1} className="flex-1 py-10 sm:py-16">
+      <main id="main" ref={mainRef} tabIndex={-1} className="flex-1 py-10 sm:py-16">
         {children}
       </main>
       <footer className="flex justify-end py-4">

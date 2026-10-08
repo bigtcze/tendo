@@ -12,7 +12,7 @@ const errorKeys: Record<'invalid' | 'rateLimited' | 'unavailable', MessageKey> =
   unavailable: 'login.error.unavailable',
 };
 
-export function LoginScreen({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
+export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Session) => void; notice?: string }) {
   const { t } = useI18n();
   const [loginName, setLoginName] = useState('');
   const [password, setPassword] = useState('');
@@ -39,6 +39,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (session: Session) => 
   return (
     <section className="settle">
       <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('login.title')}</Heading>
+      {notice ? <p role="status" className="mt-4 rounded-xl bg-sand px-4 py-3">{notice}</p> : null}
       <form onSubmit={submit} className="mt-8 space-y-5" noValidate>
         <div className="space-y-2">
           <Label htmlFor="login">{t('login.login')}</Label>

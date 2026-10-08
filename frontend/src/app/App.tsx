@@ -6,16 +6,22 @@ import { HomeScreen } from '../features/home/HomeScreen';
 import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
+import { MembersScreen } from '../features/members/MembersScreen';
+import { InviteScreen } from '../features/members/InviteScreen';
 import { useI18n } from '../i18n';
 import { ScreenTransitionContext } from './Heading';
 import { Layout } from './Layout';
 import { ErrorScreen, LoadingScreen } from './StatusScreens';
 
 const PEOPLE_PATH = '/people';
-type Route = { kind: 'home' | 'people' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
+const MEMBERS_PATH = '/members';
+const INVITE_PATH = '/invite';
+type Route = { kind: 'home' | 'people' | 'members' | 'invite' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
 function readRoute(): Route {
   const path = window.location.pathname;
   if (path === PEOPLE_PATH) return { kind: 'people' };
+  if (path === MEMBERS_PATH) return { kind: 'members' };
+  if (path === INVITE_PATH) return { kind: 'invite' };
   if (path === '/') return { kind: 'home' };
   const match = /^\/items\/([^/]+)$/.exec(path);
   if (match) return /^[0-9a-f-]{36}$/i.test(match[1]!) ? { kind: 'item', itemId: match[1]! } : { kind: 'invalidItem' };
@@ -40,11 +46,70 @@ async function boot(): Promise<BootState> {
   return { kind: 'signedOut' };
 }
 
+let inviteVisitFallbackCounter = 0;
+function createInviteVisitId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID();
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  inviteVisitFallbackCounter += 1;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${inviteVisitFallbackCounter.toString(36)}`;
+}
+
 export function App() {
   const { t } = useI18n();
   const [state, setState] = useState<BootState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [route, setRoute] = useState(() => readRoute());
+  const [inviteVisit, setInviteVisit] = useState<string | null>(() => {
+    const initialVisit = window.history.state?.inviteVisit;
+    return typeof initialVisit === 'string' ? initialVisit : null;
+  });
+  const inviteTokens = useRef(new Map<string, string>());
+  const [inviteToken, setInviteToken] = useState<string | null>(() => {
+    if (window.location.pathname !== INVITE_PATH) return null;
+    const hash = window.location.hash;
+    return hash.startsWith('#') ? hash.slice(1) || null : null;
+  });
+  const [accountReadyNotice, setAccountReadyNotice] = useState(false);
+  const [inviteFocusLogin, setInviteFocusLogin] = useState(false);
+
+  useEffect(() => {
+    const captureInviteVisit = () => {
+      if (window.location.pathname !== INVITE_PATH) return;
+      if (window.location.hash) {
+        const token = window.location.hash.slice(1);
+        const visit = createInviteVisitId();
+        inviteTokens.current.set(visit, token);
+        window.history.replaceState({ inviteVisit: visit }, '', INVITE_PATH);
+        setInviteToken(token || null);
+        setInviteVisit(visit);
+        return;
+      }
+      const visit = window.history.state?.inviteVisit;
+      if (typeof visit === 'string') {
+        setInviteVisit(visit);
+        setInviteToken(inviteTokens.current.get(visit) ?? null);
+      } else {
+        setInviteVisit(null);
+        setInviteToken(null);
+      }
+    };
+    if (window.location.pathname === INVITE_PATH && window.location.hash) {
+      const token = window.location.hash.slice(1);
+      const visit = createInviteVisitId();
+      inviteTokens.current.set(visit, token);
+      window.history.replaceState({ inviteVisit: visit }, '', INVITE_PATH);
+    }
+    window.addEventListener('hashchange', captureInviteVisit);
+    window.addEventListener('popstate', captureInviteVisit);
+    return () => {
+      window.removeEventListener('hashchange', captureInviteVisit);
+      window.removeEventListener('popstate', captureInviteVisit);
+    };
+  }, []);
   // Flipped on the first screen change so later headings take focus; initial load keeps natural focus.
   const transitioned = useRef(false);
 
@@ -64,6 +129,22 @@ export function App() {
     setAttempt((n) => n + 1);
   }, []);
 
+  const inviteSignedOut = useCallback(() => {
+    clearPendingCompletions();
+    transitioned.current = true;
+    const inviteVisit = window.history.state?.inviteVisit;
+    window.history.replaceState(typeof inviteVisit === 'string' ? { inviteVisit } : null, '', INVITE_PATH);
+    setRoute({ kind: 'invite' });
+    setInviteFocusLogin(true);
+    setState({ kind: 'signedOut' });
+  }, []);
+  const accountReady = useCallback(() => {
+    transitioned.current = true;
+    window.history.replaceState(null, '', '/');
+    setRoute({ kind: 'home' });
+    setAccountReadyNotice(true);
+    setState({ kind: 'signedOut' });
+  }, []);
   const signedOut = useCallback(() => {
     clearPendingCompletions();
     transitioned.current = true;
@@ -77,6 +158,11 @@ export function App() {
     transitioned.current = true;
     window.history.pushState(null, '', PEOPLE_PATH);
     setRoute({ kind: 'people' });
+  }, []);
+  const openMembers = useCallback(() => {
+    transitioned.current = true;
+    window.history.pushState(null, '', MEMBERS_PATH);
+    setRoute({ kind: 'members' });
   }, []);
   // Back links from People and item details push home so browser Back still returns to them.
   const goHome = useCallback(() => {
@@ -103,6 +189,8 @@ export function App() {
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
+    setAccountReadyNotice(false);
+    setInviteFocusLogin(false);
     setState({ kind: 'signedIn', session });
   }, []);
 
@@ -110,14 +198,18 @@ export function App() {
     const householdId = state.session.defaultHouseholdId;
     return (
       <ScreenTransitionContext value={transitioned}>
-        {route.kind === 'people' && householdId ? (
+        {route.kind === 'invite' ? (
+          <InviteScreen key={inviteVisit} token={inviteToken} session={state.session} onSignedIn={signedIn} onSignedOut={inviteSignedOut} onAccountReady={accountReady} onJoinedSignedOut={signedOut} />
+        ) : route.kind === 'people' && householdId ? (
           <SubjectsScreen householdId={householdId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+        ) : route.kind === 'members' && householdId ? (
+          <MembersScreen householdId={householdId} userId={state.session.userId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'item' && householdId ? (
           <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'invalidItem' && householdId ? (
           <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : (
-          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenMembers={openMembers} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
     );
@@ -125,12 +217,12 @@ export function App() {
 
   return (
     <ScreenTransitionContext value={transitioned}>
-    <Layout>
+    {state.kind === 'signedOut' && route.kind === 'invite' ? <InviteScreen key={inviteVisit} token={inviteToken} onSignedIn={signedIn} onSignedOut={inviteSignedOut} onAccountReady={accountReady} onJoinedSignedOut={signedOut} focusLogin={inviteFocusLogin} /> : <Layout>
       {state.kind === 'loading' ? <LoadingScreen message={t('app.loading')} /> : null}
       {state.kind === 'error' ? <ErrorScreen onRetry={retry} /> : null}
       {state.kind === 'setupRequired' ? <OnboardingScreen onSignedIn={signedIn} onSetupComplete={signedOut} /> : null}
-      {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} /> : null}
-    </Layout>
+      {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} notice={accountReadyNotice ? t('invite.error.accountReady') : undefined} /> : null}
+    </Layout>}
     </ScreenTransitionContext>
   );
 }

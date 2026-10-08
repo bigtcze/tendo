@@ -2,7 +2,7 @@
 
 The web UI is a React 19, TypeScript, Vite, and Tailwind CSS single-page app in `frontend/`. In production it is embedded in the Go binary. See [ADR 0003](../adr/0003-ui-foundation.md) for the reasoning.
 
-Today the UI shows first-run onboarding when setup has not been completed (setup code, household name, login, password, and a time zone pre-filled from the browser), a sign-in page, and, after sign-in, a home screen with the household name and an empty state. A "People and things" screen lets members add, rename, archive, and restore subjects through the subjects API. Items and invitations do not exist.
+Today the UI shows first-run onboarding when setup has not been completed (setup code, household name, login, password, and a time zone pre-filled from the browser), a sign-in page, and, after sign-in, a home screen with the household name and an empty state. A "People and things" screen lets members add, rename, archive, and restore subjects through the subjects API. Household members can view members and owners can manage invitation links.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 ## Structure
 
 - `src/app`: shell, layout, and top-level status screens
-- `src/features/<feature>`: one folder per feature (`auth`, `home`, `subjects`) with its screens and API calls
+- `src/features/<feature>`: one folder per feature (`auth`, `home`, `subjects`, `members`) with its screens and API calls
 - `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
 - `src/i18n`: translations (`en.ts`, `cs.ts`) and the language provider
 - `src/lib`: the API client and small helpers
