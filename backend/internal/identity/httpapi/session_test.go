@@ -13,6 +13,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -52,6 +53,29 @@ func (f *fakeSessionService) Logout(_ context.Context, token string) error {
 	f.logoutToken = token
 	return f.logoutErr
 }
+
+type loginServiceFake struct {
+	calls     int
+	verify    func(string, string) (bool, error)
+	validHash string
+	err       error
+}
+
+func (f *loginServiceFake) Login(_ context.Context, _ string, password string) (identity.Session, error) {
+	f.calls++
+	_, err := f.verify(f.validHash, password)
+	if err != nil {
+		return identity.Session{}, err
+	}
+	if f.err != nil {
+		return identity.Session{}, f.err
+	}
+	return identity.Session{Token: fakeToken, ID: "sid", Principal: identity.Principal{UserID: "u", Login: "owner_1"}, ExpiresAt: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)}, nil
+}
+func (*loginServiceFake) Lookup(context.Context, string) (identity.SessionInfo, error) {
+	return identity.SessionInfo{}, nil
+}
+func (*loginServiceFake) Logout(context.Context, string) error { return nil }
 
 func sessionFixture(publicURL string) (*fakeSessionService, *SessionHandler, http.Handler) {
 	svc := &fakeSessionService{expires: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), principal: identity.Principal{UserID: "u-1", Login: "owner_1", DefaultHouseholdID: "h-1"}}
@@ -236,20 +260,24 @@ func TestLoginRateLimits(t *testing.T) {
 	}
 }
 
-func TestLoginGlobalConcurrencyLimit(t *testing.T) {
-	svc, h, mux := sessionFixture("http://localhost")
-	svc.loginErr = identity.ErrInvalidCredentials
-	if !h.limiter.acquire() || !h.limiter.acquire() {
-		t.Fatal("could not occupy slots")
+func TestLoginPasswordVerifierGateErrorMapsTo429(t *testing.T) {
+	_, h, mux := sessionFixture("http://localhost")
+	gate := security.NewPasswordGate(1)
+	if _, err := gate.HashPassword("saturate the single slot with sufficiently long passphrase"); err != nil {
+		t.Fatal(err)
 	}
+	service := &loginServiceFake{verify: func(hash, password string) (bool, error) { return false, security.ErrPasswordWorkLimit }, validHash: "invalid"}
+	h.service = service
 	w := serve(mux, loginRequest(validLogin))
 	assertProblem(t, w, 429, "rate_limited")
-	if w.Header().Get("Retry-After") != "60" || svc.loginCalls != 0 {
-		t.Fatalf("Retry-After=%q calls=%d", w.Header().Get("Retry-After"), svc.loginCalls)
+	if w.Header().Get("Retry-After") != "60" || service.calls != 1 {
+		t.Fatalf("Retry-After=%q calls=%d", w.Header().Get("Retry-After"), service.calls)
 	}
-	h.limiter.release()
+	service.verify = gate.VerifyPassword
+	service.validHash, _ = security.HashPassword("correct horse battery")
+	service.err = identity.ErrInvalidCredentials
 	if w := serve(mux, loginRequest(validLogin)); w.Code != 401 {
-		t.Fatalf("slot not released: %d", w.Code)
+		t.Fatalf("login result=%d", w.Code)
 	}
 }
 
@@ -400,12 +428,7 @@ func TestPostAndGetReportIdenticalSubsecondFreeExpiry(t *testing.T) {
 }
 
 func TestSessionLimiterIsBounded(t *testing.T) {
-	l := newLimiter(10, 2)
-	if !l.acquire() || !l.acquire() || l.acquire() {
-		t.Fatal("concurrency bound must be 2")
-	}
-	l.release()
-	l.release()
+	l := newLimiter(10)
 	for i := 0; i < limiterMaxClients; i++ {
 		if !l.admitAttempt("client-" + strconv.Itoa(i)) {
 			t.Fatalf("client %d refused below bound", i)

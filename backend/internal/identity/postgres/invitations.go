@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
@@ -92,14 +91,14 @@ func (t *invitationTx) ListInvitations(c context.Context, hid, cursor string, li
 	}
 	if cursor != "" {
 		if len(cursor) < 3 || cursor[:2] != "n1" {
-			return nil, "", errors.New("invalid invitation cursor")
+			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
-		b, e := base64.RawURLEncoding.DecodeString(cursor[2:])
+		b, e := base64.RawURLEncoding.Strict().DecodeString(cursor[2:])
 		if e != nil || len(b) != 36 {
-			return nil, "", errors.New("invalid invitation cursor")
+			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 		if e := after.Scan(string(b)); e != nil {
-			return nil, "", errors.New("invalid invitation cursor")
+			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 	}
 	rows, e := t.q.ListInvitations(c, identitydb.ListInvitationsParams{HouseholdID: h, Column2: after, Limit: int32(limit)})
@@ -170,7 +169,7 @@ func (t *invitationTx) HasOtherMembership(c context.Context, u, h string) (bool,
 func (t *invitationTx) CreateUser(c context.Context, l string) (string, error) {
 	id, e := t.q.CreateUser(c, l)
 	var pe *pgconn.PgError
-	if errors.As(e, &pe) && pe.Code == "23505" && (pe.ConstraintName == "user_accounts_login_key" || strings.Contains(pe.Message, "login")) {
+	if errors.As(e, &pe) && pe.Code == "23505" && pe.ConstraintName == "user_accounts_login_key" {
 		return "", identity.ErrLoginUnavailable
 	}
 	return id, e

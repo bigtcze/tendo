@@ -31,10 +31,18 @@ type SetupRepository interface {
 type OwnerHouseholdService interface {
 	CreateOwnerHousehold(context.Context, household.Bootstrap, string) (string, error)
 }
-type SetupService struct{ repository SetupRepository }
+type SetupService struct {
+	repository   SetupRepository
+	hashPassword func(string) (string, error)
+}
 
 func NewSetupService(repository SetupRepository) *SetupService {
-	return &SetupService{repository: repository}
+	return &SetupService{repository: repository, hashPassword: security.HashPassword}
+}
+func (s *SetupService) SetPasswordHasher(hasher func(string) (string, error)) {
+	if hasher != nil {
+		s.hashPassword = hasher
+	}
 }
 
 var ErrComplete = errors.New("setup is already complete")
@@ -76,7 +84,10 @@ func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error 
 	if err := bounded.Err(); err != nil {
 		return err
 	}
-	hash, err := security.HashPassword(input.Password)
+	hash, err := s.hashPassword(input.Password)
+	if errors.Is(err, ErrPasswordWorkLimit) {
+		return ErrPasswordWorkLimit
+	}
 	if err != nil {
 		return errors.New("password hashing failed")
 	}

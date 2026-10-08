@@ -26,6 +26,14 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | 428 | `precondition_required` | `If-Match` missing on `PATCH` |
 | 503 | `unavailable` | Persistence failure; no internals are exposed |
 
+## Invitations and members
+
+- Only a current household owner may create, list, or revoke invitations. Members receive `403 owner_required`; non-members and unknown households receive uniform `404 not_found`. `defaultHouseholdId` grants no access.
+- Create with `POST /api/v1/households/{householdId}/invitations` and one visible-ASCII `Idempotency-Key`. The body is exactly `{}`. A first creation returns `201` and the raw bearer token once; same-key retry returns `200` without it. Tokens are never included in list responses.
+- Owner list uses `limit` and opaque `n1:` cursors. Members list uses opaque `m1:` cursors and is available to any household member. Both default to 50 and cap at 100.
+- Revoke succeeds for terminal invitations and does not remove members. New-account acceptance does not set a session cookie. Existing-account acceptance rejects users with a different default household or other household membership.
+- Request evaluation order for management routes: global Origin/authority middleware (403/421) → session authentication (401) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before owner authorization.
+
 ## Cursor pagination
 
 Collections return `{"items": [...], "nextCursor": string | null}`. `nextCursor` is always present and is `null` on the last page.

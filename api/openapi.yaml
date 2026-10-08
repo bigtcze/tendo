@@ -222,6 +222,110 @@ paths:
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable; the session may not have been deleted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/households/{householdId}/invitations:
+    post:
+      operationId: createInvitation
+      summary: Create or retry a household invitation
+      description: Owner only. First creation returns bearer token once; a same-key retry omits it. Body must be {}. Origin is validated by the global middleware before session authentication. Revocation does not remove members.
+      tags: [Households]
+      security: [{ SessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EmptyObject' }, example: {} } }
+      responses:
+        '201': { description: Created; token shown once., headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationCreated' }, example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90, role: member, status: pending, createdAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-15T10:00:00Z', acceptedAt: null, revokedAt: null, token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA } } }}
+        '200': { description: Retry without token., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/Invitation' } } }}
+        '400': { description: Invalid body or idempotency key., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: Owner or Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '404': { description: Not found or not a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '413': { description: Body too large., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '415': { description: Unsupported media type., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    get:
+      operationId: listInvitations
+      summary: List household invitations
+      tags: [Households]
+      security: [{ SessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' }]
+      responses:
+        '200': { description: Owner invitation list. Tokens are never included., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationList' } } }}
+        '400': { description: Invalid pagination query., content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' } } }}
+        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: Owner role required., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '404': { description: Not found or not a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  /api/v1/households/{householdId}/invitations/{invitationId}:
+    delete:
+      operationId: revokeInvitation
+      summary: Revoke an invitation
+      description: Terminal invitations are a successful no-op; this never removes members.
+      tags: [Households]
+      security: [{ SessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { $ref: '#/components/parameters/InvitationId' }]
+      responses:
+        '204': { description: Revoked or already terminal., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } } }
+        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: Owner or Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '404': { description: Not found., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  /api/v1/auth/invitations/accept:
+    post:
+      operationId: acceptInvitationWithNewAccount
+      summary: Accept invitation with a new local account
+      description: Does not create a session cookie; sign in separately.
+      tags: [Auth]
+      security: []
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AcceptInvitationNewAccountRequest' }, example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, login: invited_user, password: a sufficiently long passphrase } } }
+      responses:
+        '201': { description: Created new account membership., headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/InvitedAccount' } } }}
+        '400': { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '404': { description: Invalid invitation., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '409': { description: Login unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '413': { description: Body too large., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '415': { description: Unsupported media type., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '422': { description: Credential validation., content: { application/problem+json: { schema: { $ref: '#/components/schemas/InvitationValidationProblem' } } }}
+        '429': { description: Rate limited., headers: { Retry-After: { schema: { type: integer, minimum: 1 } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  /api/v1/invitations/accept:
+    post:
+      operationId: acceptInvitation
+      summary: Accept invitation with current account
+      tags: [Auth]
+      security: [{ SessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AcceptInvitationRequest' }, example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA } } }
+      responses:
+        '201': { description: Current account joined., headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/Membership' } } }}
+        '400': { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '404': { description: Invalid invitation., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '409': { description: Household conflict or already a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '413': { description: Body too large., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '415': { description: Unsupported media type., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '429': { description: Rate limited., headers: { Retry-After: { schema: { type: integer, minimum: 1 } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
+        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  /api/v1/households/{householdId}/members:
+    get:
+      operationId: listMembers
+      summary: List household members
+      tags: [Members]
+      security: [{ SessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' }]
+      responses:
+        '200': { description: Membership list., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/MemberList' } } }}
+        '400': { description: Invalid pagination query., content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' } } }}
+        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '404': { description: Not found or not a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
   /api/v1/households/{householdId}:
     get:
       operationId: getHousehold
@@ -795,6 +899,11 @@ components:
       description: Household identifier. Authorization context; access is checked against membership.
       schema: { type: string, format: uuid, x-go-type: string }
       example: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid, x-go-type: string }
     SubjectId:
       name: subjectId
       in: path
@@ -885,6 +994,101 @@ components:
         name: { type: string, minLength: 1, maxLength: 100 }
         timezone: { type: string, description: Named IANA timezone. }
         createdAt: { type: string, format: date-time }
+    EmptyObject:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    InvitationStatus:
+      type: string
+      enum: [pending, accepted, revoked, expired]
+    MemberRole:
+      type: string
+      enum: [owner, member]
+    Invitation:
+      type: object
+      additionalProperties: false
+      required: [id, role, status, createdAt, expiresAt, acceptedAt, revokedAt]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        role: { type: string, enum: [member] }
+        status: { $ref: '#/components/schemas/InvitationStatus' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        acceptedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
+        revokedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
+    InvitationCreated:
+      type: object
+      additionalProperties: false
+      required: [id, role, status, createdAt, expiresAt, acceptedAt, revokedAt, token]
+      properties:
+        id: { type: string, format: uuid, x-go-type: string }
+        role: { type: string, enum: [member] }
+        status: { $ref: '#/components/schemas/InvitationStatus' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        acceptedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
+        revokedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
+        token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+    InvitationList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Invitation' } }
+        nextCursor: { type: [string, 'null'], x-go-type: '*string' }
+    Member:
+      type: object
+      additionalProperties: false
+      required: [userId, login, role]
+      properties:
+        userId: { type: string, format: uuid, x-go-type: string }
+        login: { type: string }
+        role: { $ref: '#/components/schemas/MemberRole' }
+    MemberList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Member' } }
+        nextCursor: { type: [string, 'null'], x-go-type: '*string' }
+    InvitedAccount:
+      type: object
+      additionalProperties: false
+      required: [userId, login, householdId, role]
+      properties:
+        userId: { type: string, format: uuid, x-go-type: string }
+        login: { type: string }
+        householdId: { type: string, format: uuid, x-go-type: string }
+        role: { type: string, enum: [member] }
+    Membership:
+      type: object
+      additionalProperties: false
+      required: [userId, householdId, role]
+      properties:
+        userId: { type: string, format: uuid, x-go-type: string }
+        householdId: { type: string, format: uuid, x-go-type: string }
+        role: { type: string, enum: [member] }
+    AcceptInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties: { token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' } }
+    AcceptInvitationNewAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [token, login, password]
+      properties:
+        token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+        login: { type: string, minLength: 3, maxLength: 64, pattern: '^[a-z0-9][a-z0-9._-]{2,63}$' }
+        password: { type: string, minLength: 15, maxLength: 128, description: Maximum 512 UTF-8 bytes. }
+    InvitationValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [field, code]
+          properties:
+            field: { type: string, enum: [login, password] }
+            code: { type: string, enum: [invalid_format, invalid_length] }
     SubjectType:
       type: string
       enum: [person, home, vehicle, pet, custom]

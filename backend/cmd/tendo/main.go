@@ -24,6 +24,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/bigtcze/tendo/backend/internal/platform/webui"
 	subjectapp "github.com/bigtcze/tendo/backend/internal/subject"
 	subjecthttp "github.com/bigtcze/tendo/backend/internal/subject/httpapi"
@@ -101,12 +102,16 @@ func run() error {
 	identityRepository := identitypostgres.New(pool, func(queries *householddb.Queries) identityapp.OwnerHouseholdService {
 		return household.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
 	})
-	identityhttp.New(identityapp.NewSetupService(identityRepository), cfg.SetupToken).Register(routes)
+	passwordGate := security.NewPasswordGate(2)
+	setupService := identityapp.NewSetupService(identityRepository)
+	setupService.SetPasswordHasher(passwordGate.HashPassword)
+	identityhttp.New(setupService, cfg.SetupToken).Register(routes)
 	sessions, err := identityapp.NewSessionService(identityRepository, time.Now)
 	if err != nil {
 		pool.Close()
 		return err
 	}
+	sessions.SetPasswordVerifier(passwordGate.VerifyPassword)
 	sessionHandler := identityhttp.NewSession(sessions, cfg.PublicURL)
 	sessionHandler.Register(routes)
 	principalID := func(ctx context.Context) (string, bool) {
@@ -115,6 +120,17 @@ func run() error {
 	}
 	householdService := household.NewService(householdpostgres.NewRepository(pool))
 	householdhttp.New(householdService, sessionHandler.RequireSession, principalID).Register(routes)
+	householdhttp.NewMembers(householdpostgres.MembershipServiceFor(pool), sessionHandler.RequireSession, principalID).Register(routes)
+	invitationRepo := identitypostgres.NewInvitationRepository(pool, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
+		return householdpostgres.MembershipServiceFor(tx)
+	})
+	invitationService, err := identityapp.NewInvitationService(invitationRepo, time.Now)
+	if err != nil {
+		pool.Close()
+		return err
+	}
+	invitationService.SetPasswordHasher(passwordGate.HashPassword)
+	identityhttp.NewInvitations(invitationService, sessionHandler.RequireSession, principalID).Register(routes)
 	// Subjects authorize through household membership, never through cross-module SQL.
 	subjectService := subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get))
 	subjecthttp.New(subjectService, sessionHandler.RequireSession, principalID).Register(routes)

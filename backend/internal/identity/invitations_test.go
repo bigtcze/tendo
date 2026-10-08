@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/household"
 	"testing"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/household"
 )
 
 const testActor = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
@@ -87,7 +88,7 @@ func (t *invitationFakeTx) AcceptInvitation(_ context.Context, _ string, now tim
 func TestInvitationTokenCanonicalFormat(t *testing.T) {
 	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	if !validInvitationToken(token) {
-		t.Fatal("canonical token rejected")
+		t.Fatal("canonical rejected")
 	}
 	for _, bad := range []string{token + "=", token[:42] + "!", token[:42]} {
 		if validInvitationToken(bad) {
@@ -105,9 +106,8 @@ func TestInvitationLifetimeAndStatusBoundaries(t *testing.T) {
 	if invitationStatus(i, expires.Add(-time.Second)) != "pending" || invitationStatus(i, expires) != "expired" {
 		t.Fatal("expiry boundary")
 	}
-	a := now
-	i.AcceptedAt = &a
-	i.RevokedAt = &a
+	i.AcceptedAt = &now
+	i.RevokedAt = &now
 	if invitationStatus(i, now) != "accepted" {
 		t.Fatal("accepted precedence")
 	}
@@ -121,15 +121,14 @@ func TestCreateTokenOnlyForNewInvitationAndOwnerBeforeRetry(t *testing.T) {
 	s, _ := NewInvitationService(f, nil)
 	r, e := s.CreateInvitation(context.Background(), testActor, testHouse, "key")
 	if e != nil || !r.Created || len(r.Token) != 43 {
-		t.Fatalf("new=%+v %v", r, e)
+		t.Fatalf("new=%+v err=%v", r, e)
 	}
 	retry, e := s.CreateInvitation(context.Background(), testActor, testHouse, "key")
 	if e != nil || retry.Created || retry.Token != "" || retry.Invitation.ID != r.Invitation.ID {
-		t.Fatalf("retry=%+v %v", retry, e)
+		t.Fatalf("retry=%+v err=%v", retry, e)
 	}
 	f.requireErr = household.ErrForbidden
-	_, e = s.CreateInvitation(context.Background(), testActor, testHouse, "key")
-	if !errors.Is(e, household.ErrForbidden) {
+	if _, e = s.CreateInvitation(context.Background(), testActor, testHouse, "key"); !errors.Is(e, household.ErrForbidden) {
 		t.Fatal(e)
 	}
 }
@@ -141,48 +140,47 @@ func TestCreateInvitationValidationErrors(t *testing.T) {
 	if _, e := s.CreateInvitation(context.Background(), testActor, testHouse, ""); !errors.Is(e, ErrIdempotencyKeyRequired) {
 		t.Fatal(e)
 	}
-	if _, e := s.CreateInvitation(context.Background(), testActor, testHouse, "a b"); !errors.Is(e, ErrInvalidIdempotencyKey) {
+	if _, e := s.CreateInvitation(context.Background(), testActor, testHouse, "with space"); !errors.Is(e, ErrInvalidIdempotencyKey) {
 		t.Fatal(e)
 	}
 }
-func TestInvitationPreflightInfrastructureErrorPropagates(t *testing.T) {
-	cause := errors.New("db unavailable")
+func TestInvitationPreflightInfraPropagates(t *testing.T) {
+	cause := errors.New("database unavailable")
 	f := &invitationFake{findErr: cause}
 	s, _ := NewInvitationService(f, nil)
-	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
-	_, e := s.AcceptInvitationNewAccount(context.Background(), token, "new_login", "a sufficiently long password")
+	tok := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	_, e := s.AcceptInvitationNewAccount(context.Background(), tok, "valid_login", "a sufficiently long password")
 	if !errors.Is(e, cause) || errors.Is(e, ErrInvalidInvitation) {
-		t.Fatalf("%v", e)
+		t.Fatalf("error=%v", e)
 	}
 }
-func TestMalformedTokenDoesNotLookupOrTransact(t *testing.T) {
+func TestMalformedTokenDoesNotLookupOrHash(t *testing.T) {
 	f := &invitationFake{}
 	s, _ := NewInvitationService(f, nil)
 	_, e := s.AcceptInvitationNewAccount(context.Background(), "bad", "x", "short")
 	if !errors.Is(e, ErrInvalidInvitation) || f.findCalls != 0 || f.txCalls != 0 {
-		t.Fatalf("%v find=%d tx=%d", e, f.findCalls, f.txCalls)
+		t.Fatalf("error=%v find=%d tx=%d", e, f.findCalls, f.txCalls)
 	}
 }
 func TestAcceptCredentialValidationMatchesSetup(t *testing.T) {
-	f := &invitationFake{}
-	s, _ := NewInvitationService(f, nil)
+	s, _ := NewInvitationService(&invitationFake{}, nil)
 	tok := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
-	_, e := s.AcceptInvitationNewAccount(context.Background(), tok, "INVALID", "long enough password")
+	_, e := s.AcceptInvitationNewAccount(context.Background(), tok, "INVALID", "a sufficiently long password")
 	var v *ValidationError
 	if !errors.As(e, &v) || v.Field != "login" || v.Code != "invalid_format" {
-		t.Fatalf("%v", e)
+		t.Fatalf("login=%v", e)
 	}
 	_, e = s.AcceptInvitationNewAccount(context.Background(), tok, "valid_login", "short")
 	if !errors.As(e, &v) || v.Field != "password" || v.Code != "invalid_length" {
-		t.Fatalf("%v", e)
+		t.Fatalf("password=%v", e)
 	}
 }
 func TestCreationKeyVisibleASCII(t *testing.T) {
 	for _, tc := range []struct {
 		k  string
 		ok bool
-	}{{"x", true}, {"", false}, {"a b", false}, {"é", false}} {
-		if validCreationKey(tc.k) != tc.ok {
+	}{{"key", true}, {"", false}, {"has space", false}, {"é", false}} {
+		if ValidCreationKey(tc.k) != tc.ok {
 			t.Errorf("%q", tc.k)
 		}
 	}

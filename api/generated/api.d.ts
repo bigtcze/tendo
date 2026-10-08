@@ -53,6 +53,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/households/{householdId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List household invitations */
+        get: operations["listInvitations"];
+        put?: never;
+        /**
+         * Create or retry a household invitation
+         * @description Owner only. First creation returns bearer token once; a same-key retry omits it. Body must be {}. Origin is validated by the global middleware before session authentication. Revocation does not remove members.
+         */
+        post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/invitations/{invitationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an invitation
+         * @description Terminal invitations are a successful no-op; this never removes members.
+         */
+        delete: operations["revokeInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept invitation with a new local account
+         * @description Does not create a session cookie; sign in separately.
+         */
+        post: operations["acceptInvitationWithNewAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept invitation with current account */
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List household members */
+        get: operations["listMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households/{householdId}": {
         parameters: {
             query?: never;
@@ -306,6 +401,88 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        EmptyObject: Record<string, never>;
+        /** @enum {string} */
+        InvitationStatus: "pending" | "accepted" | "revoked" | "expired";
+        /** @enum {string} */
+        MemberRole: "owner" | "member";
+        Invitation: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            role: "member";
+            status: components["schemas"]["InvitationStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            acceptedAt: string | null;
+            /** Format: date-time */
+            revokedAt: string | null;
+        };
+        InvitationCreated: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            role: "member";
+            status: components["schemas"]["InvitationStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            acceptedAt: string | null;
+            /** Format: date-time */
+            revokedAt: string | null;
+            token: string;
+        };
+        InvitationList: {
+            items: components["schemas"]["Invitation"][];
+            nextCursor: string | null;
+        };
+        Member: {
+            /** Format: uuid */
+            userId: string;
+            login: string;
+            role: components["schemas"]["MemberRole"];
+        };
+        MemberList: {
+            items: components["schemas"]["Member"][];
+            nextCursor: string | null;
+        };
+        InvitedAccount: {
+            /** Format: uuid */
+            userId: string;
+            login: string;
+            /** Format: uuid */
+            householdId: string;
+            /** @enum {string} */
+            role: "member";
+        };
+        Membership: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: uuid */
+            householdId: string;
+            /** @enum {string} */
+            role: "member";
+        };
+        AcceptInvitationRequest: {
+            token: string;
+        };
+        AcceptInvitationNewAccountRequest: {
+            token: string;
+            login: string;
+            /** @description Maximum 512 UTF-8 bytes. */
+            password: string;
+        };
+        InvitationValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "login" | "password";
+            /** @enum {string} */
+            code: "invalid_format" | "invalid_length";
+        };
         /** @enum {string} */
         SubjectType: "person" | "home" | "vehicle" | "pet" | "custom";
         Subject: {
@@ -495,6 +672,7 @@ export interface components {
          * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
          */
         HouseholdId: string;
+        InvitationId: string;
         /**
          * @description Subject identifier.
          * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70
@@ -1062,6 +1240,587 @@ export interface operations {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listInvitations: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner invitation list. Tokens are never included. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationList"];
+                };
+            };
+            /** @description Invalid pagination query. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Owner role required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found or not a member. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                "Idempotency-Key": string;
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /** @example {} */
+                "application/json": components["schemas"]["EmptyObject"];
+            };
+        };
+        responses: {
+            /** @description Retry without token. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"];
+                };
+            };
+            /** @description Created; token shown once. */
+            201: {
+                headers: {
+                    Location?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationCreated"];
+                };
+            };
+            /** @description Invalid body or idempotency key. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Owner or Origin forbidden. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found or not a member. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Body too large. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported media type. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeInvitation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                invitationId: components["parameters"]["InvitationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked or already terminal. */
+            204: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Owner or Origin forbidden. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    acceptInvitationWithNewAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /** @example {
+                 *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                 *       "login": "invited_user",
+                 *       "password": "a sufficiently long passphrase"
+                 *     } */
+                "application/json": components["schemas"]["AcceptInvitationNewAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Created new account membership. */
+            201: {
+                headers: {
+                    Location?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitedAccount"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Origin forbidden. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid invitation. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Login unavailable. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Body too large. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported media type. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Credential validation. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["InvitationValidationProblem"];
+                };
+            };
+            /** @description Rate limited. */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /** @example {
+                 *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                 *     } */
+                "application/json": components["schemas"]["AcceptInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Current account joined. */
+            201: {
+                headers: {
+                    Location?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Origin forbidden. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid invitation. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household conflict or already a member. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Body too large. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported media type. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limited. */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Membership list. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberList"];
+                };
+            };
+            /** @description Invalid pagination query. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found or not a member. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unavailable. */
+            503: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

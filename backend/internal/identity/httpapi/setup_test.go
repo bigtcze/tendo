@@ -13,6 +13,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -20,11 +21,17 @@ type fakeService struct {
 	required bool
 	err      error
 	calls    int
+	hasher   func(string) (string, error)
 }
 
 func (f *fakeService) Required(context.Context) (bool, error) { return f.required, nil }
-func (f *fakeService) CreateOwner(context.Context, identity.SetupInput) error {
+func (f *fakeService) CreateOwner(_ context.Context, input identity.SetupInput) error {
 	f.calls++
+	if f.hasher != nil {
+		if _, err := f.hasher(input.Password); err != nil {
+			return err
+		}
+	}
 	return f.err
 }
 func TestSetupHTTPContract(t *testing.T) {
@@ -123,6 +130,20 @@ func assertSetupProblem(t *testing.T, w *httptest.ResponseRecorder, status int, 
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil || problem.Status != status || problem.Type != "about:blank" || problem.Code != code {
 		t.Fatalf("problem=%+v err=%v", problem, err)
 	}
+}
+
+func TestSetupPasswordWorkGateErrorMapsTo429(t *testing.T) {
+	f := &fakeService{hasher: func(p string) (string, error) { return "", security.ErrPasswordWorkLimit }}
+	h := New(f, "a-secret-of-at-least-thirty-two-bytes")
+	mux := chi.NewRouter()
+	h.Register(mux)
+	r := httptest.NewRequest(http.MethodPut, "/api/v1/auth/setup", strings.NewReader(`{"login":"owner_1","password":"a sufficiently long password","householdName":"Home","timezone":"UTC"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Tendo-Setup-Token", "a-secret-of-at-least-thirty-two-bytes")
+	r.RemoteAddr = "192.0.2.1:1"
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	assertSetupProblem(t, w, 429, "rate_limited")
 }
 
 func TestSetupDisabled(t *testing.T) {

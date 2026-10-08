@@ -33,6 +33,22 @@ async function checkSetupResponse({ status = 201, headers = {}, body = '{"requir
   }
 }
 
+test('invitation request and response examples satisfy contract schemas', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const Ajv2020 = (await import('ajv/dist/2020.js')).default
+  const addFormats = (await import('ajv-formats')).default
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const ajv = new Ajv2020({ strict: false }); addFormats(ajv)
+  for (const [name, schema] of Object.entries(contract.components.schemas)) ajv.addSchema(schema, `#/components/schemas/${name}`)
+  for (const name of ['EmptyObject','AcceptInvitationRequest','AcceptInvitationNewAccountRequest','Invitation','InvitationCreated','InvitationList','Membership','MemberList']) assert.ok(ajv.compile(contract.components.schemas[name]), `${name} schema compiles`)
+  assert.equal(ajv.compile(contract.components.schemas.EmptyObject)({}), true)
+  assert.equal(ajv.compile(contract.components.schemas.EmptyObject)({a:1}), false)
+  const invitation = {id:'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90',role:'member',status:'pending',createdAt:'2026-10-08T10:00:00Z',expiresAt:'2026-10-15T10:00:00Z',acceptedAt:null,revokedAt:null}
+  assert.equal(ajv.compile(contract.components.schemas.Invitation)(invitation),true)
+  assert.equal(ajv.compile(contract.components.schemas.InvitationCreated)({...invitation,token:'A'.repeat(43)}),true)
+})
+
 test('item create schema accepts omission and a historical date but rejects null', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')

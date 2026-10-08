@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -26,9 +27,8 @@ type SessionHandler struct {
 // NewSession builds the session handler. The cookie policy follows publicURL:
 // an https URL yields the __Host- prefixed Secure cookie.
 func NewSession(s sessionService, publicURL string) *SessionHandler {
-	return &SessionHandler{service: s, secure: strings.HasPrefix(publicURL, "https://"), limiter: newLimiter(10, 2)}
+	return &SessionHandler{service: s, secure: strings.HasPrefix(publicURL, "https://"), limiter: newLimiter(10)}
 }
-
 func (h *SessionHandler) Register(r chi.Router) {
 	r.Post("/api/v1/session", h.create)
 	r.Get("/api/v1/session", h.get)
@@ -72,13 +72,12 @@ func (h *SessionHandler) create(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.limiter.acquire() {
+	session, err := h.service.Login(r.Context(), values["login"], values["password"])
+	if errors.Is(err, security.ErrPasswordWorkLimit) {
 		w.Header().Set("Retry-After", "60")
 		problem(w, 429, "rate_limited")
 		return
 	}
-	defer h.limiter.release()
-	session, err := h.service.Login(r.Context(), values["login"], values["password"])
 	if errors.Is(err, identity.ErrInvalidCredentials) {
 		problem(w, 401, "invalid_credentials")
 		return

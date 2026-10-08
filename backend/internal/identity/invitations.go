@@ -60,9 +60,17 @@ type InvitationRepository interface {
 	WithInvitationTransaction(context.Context, func(InvitationTransaction) error) error
 	FindInvitation(context.Context, []byte) (Invitation, error)
 }
+type PasswordHasher func(string) (string, error)
 type InvitationService struct {
-	repository InvitationRepository
-	clock      func() time.Time
+	repository   InvitationRepository
+	clock        func() time.Time
+	hashPassword PasswordHasher
+}
+
+func (s *InvitationService) SetPasswordHasher(hasher PasswordHasher) {
+	if hasher != nil {
+		s.hashPassword = hasher
+	}
 }
 
 func NewInvitationService(repository InvitationRepository, clock func() time.Time) (*InvitationService, error) {
@@ -72,7 +80,7 @@ func NewInvitationService(repository InvitationRepository, clock func() time.Tim
 	if clock == nil {
 		clock = time.Now
 	}
-	return &InvitationService{repository, clock}, nil
+	return &InvitationService{repository: repository, clock: clock, hashPassword: security.HashPassword}, nil
 }
 func validUUID(v string) bool {
 	if len(v) != 36 {
@@ -113,7 +121,7 @@ func invitationStatus(i Invitation, now time.Time) string {
 	}
 	return "pending"
 }
-func validCreationKey(k string) bool {
+func ValidCreationKey(k string) bool {
 	if len(k) < 1 || len(k) > 128 {
 		return false
 	}
@@ -131,7 +139,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, actor, househo
 	if key == "" {
 		return InvitationResult{}, ErrIdempotencyKeyRequired
 	}
-	if !validCreationKey(key) {
+	if !ValidCreationKey(key) {
 		return InvitationResult{}, ErrInvalidIdempotencyKey
 	}
 	now := invitationNow(s.clock)
@@ -245,9 +253,12 @@ func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, toke
 	if invitationStatus(inv, now) != "pending" {
 		return InvitationUser{}, ErrInvalidInvitation
 	}
-	hash, e := security.HashPassword(password)
+	hash, e := s.hashPassword(password)
+	if errors.Is(e, ErrPasswordWorkLimit) {
+		return InvitationUser{}, ErrPasswordWorkLimit
+	}
 	if e != nil {
-		return InvitationUser{}, errors.New("password hashing failed")
+		return InvitationUser{}, e
 	}
 	var result InvitationUser
 	e = s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {

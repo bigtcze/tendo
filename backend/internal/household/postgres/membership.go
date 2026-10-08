@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
@@ -39,16 +40,19 @@ func (r *MembershipRepository) AddInvitedMember(ctx context.Context, userID, hou
 	return r.queries.AddInvitedMember(ctx, dbgen.AddInvitedMemberParams{UserID: u, HouseholdID: h})
 }
 func (r *MembershipRepository) ListMembers(ctx context.Context, householdID, cursor string, limit int) ([]household.Member, string, error) {
+	decodedCursor, err := household.DecodeMemberCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	if decodedCursor == "" && cursor != "" {
+		return nil, "", &household.ValidationError{Field: "cursor", Code: "invalid_format"}
+	}
 	var h, after pgtype.UUID
 	if e := h.Scan(householdID); e != nil {
 		return nil, "", household.ErrNotFound
 	}
-	if cursor != "" {
-		decoded, e := household.DecodeMemberCursor(cursor)
-		if e != nil {
-			return nil, "", e
-		}
-		if e := after.Scan(decoded); e != nil {
+	if decodedCursor != "" {
+		if e := after.Scan(decodedCursor); e != nil {
 			return nil, "", &household.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 	}
@@ -63,6 +67,9 @@ func (r *MembershipRepository) ListMembers(ctx context.Context, householdID, cur
 	}
 	out := make([]household.Member, 0, len(rows))
 	for _, m := range rows {
+		if m.Role != household.RoleOwner && m.Role != household.RoleMember {
+			return nil, "", errors.New("membership persistence returned unknown role")
+		}
 		out = append(out, household.Member{UserID: m.UserID, Login: m.Login, Role: m.Role})
 	}
 	return out, next, nil

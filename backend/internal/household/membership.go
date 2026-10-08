@@ -36,7 +36,7 @@ func DecodeMemberCursor(cursor string) (string, error) {
 	if len(cursor) < 3 || cursor[:2] != "m1" {
 		return "", &ValidationError{"cursor", "invalid_format"}
 	}
-	b, e := base64.RawURLEncoding.DecodeString(cursor[2:])
+	b, e := base64.RawURLEncoding.Strict().DecodeString(cursor[2:])
 	if e != nil || len(b) != 36 || !validUUID(string(b)) {
 		return "", &ValidationError{"cursor", "invalid_format"}
 	}
@@ -75,8 +75,12 @@ func (s *MembershipService) RequireOwner(ctx context.Context, userID, householdI
 	return nil
 }
 func (s *MembershipService) ListMembers(ctx context.Context, actorID, householdID, cursor string, limit int) ([]Member, string, error) {
-	if _, e := DecodeMemberCursor(cursor); e != nil {
+	decodedCursor, e := DecodeMemberCursor(cursor)
+	if e != nil {
 		return nil, "", e
+	}
+	if cursor != "" {
+		cursor = "m1" + base64.RawURLEncoding.EncodeToString([]byte(decodedCursor))
 	}
 	if limit <= 0 {
 		limit = 50
