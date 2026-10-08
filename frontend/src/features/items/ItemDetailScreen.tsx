@@ -6,11 +6,13 @@ import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import { getSubject } from '../subjects/subjectsApi';
+import { listMembers, type Member } from '../members/membersApi';
 import { listCompletions, getItem, changeItem, patchItem, listActiveSubjects, type Completion, type Item, type Recurrence, type Subject, type ItemField } from './itemsApi';
 import { ItemForm, type ItemFormValues } from './ItemForm';
 
 const MAX_HISTORY_PAGES = 1000;
 const MAX_SUBJECT_PAGES = 20;
+const MAX_MEMBER_PAGES = 20;
 type Editing = { etag: string; baseline: Item; conflict: boolean; latest?: Item; mine?: ItemFormValues };
 function recurrenceEqual(a: Recurrence | null, b: Recurrence | null) {
   return a === null || b === null ? a === b : a.intervalValue === b.intervalValue && a.intervalUnit === b.intervalUnit && a.mode === b.mode;
@@ -21,7 +23,7 @@ function sameValue(field: keyof ItemFormValues, a: ItemFormValues[keyof ItemForm
   if (field === 'notes') return normalizeNotes(a as string) === normalizeNotes(b as string);
   return a === b;
 }
-function formValues(item: Item): ItemFormValues { return { title: item.title, subjectId: item.subjectId, attentionOn: item.attentionOn ?? '', notes: item.notes ?? '', recurrence: item.recurrence }; }
+function formValues(item: Item): ItemFormValues { return { title: item.title, subjectId: item.subjectId, attentionOn: item.attentionOn ?? '', notes: item.notes ?? '', recurrence: item.recurrence, responsibleUserId: item.responsibleUserId }; }
 function formatDate(value: string, locale: string) {
   const [year, month, day] = value.split('-').map(Number);
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
@@ -47,6 +49,8 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const [undoArchive, setUndoArchive] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [editSubjects, setEditSubjects] = useState<Subject[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [editMembers, setEditMembers] = useState<Member[]>([]);
   const [editLoading, setEditLoading] = useState(false);
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const returnEditFocus = useRef(false);
@@ -62,6 +66,21 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     return () => { active.current = false; };
   }, []);
   const current = (token: number) => active.current && generation.current === token;
+
+  const loadMembers = useCallback(async (token: number) => {
+    const collected: Member[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_MEMBER_PAGES; page++) {
+      const result = await listMembers(householdId, cursor);
+      if (!current(token)) return;
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind !== 'ok') { setMembers([]); return; }
+      collected.push(...result.items);
+      if (!result.nextCursor) { setMembers(collected); return; }
+      cursor = result.nextCursor;
+    }
+    if (current(token)) setMembers([]);
+  }, [householdId, onSignedOut]);
 
   const loadHistory = useCallback(async (token: number) => {
     setHistoryState('loading'); setHistoryPartial(false);
@@ -88,13 +107,14 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     if (result.kind === 'unauthenticated') { onSignedOut(); return; }
     if (result.kind === 'notFound') { setState('gone'); return; }
     if (result.kind !== 'ok') { setState('error'); return; }
-    setItem(result.item); setState('ready'); setSubjectOverride(null); setSubjectName('');
+    setItem(result.item); setState('ready'); setSubjectOverride(null); setSubjectName(''); setMembers([]);
     const subject = await getSubject(householdId, result.item.subjectId);
     if (!current(token)) return;
     if (subject.kind === 'unauthenticated') { onSignedOut(); return; }
     setSubjectName(subject.kind === 'ok' ? subject.subject.name : '');
+    void loadMembers(token);
     void loadHistory(token);
-  }, [householdId, itemId, loadHistory, onSignedOut]);
+  }, [householdId, itemId, loadHistory, loadMembers, onSignedOut]);
 
   useEffect(() => {
     const token = ++generation.current;
@@ -136,8 +156,20 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         else if (selected.kind === 'notFound') { setState('gone'); return; }
         else { setNotice('itemDetail.actionFailed'); return; }
       }
+      const editMembers: Member[] = [];
+      let memberCursor: string | undefined;
+      for (let page = 0; page < MAX_MEMBER_PAGES; page++) {
+        const listed = await listMembers(householdId, memberCursor);
+        if (!current(token)) return;
+        if (listed.kind === 'unauthenticated') { onSignedOut(); return; }
+        if (listed.kind !== 'ok') { editMembers.length = 0; break; }
+        editMembers.push(...listed.items);
+        if (!listed.nextCursor) break;
+        memberCursor = listed.nextCursor;
+        if (page === MAX_MEMBER_PAGES - 1) editMembers.length = 0;
+      }
       const selected = subjects.find((subject) => subject.id === result.item.subjectId);
-      setItem(result.item); setEditSubjects(subjects); setEditing({ etag: result.etag, baseline: result.item, conflict: false });
+      setItem(result.item); setEditSubjects(subjects); setEditMembers(editMembers); setEditing({ etag: result.etag, baseline: result.item, conflict: false });
       if (selected) { setSubjectName(selected.name); setSubjectOverride(selected.name); }
     } finally {
       if (busyOwner.current === owner) { busyOwner.current = null; busyRef.current = false; setBusy(false); }
@@ -155,6 +187,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
       ...(values.attentionOn !== (original.attentionOn ?? '') ? { attentionOn: values.attentionOn || null } : {}),
       ...(normalizeNotes(values.notes) !== normalizeNotes(original.notes) ? { notes: normalizeNotes(values.notes) } : {}),
       ...(!recurrenceEqual(recurrence, original.recurrence) ? { recurrence } : {}),
+      ...(values.responsibleUserId !== original.responsibleUserId ? { responsibleUserId: values.responsibleUserId } : {}),
     };
     if (!Object.keys(body).length) { returnEditFocus.current = true; setEditing(null); return { kind: 'done' as const }; }
     if (busyRef.current) return { kind: 'handled' as const };
@@ -188,7 +221,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         return { kind: 'failed' as const };
       }
       if (result.kind === 'invalid') {
-        const allowed = ['title', 'subjectId', 'attentionOn', 'notes', 'recurrence'];
+        const allowed = ['title', 'subjectId', 'attentionOn', 'notes', 'recurrence', 'responsibleUserId'];
         return allowed.includes(result.field) ? { kind: 'invalid' as const, field: result.field as ItemField, code: result.code } : { kind: 'failed' as const };
       }
       if (result.kind === 'ok') {
@@ -253,6 +286,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     {state === 'ready' && item ? <>
       <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>
       <p className="mt-2 text-muted">{subjectOverride ?? (subjectName || t('items.subject.unknown'))}</p>
+      {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown') })}</p> : null}
       {item.archived ? <p className="mt-5 rounded-xl bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
       {notice ? <div className="mt-4 rounded-xl bg-sand px-4 py-3"><p ref={focusRef} tabIndex={-1} role="status" aria-live="polite" className="outline-none">{t(notice)}</p>{undoArchive ? <Button type="button" variant="quiet" className="mt-1" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.undo')}</Button> : null}</div> : null}
       {!editing ? <div className="mt-6 space-y-5 rounded-2xl border border-line bg-white/70 p-5 sm:p-7">
@@ -263,8 +297,8 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         {item.notes ? <div className="border-t border-line pt-4"><h2 className="text-sm font-medium text-muted">{t('items.notes')}</h2><p className="mt-2 whitespace-pre-wrap break-words">{item.notes}</p></div> : null}
       </div> : null}
       {editing ? <div className="mt-6 space-y-4">
-        {editing.conflict && editing.latest ? <div className="space-y-1 rounded-xl border border-line bg-sand/70 px-4 py-3 text-sm"><p className="font-medium">{t('itemDetail.edit.conflict')}</p>{editing.latest.title !== editing.mine?.title ? <p>{t('itemDetail.edit.latest.title', { value: editing.latest.title })}</p> : null}{editing.latest.subjectId !== editing.mine?.subjectId ? <p>{t('itemDetail.edit.latest.subject', { value: editSubjects.find((entry) => entry.id === editing.latest?.subjectId)?.name ?? t('items.subject.unknown') })}</p> : null}{(editing.latest.attentionOn ?? '') !== editing.mine?.attentionOn ? <p>{t('itemDetail.edit.latest.date', { value: editing.latest.attentionOn ? formatDate(editing.latest.attentionOn, locale) : t('itemDetail.edit.noDate') })}</p> : null}{(editing.latest.notes ?? '') !== editing.mine?.notes ? <p className="whitespace-pre-wrap break-words">{t('itemDetail.edit.latest.notes', { value: editing.latest.notes ?? t('itemDetail.edit.noNotes') })}</p> : null}{!recurrenceEqual(editing.latest.recurrence, editing.mine?.recurrence ?? null) ? <p>{t('itemDetail.edit.latest.repeat', { value: editing.latest.recurrence ? `${t(pluralKey(editing.latest.recurrence.intervalUnit, editing.latest.recurrence.intervalValue, locale), { count: String(editing.latest.recurrence.intervalValue) })} · ${t(editing.latest.recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed')}` : t('itemDetail.edit.noRepeat') })}</p> : null}</div> : null}
-        <ItemForm key={`${editing.baseline.id}:${editing.etag}`} mode="edit" initialValues={editing.conflict ? editing.mine : { title: editing.baseline.title, subjectId: editing.baseline.subjectId, attentionOn: editing.baseline.attentionOn ?? '', notes: editing.baseline.notes ?? '', recurrence: editing.baseline.recurrence }} subjects={editSubjects} busy={busy} notice={editing.conflict ? t('itemDetail.edit.conflictHint') : undefined} onSubmit={saveEdit} onCancel={() => { returnEditFocus.current = true; setEditing(null); }} />
+        {editing.conflict && editing.latest ? <div className="space-y-1 rounded-xl border border-line bg-sand/70 px-4 py-3 text-sm"><p className="font-medium">{t('itemDetail.edit.conflict')}</p>{editing.latest.title !== editing.mine?.title ? <p>{t('itemDetail.edit.latest.title', { value: editing.latest.title })}</p> : null}{editing.latest.subjectId !== editing.mine?.subjectId ? <p>{t('itemDetail.edit.latest.subject', { value: editSubjects.find((entry) => entry.id === editing.latest?.subjectId)?.name ?? t('items.subject.unknown') })}</p> : null}{editing.latest.responsibleUserId !== editing.mine?.responsibleUserId ? <p>{t('itemDetail.edit.latest.responsible', { value: editing.latest.responsibleUserId ? editMembers.find((member) => member.userId === editing.latest?.responsibleUserId)?.login ?? t('items.responsible.unknown') : t('items.responsible.none') })}</p> : null}{(editing.latest.attentionOn ?? '') !== editing.mine?.attentionOn ? <p>{t('itemDetail.edit.latest.date', { value: editing.latest.attentionOn ? formatDate(editing.latest.attentionOn, locale) : t('itemDetail.edit.noDate') })}</p> : null}{(editing.latest.notes ?? '') !== editing.mine?.notes ? <p className="whitespace-pre-wrap break-words">{t('itemDetail.edit.latest.notes', { value: editing.latest.notes ?? t('itemDetail.edit.noNotes') })}</p> : null}{!recurrenceEqual(editing.latest.recurrence, editing.mine?.recurrence ?? null) ? <p>{t('itemDetail.edit.latest.repeat', { value: editing.latest.recurrence ? `${t(pluralKey(editing.latest.recurrence.intervalUnit, editing.latest.recurrence.intervalValue, locale), { count: String(editing.latest.recurrence.intervalValue) })} · ${t(editing.latest.recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed')}` : t('itemDetail.edit.noRepeat') })}</p> : null}</div> : null}
+        <ItemForm key={`${editing.baseline.id}:${editing.etag}`} mode="edit" initialValues={editing.conflict ? editing.mine : { title: editing.baseline.title, subjectId: editing.baseline.subjectId, attentionOn: editing.baseline.attentionOn ?? '', notes: editing.baseline.notes ?? '', recurrence: editing.baseline.recurrence, responsibleUserId: editing.baseline.responsibleUserId }} members={editMembers} subjects={editSubjects} busy={busy} notice={editing.conflict ? t('itemDetail.edit.conflictHint') : undefined} onSubmit={saveEdit} onCancel={() => { returnEditFocus.current = true; setEditing(null); }} />
       </div> : null}
       {!item.done && !item.archived && !editing ? <Button ref={editButtonRef} type="button" variant="quiet" className="mt-5" disabled={busy || editLoading} onClick={() => void beginEdit()}>{t(editLoading ? 'itemDetail.edit.loading' : 'itemDetail.edit.button')}</Button> : null}
       {!item.done && !item.archived && !editing ? <div className="mt-5 flex flex-wrap gap-2">

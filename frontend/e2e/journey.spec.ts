@@ -362,7 +362,7 @@ test.describe('Tendo production journey', () => {
   });
 
   type ServerItem = {
-    id: string; title: string; attentionOn: string | null; attention: string; done: boolean; lastCompletedOn: string | null;
+    id: string; title: string; attentionOn: string | null; attention: string; done: boolean; lastCompletedOn: string | null; responsibleUserId: string | null;
     recurrence: { intervalValue: number; intervalUnit: string; mode: string } | null;
   };
   type ServerCompletion = { id: string; completedOn: string; cycleAttentionOn: string | null; nextAttentionOn: string | null; undoneAt: string | null; recurrence: unknown };
@@ -865,6 +865,36 @@ test.describe('Tendo production journey', () => {
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
     }
+  });
+
+  test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
+    await page.goto('/');
+    const memberResponse = await page.request.get(`/api/v1/households/${householdId}/members`);
+    expect(memberResponse.status()).toBe(200);
+    const member = ((await memberResponse.json()) as { items: Array<{ userId: string; login: string }> }).items.find((entry) => entry.login === 'member_e2e');
+    expect(member).toBeDefined();
+    const title = 'Responsible member journey item';
+    await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+    const form = page.getByRole('form', { name: en['items.add.formLabel'] });
+    await form.getByLabel(en['items.title']).fill(title);
+    await form.getByLabel(en['items.subject'], { exact: true }).selectOption({ label: 'Anička' });
+    await form.getByLabel(en['items.responsible.label']).selectOption(member!.userId);
+    await form.getByRole('button', { name: en['items.add.submit'] }).click();
+    await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
+    await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
+    await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
+    const created = await serverItem(title);
+    expect(created.responsibleUserId).toBe(member!.userId);
+    await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+    const edit = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+    await edit.getByLabel(en['items.responsible.label']).selectOption('');
+    await edit.getByRole('button', { name: en['itemDetail.save'] }).click();
+    await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toHaveCount(0);
+    expect((await serverItem(title)).responsibleUserId).toBeNull();
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
   });
 
   test('o. sign out returns to login and revokes the session server-side', async () => {

@@ -13,6 +13,9 @@ const path = `${base}/items/${itemId}`;
 const pathB = `${base}/items/${itemIdB}`;
 const historyPath = `${path}/completions`;
 const subject: Subject = { id: 's-1', name: 'Anna', type: 'person', archived: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
+const ownerMember = { userId: 'u-1', login: 'anna', role: 'owner' as const };
+const secondMember = { userId: 'u-2', login: 'petr', role: 'member' as const };
+const members = json(200, { items: [ownerMember, secondMember], nextCursor: null });
 const baseRoutes = { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household) };
 function item(overrides: Partial<Item> = {}): Item { return { id: itemId, subjectId: subject.id, responsibleUserId: null, title: 'Renew passport', notes: 'Bring old passport', attentionOn: '2026-10-10', recurrence: { intervalUnit: 'year', intervalValue: 2, mode: 'fixed' }, workflowState: 'open', attention: 'upcoming', archived: false, done: false, lastCompletedOn: '2025-10-10', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...overrides }; }
 function completion(id: string, completedOn: string, overrides: Partial<Completion> = {}): Completion { return { id, itemId, completedOn, completedByUserId: 'secret-user', cycleAttentionOn: '2024-10-10', recurrence: null, nextAttentionOn: '2026-10-10', createdAt: `${completedOn}T00:00:00Z`, undoneAt: null, undoneByUserId: null, ...overrides }; }
@@ -23,6 +26,27 @@ beforeEach(() => { vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); window.history.replaceState(null, '', '/'); });
 
 describe('item details', () => {
+  it('shows the assigned member in the detail read view and hides the line when unassigned', async () => {
+    const assigned = item({ responsibleUserId: secondMember.userId });
+    installFakeServer(common({ [`GET ${path}`]: json(200, assigned, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    expect(await screen.findByText('Looked after by petr')).toBeVisible();
+    cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${base}/members`]: members })); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    expect(screen.queryByText(/Looked after by/)).not.toBeInTheDocument();
+  });
+
+  it('loads history while the member list is still pending', async () => {
+    let release!: (response: Response) => void;
+    const pendingMembers = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer(common({ [`GET ${base}/members`]: () => pendingMembers, [`GET ${historyPath}`]: json(200, { items: [completion('history-ready', '2025-04-02')], nextCursor: null }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    expect(await screen.findByText('Done Apr 2, 2025')).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(1);
+    await act(async () => release(members.clone()));
+  });
+
   it('opens from a home title, starts with a fresh ETag and shows detail content', async () => {
     let etag = 1;
     const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, item(), { ETag: `"${etag++}"` }), [`PATCH ${path}`]: (req) => json(200, item({ workflowState: JSON.parse(req.body).workflowState }), { ETag: '"3"' }) }));
@@ -215,6 +239,40 @@ describe('item details', () => {
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects/s-2`).length).toBeGreaterThan(0);
   });
 
+  it('changes and clears the responsible member with exact patch bodies', async () => {
+    let current = item();
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, current, { ETag: '"open"' }), [`GET ${base}/members`]: members, [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => { const body = JSON.parse(request.body); current = { ...current, responsibleUserId: body.responsibleUserId }; return json(200, current); } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.selectOptions(screen.getByLabelText("Who's looking after it"), 'u-2');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ responsibleUserId: 'u-2' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const secondForm = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.selectOptions(screen.getByLabelText("Who's looking after it"), '');
+    await userEvent.click(within(secondForm).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ responsibleUserId: null });
+  });
+
+  it('shows an assigned member chooser in a single-member household and clears an unknown member', async () => {
+    const unknownId = 'u-unknown';
+    const fake = installFakeServer(common({ [`GET ${path}`]: json(200, item({ responsibleUserId: unknownId }), { ETag: '"one"' }), [`GET ${base}/members`]: json(200, { items: [ownerMember], nextCursor: null }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => json(200, item({ responsibleUserId: JSON.parse(request.body).responsibleUserId })) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    const select = screen.getByLabelText("Who's looking after it");
+    expect(select).toHaveValue(unknownId);
+    expect(within(select).getByRole('option', { name: 'Unknown member' })).toBeInTheDocument();
+    await userEvent.selectOptions(select, '');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ responsibleUserId: null });
+  });
+
   it('prefills edit values and patches only changed fields with the ETag from edit-open GET', async () => {
     let reads = 0;
     const fake = installFakeServer(common({
@@ -318,6 +376,41 @@ describe('item details', () => {
     expect(await screen.findByText(/Latest saved repeat setting: Repeats every 2 years · Keeps the planned dates\./)).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' })).toBeChecked();
     expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1); expect(writes).toBe(1);
+  });
+
+  it('rebases an untouched assignee to the latest value and summarizes the change', async () => {
+    let reads = 0; let writes = 0;
+    const latest = item({ responsibleUserId: secondMember.userId });
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? item() : latest, { ETag: `"${reads}"` }), [`GET ${base}/members`]: members, [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: () => ++writes === 1 ? json(412) : json(200, latest) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Mine');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(screen.queryByText(/Latest saved person looking after it:/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Who's looking after it")).toHaveValue('u-2');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ title: 'Mine' });
+  });
+
+  it('keeps a changed assignee through conflict and resubmits it with the latest ETag', async () => {
+    let reads = 0; let writes = 0;
+    const original = item({ responsibleUserId: ownerMember.userId });
+    const latest = item({ title: 'Other title', responsibleUserId: ownerMember.userId });
+    const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? original : latest, { ETag: `"${reads}"` }), [`GET ${base}/members`]: members, [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: () => ++writes === 1 ? json(412) : json(200, { ...latest, responsibleUserId: secondMember.userId }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.selectOptions(screen.getByLabelText("Who's looking after it"), secondMember.userId);
+    await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'My title');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Latest saved person looking after it: anna')).toBeVisible();
+    expect(screen.getByLabelText("Who's looking after it")).toHaveValue(secondMember.userId);
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ title: 'My title', responsibleUserId: secondMember.userId });
+    expect(requestsOf(fake.requests, 'PATCH', path)[1]!.headers.get('If-Match')).toBe('"3"');
   });
 
   it('rebases untouched fields after conflict and retains only the user title change', async () => {
@@ -448,6 +541,32 @@ describe('item details', () => {
     await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Changed title');
     await userEvent.click(within(formAgain).getByRole('button', { name: 'Save changes' }));
     const notice = await screen.findByText('Item updated.'); expect(notice).toHaveFocus();
+  });
+
+  it('does not patch responsibleUserId when members fail to load and only the title changes', async () => {
+    const assigned = item({ responsibleUserId: secondMember.userId });
+    const fake = installFakeServer(common({ [`GET ${path}`]: json(200, assigned, { ETag: '"assigned"' }), [`GET ${base}/members`]: json(503), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => json(200, { ...assigned, title: JSON.parse(request.body).title }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    expect(screen.getByLabelText("Who's looking after it")).toHaveValue(secondMember.userId);
+    expect(within(form).getByRole('option', { name: 'Unknown member' })).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Changed title');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ title: 'Changed title' });
+  });
+
+  it('maps a responsible member 422 to a focused accessible field', async () => {
+    installFakeServer(common({ [`GET ${base}/members`]: members, [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: json(422, { field: 'responsibleUserId', code: 'invalid_reference' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    const select = screen.getByLabelText("Who's looking after it");
+    await userEvent.selectOptions(select, 'u-2');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('That person is no longer in this household.');
+    expect(select).toHaveFocus(); expect(select).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('handles edit 401, 404, 422 and network failures without losing form values', async () => {
