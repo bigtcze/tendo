@@ -364,7 +364,7 @@ func (q *Queries) ListCompletions(ctx context.Context, arg ListCompletionsParams
 }
 
 const lockItemForCompletion = `-- name: LockItemForCompletion :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version FROM items WHERE items.household_id=$1 AND items.id=$2 FOR UPDATE
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version FROM items WHERE items.household_id=$1 AND items.id=$2 FOR UPDATE
 `
 
 type LockItemForCompletionParams struct {
@@ -376,6 +376,7 @@ type LockItemForCompletionRow struct {
 	ID                      string
 	HouseholdID             string
 	SubjectID               string
+	ResponsibleUserID       pgtype.UUID
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
@@ -398,6 +399,7 @@ func (q *Queries) LockItemForCompletion(ctx context.Context, arg LockItemForComp
 		&i.ID,
 		&i.HouseholdID,
 		&i.SubjectID,
+		&i.ResponsibleUserID,
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,

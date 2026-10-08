@@ -133,7 +133,7 @@ func completionFromUndo(r dbgen.GetCompletionForUndoRow) (item.Completion, error
 	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
 }
 func completionCurrent(r dbgen.LockItemForCompletionRow) (item.Item, error) {
-	return toItem(row{ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn, RecurrenceIntervalValue: r.RecurrenceIntervalValue, RecurrenceIntervalUnit: r.RecurrenceIntervalUnit, RecurrenceMode: r.RecurrenceMode, WorkflowState: r.WorkflowState, Archived: r.Archived, Done: r.Done, LastCompletedOn: r.LastCompletedOn, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Version: r.Version})
+	return toItem(row{ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, ResponsibleUserID: r.ResponsibleUserID, Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn, RecurrenceIntervalValue: r.RecurrenceIntervalValue, RecurrenceIntervalUnit: r.RecurrenceIntervalUnit, RecurrenceMode: r.RecurrenceMode, WorkflowState: r.WorkflowState, Archived: r.Archived, Done: r.Done, LastCompletedOn: r.LastCompletedOn, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Version: r.Version})
 }
 func (r *Repository) Complete(ctx context.Context, hid, iid, key string, fingerprint [32]byte, decide item.CompletionDecider) (item.Completion, bool, error) {
 	h, ok := parseUUID(hid)

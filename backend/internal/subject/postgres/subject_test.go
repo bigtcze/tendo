@@ -430,7 +430,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 3 schema, then add pre-existing data.
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DELETE FROM tendo_schema_migrations WHERE version IN (4,5,6,7,8,9)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DELETE FROM tendo_schema_migrations WHERE version IN (4,5,6,7,8,9,10)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid string
@@ -464,7 +464,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 9 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 10 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

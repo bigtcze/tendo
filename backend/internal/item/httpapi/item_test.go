@@ -32,14 +32,16 @@ var one = base + "/" + iid
 
 type userKey struct{}
 type fixture struct {
-	repo    *itemtest.Repo
-	handler http.Handler
-	member  error
-	subject error
-	authHit int
-	svcHit  int
-	zone    string
-	now     time.Time
+	repo          *itemtest.Repo
+	handler       http.Handler
+	member        error
+	subject       error
+	candidateErr  error
+	memberLookups []string
+	authHit       int
+	svcHit        int
+	zone          string
+	now           time.Time
 }
 
 func newFixture(authenticate bool) *fixture {
@@ -76,7 +78,16 @@ func newFixture(authenticate bool) *fixture {
 		})
 	}
 	r := chi.NewRouter()
-	New(item.NewService(f.repo, houses, subjects, func() time.Time { return f.now }), auth, func(ctx context.Context) (string, bool) { v, ok := ctx.Value(userKey{}).(string); return v, ok }).Register(r)
+	New(item.NewService(f.repo, houses, subjects, func(_ context.Context, candidate, household string) error {
+		f.memberLookups = append(f.memberLookups, candidate+"/"+household)
+		if f.candidateErr != nil {
+			return f.candidateErr
+		}
+		if household != hid || (candidate != userID && candidate != "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62" && candidate != "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b65") {
+			return item.ErrNotFound
+		}
+		return nil
+	}, func() time.Time { return f.now }), auth, func(ctx context.Context) (string, bool) { v, ok := ctx.Value(userKey{}).(string); return v, ok }).Register(r)
 	f.handler = r
 	return f
 }
@@ -153,7 +164,7 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	if created.Code != 201 || created.Header().Get("ETag") != `"1"` || created.Header().Get("Location") != base+"/"+id || created.Header().Get("Content-Type") != "application/json" || created.Header().Get("Cache-Control") != "no-store" || row.Title != "New item" || row.Notes == nil || *row.Notes != "  keep\n " || row.Version != 1 || row.WorkflowState != item.StateOpen {
 		t.Fatalf("status=%d headers=%v body=%s row=%+v", created.Code, created.Header(), created.Body, row)
 	}
-	want := `{"id":"` + id + `","subjectId":"` + sid + `","title":"New item","notes":"  keep\n ","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z","recurrence":null}`
+	want := `{"id":"` + id + `","subjectId":"` + sid + `","responsibleUserId":null,"title":"New item","notes":"  keep\n ","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z","recurrence":null}`
 	bodyEqual(t, created.Body.String(), want)
 	get := f.do("GET", base+"/"+id, "", nil)
 	if get.Code != 200 || get.Header().Get("ETag") != `"1"` || get.Header().Get("Cache-Control") != "no-store" {
@@ -164,14 +175,14 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	if list.Code != 200 {
 		t.Fatalf("list=%d %s", list.Code, list.Body)
 	}
-	seeded := `{"id":"` + iid + `","subjectId":"` + sid + `","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-03-01T23:30:00Z","recurrence":null}`
+	seeded := `{"id":"` + iid + `","subjectId":"` + sid + `","responsibleUserId":null,"title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-03-01T23:30:00Z","recurrence":null}`
 	bodyEqual(t, list.Body.String(), `{"items":[`+want+`,`+seeded+`],"nextCursor":null}`)
 	patched := f.do("PATCH", base+"/"+id, `{"notes":null,"attentionOn":null,"workflowState":"paused"}`, map[string]string{"If-Match": `"1"`})
 	updated, exists := f.repo.Row(id)
 	if !exists || patched.Code != 200 || patched.Header().Get("ETag") != `"2"` || updated.Version != 2 || updated.Notes != nil || updated.AttentionOn != nil || updated.WorkflowState != item.StatePaused {
 		t.Fatalf("patch=%d %s row=%+v exists=%v", patched.Code, patched.Body, updated, exists)
 	}
-	bodyEqual(t, patched.Body.String(), `{"id":"`+id+`","subjectId":"`+sid+`","title":"New item","notes":null,"attentionOn":null,"recurrence":null,"workflowState":"paused","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+	bodyEqual(t, patched.Body.String(), `{"id":"`+id+`","subjectId":"`+sid+`","responsibleUserId":null,"title":"New item","notes":null,"attentionOn":null,"recurrence":null,"workflowState":"paused","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 }
 
 func TestRecurrenceStrictDecodingAndValidation(t *testing.T) {
@@ -208,7 +219,7 @@ func TestRecurrenceStrictDecodingAndValidation(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("clear recurrence: %d %s", w.Code, w.Body)
 	}
-	bodyEqual(t, w.Body.String(), `{"id":"`+iid+`","subjectId":"`+sid+`","title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","recurrence":null,"workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+	bodyEqual(t, w.Body.String(), `{"id":"`+iid+`","subjectId":"`+sid+`","responsibleUserId":null,"title":"Renew insurance","notes":"Quotes\n","attentionOn":"2026-03-02","recurrence":null,"workflowState":"open","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-03-01T23:30:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 }
 
 func TestRecurrenceIntegerRangeErrorsDoNotPersist(t *testing.T) {
@@ -249,7 +260,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &fixedBody); err != nil {
 		t.Fatal(err)
 	}
-	fixedWant := `{"id":"` + fixedBody.Id + `","subjectId":"` + sid + `","title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":{"intervalValue":1,"intervalUnit":"year","mode":"fixed"},"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	fixedWant := `{"id":"` + fixedBody.Id + `","subjectId":"` + sid + `","responsibleUserId":null,"title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":{"intervalValue":1,"intervalUnit":"year","mode":"fixed"},"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
 	bodyEqual(t, w.Body.String(), fixedWant)
 	got := f.do("GET", base+"/"+fixedBody.Id, "", nil)
 	if got.Code != 200 {
@@ -264,7 +275,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &fluidBody); err != nil {
 		t.Fatal(err)
 	}
-	fluidWant := `{"id":"` + fluidBody.Id + `","subjectId":"` + sid + `","title":"Fluid","notes":null,"attentionOn":"2099-02-01","recurrence":{"intervalValue":2,"intervalUnit":"month","mode":"after_completion"},"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	fluidWant := `{"id":"` + fluidBody.Id + `","subjectId":"` + sid + `","responsibleUserId":null,"title":"Fluid","notes":null,"attentionOn":"2099-02-01","recurrence":{"intervalValue":2,"intervalUnit":"month","mode":"after_completion"},"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
 	bodyEqual(t, w.Body.String(), fluidWant)
 	list := f.do("GET", base, "", nil)
 	if list.Code != 200 {
@@ -284,7 +295,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if clear.Code != 200 {
 		t.Fatalf("clear=%d %s", clear.Code, clear.Body)
 	}
-	bodyEqual(t, clear.Body.String(), `{"id":"`+fixedBody.Id+`","subjectId":"`+sid+`","title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":null,"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
+	bodyEqual(t, clear.Body.String(), `{"id":"`+fixedBody.Id+`","subjectId":"`+sid+`","responsibleUserId":null,"title":"Fixed","notes":null,"attentionOn":"2099-01-01","recurrence":null,"workflowState":"open","attention":"upcoming","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 	storedRow, _ := f.repo.Row(fixedBody.Id)
 	if storedRow.Recurrence != nil || storedRow.AttentionOn == nil || storedRow.AttentionOn.String() != "2099-01-01" || storedRow.Version != 2 {
 		t.Fatalf("clear row=%+v", storedRow)

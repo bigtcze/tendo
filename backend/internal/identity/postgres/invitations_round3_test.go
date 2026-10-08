@@ -17,7 +17,7 @@ func TestInvitationMigrationV8Upgrade(t *testing.T) {
 	if e := database.Migrate(ctx, admin); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := admin.Exec(ctx, `DROP TABLE IF EXISTS household_invitations; DELETE FROM tendo_schema_migrations WHERE version=9`); e != nil {
+	if _, e := admin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DELETE FROM tendo_schema_migrations WHERE version IN (9,10)`); e != nil {
 		t.Fatal(e)
 	}
 	if e := database.ValidateSchema(ctx, app); e == nil {
@@ -45,7 +45,7 @@ func TestInvitationMigrationV8Upgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if e := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); e != nil || version != 9 || dirty {
+	if e := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); e != nil || version != 10 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, e)
 	}
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)

@@ -30,7 +30,7 @@ func TestCompletionHTTPCreateReplayAndEvaluationOrder(t *testing.T) {
 			return "", item.ErrNotFound
 		}
 		return "UTC", nil
-	}, func(context.Context, string, string, string) (bool, error) { return false, nil }, func() time.Time { return at })
+	}, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return at })
 	New(svc, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey{}, userID)))
@@ -102,7 +102,7 @@ func TestCompletionHTTPCreateReplayAndEvaluationOrder(t *testing.T) {
 func TestUndoCompletionHTTP(t *testing.T) {
 	f := newFixture(true)
 	var staleSession bool
-	svc := item.NewService(f.repo, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func() time.Time { return at })
+	svc := item.NewService(f.repo, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return at })
 	r := chi.NewRouter()
 	New(svc, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +217,7 @@ func TestUndoCompletionHTTP(t *testing.T) {
 
 func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 	f := newFixture(true)
-	svc := item.NewService(f.repo, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func() time.Time { return at })
+	svc := item.NewService(f.repo, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return at })
 	r := chi.NewRouter()
 	New(svc, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +278,7 @@ func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 	empty := itemtest.New()
 	emptyItem := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b88"
 	empty.Seed(item.Item{ID: emptyItem, HouseholdID: hid, SubjectID: sid, Version: 1})
-	emptySvc := item.NewService(empty, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func() time.Time { return at })
+	emptySvc := item.NewService(empty, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return at })
 	emptyRouter := chi.NewRouter()
 	New(emptySvc, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

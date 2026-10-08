@@ -33,6 +33,9 @@ var (
 	// subject or household change). The service reports it as a subjectId
 	// validation failure.
 	ErrInvalidReference = errors.New("invalid subject reference")
+	// ErrInvalidResponsibleReference means the responsible-member reference was
+	// rejected by storage (for example, membership ended after validation).
+	ErrInvalidResponsibleReference = errors.New("invalid responsible member reference")
 )
 
 const (
@@ -71,21 +74,22 @@ func ParseWorkflowState(s string) (WorkflowState, bool) {
 // populated by repositories but are not part of the public representation.
 // Attention is derived by the Service and is never stored.
 type Item struct {
-	ID              string
-	HouseholdID     string
-	SubjectID       string
-	Title           string
-	Notes           *string
-	AttentionOn     *schedule.Date
-	Recurrence      *schedule.Policy
-	WorkflowState   WorkflowState
-	Attention       schedule.Attention
-	Archived        bool
-	Done            bool
-	LastCompletedOn *schedule.Date
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Version         int64
+	ID                string
+	HouseholdID       string
+	SubjectID         string
+	ResponsibleUserID *string
+	Title             string
+	Notes             *string
+	AttentionOn       *schedule.Date
+	Recurrence        *schedule.Policy
+	WorkflowState     WorkflowState
+	Attention         schedule.Attention
+	Archived          bool
+	Done              bool
+	LastCompletedOn   *schedule.Date
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	Version           int64
 }
 
 type ValidationError struct{ Field, Code string }
@@ -113,6 +117,7 @@ func Null[T any]() Nullable[T] { return Nullable[T]{Set: true} }
 // NewItem is the unvalidated create input.
 type NewItem struct {
 	SubjectID             string
+	ResponsibleUserID     *string
 	Title                 string
 	Notes                 *string
 	AttentionOn           *string
@@ -120,25 +125,28 @@ type NewItem struct {
 	Recurrence            *schedule.Policy
 }
 
-// Patch is the unvalidated partial update input. Unset fields are unchanged;
-// Notes and AttentionOn may be set to null to clear them.
+// Patch is the unvalidated partial update input. Unset fields are unchanged.
+// Notes, AttentionOn, and ResponsibleUserID distinguish omitted from null to
+// support explicit clearing; a non-null ResponsibleUserID assigns a member.
 type Patch struct {
-	Title         *string
-	SubjectID     *string
-	Notes         Nullable[string]
-	AttentionOn   Nullable[string]
-	Recurrence    Nullable[schedule.Policy]
-	WorkflowState *string
-	Archived      *bool
+	Title             *string
+	SubjectID         *string
+	ResponsibleUserID Nullable[string]
+	Notes             Nullable[string]
+	AttentionOn       Nullable[string]
+	Recurrence        Nullable[schedule.Policy]
+	WorkflowState     *string
+	Archived          *bool
 }
 
 func (p Patch) empty() bool {
-	return p.Title == nil && p.SubjectID == nil && !p.Notes.Set && !p.AttentionOn.Set && !p.Recurrence.Set && p.WorkflowState == nil && p.Archived == nil
+	return p.Title == nil && p.SubjectID == nil && !p.ResponsibleUserID.Set && !p.Notes.Set && !p.AttentionOn.Set && !p.Recurrence.Set && p.WorkflowState == nil && p.Archived == nil
 }
 
 // Draft is a validated new item handed to the repository.
 type Draft struct {
 	SubjectID             string
+	ResponsibleUserID     *string
 	Title                 string
 	Notes                 *string
 	AttentionOn           *schedule.Date
@@ -148,13 +156,14 @@ type Draft struct {
 
 // Change is a validated patch handed to the repository.
 type Change struct {
-	Title         *string
-	SubjectID     *string
-	Notes         Nullable[string]
-	AttentionOn   Nullable[schedule.Date]
-	Recurrence    Nullable[schedule.Policy]
-	WorkflowState *WorkflowState
-	Archived      *bool
+	Title             *string
+	SubjectID         *string
+	ResponsibleUserID Nullable[string]
+	Notes             Nullable[string]
+	AttentionOn       Nullable[schedule.Date]
+	Recurrence        Nullable[schedule.Policy]
+	WorkflowState     *WorkflowState
+	Archived          *bool
 }
 
 type ListQuery struct {
@@ -174,9 +183,10 @@ type Page struct {
 // Update return ErrNotFound for rows outside that household. Update returns
 // ErrVersionMismatch when the item exists with another version. Create and
 // Update return ErrInvalidReference when the subject reference is rejected by
-// storage. List returns items with id greater than afterID in ascending id
-// order, at most limit. Repositories never populate Item.Attention. Any other
-// error is an infrastructure failure.
+// storage, or ErrInvalidResponsibleReference when the responsible-member
+// reference is rejected. List returns items with id greater than afterID in
+// ascending id order, at most limit. Repositories never populate Item.Attention.
+// Any other error is an infrastructure failure.
 type Repository interface {
 	Create(ctx context.Context, householdID string, d Draft) (Item, error)
 	Get(ctx context.Context, householdID, itemID string) (Item, error)
@@ -197,15 +207,21 @@ type Households func(ctx context.Context, userID, householdID string) (timezone 
 // infrastructure failures.
 type Subjects func(ctx context.Context, userID, householdID, subjectID string) (archived bool, err error)
 
+// Members validates that candidate userID belongs to householdID. A nil error
+// means the candidate is a member, ErrNotFound means they are not a member, and
+// any other error is treated as an infrastructure failure.
+type Members func(ctx context.Context, userID, householdID string) error
+
 type Service struct {
 	repository Repository
 	households Households
 	subjects   Subjects
+	members    Members
 	now        func() time.Time
 }
 
-func NewService(repository Repository, households Households, subjects Subjects, now func() time.Time) *Service {
-	return &Service{repository: repository, households: households, subjects: subjects, now: now}
+func NewService(repository Repository, households Households, subjects Subjects, members Members, now func() time.Time) *Service {
+	return &Service{repository: repository, households: households, subjects: subjects, members: members, now: now}
 }
 
 // check validates the household identifier, canonicalizes it to lowercase, and
@@ -236,6 +252,8 @@ func mapRepoErr(err error) error {
 		return err
 	case errors.Is(err, ErrInvalidReference):
 		return &ValidationError{"subjectId", "invalid_reference"}
+	case errors.Is(err, ErrInvalidResponsibleReference):
+		return &ValidationError{"responsibleUserId", "invalid_reference"}
 	default:
 		return ErrUnavailable
 	}
@@ -249,6 +267,27 @@ func derive(i Item, today schedule.Date) (Item, error) {
 	}
 	i.Attention = a
 	return i, nil
+}
+
+// checkResponsibleMember requires candidate to be a member of the household and
+// returns its canonical lowercase UUID.
+func (s *Service) checkResponsibleMember(ctx context.Context, householdID string, candidate *string) (*string, error) {
+	if candidate == nil {
+		return nil, nil
+	}
+	invalid := &ValidationError{"responsibleUserId", "invalid_reference"}
+	if !validUUID(*candidate) {
+		return nil, invalid
+	}
+	id := strings.ToLower(*candidate)
+	err := s.members(ctx, id, householdID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, invalid
+	}
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	return &id, nil
 }
 
 // checkSubject requires subjectID to name an active subject of the household.
@@ -336,7 +375,11 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 	if err != nil {
 		return Item{}, err
 	}
-	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence, InitializationReceipt: receipt})
+	responsibleID, err := s.checkResponsibleMember(ctx, householdID, n.ResponsibleUserID)
+	if err != nil {
+		return Item{}, err
+	}
+	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, ResponsibleUserID: responsibleID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence, InitializationReceipt: receipt})
 	if err != nil {
 		return Item{}, mapRepoErr(err)
 	}
@@ -458,6 +501,8 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		c.WorkflowState = &state
 	}
 	c.Archived = p.Archived
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
 	if p.SubjectID != nil {
 		subjectID, err := s.checkSubject(ctx, userID, householdID, *p.SubjectID)
 		if err != nil {
@@ -465,8 +510,16 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		}
 		c.SubjectID = &subjectID
 	}
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
+	if p.ResponsibleUserID.Set {
+		c.ResponsibleUserID.Set = true
+		if p.ResponsibleUserID.Value != nil {
+			responsibleID, err := s.checkResponsibleMember(ctx, householdID, p.ResponsibleUserID.Value)
+			if err != nil {
+				return Item{}, err
+			}
+			c.ResponsibleUserID.Value = responsibleID
+		}
+	}
 	updated, err := s.repository.Update(ctx, householdID, itemID, expectedVersion, c)
 	if err != nil {
 		return Item{}, mapRepoErr(err)

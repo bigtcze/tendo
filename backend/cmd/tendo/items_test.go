@@ -43,6 +43,27 @@ func TestItemHouseholdsReturnsTimezoneAndMapsErrors(t *testing.T) {
 	}
 }
 
+func TestItemMembersPassesCandidateAndHouseholdAndMapsWrappedErrors(t *testing.T) {
+	var got [2]string
+	lookup := func(role string, err error) func(context.Context, string, string) (string, error) {
+		return func(_ context.Context, userID, householdID string) (string, error) {
+			got = [2]string{userID, householdID}
+			return role, err
+		}
+	}
+	if err := itemMembers(lookup(household.RoleOwner, nil))(context.Background(), "candidate", "household"); err != nil || got != [2]string{"candidate", "household"} {
+		t.Fatalf("got=%v err=%v", got, err)
+	}
+	for _, tc := range []struct{ in, want error }{
+		{errors.Join(errors.New("wrapped"), household.ErrNotFound), itemapp.ErrNotFound},
+		{errors.New("database outage"), itemapp.ErrUnavailable},
+	} {
+		if err := itemMembers(lookup("", tc.in))(context.Background(), "candidate", "household"); !errors.Is(err, tc.want) {
+			t.Fatalf("err=%v want=%v", err, tc.want)
+		}
+	}
+}
+
 func TestItemSubjectsReturnsArchivedAndMapsErrors(t *testing.T) {
 	var got [3]string
 	lookup := func(s subject.Subject, result error) func(context.Context, string, string, string) (subject.Subject, error) {

@@ -62,7 +62,7 @@ func newEnv(zone string) *env {
 		}
 		return false, item.ErrNotFound // foreignID and unknown ids
 	}
-	e.svc = item.NewService(e.repo, houses, subjects, func() time.Time { return e.now })
+	e.svc = item.NewService(e.repo, houses, subjects, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
 	return e
 }
 

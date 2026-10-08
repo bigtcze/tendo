@@ -27,6 +27,22 @@ func itemHouseholds(get func(ctx context.Context, userID, householdID string) (h
 	}
 }
 
+// itemMembers adapts household membership lookup to the item module's Members
+// port. The role is intentionally irrelevant; any membership is accepted.
+func itemMembers(get func(ctx context.Context, userID, householdID string) (string, error)) itemapp.Members {
+	return func(ctx context.Context, userID, householdID string) error {
+		_, err := get(ctx, userID, householdID)
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(err, household.ErrNotFound):
+			return itemapp.ErrNotFound
+		default:
+			return itemapp.ErrUnavailable
+		}
+	}
+}
+
 // itemSubjects adapts a subject lookup to the item module's Subjects function.
 // An absent subject becomes item.ErrNotFound; any other failure is an
 // infrastructure error.

@@ -18,6 +18,7 @@ var (
 	createFields = map[string]httpx.Field{
 		"title":                 {Kind: httpx.KindString, Required: true},
 		"subjectId":             {Kind: httpx.KindString, Required: true},
+		"responsibleUserId":     {Kind: httpx.KindNullableString},
 		"notes":                 {Kind: httpx.KindNullableString},
 		"attentionOn":           {Kind: httpx.KindNullableString},
 		"historicalCompletedOn": {Kind: httpx.KindString},
@@ -30,13 +31,14 @@ var (
 		"mode":          {Kind: httpx.KindString, Required: true},
 	}
 	updateFields = map[string]httpx.Field{
-		"title":         {Kind: httpx.KindString},
-		"subjectId":     {Kind: httpx.KindString},
-		"notes":         {Kind: httpx.KindNullableString},
-		"attentionOn":   {Kind: httpx.KindNullableString},
-		"recurrence":    {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
-		"workflowState": {Kind: httpx.KindString},
-		"archived":      {Kind: httpx.KindBool},
+		"title":             {Kind: httpx.KindString},
+		"subjectId":         {Kind: httpx.KindString},
+		"responsibleUserId": {Kind: httpx.KindNullableString},
+		"notes":             {Kind: httpx.KindNullableString},
+		"attentionOn":       {Kind: httpx.KindNullableString},
+		"recurrence":        {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
+		"workflowState":     {Kind: httpx.KindString},
+		"archived":          {Kind: httpx.KindBool},
 	}
 )
 
@@ -83,6 +85,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n := item.NewItem{SubjectID: values["subjectId"].(string), Title: values["title"].(string)}
+	if v, present := values["responsibleUserId"]; present && v != nil {
+		s := v.(string)
+		n.ResponsibleUserID = &s
+	}
 	if v, present := values["notes"]; present && v != nil {
 		s := v.(string)
 		n.Notes = &s
@@ -173,6 +179,9 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if v, present := values["subjectId"]; present {
 		s := v.(string)
 		patch.SubjectID = &s
+	}
+	if v, present := values["responsibleUserId"]; present {
+		patch.ResponsibleUserID = nullable(v)
 	}
 	if v, present := values["notes"]; present {
 		patch.Notes = nullable(v)
@@ -266,7 +275,7 @@ func recurrenceJSON(policy *schedule.Policy) *ItemRecurrence {
 
 func toJSON(i item.Item) Item {
 	done := i.Done
-	out := Item{Id: i.ID, SubjectId: i.SubjectID, Title: i.Title, Notes: i.Notes, Recurrence: recurrenceJSON(i.Recurrence), WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, Done: &done, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
+	out := Item{Id: i.ID, SubjectId: i.SubjectID, ResponsibleUserId: i.ResponsibleUserID, Title: i.Title, Notes: i.Notes, Recurrence: recurrenceJSON(i.Recurrence), WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, Done: &done, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
 	if i.AttentionOn != nil {
 		s := i.AttentionOn.String()
 		out.AttentionOn = &s

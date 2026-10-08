@@ -84,6 +84,7 @@ const (
 	ItemValidationProblemFieldHistoricalCompletedOn ItemValidationProblemField = "historicalCompletedOn"
 	ItemValidationProblemFieldNotes                 ItemValidationProblemField = "notes"
 	ItemValidationProblemFieldRecurrence            ItemValidationProblemField = "recurrence"
+	ItemValidationProblemFieldResponsibleUserId     ItemValidationProblemField = "responsibleUserId"
 	ItemValidationProblemFieldSubjectId             ItemValidationProblemField = "subjectId"
 	ItemValidationProblemFieldTitle                 ItemValidationProblemField = "title"
 	ItemValidationProblemFieldWorkflowState         ItemValidationProblemField = "workflowState"
@@ -234,6 +235,9 @@ type CreateItemRequest struct {
 	// Recurrence Omitted or null means one-off. Recurrence only affects the next completion except explicit historical initialization.
 	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
 
+	// ResponsibleUserId Optional members-list userId of a member of this household. On create, omission or null means unassigned; on PATCH, omission leaves the assignment unchanged and null clears it. A string assigns that member. Malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
+	ResponsibleUserId **string `json:"responsibleUserId,omitempty"`
+
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
 	SubjectId string `json:"subjectId"`
 
@@ -348,11 +352,14 @@ type Item struct {
 	Notes           *string  `json:"notes"`
 
 	// Recurrence Recurrence policy; null disables repeat. Policy changes affect the next completion and never change attentionOn.
-	Recurrence    *ItemRecurrence `json:"recurrence"`
-	SubjectId     string          `json:"subjectId"`
-	Title         string          `json:"title"`
-	UpdatedAt     time.Time       `json:"updatedAt"`
-	WorkflowState WorkflowState   `json:"workflowState"`
+	Recurrence *ItemRecurrence `json:"recurrence"`
+
+	// ResponsibleUserId Assigned household member userId from the members list; null means unassigned.
+	ResponsibleUserId *string       `json:"responsibleUserId"`
+	SubjectId         string        `json:"subjectId"`
+	Title             string        `json:"title"`
+	UpdatedAt         time.Time     `json:"updatedAt"`
+	WorkflowState     WorkflowState `json:"workflowState"`
 }
 
 // ItemAttention Derived server-side from attentionOn and today's date in the household timezone; never set by clients. needs_attention when attentionOn is null or not after today, otherwise upcoming.
@@ -548,6 +555,9 @@ type UpdateItemRequest struct {
 
 	// Recurrence Object replaces the whole recurrence policy; null disables repeat; omitted leaves it unchanged. Changes affect only the next completion and never change attentionOn.
 	Recurrence **ItemRecurrence `json:"recurrence,omitempty"`
+
+	// ResponsibleUserId Optional members-list userId of a member of this household. On create, omission or null means unassigned; on PATCH, omission leaves the assignment unchanged and null clears it. A string assigns that member. Malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
+	ResponsibleUserId **string `json:"responsibleUserId,omitempty"`
 
 	// SubjectId Identifier of an active subject in the same household; otherwise 422 invalid_reference.
 	SubjectId *string `json:"subjectId,omitempty"`
