@@ -19,6 +19,11 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | 400 | `invalid_query` | Bad query parameter; the `parameter` field names `limit`, `cursor`, `archived`, or `done` |
 | 401 | `unauthenticated` | No valid session |
 | 404 | `not_found` | Malformed ID, nonexistent resource, resource of another household, or caller not a member. The bodies are identical |
+| 404 | `invalid_invitation` | Malformed, unknown, expired, revoked, or already-used invitation token |
+| 403 | `owner_required` | Caller is a current household member but not an owner managing invitations |
+| 400 | `idempotency_key_required`, `invalid_idempotency_key` | Invitation create key is missing or malformed |
+| 409 | `already_member`, `household_conflict` | Existing-account invitation acceptance conflicts with current membership/default household |
+| 429 | `rate_limited` | Session or invitation acceptance limit; response includes `Retry-After` |
 | 412 | `precondition_failed` | `If-Match` is malformed, weak, a list, or stale |
 | 413 | `content_too_large` | Body over the limit (4 KiB for subjects; 64 KiB for items) |
 | 415 | `unsupported_media_type` | Body is not `application/json` |
@@ -29,10 +34,10 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 ## Invitations and members
 
 - Only a current household owner may create, list, or revoke invitations. Members receive `403 owner_required`; non-members and unknown households receive uniform `404 not_found`. `defaultHouseholdId` grants no access.
-- Create with `POST /api/v1/households/{householdId}/invitations` and one visible-ASCII `Idempotency-Key`. The body is exactly `{}`. A first creation returns `201` and the raw bearer token once; same-key retry returns `200` without it. Tokens are never included in list responses.
+- Create with `POST /api/v1/households/{householdId}/invitations` and one visible-ASCII `Idempotency-Key`. The body is exactly `{}`. A first creation returns `201` and the raw bearer token once; same-key retry returns `200` without it. Both responses include `Location`. Missing key returns `400 idempotency_key_required`; invalid or duplicate keys return `400 invalid_idempotency_key`. Tokens are never included in list responses.
 - Owner list uses `limit` and opaque `n1:` cursors. Members list uses opaque `m1:` cursors and is available to any household member. Both default to 50 and cap at 100.
 - Revoke succeeds for terminal invitations and does not remove members. New-account acceptance is `POST /api/v1/auth/invitations/accept`, returns `{userId, login, householdId, role}`, and does not set a session cookie; sign in through `POST /api/v1/session`. Existing-account acceptance is `POST /api/v1/invitations/accept`, returns `{userId, householdId, role}`, and rejects an account with an existing default household or other household membership (`409 household_conflict`); an existing member gets `409 already_member`. Malformed, unknown, expired, revoked, and already-used tokens all return `404 invalid_invitation`.
-- Request evaluation order for management routes: global Origin/authority middleware (403/421) → session authentication (401) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before owner authorization.
+- Request evaluation order for management routes: global Origin/authority middleware (400 for malformed trusted forwarded metadata, 403 Origin, 421 authority) → session authentication (401, clearing a stale single cookie) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before owner authorization. All responses include `X-Request-ID`; application responses use `Cache-Control: no-store`.
 
 ## Cursor pagination
 

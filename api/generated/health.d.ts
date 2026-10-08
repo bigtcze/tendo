@@ -65,7 +65,7 @@ export interface paths {
         put?: never;
         /**
          * Create or retry a household invitation
-         * @description Owner only. First creation returns bearer token once; a same-key retry omits it. Body must be {}. Origin is validated by the global middleware before session authentication. Revocation does not remove members.
+         * @description Owner only. First creation returns the bearer token once; a same-key retry returns the invitation without its token. Body must be {}. Origin and authority are checked by global middleware before session authentication.
          */
         post: operations["createInvitation"];
         delete?: never;
@@ -105,7 +105,7 @@ export interface paths {
         put?: never;
         /**
          * Accept invitation with a new local account
-         * @description Does not create a session cookie; sign in separately.
+         * @description Does not create a session cookie; sign in separately. Every unusable token returns invalid_invitation without password hashing.
          */
         post: operations["acceptInvitationWithNewAccount"];
         delete?: never;
@@ -123,7 +123,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Accept invitation with current account */
+        /**
+         * Accept invitation with current account
+         * @description Adds the signed-in account as a member only if it has no conflicting household membership/default. Acceptance does not create a session.
+         */
         post: operations["acceptInvitation"];
         delete?: never;
         options?: never;
@@ -1285,45 +1288,67 @@ export interface operations {
                     "application/json": components["schemas"]["InvitationList"];
                 };
             };
-            /** @description Invalid pagination query. */
+            /** @description Invalid pagination query (invalid_query with parameter limit or cursor) or malformed forwarded metadata. */
             400: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["QueryProblem"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unauthenticated. */
+            /** @description No valid session cookie; a stale single cookie is cleared. */
             401: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Owner role required. */
+            /** @description Current household owner role required; a member gets owner_required. */
             403: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Not found or not a member. */
+            /** @description Household is unknown or inaccessible. */
             404: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unavailable. */
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1359,9 +1384,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Retry without token. */
+            /** @description Idempotent retry; token omitted. */
             200: {
                 headers: {
+                    Location?: string;
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
@@ -1382,63 +1408,89 @@ export interface operations {
                     "application/json": components["schemas"]["InvitationCreated"];
                 };
             };
-            /** @description Invalid body or idempotency key. */
+            /** @description Invalid body or key (idempotency_key_required, invalid_idempotency_key, invalid_request) or malformed forwarded metadata. */
             400: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unauthenticated. */
+            /** @description No valid session cookie; a stale single cookie is cleared. */
             401: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Owner or Origin forbidden. */
+            /** @description Owner role required or Origin is malformed or foreign. A member gets owner_required. */
             403: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Not found or not a member. */
+            /** @description Household is unknown or inaccessible. */
             404: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Body too large. */
+            /** @description Request body exceeds 4 KiB. */
             413: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unsupported media type. */
+            /** @description Unsupported request media type. */
             415: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unavailable. */
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1478,36 +1530,67 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Unauthenticated. */
+            /** @description Malformed trusted forwarded request metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
             401: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Owner or Origin forbidden. */
+            /** @description Owner role required or Origin is malformed or foreign. */
             403: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Not found. */
+            /** @description Household is unknown or inaccessible. */
             404: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unavailable. */
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1540,7 +1623,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created new account membership. */
+            /** @description Created new account membership; no session is created. */
             201: {
                 headers: {
                     Location?: string;
@@ -1552,72 +1635,100 @@ export interface operations {
                     "application/json": components["schemas"]["InvitedAccount"];
                 };
             };
-            /** @description Invalid request. */
+            /** @description Malformed JSON/body or malformed trusted forwarded metadata. */
             400: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Origin forbidden. */
+            /** @description Request Origin is missing, malformed, or foreign. */
             403: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Invalid invitation. */
+            /** @description Malformed, unknown, expired, revoked, or already accepted invitation; all return invalid_invitation. */
             404: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Login unavailable. */
+            /** @description Login is already in use. */
             409: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Body too large. */
+            /** @description Request body exceeds 4 KiB. */
             413: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unsupported media type. */
+            /** @description Unsupported request media type. */
             415: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Credential validation. */
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Credential validation failed. field is login or password; code is invalid_format or invalid_length. */
             422: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["InvitationValidationProblem"];
                 };
             };
-            /** @description Rate limited. */
+            /** @description Per-client invitation admission limit or shared password-work limit exceeded. */
             429: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @example 60 */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -1625,9 +1736,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unavailable. */
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1670,72 +1783,101 @@ export interface operations {
                     "application/json": components["schemas"]["Membership"];
                 };
             };
-            /** @description Invalid request. */
+            /** @description Malformed JSON/body or malformed trusted forwarded metadata. */
             400: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unauthenticated. */
+            /** @description No valid session cookie; stale cookies are cleared. The handler can also return unauthenticated if the authenticated account no longer exists. */
             401: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Origin forbidden. */
+            /** @description Request Origin is missing, malformed, or foreign. */
             403: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Invalid invitation. */
+            /** @description Malformed, unknown, expired, revoked, or already accepted invitation; all return invalid_invitation. */
             404: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Household conflict or already a member. */
+            /** @description Household conflict if the account has another default household/membership; already_member if it belongs to this household. */
             409: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Body too large. */
+            /** @description Request body exceeds 4 KiB. */
             413: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unsupported media type. */
+            /** @description Unsupported request media type. */
             415: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Rate limited. */
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Per-client existing-account invitation rate limit exceeded. */
             429: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @example 60 */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -1743,9 +1885,11 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unavailable. */
+            /** @description Persistence unavailable. */
             503: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1791,36 +1935,67 @@ export interface operations {
                     "application/json": components["schemas"]["MemberList"];
                 };
             };
-            /** @description Invalid pagination query. */
+            /** @description Invalid pagination query (invalid_query with parameter limit or cursor) or malformed trusted forwarded metadata. */
             400: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["QueryProblem"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unauthenticated. */
+            /** @description No valid session cookie; a stale single cookie is cleared. */
             401: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Not found or not a member. */
+            /** @description Request Origin is missing, malformed, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household is unknown or caller is not a member. */
             404: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unavailable. */
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable. */
             503: {
                 headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {

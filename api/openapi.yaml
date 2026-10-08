@@ -226,36 +226,157 @@ paths:
     post:
       operationId: createInvitation
       summary: Create or retry a household invitation
-      description: Owner only. First creation returns bearer token once; a same-key retry omits it. Body must be {}. Origin is validated by the global middleware before session authentication. Revocation does not remove members.
+      description: Owner only. First creation returns the bearer token once; a same-key retry returns the invitation without its token. Body must be {}. Origin and authority are checked by global middleware before session authentication.
       tags: [Households]
       security: [{ SessionCookie: [] }]
-      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' } }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/HouseholdId' }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' }
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/EmptyObject' }, example: {} } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmptyObject' }
+            example: {}
       responses:
-        '201': { description: Created; token shown once., headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationCreated' }, example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90, role: member, status: pending, createdAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-15T10:00:00Z', acceptedAt: null, revokedAt: null, token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA } } }}
-        '200': { description: Retry without token., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/Invitation' } } }}
-        '400': { description: Invalid body or idempotency key., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '403': { description: Owner or Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '404': { description: Not found or not a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '413': { description: Body too large., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '415': { description: Unsupported media type., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '201':
+          description: Created; token shown once.
+          headers:
+            Location: { schema: { type: string } }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationCreated' }
+              example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90, role: member, status: pending, createdAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-15T10:00:00Z', acceptedAt: null, revokedAt: null, token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA }
+        '200':
+          description: Idempotent retry; token omitted.
+          headers:
+            Location: { schema: { type: string } }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Invitation' } }
+        '400':
+          description: Invalid body or key (idempotency_key_required, invalid_idempotency_key, invalid_request) or malformed forwarded metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, code: idempotency_key_required }
+        '401':
+          description: No valid session cookie; a stale single cookie is cleared.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated }
+        '403':
+          description: Owner role required or Origin is malformed or foreign. A member gets owner_required.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Forbidden, status: 403, code: owner_required }
+        '404':
+          description: Household is unknown or inaccessible.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: not_found }
+        '413':
+          description: Request body exceeds 4 KiB.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large }
+        '415':
+          description: Unsupported request media type.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Misdirected Request, status: 421 }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
     get:
       operationId: listInvitations
       summary: List household invitations
       tags: [Households]
       security: [{ SessionCookie: [] }]
-      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/HouseholdId' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
       responses:
-        '200': { description: Owner invitation list. Tokens are never included., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/InvitationList' } } }}
-        '400': { description: Invalid pagination query., content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' } } }}
-        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '403': { description: Owner role required., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '404': { description: Not found or not a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '200':
+          description: Owner invitation list. Tokens are never included.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/InvitationList' } }
+        '400':
+          description: Invalid pagination query (invalid_query with parameter limit or cursor) or malformed forwarded metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit }
+        '401':
+          description: No valid session cookie; a stale single cookie is cleared.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated }
+        '403':
+          description: Current household owner role required; a member gets owner_required.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                ownerRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: owner_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '404':
+          description: Household is unknown or inaccessible.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: not_found }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Misdirected Request, status: 421 }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
   /api/v1/households/{householdId}/invitations/{invitationId}:
     delete:
       operationId: revokeInvitation
@@ -263,69 +384,248 @@ paths:
       description: Terminal invitations are a successful no-op; this never removes members.
       tags: [Households]
       security: [{ SessionCookie: [] }]
-      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { $ref: '#/components/parameters/InvitationId' }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/HouseholdId' }
+        - { $ref: '#/components/parameters/InvitationId' }
       responses:
-        '204': { description: Revoked or already terminal., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } } }
-        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '403': { description: Owner or Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '404': { description: Not found., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '204':
+          description: Revoked or already terminal.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+        '400':
+          description: Malformed trusted forwarded request metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request }
+        '401':
+          description: No valid session cookie; a stale single cookie is cleared.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated }
+        '403':
+          description: Owner role required or Origin is malformed or foreign.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                ownerRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: owner_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403 } }
+        '404':
+          description: Household is unknown or inaccessible.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: not_found }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Misdirected Request, status: 421 }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
   /api/v1/auth/invitations/accept:
     post:
       operationId: acceptInvitationWithNewAccount
       summary: Accept invitation with a new local account
-      description: Does not create a session cookie; sign in separately.
+      description: Does not create a session cookie; sign in separately. Every unusable token returns invalid_invitation without password hashing.
       tags: [Auth]
       security: []
       parameters: [{ $ref: '#/components/parameters/RequestId' }]
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/AcceptInvitationNewAccountRequest' }, example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, login: invited_user, password: a sufficiently long passphrase } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptInvitationNewAccountRequest' }
+            example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, login: invited_user, password: a sufficiently long passphrase }
       responses:
-        '201': { description: Created new account membership., headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/InvitedAccount' } } }}
-        '400': { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '403': { description: Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '404': { description: Invalid invitation., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '409': { description: Login unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '413': { description: Body too large., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '415': { description: Unsupported media type., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '422': { description: Credential validation., content: { application/problem+json: { schema: { $ref: '#/components/schemas/InvitationValidationProblem' } } }}
-        '429': { description: Rate limited., headers: { Retry-After: { schema: { type: integer, minimum: 1 } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '201':
+          description: Created new account membership; no session is created.
+          headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/InvitedAccount' } }
+        '400':
+          description: Malformed JSON/body or malformed trusted forwarded metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } }
+        '403':
+          description: Request Origin is missing, malformed, or foreign.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404':
+          description: Malformed, unknown, expired, revoked, or already accepted invitation; all return invalid_invitation.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: invalid_invitation } }
+        '409':
+          description: Login is already in use.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: login_unavailable } }
+        '413':
+          description: Request body exceeds 4 KiB.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } }
+        '415':
+          description: Unsupported request media type.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } }
+        '422':
+          description: Credential validation failed. field is login or password; code is invalid_format or invalid_length.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/InvitationValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_format, field: login } }
+        '429':
+          description: Per-client invitation admission limit or shared password-work limit exceeded.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { schema: { type: integer, minimum: 1 }, example: 60 } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited } }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } }
   /api/v1/invitations/accept:
     post:
       operationId: acceptInvitation
       summary: Accept invitation with current account
+      description: Adds the signed-in account as a member only if it has no conflicting household membership/default. Acceptance does not create a session.
       tags: [Auth]
       security: [{ SessionCookie: [] }]
       parameters: [{ $ref: '#/components/parameters/RequestId' }]
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/AcceptInvitationRequest' }, example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptInvitationRequest' }
+            example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA }
       responses:
-        '201': { description: Current account joined., headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/Membership' } } }}
-        '400': { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '403': { description: Origin forbidden., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '404': { description: Invalid invitation., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '409': { description: Household conflict or already a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '413': { description: Body too large., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '415': { description: Unsupported media type., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '429': { description: Rate limited., headers: { Retry-After: { schema: { type: integer, minimum: 1 } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }}
-        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '201':
+          description: Current account joined.
+          headers: { Location: { schema: { type: string } }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Membership' } }
+        '400':
+          description: Malformed JSON/body or malformed trusted forwarded metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } }
+        '401':
+          description: No valid session cookie; stale cookies are cleared. The handler can also return unauthenticated if the authenticated account no longer exists.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } }
+        '403':
+          description: Request Origin is missing, malformed, or foreign.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404':
+          description: Malformed, unknown, expired, revoked, or already accepted invitation; all return invalid_invitation.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: invalid_invitation } }
+        '409':
+          description: Household conflict if the account has another default household/membership; already_member if it belongs to this household.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                householdConflict: { value: { type: 'about:blank', title: Conflict, status: 409, code: household_conflict } }
+                alreadyMember: { value: { type: 'about:blank', title: Conflict, status: 409, code: already_member } }
+        '413':
+          description: Request body exceeds 4 KiB.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } }
+        '415':
+          description: Unsupported request media type.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } }
+        '429':
+          description: Per-client existing-account invitation rate limit exceeded.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { schema: { type: integer, minimum: 1 }, example: 60 } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited } }
+        '503':
+          description: Persistence unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } }
   /api/v1/households/{householdId}/members:
     get:
       operationId: listMembers
       summary: List household members
       tags: [Members]
       security: [{ SessionCookie: [] }]
-      parameters: [{ $ref: '#/components/parameters/RequestId' }, { $ref: '#/components/parameters/HouseholdId' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/HouseholdId' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
       responses:
-        '200': { description: Membership list., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/MemberList' } } }}
-        '400': { description: Invalid pagination query., content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' } } }}
-        '401': { description: Unauthenticated., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '404': { description: Not found or not a member., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '503': { description: Unavailable., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '200':
+          description: Membership list.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/MemberList' } } }
+        '400':
+          description: Invalid pagination query (invalid_query with parameter limit or cursor) or malformed trusted forwarded metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } }
+        '401':
+          description: No valid session cookie; a stale single cookie is cleared.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } }
+        '403':
+          description: Request Origin is missing, malformed, or foreign.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404':
+          description: Household is unknown or caller is not a member.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } }
+        '503':
+          description: Persistence or identity lookup unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } }
   /api/v1/households/{householdId}:
     get:
       operationId: getHousehold

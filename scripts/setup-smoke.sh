@@ -348,8 +348,24 @@ def xreq(method,url,template,body=None,headers=None,record=True):
  result=json.loads(raw) if raw else None
  if record: fixtures.append({'path':template,'method':method,'status':code,'headers':{k:rh.get_all(k)[0] for k in rh.keys()},**({'body':result} if raw else {})})
  return code,rh,result,raw
+
+def record_wrong_host():
+ request=urllib.request.Request(origin+'/api/v1/households/'+household+'/invitations',headers={**cookie_header,'Host':'attacker.invalid'},method='GET')
+ try:
+  with opener.open(request,timeout=8) as response: code,rh,raw=response.status,response.headers,response.read()
+ except urllib.error.HTTPError as error: code,rh,raw=error.code,error.headers,error.read()
+ result=json.loads(raw) if raw else None
+ fixtures.append({'path':INV,'method':'get','status':code,'headers':{k:rh.get_all(k)[0] for k in rh.keys()},'body':result})
+ assert code==421,('invitation wrong authority',code,result)
 owner_mut={**cookie_header,'Origin':origin}
+owner_cookie=cookie_header
+INV='/api/v1/households/{householdId}/invitations'
+INV_ITEM='/api/v1/households/{householdId}/invitations/{invitationId}'
+ACCEPT_NEW='/api/v1/auth/invitations/accept'
+ACCEPT_EXISTING='/api/v1/invitations/accept'
+MEMBERS='/api/v1/households/{householdId}/members'
 invite_base=f'/api/v1/households/{household}/invitations'
+record_wrong_host()
 st,ih,created,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-invite-1'})
 assert st==201 and isinstance(created.get('token'),str) and len(created['token'])==43,('invitation create',st,created)
 invitation_token=created['token']; invitation_id=created['id']
@@ -357,6 +373,8 @@ st,_,retry,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smo
 assert st==200 and retry['id']==invitation_id and 'token' not in retry,('idempotency retry',st,retry)
 st,_,missing_key,_,=xreq('POST',invite_base,INV,{},owner_mut)
 assert st==400 and missing_key['code']=='idempotency_key_required',('missing invitation key',st,missing_key)
+st,_,foreign_origin_problem,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Origin':'http://foreign.example','Idempotency-Key':'foreign-smoke-origin'})
+assert st==403,('foreign origin invitation create',st,foreign_origin_problem)
 invitation_digest=hashlib.sha256(invitation_token.encode()).hexdigest()
 assert psql(f"SELECT count(*) FROM household_invitations WHERE id='{invitation_id}' AND token_hash=decode('{invitation_digest}','hex')")=='1','invitation token digest not stored'
 assert psql(f"SELECT count(*) FROM household_invitations i WHERE i.id='{invitation_id}' AND to_jsonb(i)::text LIKE '%'||'{invitation_token}'||'%'")=='0','raw invitation token appears in database row'
@@ -382,6 +400,8 @@ st,_,forbidden,_=xreq('POST',invite_base,INV,{}, {**member_cookie,'Origin':origi
 assert st==403 and forbidden['code']=='owner_required',('member create invitation',st,forbidden)
 st,_,member_list,_=xreq('GET',invite_base,INV,headers=member_cookie)
 assert st==403 and member_list['code']=='owner_required',('member list invitations',st,member_list)
+st,_,member_revoke_problem,_=xreq('DELETE',f'/api/v1/households/{household}/invitations/{invitation_id}',INV_ITEM,headers={**member_cookie,'Origin':origin})
+assert st==403 and member_revoke_problem['code']=='owner_required',('member revoke invitation',st,member_revoke_problem)
 st,_,second,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-invite-revoke'})
 assert st==201 and len(second['token'])==43,('second invitation',st,second)
 revoke_path=f'/api/v1/households/{household}/invitations/{second["id"]}'
@@ -389,6 +409,12 @@ st,_,_,_=xreq('DELETE',revoke_path,INV_ITEM,headers=owner_mut)
 assert st==204,('revoke invitation',st)
 st,_,revoked_accept,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':second['token'],'login':'revoked_smoke','password':'a sufficiently long revoked passphrase'},{'Origin':origin})
 assert st==404 and revoked_accept['code']=='invalid_invitation',('accept revoked invitation',st,revoked_accept)
+st,_,member_conflict_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-member-conflict'})
+assert st==201,('member conflict invitation',st,member_conflict_invite)
+st,_,new_member_conflict,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':member_conflict_invite['token']}, {**member_cookie,'Origin':origin})
+assert st==409 and new_member_conflict['code']=='already_member',('existing member acceptance conflict',st,new_member_conflict)
+assert psql(f"SELECT accepted_at IS NULL FROM household_invitations WHERE id='{member_conflict_invite['id']}'")=='t','already member conflict consumed invitation'
+# Skip 429 fixture: the limiter shares client-IP budget with the remaining invitation checks.
 st,_,_,_=xreq('DELETE',revoke_path,INV_ITEM,headers=owner_mut)
 assert st==204,('revoke idempotency',st)
 st,_,nonmember_invites,_=xreq('GET',f'/api/v1/households/{other_id}/invitations',INV,headers=cookie_header)
@@ -413,6 +439,8 @@ assert st==409 and owner_conflict['code']=='already_member',('owner already belo
 assert psql(f"SELECT accepted_at IS NULL AND revoked_at IS NULL FROM household_invitations WHERE id='{own_invite['id']}'")=='t','already-member failure consumed invitation'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
+st,stale_headers,stale_problem,_=xreq('GET',invite_base,INV,headers={'Cookie':f'tendo_session={token}'})
+assert st==401 and stale_problem['code']=='unauthenticated' and 'Set-Cookie' in stale_headers,('stale session invitation 401',st,stale_problem,dict(stale_headers))
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert cleared[0]=='tendo_session=' and 'max-age=0' in cleared and 'httponly' in cleared and 'samesite=lax' in cleared and 'path=/' in cleared,cleared
 status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=False);assert status==403,('logout without Origin',status)

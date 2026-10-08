@@ -52,6 +52,42 @@ test('invitation request and response examples satisfy contract schemas', async 
   assert.equal(ajv.compile(contract.components.schemas.Membership)({userId:invitation.id,login:'must-not-be-present',householdId:invitation.id,role:'member'}),false)
 })
 
+test('invitation and member operations document protected and middleware responses', async t => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const paths = [
+    ['/api/v1/households/{householdId}/invitations', 'post'],
+    ['/api/v1/households/{householdId}/invitations', 'get'],
+    ['/api/v1/households/{householdId}/invitations/{invitationId}', 'delete'],
+    ['/api/v1/auth/invitations/accept', 'post'],
+    ['/api/v1/invitations/accept', 'post'],
+    ['/api/v1/households/{householdId}/members', 'get'],
+  ]
+  for (const [path, method] of paths) {
+    await t.test(`${method.toUpperCase()} ${path} contract completeness`, () => {
+    const operation = contract.paths[path][method]
+    const responses = operation.responses
+    assert.ok(responses['421'], `${method.toUpperCase()} ${path} must document wrong authority`)
+    assert.ok(responses['503'], `${method.toUpperCase()} ${path} must document persistence failure`)
+    if (operation.requestBody) { assert.ok(responses['413'], `${method.toUpperCase()} ${path} must document body limit`); assert.ok(responses['415'], `${method.toUpperCase()} ${path} must document media type`) }
+    if (path === '/api/v1/auth/invitations/accept' || path === '/api/v1/invitations/accept') assert.ok(responses['429'], `${method.toUpperCase()} ${path} must document acceptance rate limit`)
+    if (operation.security?.some(requirement => requirement.SessionCookie)) assert.ok(responses['401'], `${method.toUpperCase()} ${path} must document session authentication`)
+    if (operation.requestBody || ['post', 'patch', 'delete'].includes(method)) assert.ok(responses['403'], `${method.toUpperCase()} ${path} must document Origin rejection`)
+    if (operation.requestBody && operation.security?.some(requirement => requirement.SessionCookie)) assert.ok(responses['400'], `${method.toUpperCase()} ${path} must document malformed trusted forwarding`)
+    for (const [code, response] of Object.entries(responses)) {
+      const headers = response.headers ?? {}
+      assert.ok(headers['X-Request-ID']?.$ref === '#/components/headers/RequestId', `${method.toUpperCase()} ${path} ${code} missing request ID`)
+      assert.ok(headers['Cache-Control']?.$ref === '#/components/headers/NoStore', `${method.toUpperCase()} ${path} ${code} missing no-store`)
+      if (code === '429') assert.ok(headers['Retry-After'], `${method.toUpperCase()} ${path} 429 missing Retry-After`)
+    }
+    if (contract.paths[path][method].security?.some(requirement => requirement.SessionCookie)) {
+      assert.equal(responses['401']?.headers?.['Set-Cookie']?.$ref, '#/components/headers/ClearStaleSessionCookie', `${method.toUpperCase()} ${path} 401 must document stale-cookie clearing`)
+    }
+    })
+  }
+})
+
 test('item create schema accepts omission and a historical date but rejects null', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')
