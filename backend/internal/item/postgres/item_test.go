@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/subject"
 	subjectpg "github.com/bigtcze/tendo/backend/internal/subject/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -134,6 +136,20 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := NewRepository(app)
+	clock := time.Date(2026, time.January, 15, 12, 0, 0, 0, time.UTC)
+	houses := func(_ context.Context, userID, householdID string) (string, error) {
+		if userID != completionUser || householdID != hA {
+			return "", item.ErrNotFound
+		}
+		return "Europe/Prague", nil
+	}
+	subjects := func(_ context.Context, userID, householdID, subjectID string) (bool, error) {
+		if userID != completionUser || householdID != hA || subjectID != sA.ID {
+			return false, item.ErrNotFound
+		}
+		return false, nil
+	}
+	service := item.NewService(repo, houses, subjects, func() time.Time { return clock })
 	create := func(hid, sid, title string, notes *string, attention *schedule.Date) item.Item {
 		t.Helper()
 		got, err := repo.Create(ctx, hid, item.Draft{SubjectID: sid, Title: title, Notes: notes, AttentionOn: attention})
@@ -157,6 +173,10 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if got.Title != "Veselí 家族 🚗" || got.Notes == nil || *got.Notes != notes || got.AttentionOn == nil || *got.AttentionOn != day || got.Version != 1 || got.WorkflowState != item.StateOpen || got.HouseholdID != hA {
 			t.Fatalf("item=%+v", got)
 		}
+		var receipts int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, got.ID).Scan(&receipts); err != nil || receipts != 0 {
+			t.Fatalf("ordinary create receipts=%d err=%v", receipts, err)
+		}
 		var title, storedNotes, state string
 		var date time.Time
 		if err := admin.QueryRow(ctx, `SELECT title,notes,attention_on,workflow_state FROM items WHERE id=$1::uuid`, got.ID).Scan(&title, &storedNotes, &date, &state); err != nil {
@@ -166,6 +186,124 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			t.Fatalf("stored=%q %q %v %q", title, storedNotes, date, state)
 		}
 	})
+	t.Run("historical initialization atomically writes v2 item and receipt", func(t *testing.T) {
+		completed, _ := schedule.NewDate(2026, time.January, 31)
+		next, _ := schedule.NewDate(2026, time.February, 28)
+		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+		draft := item.Draft{SubjectID: sA.ID, Title: "historically initialized", Recurrence: policy, AttentionOn: &next, InitializationReceipt: &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: item.CompletionFingerprint(completionUser, func() *string { value := "2026-01-31"; return &value }())}}
+		got, err := repo.Create(ctx, hA, draft)
+		if err != nil || got.Version != 2 || got.AttentionOn == nil || *got.AttentionOn != next || got.LastCompletedOn == nil || *got.LastCompletedOn != completed {
+			t.Fatalf("item=%+v err=%v", got, err)
+		}
+		var version int64
+		var attention, completedDB time.Time
+		var receiptCount int
+		var cycle pgtype.Date
+		var before int64
+		var interval int
+		if err = admin.QueryRow(ctx, `SELECT version,attention_on,(SELECT count(*) FROM item_completions WHERE item_id=items.id),(SELECT completed_on FROM item_completions WHERE item_id=items.id),(SELECT cycle_attention_on FROM item_completions WHERE item_id=items.id),(SELECT item_version_before FROM item_completions WHERE item_id=items.id),(SELECT recurrence_interval_value FROM item_completions WHERE item_id=items.id) FROM items WHERE id=$1::uuid`, got.ID).Scan(&version, &attention, &receiptCount, &completedDB, &cycle, &before, &interval); err != nil {
+			t.Fatal(err)
+		}
+		if version != 2 || attention.Format("2006-01-02") != "2026-02-28" || receiptCount != 1 || completedDB.Format("2006-01-02") != "2026-01-31" || cycle.Valid || before != 1 || interval != 1 {
+			t.Fatalf("version=%d attention=%v count=%d completed=%v cycle=%+v before=%d interval=%d", version, attention, receiptCount, completedDB, cycle, before, interval)
+		}
+		read, err := repo.Get(ctx, hA, got.ID)
+		if err != nil || read.LastCompletedOn == nil || *read.LastCompletedOn != completed {
+			t.Fatalf("read=%+v err=%v", read, err)
+		}
+		var key, actor string
+		var fingerprint []byte
+		if err = admin.QueryRow(ctx, `SELECT idempotency_key,completed_by_user_id::text,request_fingerprint FROM item_completions WHERE item_id=$1::uuid`, got.ID).Scan(&key, &actor, &fingerprint); err != nil {
+			t.Fatal(err)
+		}
+		var ordinaryReceipts int
+		ordinary := create(hA, sA.ID, "ordinary initialized-none", nil, nil)
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, ordinary.ID).Scan(&ordinaryReceipts); err != nil || ordinary.Version != 1 || ordinaryReceipts != 0 {
+			t.Fatalf("ordinary create item=%+v receipts=%d err=%v", ordinary, ordinaryReceipts, err)
+		}
+		_, validUUID := parseUUID(key)
+		if !validUUID || actor != completionUser || string(fingerprint) != string(draft.InitializationReceipt.Fingerprint[:]) {
+			t.Fatalf("key=%s actor=%s fingerprint=%x", key, actor, fingerprint)
+		}
+		policy2 := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+		updated, err := repo.Update(ctx, hA, got.ID, 2, item.Change{Recurrence: item.Some(policy2)})
+		if err != nil || updated.Recurrence == nil || *updated.Recurrence != policy2 {
+			t.Fatalf("policy update=%+v err=%v", updated, err)
+		}
+		storedHistory, err := repo.ListCompletions(ctx, hA, got.ID, "00000000-0000-0000-0000-000000000000", 10)
+		if err != nil || len(storedHistory) != 1 || storedHistory[0].Recurrence == nil || *storedHistory[0].Recurrence != *policy {
+			t.Fatalf("policy edit mutated receipt=%+v err=%v", storedHistory, err)
+		}
+	})
+
+	t.Run("service creates, completes, and undoes historical initialization in both modes", func(t *testing.T) {
+		for _, mode := range []schedule.Mode{schedule.ModeFixed, schedule.ModeAfterCompletion} {
+			t.Run(string(mode), func(t *testing.T) {
+				completedText := "2025-10-31"
+				completed, _ := schedule.NewDate(2025, time.October, 31)
+				initialNext, _ := schedule.NewDate(2025, time.November, 30)
+				policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: mode}
+				created, err := service.Create(ctx, completionUser, hA, item.NewItem{SubjectID: sA.ID, Title: "service historical " + string(mode), HistoricalCompletedOn: &completedText, Recurrence: &policy})
+				if err != nil || created.Version != 2 || created.AttentionOn == nil || *created.AttentionOn != initialNext || created.LastCompletedOn == nil || *created.LastCompletedOn != completed {
+					t.Fatalf("created=%+v err=%v", created, err)
+				}
+				var receiptID, actor, fingerprint, intervalValue, intervalUnit, recurrenceMode, cycleAnchor, nextStored string
+				var versionBefore int64
+				if err = admin.QueryRow(ctx, `SELECT id::text,completed_by_user_id::text,encode(request_fingerprint,'hex'),recurrence_interval_value::text,recurrence_interval_unit,recurrence_mode,COALESCE(cycle_attention_on::text,'NULL'),next_attention_on::text,item_version_before FROM item_completions WHERE item_id=$1::uuid`, created.ID).Scan(&receiptID, &actor, &fingerprint, &intervalValue, &intervalUnit, &recurrenceMode, &cycleAnchor, &nextStored, &versionBefore); err != nil {
+					t.Fatal(err)
+				}
+				wantFingerprint := item.CompletionFingerprint(completionUser, &completedText)
+				if actor != completionUser || fingerprint != fmt.Sprintf("%x", wantFingerprint) || intervalValue != "1" || intervalUnit != "month" || recurrenceMode != string(mode) || cycleAnchor != "NULL" || nextStored != "2025-11-30" || versionBefore != 1 {
+					t.Fatalf("receipt actor=%s fingerprint=%s policy=%s/%s/%s anchor=%s next=%s before=%d", actor, fingerprint, intervalValue, intervalUnit, recurrenceMode, cycleAnchor, nextStored, versionBefore)
+				}
+				actual, _, err := service.Complete(ctx, completionUser, hA, created.ID, created.Version, "historical-chain-"+string(mode), item.CompletionRequest{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantNext := "2026-01-30"
+				if mode == schedule.ModeAfterCompletion {
+					wantNext = "2026-02-15"
+				}
+				advanced, err := repo.Get(ctx, hA, created.ID)
+				if err != nil || advanced.AttentionOn == nil || advanced.AttentionOn.String() != wantNext || advanced.Version != 3 {
+					t.Fatalf("advanced=%+v err=%v want %s", advanced, err, wantNext)
+				}
+				if _, err = service.UndoCompletion(ctx, completionUser, hA, created.ID, actual.ID, advanced.Version); err != nil {
+					t.Fatal(err)
+				}
+				restored, err := repo.Get(ctx, hA, created.ID)
+				if err != nil || restored.AttentionOn == nil || restored.AttentionOn.String() != "2025-11-30" || restored.LastCompletedOn == nil || *restored.LastCompletedOn != completed || restored.Version != 4 {
+					t.Fatalf("restored=%+v err=%v", restored, err)
+				}
+				rows, err := service.ListCompletions(ctx, completionUser, hA, created.ID, 10, "")
+				if err != nil || len(rows.Items) != 2 {
+					t.Fatalf("after completion undo history=%+v err=%v", rows, err)
+				}
+				for _, row := range rows.Items {
+					if row.ID == actual.ID && row.UndoneAt == nil {
+						t.Fatalf("completion receipt remains active: %+v", row)
+					}
+				}
+				if _, err = service.UndoCompletion(ctx, completionUser, hA, created.ID, receiptID, restored.Version); err != nil {
+					t.Fatal(err)
+				}
+				final, err := repo.Get(ctx, hA, created.ID)
+				if err != nil || final.AttentionOn != nil || final.LastCompletedOn != nil || final.WorkflowState != item.StateOpen || final.Done || final.Recurrence == nil || *final.Recurrence != policy || final.Version != 5 {
+					t.Fatalf("final=%+v err=%v", final, err)
+				}
+				rows, err = service.ListCompletions(ctx, completionUser, hA, created.ID, 10, "")
+				if err != nil || len(rows.Items) != 2 {
+					t.Fatalf("final receipts=%+v err=%v", rows, err)
+				}
+				for _, row := range rows.Items {
+					if row.UndoneAt == nil {
+						t.Fatalf("receipt not marked undone: %+v", row)
+					}
+				}
+			})
+		}
+	})
+
 	t.Run("recurrence round trips, clears, and respects database constraints", func(t *testing.T) {
 		for _, tc := range []struct {
 			value int
@@ -420,6 +558,30 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			t.Fatalf("patch winner state=%+v receipts=%d", stored, count)
 		}
 	})
+	t.Run("historical initialization forced rollback removes item and receipt", func(t *testing.T) {
+		completed, _ := schedule.NewDate(2026, time.March, 1)
+		next, _ := schedule.NewDate(2026, time.March, 2)
+		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
+		fingerprint := [32]byte{23}
+		receipt := &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: fingerprint}
+		completeAfterInsertHook = func() error { return errors.New("forced rollback") }
+		i, err := repo.Create(ctx, hA, item.Draft{SubjectID: sA.ID, Title: "rollback initialize", Recurrence: policy, AttentionOn: &next, InitializationReceipt: receipt})
+		completeAfterInsertHook = nil
+		if err == nil {
+			t.Fatalf("create succeeded unexpectedly: %+v", i)
+		}
+		var items, receipts int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid AND title='rollback initialize'`, hA).Scan(&items); err != nil {
+			t.Fatal(err)
+		}
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE household_id=$1::uuid AND completed_on=$2::date`, hA, completed.String()).Scan(&receipts); err != nil {
+			t.Fatal(err)
+		}
+		if items != 0 || receipts != 0 {
+			t.Fatalf("rollback left item=%d receipts=%d", items, receipts)
+		}
+	})
+
 	t.Run("completion rollback after insert hook", func(t *testing.T) {
 		anchor, _ := schedule.NewDate(2026, time.October, 7)
 		i := create(hA, sA.ID, "hook rollback", nil, &anchor)
@@ -733,6 +895,39 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			var n int
 			if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE id=$1::uuid`, completed.ID).Scan(&n); err != nil || n != 1 || listed.UndoneAt == nil || undone.UndoneAt == nil {
 				t.Fatalf("receipt rows=%d listed=%+v returned=%+v err=%v", n, listed, undone, err)
+			}
+		})
+
+		t.Run("initialization receipt is ordinarily undoable and can chain with completion", func(t *testing.T) {
+			completed, _ := schedule.NewDate(2026, time.March, 1)
+			next, _ := schedule.NewDate(2026, time.March, 2)
+			policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
+			fingerprint := item.CompletionFingerprint(completionUser, func() *string { value := "2026-03-01"; return &value }())
+			initial, err := repo.Create(ctx, hA, item.Draft{SubjectID: sA.ID, Title: "undo initialization", Recurrence: policy, AttentionOn: &next, InitializationReceipt: &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: fingerprint}})
+			if err != nil || initial.Version != 2 {
+				t.Fatalf("item=%+v err=%v", initial, err)
+			}
+			history, err := svc.ListCompletions(ctx, completionUser, hA, initial.ID, 50, "")
+			if err != nil || len(history.Items) != 1 {
+				t.Fatalf("history=%+v err=%v", history, err)
+			}
+			if _, err = svc.UndoCompletion(ctx, completionUser, hA, initial.ID, history.Items[0].ID, initial.Version); err != nil {
+				t.Fatal(err)
+			}
+			undone, err := repo.Get(ctx, hA, initial.ID)
+			if err != nil || undone.Version != 3 || undone.AttentionOn != nil || undone.WorkflowState != item.StateOpen || undone.LastCompletedOn != nil {
+				t.Fatalf("undo=%+v err=%v", undone, err)
+			}
+			actual, _, err := svc.Complete(ctx, completionUser, hA, initial.ID, undone.Version, "after-init-undo", item.CompletionRequest{CompletedOn: mustDate("2026-03-05")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = svc.UndoCompletion(ctx, completionUser, hA, initial.ID, actual.ID, undone.Version+1); err != nil {
+				t.Fatal(err)
+			}
+			restored, err := repo.Get(ctx, hA, initial.ID)
+			if err != nil || restored.AttentionOn != nil || restored.LastCompletedOn != nil {
+				t.Fatalf("chained undo=%+v err=%v", restored, err)
 			}
 		})
 

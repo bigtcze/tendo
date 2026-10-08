@@ -240,6 +240,116 @@ func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
 	}
 }
 
+func TestHistoricalInitializationCreatesReceiptAndInitialAnchor(t *testing.T) {
+	for _, tc := range []struct {
+		mode       schedule.Mode
+		unit       schedule.Unit
+		date, want string
+	}{
+		{schedule.ModeFixed, schedule.UnitDay, "2026-03-01", "2026-03-02"},
+		{schedule.ModeAfterCompletion, schedule.UnitDay, "2026-03-01", "2026-03-02"},
+		{schedule.ModeFixed, schedule.UnitWeek, "2026-03-01", "2026-03-08"},
+		{schedule.ModeAfterCompletion, schedule.UnitWeek, "2026-03-01", "2026-03-08"},
+		{schedule.ModeFixed, schedule.UnitMonth, "2026-03-01", "2026-04-01"},
+		{schedule.ModeAfterCompletion, schedule.UnitMonth, "2026-03-01", "2026-04-01"},
+		{schedule.ModeFixed, schedule.UnitYear, "2026-03-01", "2027-03-01"},
+		{schedule.ModeAfterCompletion, schedule.UnitYear, "2026-03-01", "2027-03-01"},
+		{schedule.ModeFixed, schedule.UnitMonth, "2026-01-31", "2026-02-28"},
+		{schedule.ModeFixed, schedule.UnitYear, "2024-02-29", "2025-02-28"},
+		{schedule.ModeAfterCompletion, schedule.UnitYear, "2024-02-29", "2025-02-28"},
+	} {
+		e := newEnv("UTC")
+		policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: tc.unit}, Mode: tc.mode}
+		created := e.create(t, item.NewItem{Title: "repeat", Recurrence: &policy, HistoricalCompletedOn: ptr(tc.date)})
+		if created.Version != 2 || created.AttentionOn == nil || created.AttentionOn.String() != tc.want || created.LastCompletedOn == nil || created.LastCompletedOn.String() != tc.date {
+			t.Fatalf("created=%+v", created)
+		}
+		history, err := e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "")
+		if err != nil || len(history.Items) != 1 || history.Items[0].CompletedOn.String() != tc.date || history.Items[0].CycleAttentionOn != nil || history.Items[0].NextAttentionOn == nil || history.Items[0].NextAttentionOn.String() != tc.want || history.Items[0].ItemVersionBefore != 1 {
+			t.Fatalf("history=%+v err=%v", history, err)
+		}
+	}
+}
+
+func TestHistoricalPastAndFutureAnchorsDeriveAttention(t *testing.T) {
+	policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
+	for _, tc := range []struct {
+		completed, wantDate string
+		want                schedule.Attention
+	}{{"2026-02-27", "2026-02-28", schedule.NeedsAttention}, {"2026-03-01", "2026-03-02", schedule.Upcoming}} {
+		e := newEnv("UTC")
+		created := e.create(t, item.NewItem{Title: "x", HistoricalCompletedOn: ptr(tc.completed), Recurrence: &policy})
+		if created.AttentionOn == nil || created.AttentionOn.String() != tc.wantDate || created.Attention != tc.want {
+			t.Fatalf("created=%+v", created)
+		}
+		stored, ok := e.repo.Row(created.ID)
+		if !ok || stored.AttentionOn == nil || stored.AttentionOn.String() != tc.wantDate || stored.Version != 2 {
+			t.Fatalf("historical anchor was changed or skipped: %+v", stored)
+		}
+	}
+}
+
+func TestHistoricalDateUsesHouseholdLocalToday(t *testing.T) {
+	policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
+	for _, tc := range []struct {
+		zone, date string
+		wantErr    bool
+	}{{"Europe/Prague", "2026-03-02", false}, {"America/New_York", "2026-03-02", true}, {"America/New_York", "2026-03-01", false}} {
+		e := newEnv(tc.zone)
+		got, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x", HistoricalCompletedOn: ptr(tc.date), Recurrence: &policy})
+		if tc.wantErr {
+			validation(t, err, "historicalCompletedOn", "future_date")
+			if e.repo.Count() != 0 {
+				t.Fatal("future historical date persisted")
+			}
+			continue
+		}
+		if err != nil || got.Version != 2 {
+			t.Fatalf("create=%+v err=%v", got, err)
+		}
+	}
+}
+
+func TestHistoricalInitializationValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		in          item.NewItem
+		field, code string
+	}{
+		{"bad date", item.NewItem{HistoricalCompletedOn: ptr("2026-02-30")}, "historicalCompletedOn", "invalid_date"},
+		{"impossible date", item.NewItem{HistoricalCompletedOn: ptr("2025-02-30"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "historicalCompletedOn", "invalid_date"},
+		{"date beats recurrence requirement", item.NewItem{HistoricalCompletedOn: ptr("2025-02-30")}, "historicalCompletedOn", "invalid_date"},
+		{"conflict beats future date", item.NewItem{HistoricalCompletedOn: ptr("2026-03-03"), AttentionOn: ptr("2026-03-04"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "historicalCompletedOn", "conflicting_fields"},
+		{"invalid reference after historical checks", item.NewItem{SubjectID: foreignID, HistoricalCompletedOn: ptr("2026-03-01"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "subjectId", "invalid_reference"},
+		{"archived reference after historical checks", item.NewItem{SubjectID: archivedID, HistoricalCompletedOn: ptr("2026-03-01"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "subjectId", "invalid_reference"},
+		{"recurrence absent", item.NewItem{HistoricalCompletedOn: ptr("2026-01-01")}, "historicalCompletedOn", "requires_recurrence"},
+		{"recurrence null", item.NewItem{HistoricalCompletedOn: ptr("2026-01-01"), Recurrence: nil}, "historicalCompletedOn", "requires_recurrence"},
+		{"recurrence disabled", item.NewItem{HistoricalCompletedOn: ptr("2026-01-01"), Recurrence: &schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "historicalCompletedOn", "requires_recurrence"},
+		{"date overflow", item.NewItem{HistoricalCompletedOn: ptr("9999-12-31"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}}, "recurrence", "date_overflow"},
+		{"attention conflict", item.NewItem{HistoricalCompletedOn: ptr("2026-01-01"), AttentionOn: ptr("2026-01-02"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "historicalCompletedOn", "conflicting_fields"},
+		{"future local date", item.NewItem{HistoricalCompletedOn: ptr("2026-03-02"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}}, "historicalCompletedOn", "future_date"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv("UTC")
+			if tc.field == "recurrence" {
+				e.now = time.Date(9999, time.December, 31, 12, 0, 0, 0, time.UTC)
+			}
+			if tc.name == "conflict beats future date" {
+				e.now = time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+			}
+			if tc.name != "invalid reference after historical checks" && tc.name != "archived reference after historical checks" {
+				tc.in.SubjectID = subjectID
+			}
+			tc.in.Title = "x"
+			_, err := e.svc.Create(context.Background(), userID, householdID, tc.in)
+			validation(t, err, tc.field, tc.code)
+			if e.repo.Count() != 0 {
+				t.Fatal("invalid historical initialization persisted")
+			}
+		})
+	}
+}
+
 func TestInvalidRecurrenceDoesNotPersist(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

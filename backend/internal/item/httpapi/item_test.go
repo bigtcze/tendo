@@ -39,10 +39,11 @@ type fixture struct {
 	authHit int
 	svcHit  int
 	zone    string
+	now     time.Time
 }
 
 func newFixture(authenticate bool) *fixture {
-	f := &fixture{repo: itemtest.New(), zone: "Europe/Prague"}
+	f := &fixture{repo: itemtest.New(), zone: "Europe/Prague", now: at}
 	d := itemtest.Date(2026, time.March, 2)
 	f.repo.Seed(item.Item{ID: iid, HouseholdID: hid, SubjectID: sid, Title: "Renew insurance", Notes: ptr("Quotes\n"), AttentionOn: d, WorkflowState: item.StateOpen, CreatedAt: at, UpdatedAt: at, Version: 1})
 	houses := func(_ context.Context, uid, household string) (string, error) {
@@ -75,7 +76,7 @@ func newFixture(authenticate bool) *fixture {
 		})
 	}
 	r := chi.NewRouter()
-	New(item.NewService(f.repo, houses, subjects, func() time.Time { return at }), auth, func(ctx context.Context) (string, bool) { v, ok := ctx.Value(userKey{}).(string); return v, ok }).Register(r)
+	New(item.NewService(f.repo, houses, subjects, func() time.Time { return f.now }), auth, func(ctx context.Context) (string, bool) { v, ok := ctx.Value(userKey{}).(string); return v, ok }).Register(r)
 	f.handler = r
 	return f
 }
@@ -346,6 +347,138 @@ func TestBodyLimitAllowsMaximumUnicodeAndRejectsOversize(t *testing.T) {
 	body := `{"title":"x","subjectId":"` + sid + `","notes":"` + strings.Repeat("x", bodyLimit) + `"}`
 	if w := f.do("POST", base, body, nil); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body status=%d body=%s", w.Code, w.Body)
+	}
+}
+
+func TestHistoricalCreateForeignSubjectAndNonMemberLeaveNoRows(t *testing.T) {
+	policy := `"recurrence":{"intervalValue":1,"intervalUnit":"day","mode":"fixed"}`
+	for _, tc := range []struct {
+		name, household, subject string
+		member                   error
+		wantStatus               int
+		wantCode                 string
+	}{
+		{"foreign subject", hid, other, nil, 422, "invalid_reference"},
+		{"nonmember", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62", sid, item.ErrNotFound, 404, "not_found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(true)
+			f.member = tc.member
+			path := "/api/v1/households/" + tc.household + "/items"
+			body := `{"title":"x","subjectId":"` + tc.subject + `","historicalCompletedOn":"2026-03-01",` + policy + `}`
+			w := f.do("POST", path, body, nil)
+			if w.Code != tc.wantStatus || !strings.Contains(w.Body.String(), `"code":"`+tc.wantCode+`"`) {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+			if f.repo.Count() != 1 || f.repo.CompletionCount() != 0 {
+				t.Fatalf("rows=%d receipts=%d", f.repo.Count(), f.repo.CompletionCount())
+			}
+		})
+	}
+}
+
+func TestHistoricalCreateValidationAndStrictDecoding(t *testing.T) {
+	policy := `"recurrence":{"intervalValue":1,"intervalUnit":"day","mode":"fixed"}`
+	for _, tc := range []struct {
+		name, body, field, code string
+		status                  int
+	}{
+		{"bad date", `"historicalCompletedOn":"2026-02-30",` + policy, "historicalCompletedOn", "invalid_date", 422},
+		{"impossible date", `"historicalCompletedOn":"2025-02-30",` + policy, "historicalCompletedOn", "invalid_date", 422},
+		{"date beats recurrence requirement", `"historicalCompletedOn":"2025-02-30"`, "historicalCompletedOn", "invalid_date", 422},
+		{"conflict beats future date", `"historicalCompletedOn":"2026-03-03","attentionOn":"2026-03-04",` + policy, "historicalCompletedOn", "conflicting_fields", 422},
+		{"requires recurrence omitted", `"historicalCompletedOn":"2026-03-01"`, "historicalCompletedOn", "requires_recurrence", 422},
+		{"requires recurrence null", `"historicalCompletedOn":"2026-03-01","recurrence":null`, "historicalCompletedOn", "requires_recurrence", 422},
+		{"subject reference after historical checks", `"historicalCompletedOn":"2026-03-01",` + policy, "subjectId", "invalid_reference", 422},
+		{"archived reference after historical checks", `"historicalCompletedOn":"2026-03-01",` + policy, "subjectId", "invalid_reference", 422},
+		{"date overflow", `"historicalCompletedOn":"9999-12-31","recurrence":{"intervalValue":1,"intervalUnit":"year","mode":"fixed"}`, "recurrence", "date_overflow", 422},
+		{"conflicting attention", `"historicalCompletedOn":"2026-03-01","attentionOn":"2026-03-01",` + policy, "historicalCompletedOn", "conflicting_fields", 422},
+		{"future local date", `"historicalCompletedOn":"2026-03-03",` + policy, "historicalCompletedOn", "future_date", 422},
+		{"future at midnight boundary", `"historicalCompletedOn":"2026-03-02",` + policy, "historicalCompletedOn", "future_date", 422},
+		{"today at midnight boundary accepted", `"historicalCompletedOn":"2026-03-01",` + policy, "", "", 201},
+		{"ordinary create", `"attentionOn":null`, "", "", 201},
+		{"null attention accepted", `"historicalCompletedOn":"2026-03-01","attentionOn":null,` + policy, "", "", 201},
+		{"null", `"historicalCompletedOn":null`, "", "invalid_request", 400},
+		{"wrong type", `"historicalCompletedOn":4`, "", "invalid_request", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(true)
+			subject := sid
+			if tc.name == "subject reference after historical checks" {
+				subject = other
+			}
+			if tc.name == "archived reference after historical checks" {
+				subject = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71"
+			}
+			body := `{"title":"x","subjectId":"` + subject + `",` + tc.body + `}`
+			before := f.repo.Count()
+			if tc.name == "future at midnight boundary" || tc.name == "today at midnight boundary accepted" {
+				f.zone = "America/New_York"
+				f.now = time.Date(2026, 3, 2, 4, 59, 59, 0, time.UTC)
+			}
+			if tc.name == "date overflow" {
+				f.now = time.Date(9999, 12, 31, 12, 0, 0, 0, time.UTC)
+			}
+			if tc.name == "conflict beats future date" {
+				f.now = time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)
+			}
+			w := f.do("POST", base, body, nil)
+			if w.Code != tc.status || (tc.code != "" && !strings.Contains(w.Body.String(), `"code":"`+tc.code+`"`)) || (tc.field != "" && !strings.Contains(w.Body.String(), `"field":"`+tc.field+`"`)) {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+			wantCount := before
+			if tc.status == 201 {
+				wantCount++
+			}
+			wantReceipts := 0
+			if tc.status == 201 && tc.name != "ordinary create" {
+				wantReceipts = 1
+			}
+			if f.repo.Count() != wantCount || f.repo.CompletionCount() != wantReceipts {
+				t.Fatalf("request stored item count %d (want %d), receipt count %d (want %d)", f.repo.Count(), wantCount, f.repo.CompletionCount(), wantReceipts)
+			}
+		})
+	}
+}
+
+func TestHistoricalCreatePersistsReceiptResponseAndStrictField(t *testing.T) {
+	f := newFixture(true)
+	body := `{"title":"Historical","subjectId":"` + sid + `","historicalCompletedOn":"2026-03-01","recurrence":{"intervalValue":1,"intervalUnit":"week","mode":"fixed"}}`
+	w := f.do("POST", base, body, nil)
+	if w.Code != 201 || w.Header().Get("ETag") != `"2"` || w.Header().Get("Location") == "" {
+		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["attentionOn"] != "2026-03-08" || got["lastCompletedOn"] != "2026-03-01" {
+		t.Fatalf("body=%v", got)
+	}
+	id := got["id"].(string)
+	row, ok := f.repo.Row(id)
+	if !ok || row.Version != 2 || row.AttentionOn == nil || row.AttentionOn.String() != "2026-03-08" {
+		t.Fatalf("row=%+v exists=%v", row, ok)
+	}
+	historyResponse := f.do("GET", base+"/"+id+"/completions", "", nil)
+	if historyResponse.Code != 200 {
+		t.Fatalf("history status=%d body=%s", historyResponse.Code, historyResponse.Body)
+	}
+	var historyBody map[string]any
+	if err := json.Unmarshal(historyResponse.Body.Bytes(), &historyBody); err != nil {
+		t.Fatal(err)
+	}
+	historyItems, ok := historyBody["items"].([]any)
+	if !ok || len(historyItems) != 1 {
+		t.Fatalf("history body=%v", historyBody)
+	}
+	receipt, ok := historyItems[0].(map[string]any)
+	if !ok || receipt["completedOn"] != "2026-03-01" || receipt["cycleAttentionOn"] != nil || receipt["nextAttentionOn"] != "2026-03-08" || receipt["undoneAt"] != nil || receipt["recurrence"].(map[string]any)["intervalUnit"] != "week" {
+		t.Fatalf("receipt=%v", historyItems[0])
+	}
+	patch := f.do("PATCH", base+"/"+id, `{"historicalCompletedOn":"2026-03-01"}`, map[string]string{"If-Match": `"2"`})
+	if patch.Code != 400 || !strings.Contains(patch.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf("patch=%d %s", patch.Code, patch.Body)
 	}
 }
 

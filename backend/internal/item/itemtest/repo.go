@@ -50,6 +50,12 @@ func (r *Repo) Count() int {
 	return len(r.rows)
 }
 
+func (r *Repo) CompletionCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.completions)
+}
+
 func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fingerprint [32]byte, decide item.CompletionDecider) (item.Completion, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -178,6 +184,18 @@ func (r *Repo) Create(_ context.Context, householdID string, d item.Draft) (item
 	r.seq++
 	id := "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
 	i := item.Item{ID: id, HouseholdID: householdID, SubjectID: d.SubjectID, Title: d.Title, Notes: d.Notes, AttentionOn: d.AttentionOn, Recurrence: d.Recurrence, WorkflowState: item.StateOpen, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
+	if d.InitializationReceipt != nil {
+		i.Version = 2
+		r.seq++
+		receipt := *d.InitializationReceipt
+		receipt.ID = "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
+		receipt.HouseholdID, receipt.ItemID = householdID, id
+		receipt.IdempotencyKey = "0198a2f0-7c1e-7a53-9b0e-000000000001"
+		receipt.CreatedAt = r.Clock
+		completed := receipt.CompletedOn
+		i.LastCompletedOn = &completed
+		r.completions = append(r.completions, receipt)
+	}
 	r.rows[id] = i
 	return i, nil
 }

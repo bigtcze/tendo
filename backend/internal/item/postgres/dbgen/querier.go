@@ -14,6 +14,8 @@ type Querier interface {
 	GetCompletionForUndo(ctx context.Context, arg GetCompletionForUndoParams) (GetCompletionForUndoRow, error)
 	GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, error)
 	InsertCompletion(ctx context.Context, arg InsertCompletionParams) (InsertCompletionRow, error)
+	InsertInitializationCompletion(ctx context.Context, arg InsertInitializationCompletionParams) (InsertInitializationCompletionRow, error)
+	InsertInitializedItem(ctx context.Context, arg InsertInitializedItemParams) (InsertInitializedItemRow, error)
 	LatestActiveCompletionVersion(ctx context.Context, arg LatestActiveCompletionVersionParams) (int64, error)
 	ListCompletions(ctx context.Context, arg ListCompletionsParams) ([]ListCompletionsRow, error)
 	ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error)

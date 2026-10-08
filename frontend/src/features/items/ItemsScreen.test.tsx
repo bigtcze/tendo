@@ -34,7 +34,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resto
 
 describe('item creation', () => {
   it('defaults Repeat off and sends an exact one-off body', async () => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjects, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const form = await openForm();
     expect(within(form).getByRole('switch', { name: 'Repeat' })).not.toBeChecked();
@@ -48,7 +48,7 @@ describe('item creation', () => {
   });
 
   it.each([{ fluid: false, mode: 'fixed' }, { fluid: true, mode: 'after_completion' }])('creates repeat mode $mode with chosen interval', async ({ fluid, mode }) => {
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjects, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Check smoke alarm');
@@ -98,7 +98,7 @@ describe('item creation', () => {
   });
 
   it('maps a 422 title error to a focused accessible field', async () => {
-    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjects, [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' }) });
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' }) });
     app();
     const form = await openForm();
     const title = within(form).getByLabelText('What needs doing?');
@@ -503,6 +503,80 @@ describe('Home items', () => {
     expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'A note', subjectId: 's-1', notes: 'details', recurrence: null });
   });
 
+  it('reveals historical completion only for repeating add forms and sends only the entered date', async () => {
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const form = await openForm();
+    expect(within(form).queryByRole('button', { name: 'Add a previous completion' })).not.toBeInTheDocument();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Service boiler');
+    await userEvent.click(within(form).getByRole('switch', { name: 'Repeat' }));
+    const disclosure = within(form).getByRole('button', { name: 'Add a previous completion' });
+    await userEvent.click(disclosure);
+    const previousDate = within(form).getByLabelText('Last completed on');
+    expect(previousDate).toHaveValue('');
+    expect(within(form).getByText("Only enter a date you know. We'll use it to set the first attention date.")).toBeVisible();
+    await userEvent.clear(previousDate);
+    await userEvent.type(previousDate, '2025-06-12');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Service boiler” was added.');
+    expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'Service boiler', subjectId: 's-1', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' }, historicalCompletedOn: '2025-06-12' });
+  });
+
+  it('omits a blank historical date and omits a previously entered date after Repeat is turned off', async () => {
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Clean filter');
+    await userEvent.click(within(form).getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Add a previous completion' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Clean filter” was added.');
+    expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).not.toHaveProperty('historicalCompletedOn');
+
+    cleanup();
+    const second = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const again = await openForm();
+    await userEvent.type(within(again).getByLabelText('What needs doing?'), 'Clean filter');
+    await userEvent.click(within(again).getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(within(again).getByRole('button', { name: 'Add a previous completion' }));
+    await userEvent.type(within(again).getByLabelText('Last completed on'), '2025-06-12');
+    await userEvent.click(within(again).getByRole('button', { name: 'Hide previous completion' }));
+    await userEvent.click(within(again).getByRole('button', { name: 'Add a previous completion' }));
+    expect(within(again).getByLabelText('Last completed on')).toHaveValue('2025-06-12');
+    await userEvent.click(within(again).getByRole('button', { name: 'Hide previous completion' }));
+    await userEvent.click(within(again).getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(within(again).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Clean filter” was added.');
+    expect(JSON.parse(requestsOf(second.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'Clean filter', subjectId: 's-1', recurrence: null });
+  });
+
+  it.each([
+    { code: 'conflicting_fields', message: 'Choose either a previous completion date or an attention date, not both.', attention: true },
+    { code: 'future_date', message: 'A previous completion date cannot be in the future.', attention: false },
+  ])('shows $code on the previous date, retaining both entered values', async ({ code, message, attention }) => {
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'historicalCompletedOn', code }) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Renew passport');
+    if (attention) await userEvent.type(within(form).getByLabelText('When should this need attention?'), '2026-10-20');
+    await userEvent.click(within(form).getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Add a previous completion' }));
+    const previousDate = within(form).getByLabelText('Last completed on');
+    await userEvent.type(previousDate, '2025-06-12');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent(message);
+    expect(previousDate).toHaveFocus();
+    expect(previousDate).toHaveAttribute('aria-invalid', 'true');
+    expect(previousDate.getAttribute('aria-describedby')).toBe(within(form).getByRole('alert').id);
+    expect(previousDate).toHaveValue('2025-06-12');
+    if (attention) expect(within(form).getByLabelText('When should this need attention?')).toHaveValue('2026-10-20');
+    const body = JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body);
+    expect(body).toHaveProperty('historicalCompletedOn', '2025-06-12');
+    if (attention) expect(body).toHaveProperty('attentionOn', '2026-10-20');
+    else expect(body).not.toHaveProperty('attentionOn');
+  });
+
   it('creates an item and focuses Add after success', async () => {
     const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
@@ -515,11 +589,16 @@ describe('Home items', () => {
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);
   });
 
-  it('shows the item copy in Czech', async () => {
+  it('shows previous completion labels in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
-    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjects });
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages });
     app();
     await screen.findByRole('heading', { name: 'Veselí' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Přidat položku' })).toBeVisible());
+    await userEvent.click(await screen.findByRole('button', { name: 'Přidat položku' }));
+    const form = await screen.findByRole('form', { name: 'Přidat položku' });
+    await userEvent.click(within(form).getByRole('switch', { name: 'Opakovat' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Přidat předchozí dokončení' }));
+    expect(within(form).getByLabelText('Naposledy dokončeno dne')).toBeVisible();
+    expect(within(form).getByText('Zadejte jen datum, které znáte. Podle něj nastavíme první datum připomenutí.')).toBeVisible();
   });
 });

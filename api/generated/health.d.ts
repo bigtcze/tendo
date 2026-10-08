@@ -135,8 +135,8 @@ export interface paths {
         get: operations["listItems"];
         put?: never;
         /**
-         * Create a one-off item
-         * @description Creates a household-scoped one-off backlog item with workflowState open. Any household member may create items. subjectId must name an active subject of the same household. The title is stored trimmed; notes are stored exactly as given. attentionOn is optional; without it the item needs attention immediately. A past attentionOn is allowed. Requires the canonical Origin header.
+         * Create an item
+         * @description Creates a household-scoped backlog item with workflowState open. Any household member may create items. subjectId must name an active subject of the same household. The title is stored trimmed; notes are stored exactly as given. attentionOn is optional; without it the item needs attention immediately unless historicalCompletedOn supplies the first attention date. A past attentionOn is allowed. Recurrence does not establish an initial attention date except through explicit historical initialization. historicalCompletedOn initializes the first recurring cycle and conflicts with a non-null attentionOn. Validation order after authentication/household checks is title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, then subject reference. Requires the canonical Origin header.
          */
         post: operations["createItem"];
         delete?: never;
@@ -208,7 +208,7 @@ export interface paths {
         head?: never;
         /**
          * Update, move, change state of, archive, or unarchive an item
-         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. The read-only done and lastCompletedOn fields cannot be written. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.
+         * @description Partial update of title, subjectId, notes, attentionOn, workflowState, and archived. historicalCompletedOn is not accepted. The read-only done and lastCompletedOn fields cannot be written. At least one field is required. notes and attentionOn accept null to clear the value; clearing attentionOn makes the item need attention immediately. null is rejected for every other field. subjectId is validated (same household, not archived) only when it is sent. If-Match with the current strong ETag identifying the stored item version is required; every successful update increments the version. The attention field is derived per request using the household timezone and may change at household-local midnight without a version change. Responses are Cache-Control: no-store. Archived items remain readable and editable. Requires the canonical Origin header.
          */
         patch: operations["updateItem"];
         trace?: never;
@@ -446,9 +446,11 @@ export interface components {
             subjectId: string;
             /** @description Free text stored exactly as given, 1 to 4000 characters. Newline, carriage return, and tab are allowed; other control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected with 422. The empty string is rejected; send null to clear. */
             notes?: string | null;
-            /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately. Past dates are allowed. Invalid values are rejected with 422. */
+            /** @description Business date in the household timezone, written YYYY-MM-DD and a real calendar date. Null or omitted means the item needs attention immediately unless historicalCompletedOn supplies the first attention date. Past dates are allowed. Invalid values are rejected with 422. */
             attentionOn?: string | null;
-            /** @description Omitted or null means one-off. Recurrence only affects the next completion and never changes attentionOn. */
+            /** @description Optional known historical business date written YYYY-MM-DD and a real calendar date. Requires enabled recurrence, conflicts with non-null attentionOn, cannot be after household-local today, and initializes the first next attention date. Invalid values are rejected with 422. */
+            historicalCompletedOn?: string;
+            /** @description Omitted or null means one-off. Recurrence only affects the next completion except explicit historical initialization. */
             recurrence?: components["schemas"]["ItemRecurrence"] | null;
         };
         UpdateItemRequest: {
@@ -467,9 +469,9 @@ export interface components {
         };
         ItemValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            field: "title" | "subjectId" | "notes" | "attentionOn" | "workflowState" | "recurrence";
+            field: "title" | "subjectId" | "notes" | "attentionOn" | "historicalCompletedOn" | "workflowState" | "recurrence";
             /** @enum {string} */
-            code: "invalid_characters" | "invalid_length" | "invalid_date" | "invalid_workflow_state" | "invalid_reference" | "invalid_interval" | "invalid_interval_unit" | "invalid_mode";
+            code: "invalid_characters" | "invalid_length" | "invalid_date" | "invalid_workflow_state" | "invalid_reference" | "invalid_interval" | "invalid_interval_unit" | "invalid_mode" | "requires_recurrence" | "conflicting_fields" | "future_date" | "date_overflow";
         };
         ValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -1855,17 +1857,20 @@ export interface operations {
         requestBody: {
             content: {
                 /** @example {
-                 *       "title": "Renew car insurance",
+                 *       "title": "Replace water filter",
                  *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
-                 *       "notes": "Compare two quotes first.",
-                 *       "attentionOn": "2026-11-01",
-                 *       "recurrence": null
+                 *       "historicalCompletedOn": "2026-10-06",
+                 *       "recurrence": {
+                 *         "intervalValue": 6,
+                 *         "intervalUnit": "month",
+                 *         "mode": "fixed"
+                 *       }
                  *     } */
                 "application/json": components["schemas"]["CreateItemRequest"];
             };
         };
         responses: {
-            /** @description Item created. */
+            /** @description Item created. ETag is "1" without historical initialization and "2" when an initial completion receipt was recorded. */
             201: {
                 headers: {
                     /**
@@ -1875,7 +1880,7 @@ export interface operations {
                     Location?: string;
                     /**
                      * @description Strong entity tag identifying the stored item version used for If-Match.
-                     * @example "1"
+                     * @example "2"
                      */
                     ETag?: string;
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1964,7 +1969,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. field may include recurrence; recurrence codes are invalid_interval (outside 1..999), invalid_interval_unit, and invalid_mode. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
+            /** @description Field validation failed. Create validation order after authentication and household checks: title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, then subject reference. Historical create errors are invalid_date, requires_recurrence, conflicting_fields, or future_date on historicalCompletedOn; overflow is date_overflow on recurrence. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference, invalid_interval, invalid_interval_unit, and invalid_mode. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -2733,7 +2738,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. field may include recurrence; recurrence codes are invalid_interval (outside 1..999), invalid_interval_unit, and invalid_mode. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference (subjectId is malformed, not a subject of this household, or archived). */
+            /** @description Field validation failed. PATCH retains the existing item-field codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference, invalid_interval, invalid_interval_unit, and invalid_mode. historicalCompletedOn is not accepted on PATCH. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

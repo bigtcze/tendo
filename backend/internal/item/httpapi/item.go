@@ -16,11 +16,12 @@ const bodyLimit = 64 << 10
 
 var (
 	createFields = map[string]httpx.Field{
-		"title":       {Kind: httpx.KindString, Required: true},
-		"subjectId":   {Kind: httpx.KindString, Required: true},
-		"notes":       {Kind: httpx.KindNullableString},
-		"attentionOn": {Kind: httpx.KindNullableString},
-		"recurrence":  {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
+		"title":                 {Kind: httpx.KindString, Required: true},
+		"subjectId":             {Kind: httpx.KindString, Required: true},
+		"notes":                 {Kind: httpx.KindNullableString},
+		"attentionOn":           {Kind: httpx.KindNullableString},
+		"historicalCompletedOn": {Kind: httpx.KindString},
+		"recurrence":            {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
 	}
 
 	recurrenceFields = map[string]httpx.Field{
@@ -89,6 +90,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if v, present := values["attentionOn"]; present && v != nil {
 		s := v.(string)
 		n.AttentionOn = &s
+	}
+	if v, present := values["historicalCompletedOn"]; present {
+		s := v.(string)
+		n.HistoricalCompletedOn = &s
 	}
 	if v, present := values["recurrence"]; present && v != nil {
 		policy, err := recurrence(v)

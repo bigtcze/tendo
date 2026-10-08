@@ -87,9 +87,17 @@ func decodeReceipt(id, household, itemID, userID string, completed, cycle, next 
 
 const sha256Size = 32
 
+func completionFromRowValues(id, householdID, itemID, completedBy string, completedOn, cycleAttentionOn, nextAttentionOn pgtype.Date, recurrenceIntervalValue pgtype.Int4, recurrenceIntervalUnit, recurrenceMode pgtype.Text, priorWorkflowState, idempotencyKey string, fingerprint []byte, versionBefore int64, createdAt, undoneAt pgtype.Timestamptz, undoneBy pgtype.UUID) (item.Completion, error) {
+	c, err := decodeReceipt(id, householdID, itemID, completedBy, completedOn, cycleAttentionOn, nextAttentionOn, recurrenceIntervalValue, recurrenceIntervalUnit, recurrenceMode, priorWorkflowState, idempotencyKey, fingerprint, versionBefore, createdAt)
+	return withUndo(c, undoneAt, undoneBy, err)
+}
+
 func completionFromRow(r dbgen.InsertCompletionRow) (item.Completion, error) {
-	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
-	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
+	return completionFromRowValues(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt, r.UndoneAt, r.UndoneByUserID)
+}
+
+func completionFromInitializationRow(r dbgen.InsertInitializationCompletionRow) (item.Completion, error) {
+	return completionFromRowValues(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt, r.UndoneAt, r.UndoneByUserID)
 }
 func completionFromExisting(r dbgen.GetCompletionByKeyRow) (item.Completion, error) {
 	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)

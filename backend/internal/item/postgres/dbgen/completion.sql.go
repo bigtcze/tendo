@@ -200,6 +200,79 @@ func (q *Queries) InsertCompletion(ctx context.Context, arg InsertCompletionPara
 	return i, err
 }
 
+const insertInitializationCompletion = `-- name: InsertInitializationCompletion :one
+INSERT INTO item_completions (household_id,item_id,completed_on,completed_by_user_id,cycle_attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,prior_workflow_state,next_attention_on,item_version_before,idempotency_key,request_fingerprint)
+VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, 'open', $8, 1, uuidv7()::text, $9)
+RETURNING id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id
+`
+
+type InsertInitializationCompletionParams struct {
+	HouseholdID             pgtype.UUID
+	ItemID                  pgtype.UUID
+	CompletedOn             pgtype.Date
+	CompletedByUserID       pgtype.UUID
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	NextAttentionOn         pgtype.Date
+	RequestFingerprint      []byte
+}
+
+type InsertInitializationCompletionRow struct {
+	ID                      string
+	HouseholdID             string
+	ItemID                  string
+	CompletedOn             pgtype.Date
+	CompletedByUserID       string
+	CycleAttentionOn        pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	PriorWorkflowState      string
+	NextAttentionOn         pgtype.Date
+	ItemVersionBefore       int64
+	IdempotencyKey          string
+	RequestFingerprint      []byte
+	CreatedAt               pgtype.Timestamptz
+	UndoneAt                pgtype.Timestamptz
+	UndoneByUserID          pgtype.UUID
+}
+
+func (q *Queries) InsertInitializationCompletion(ctx context.Context, arg InsertInitializationCompletionParams) (InsertInitializationCompletionRow, error) {
+	row := q.db.QueryRow(ctx, insertInitializationCompletion,
+		arg.HouseholdID,
+		arg.ItemID,
+		arg.CompletedOn,
+		arg.CompletedByUserID,
+		arg.RecurrenceIntervalValue,
+		arg.RecurrenceIntervalUnit,
+		arg.RecurrenceMode,
+		arg.NextAttentionOn,
+		arg.RequestFingerprint,
+	)
+	var i InsertInitializationCompletionRow
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.ItemID,
+		&i.CompletedOn,
+		&i.CompletedByUserID,
+		&i.CycleAttentionOn,
+		&i.RecurrenceIntervalValue,
+		&i.RecurrenceIntervalUnit,
+		&i.RecurrenceMode,
+		&i.PriorWorkflowState,
+		&i.NextAttentionOn,
+		&i.ItemVersionBefore,
+		&i.IdempotencyKey,
+		&i.RequestFingerprint,
+		&i.CreatedAt,
+		&i.UndoneAt,
+		&i.UndoneByUserID,
+	)
+	return i, err
+}
+
 const latestActiveCompletionVersion = `-- name: LatestActiveCompletionVersion :one
 SELECT item_version_before FROM item_completions WHERE household_id=$1 AND item_id=$2 AND undone_at IS NULL ORDER BY item_version_before DESC LIMIT 1
 `

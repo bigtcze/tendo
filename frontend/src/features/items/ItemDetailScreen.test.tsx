@@ -225,6 +225,8 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     const form = await screen.findByRole('form', { name: 'Edit item' });
+    expect(within(form).queryByRole('button', { name: 'Add a previous completion' })).not.toBeInTheDocument();
+    expect(within(form).queryByLabelText('Last completed on')).not.toBeInTheDocument();
     expect(screen.getByLabelText('What needs doing?')).toHaveValue('Renew passport');
     expect(screen.getByLabelText('For')).toHaveValue('s-1');
     expect(screen.getByLabelText('When should this need attention?')).toHaveValue('2026-10-10');
