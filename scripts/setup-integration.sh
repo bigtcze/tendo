@@ -12,7 +12,7 @@ mkdir -p "$cache"
 cleanup() {
   local result=$?
   trap - EXIT
-  if ! docker rm -f "$container" >/dev/null 2>&1; then
+  if ! docker rm -fv "$container" >/dev/null 2>&1; then
     printf 'PostgreSQL test container cleanup failed\n' >&2
     ((result != 0)) || result=1
   fi

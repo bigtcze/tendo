@@ -19,7 +19,7 @@ item_fixtures=$(mktemp)
 cleanup() {
   local result=$?
   trap - EXIT
-  if ! "${compose[@]}" down --volumes --remove-orphans; then
+  if ! "${compose[@]}" down --volumes --remove-orphans --rmi local; then
     printf 'Compose cleanup failed\n' >&2
     ((result != 0)) || result=1
   fi
