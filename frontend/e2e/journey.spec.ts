@@ -932,7 +932,9 @@ test.describe('Tendo production journey', () => {
     const oidcButton = page.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider) });
 
     // An identity nobody connected is refused without creating anything.
-    const authorize = 'http://oidc.test:8089/authorize**';
+    const issuer = process.env.E2E_OIDC_ISSUER;
+    if (!issuer) throw new Error('E2E_OIDC_ISSUER is required; run scripts/e2e-smoke.sh');
+    const authorize = `${issuer}/authorize**`;
     await page.route(authorize, (route) => route.continue({ url: `${route.request().url()}&sub=unknown-subject` }));
     await oidcButton.click();
     await expect(page.getByText(en['oidc.error.identity_not_linked'])).toBeVisible();

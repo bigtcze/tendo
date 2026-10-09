@@ -15,6 +15,7 @@ import (
 	householdpostgresdb "github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -219,18 +220,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	admin := connect(t, ctx, adminURL)
-	const dbName = "tendo_upgrade_test"
-	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+dbName); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		c, cc := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cc()
-		_, _ = admin.Exec(c, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
-	}()
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
 	adminCfg, err := pgxpool.ParseConfig(adminURL)
 	if err != nil {
 		t.Fatal(err)
@@ -246,9 +236,6 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	appCfg.ConnConfig.Database = dbName
-	if _, err := admin.Exec(ctx, `GRANT CONNECT ON DATABASE `+dbName+` TO tendo`); err != nil {
-		t.Fatal(err)
-	}
 	upgradeApp, err := pgxpool.NewWithConfig(ctx, appCfg)
 	if err != nil {
 		t.Fatal(err)
@@ -306,18 +293,7 @@ func TestMigrationUpgradeFromVersionTwoAddsHouseholdVersion(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	admin := connect(t, ctx, adminURL)
-	const dbName = "tendo_upgrade_v2_test"
-	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+dbName); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		c, cc := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cc()
-		_, _ = admin.Exec(c, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
-	}()
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
 	adminCfg, err := pgxpool.ParseConfig(adminURL)
 	if err != nil {
 		t.Fatal(err)
@@ -333,9 +309,6 @@ func TestMigrationUpgradeFromVersionTwoAddsHouseholdVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	appCfg.ConnConfig.Database = dbName
-	if _, err := admin.Exec(ctx, `GRANT CONNECT ON DATABASE `+dbName+` TO tendo`); err != nil {
-		t.Fatal(err)
-	}
 	upgradeApp, err := pgxpool.NewWithConfig(ctx, appCfg)
 	if err != nil {
 		t.Fatal(err)

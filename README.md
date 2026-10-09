@@ -69,6 +69,7 @@ For configuration, health checks, and stop/start details, see [runtime developme
 - [Your account and sign-in](docs/user/account.md)
 - [Runtime development](docs/development/runtime.md)
 - [Frontend development](docs/development/frontend.md)
+- [Complete development testing and pre-PR verification](docs/development/testing.md)
 - [Configuration reference](docs/admin/configuration.md)
 - [Schedule-domain notes](docs/development/schedule-domain.md)
 

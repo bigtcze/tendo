@@ -14,3 +14,6 @@ backend/internal/platform/webui/dist/*
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
+
+# Python bytecode from native harness tests.
+__pycache__/

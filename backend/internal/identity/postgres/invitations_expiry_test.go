@@ -8,7 +8,7 @@ import (
 )
 
 func TestInvitationExpiryBoundariesAndListStatuses(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	clock := time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), func() time.Time { return clock })
