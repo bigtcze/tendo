@@ -100,4 +100,6 @@ The native browser suite is not a replacement for deployment smokes. Production 
 
 Five successful required runs on 2026-10-09: median full run 11m19s (range 10m50s–11m45s), median job 11m17s. Median stage times: Go vet 25s; unit race 60s; PostgreSQL integration 93s; sqlc 2s; API install/audit/contract/generation 162s; frontend install/check 39s; production runtime 52s; setup 20s; OIDC 25s; proxy variants 81s; backup safety 9s; household backup 19s; browser E2E 78s. Detailed GitHub logs returned HTTP 403, so per-command/build/cache subtimings are unknown. Five runs describe the recent release family, not a long-term estimate.
 
-**After PR B:** fill in measured total/job and per-job ranges after the first successful required workflow run; no post-parallel timing is claimed yet.
+Last serial run after the native-tool change (main, 2026-10-09): 11m09s.
+
+**Parallel workflow (first successful PR run, 2026-10-09):** 3m58s wall clock from run creation to completion (jobs 3m54s from first start to last finish). Job durations: `postgres` 229s (critical path), `proxy-smoke` 148s, `e2e` 141s, `oidc-smoke` 101s, `backend` 98s, `api` 98s, `setup-smoke` 84s, `household-backup-smoke` 81s, `runtime-smoke` 76s, `backup-restore-smoke` 71s, `frontend` 52s, `required` aggregate 2s. A single sample: queueing and runner availability vary, so treat it as indicative rather than a guarantee. Total billed runner minutes increase because each job repeats checkout and tool setup.
