@@ -16,12 +16,10 @@ type Querier interface {
 	ConsumeOIDCFlow(ctx context.Context, arg ConsumeOIDCFlowParams) (ConsumeOIDCFlowRow, error)
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (CreateInvitationRow, error)
 	CreateLocalCredential(ctx context.Context, arg CreateLocalCredentialParams) error
-	CreateOIDCLoginSession(ctx context.Context, arg CreateOIDCLoginSessionParams) (string, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (string, error)
 	CreateUser(ctx context.Context, login string) (string, error)
-	DeleteExpiredOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) error
-	DeleteOIDCFlowForBrowser(ctx context.Context, browserTokenHash []byte) error
+	DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error
 	DeleteSession(ctx context.Context, tokenHash []byte) error
 	FindActiveSession(ctx context.Context, arg FindActiveSessionParams) (FindActiveSessionRow, error)
 	FindInvitationByCreationKey(ctx context.Context, arg FindInvitationByCreationKeyParams) (FindInvitationByCreationKeyRow, error)
@@ -32,13 +30,13 @@ type Querier interface {
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
 	FindOIDCIdentity(ctx context.Context, arg FindOIDCIdentityParams) (string, error)
 	InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) error
-	InsertOIDCIdentity(ctx context.Context, arg InsertOIDCIdentityParams) error
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (LockUserForInvitationRow, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
+	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 }

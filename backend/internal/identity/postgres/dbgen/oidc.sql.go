@@ -13,7 +13,7 @@ import (
 
 const consumeOIDCFlow = `-- name: ConsumeOIDCFlow :one
 DELETE FROM oidc_flows WHERE state_hash=$1 AND browser_token_hash=$2 AND expires_at>$3 AND issuer=$4 AND client_id=$5
-RETURNING issuer,client_id,nonce,pkce_verifier,purpose,COALESCE(user_id::text,'') AS user_id,COALESCE(session_id::text,'') AS session_id,created_at,expires_at
+RETURNING issuer,client_id,nonce,pkce_verifier,purpose,COALESCE(user_id::text,'')::text AS user_id,COALESCE(session_id::text,'')::text AS session_id,created_at,expires_at
 `
 
 type ConsumeOIDCFlowParams struct {
@@ -30,8 +30,8 @@ type ConsumeOIDCFlowRow struct {
 	Nonce        string
 	PkceVerifier string
 	Purpose      string
-	UserID       interface{}
-	SessionID    interface{}
+	UserID       string
+	SessionID    string
 	CreatedAt    pgtype.Timestamptz
 	ExpiresAt    pgtype.Timestamptz
 }
@@ -59,44 +59,12 @@ func (q *Queries) ConsumeOIDCFlow(ctx context.Context, arg ConsumeOIDCFlowParams
 	return i, err
 }
 
-const createOIDCLoginSession = `-- name: CreateOIDCLoginSession :one
-INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,$3,$4) RETURNING id::text AS id
-`
-
-type CreateOIDCLoginSessionParams struct {
-	UserID    pgtype.UUID
-	TokenHash []byte
-	CreatedAt pgtype.Timestamptz
-	ExpiresAt pgtype.Timestamptz
-}
-
-func (q *Queries) CreateOIDCLoginSession(ctx context.Context, arg CreateOIDCLoginSessionParams) (string, error) {
-	row := q.db.QueryRow(ctx, createOIDCLoginSession,
-		arg.UserID,
-		arg.TokenHash,
-		arg.CreatedAt,
-		arg.ExpiresAt,
-	)
-	var id string
-	err := row.Scan(&id)
-	return id, err
-}
-
-const deleteExpiredOIDCFlows = `-- name: DeleteExpiredOIDCFlows :exec
-DELETE FROM oidc_flows WHERE expires_at <= $1
-`
-
-func (q *Queries) DeleteExpiredOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error {
-	_, err := q.db.Exec(ctx, deleteExpiredOIDCFlows, expiresAt)
-	return err
-}
-
-const deleteOIDCFlowForBrowser = `-- name: DeleteOIDCFlowForBrowser :exec
+const deleteOIDCFlowForPreviousBrowser = `-- name: DeleteOIDCFlowForPreviousBrowser :exec
 DELETE FROM oidc_flows WHERE browser_token_hash=$1
 `
 
-func (q *Queries) DeleteOIDCFlowForBrowser(ctx context.Context, browserTokenHash []byte) error {
-	_, err := q.db.Exec(ctx, deleteOIDCFlowForBrowser, browserTokenHash)
+func (q *Queries) DeleteOIDCFlowForPreviousBrowser(ctx context.Context, browserTokenHash []byte) error {
+	_, err := q.db.Exec(ctx, deleteOIDCFlowForPreviousBrowser, browserTokenHash)
 	return err
 }
 
@@ -163,27 +131,6 @@ func (q *Queries) InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) 
 	return err
 }
 
-const insertOIDCIdentity = `-- name: InsertOIDCIdentity :exec
-INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES($1,$2,$3,$4)
-`
-
-type InsertOIDCIdentityParams struct {
-	Issuer    string
-	Subject   string
-	UserID    pgtype.UUID
-	CreatedAt pgtype.Timestamptz
-}
-
-func (q *Queries) InsertOIDCIdentity(ctx context.Context, arg InsertOIDCIdentityParams) error {
-	_, err := q.db.Exec(ctx, insertOIDCIdentity,
-		arg.Issuer,
-		arg.Subject,
-		arg.UserID,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const linkedOIDCIdentity = `-- name: LinkedOIDCIdentity :one
 SELECT EXISTS(SELECT 1 FROM oidc_identities WHERE user_id=$1 AND issuer=$2)
 `
@@ -198,4 +145,13 @@ func (q *Queries) LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentity
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const pruneOIDCFlows = `-- name: PruneOIDCFlows :exec
+DELETE FROM oidc_flows WHERE expires_at <= $1
+`
+
+func (q *Queries) PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error {
+	_, err := q.db.Exec(ctx, pruneOIDCFlows, expiresAt)
+	return err
 }

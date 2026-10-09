@@ -151,13 +151,15 @@ func TestReadinessPingDeadline(t *testing.T) {
 func TestMiddlewareRequestIDAndSafeLogging(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	h := requestMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }), logger)
+	h := NewAppWithLogger(nil, time.Second, nil, OriginPolicy{PublicURL: "http://example.test"}, func(r chi.Router) {
+		r.Get("/health/privacy", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	}, logger)
 	for _, tc := range []struct {
 		input, expected string
 		preserve        bool
 	}{{"caller-1", "caller-1", true}, {"bad id\nsecret", "", false}} {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodGet, "/health/ready?token=secret", nil)
+		r := httptest.NewRequest(http.MethodGet, "/health/privacy?token=secret", nil)
 		r.Header.Set("X-Request-ID", tc.input)
 		h.ServeHTTP(w, r)
 		id := w.Header().Get("X-Request-ID")

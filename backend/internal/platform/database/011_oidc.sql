@@ -16,7 +16,7 @@ CREATE TABLE oidc_flows (
  issuer text COLLATE "C" NOT NULL,
  client_id text NOT NULL,
  nonce text NOT NULL,
- pkce_verifier text NOT NULL CHECK (octet_length(pkce_verifier)=43),
+ pkce_verifier text NOT NULL CHECK (octet_length(pkce_verifier)=43 AND pkce_verifier !~ '[^A-Za-z0-9_-]'),
  purpose text NOT NULL CHECK (purpose IN ('login','link')),
  user_id uuid NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
  session_id uuid NULL REFERENCES user_sessions(id) ON DELETE CASCADE,

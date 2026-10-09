@@ -27,17 +27,20 @@ const oidcTestPassword = "correct horse battery"
 const oidcTestPublicURL = "http://tendo.test"
 
 type oidcHTTPFake struct {
-	start    identity.OIDCStartResult
-	startErr error
-	callback identity.OIDCCallbackResult
-	linked   bool
+	start     identity.OIDCStartResult
+	lastStart identity.OIDCStartParams
+	startErr  error
+	callback  identity.OIDCCallbackResult
+	linked    bool
 }
 
 func (f *oidcHTTPFake) Status() (bool, string)                       { return true, "Example IdP" }
 func (f *oidcHTTPFake) Linked(context.Context, string) (bool, error) { return f.linked, nil }
-func (f *oidcHTTPFake) Start(context.Context, identity.OIDCStartParams) (identity.OIDCStartResult, error) {
+func (f *oidcHTTPFake) Start(_ context.Context, params identity.OIDCStartParams) (identity.OIDCStartResult, error) {
+	f.lastStart = params
 	return f.start, f.startErr
 }
+func (f *oidcHTTPFake) LastStart() identity.OIDCStartParams { return f.lastStart }
 func (f *oidcHTTPFake) Callback(context.Context, url.Values, string, string) (identity.OIDCCallbackResult, error) {
 	return f.callback, nil
 }
@@ -56,6 +59,13 @@ func newOIDCMemRepo() *oidcMemRepo {
 func (r *oidcMemRepo) InsertFlow(_ context.Context, f identity.OIDCFlow) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if len(f.PreviousBrowserTokenHash) == 32 {
+		for state, old := range r.flows {
+			if string(old.BrowserTokenHash) == string(f.PreviousBrowserTokenHash) {
+				delete(r.flows, state)
+			}
+		}
+	}
 	r.flows[string(f.StateHash)] = f
 	return nil
 }
@@ -181,6 +191,48 @@ func TestOIDCIdentitySessionAndDisabled(t *testing.T) {
 		})
 	}
 }
+func TestOIDCStartOriginDuplicatesAndRateLimit(t *testing.T) {
+	t.Run("foreign origin", func(t *testing.T) {
+		fake := &oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://evil.test")
+		w := httptest.NewRecorder()
+		oidcRouter(fake, oidcTestPublicURL, &fakeSessionService{}).ServeHTTP(w, r)
+		if w.Code != 403 {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body)
+		}
+	})
+	t.Run("duplicate flow cookie treated as absent", func(t *testing.T) {
+		fake := &oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", oidcTestPublicURL)
+		r.AddCookie(&http.Cookie{Name: "tendo_oidc", Value: fakeToken})
+		r.AddCookie(&http.Cookie{Name: "tendo_oidc", Value: fakeToken})
+		w := httptest.NewRecorder()
+		oidcRouter(fake, oidcTestPublicURL, &fakeSessionService{}).ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body)
+		}
+		if fake.lastStart.PreviousBrowserToken != "" {
+			t.Fatalf("duplicate cookies should be treated as absent")
+		}
+	})
+	t.Run("rate limit", func(t *testing.T) {
+		h := NewOIDC(&oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}, NewSession(&fakeSessionService{}, oidcTestPublicURL), oidcTestPublicURL)
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
+		r.Header.Set("Content-Type", "application/json")
+		for i := 0; i < 11; i++ {
+			w = httptest.NewRecorder()
+			h.start(w, r)
+		}
+		if w.Code != 429 {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body)
+		}
+	})
+}
 func TestOIDCStartValidationAndProviderFailure(t *testing.T) {
 	for _, tc := range []struct {
 		body    string
@@ -215,6 +267,57 @@ func TestOIDCStartCookiePolicy(t *testing.T) {
 		if c.Name != tc.name || c.Value != fakeToken || !c.HttpOnly || c.Secure != tc.secure || c.Path != "/" || c.MaxAge != 600 || c.SameSite != http.SameSiteLaxMode || c.Domain != "" {
 			t.Fatalf("cookie=%+v", c)
 		}
+	}
+}
+func TestOIDCLoginActiveSessionHTTPRejectedBeforeExchange(t *testing.T) {
+	repo, provider, _, _, mux := newRealOIDCHTTP(t, "subject-1")
+	repo.identities[provider.Issuer()+"\x00subject-1"] = "user-1"
+	query, flow := doOIDCStart(t, mux, "login", "")
+	ordinary := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	sum := sha256.Sum256([]byte(ordinary))
+	repo.sessions[string(sum[:])] = identity.SessionInfo{ID: "active-after-start", Principal: identity.Principal{UserID: "user-2"}, ExpiresAt: time.Now().Add(time.Hour)}
+	w := performOIDCCallback(t, provider, mux, query, flow, ordinary)
+	if w.Code != 303 || w.Header().Get("Location") != "/login#oidcError=session_changed" {
+		t.Fatalf("status=%d location=%s", w.Code, w.Header().Get("Location"))
+	}
+	if _, ok := repo.sessions[string(sum[:])]; !ok {
+		t.Fatal("existing session cookie session was changed")
+	}
+	if len(repo.sessions) != 2 {
+		t.Fatalf("unexpected session writes: %d", len(repo.sessions))
+	}
+}
+func TestOIDCDisabledHandlerPaths(t *testing.T) {
+	h := oidcRouter(nil, "http://tendo.test", &fakeSessionService{principal: identity.Principal{UserID: "user"}})
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/identity", nil)
+	get.AddCookie(&http.Cookie{Name: "tendo_session", Value: fakeToken})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, get)
+	if w.Code != 404 || !strings.Contains(w.Body.String(), "oidc_disabled") {
+		t.Fatalf("identity: status=%d body=%s", w.Code, w.Body)
+	}
+	post := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
+	post.Header.Set("Content-Type", "application/json")
+	post.Header.Set("Origin", "http://tendo.test")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, post)
+	if w.Code != 404 {
+		t.Fatalf("start: status=%d body=%s", w.Code, w.Body)
+	}
+	callback := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/callback", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, callback)
+	if w.Code != 303 || w.Header().Get("Location") != "/login#oidcError=unavailable" {
+		t.Fatalf("callback: status=%d location=%s", w.Code, w.Header().Get("Location"))
+	}
+	cleared := false
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "tendo_oidc" && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("flow cookie was not cleared")
 	}
 }
 func TestOIDCCallbackRedirectHeadersAndMultipleCookies(t *testing.T) {
@@ -280,6 +383,9 @@ func (p *callbackCapturingProvider) AuthorizationURL(ctx context.Context, params
 }
 
 func doOIDCStart(t *testing.T, mux http.Handler, purpose string, currentSession string) (url.Values, string) {
+	return doOIDCStartWithPrevious(t, mux, purpose, currentSession, "")
+}
+func doOIDCStartWithPrevious(t *testing.T, mux http.Handler, purpose, currentSession, previous string) (url.Values, string) {
 	t.Helper()
 	body := `{"purpose":"` + purpose + `"}`
 	if purpose == "link" {
@@ -290,6 +396,9 @@ func doOIDCStart(t *testing.T, mux http.Handler, purpose string, currentSession 
 	r.Header.Set("Origin", oidcTestPublicURL)
 	if currentSession != "" {
 		r.AddCookie(&http.Cookie{Name: "tendo_session", Value: currentSession})
+	}
+	if previous != "" {
+		r.AddCookie(&http.Cookie{Name: "tendo_oidc", Value: previous})
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
@@ -338,6 +447,18 @@ func performOIDCCallback(t *testing.T, p *testoidc.Provider, mux http.Handler, a
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	return w
+}
+func TestOIDCLatestFlowAttemptWinsHTTP(t *testing.T) {
+	_, p, _, _, mux := newRealOIDCHTTP(t, "subject-1")
+	firstQuery, firstCookie := doOIDCStart(t, mux, "login", "")
+	secondQuery, secondCookie := doOIDCStartWithPrevious(t, mux, "login", "", firstCookie)
+	old := performOIDCCallback(t, p, mux, firstQuery, firstCookie, "")
+	if old.Header().Get("Location") != "/login#oidcError=invalid_flow" {
+		t.Fatalf("first flow callback=%s", old.Header().Get("Location"))
+	}
+	if len(secondQuery) == 0 || secondCookie == firstCookie {
+		t.Fatal("second flow was not created")
+	}
 }
 func TestOIDCLoginHTTPRoundTrip(t *testing.T) {
 	repo, p, _, _, mux := newRealOIDCHTTP(t, "subject-1")
@@ -441,7 +562,7 @@ func TestOIDCCallbackRequestLogOmitsSecrets(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	callback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusSeeOther) })
-	wrapped := httpx.RequestMiddlewareForTest(callback, logger)
+	wrapped := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: oidcTestPublicURL}, func(r chi.Router) { r.Get("/api/v1/auth/oidc/callback", callback) }, logger)
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/callback?code=private-code&state=private-state", nil)
 	r.AddCookie(&http.Cookie{Name: "tendo_oidc", Value: "private-cookie"})
 	wrapped.ServeHTTP(httptest.NewRecorder(), r)

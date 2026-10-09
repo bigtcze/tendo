@@ -25,6 +25,7 @@ var (
 const SessionLifetime = 30 * 24 * time.Hour
 
 const (
+	DummyPassword    = "tendo fixed dummy password"
 	maxPasswordBytes = 512
 	repositoryBudget = 5 * time.Second
 )
@@ -87,7 +88,7 @@ func NewSessionService(repository SessionRepository, clock func() time.Time) (*S
 	if clock == nil {
 		clock = time.Now
 	}
-	dummy, err := security.HashPassword("tendo fixed dummy password")
+	dummy, err := security.HashPassword(DummyPassword)
 	if err != nil {
 		return nil, err
 	}

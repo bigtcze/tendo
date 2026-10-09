@@ -120,7 +120,7 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 	sessions.SetPasswordVerifier(passwordGate.VerifyPassword)
 	sessionHandler := identityhttp.NewSession(sessions, cfg.PublicURL)
 	sessionHandler.Register(routes)
-	oidcService, err := newOIDCService(cfg, identityRepository, passwordGate, time.Now)
+	oidcService, err := newOIDCService(cfg, identityRepository, sessions, time.Now)
 	if err != nil {
 		pool.Close()
 		return err
@@ -175,22 +175,13 @@ func newOIDCHandler(service *identityapp.OIDCService, sessions *identityhttp.Ses
 	return identityhttp.NewOIDC(service, sessions, publicURL)
 }
 
-func newOIDCService(cfg config.Config, repo identityapp.OIDCRepository, gate *security.PasswordGate, clock func() time.Time) (*identityapp.OIDCService, error) {
+func newOIDCService(cfg config.Config, repo identityapp.OIDCRepository, sessions *identityapp.SessionService, clock func() time.Time) (*identityapp.OIDCService, error) {
 	if cfg.OIDCIssuer == "" {
 		return nil, nil
 	}
 	publicOrigin, _ := httporigin.Parse(cfg.PublicURL, true)
 	provider := oidcprovider.New(cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCClientSecret, nil, clock, publicOrigin.Scheme == "http")
-	return identityapp.NewOIDCService(repo, provider, cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCDisplayName, cfg.PublicURL, clock, nil, func(hash, password string) error {
-		valid, err := gate.VerifyPassword(hash, password)
-		if err != nil {
-			return err
-		}
-		if !valid {
-			return identityapp.ErrInvalidCredentials
-		}
-		return nil
-	})
+	return identityapp.NewOIDCService(repo, provider, cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCDisplayName, cfg.PublicURL, clock, nil, sessions.VerifyCurrentPassword)
 }
 
 func newRuntimeServer(addr string, handler http.Handler, serviceTimeout time.Duration) *http.Server {

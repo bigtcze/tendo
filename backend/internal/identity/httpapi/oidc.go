@@ -35,7 +35,7 @@ func NewOIDC(service oidcService, sessions *SessionHandler, publicURL string) *O
 
 func (h *OIDCHandler) Register(r chi.Router) {
 	r.Get("/api/v1/auth/oidc", h.status)
-	r.With(h.requireSession).Get("/api/v1/auth/oidc/identity", h.identity)
+	r.Get("/api/v1/auth/oidc/identity", h.identity)
 	r.Post("/api/v1/auth/oidc/start", h.start)
 	r.Get("/api/v1/auth/oidc/callback", h.callback)
 }
@@ -71,6 +71,13 @@ func (h *OIDCHandler) identity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, ok := PrincipalFromContext(r.Context())
+	if !ok && h.sessions != nil {
+		info, authenticated := h.sessions.authenticate(w, r)
+		if !authenticated {
+			return
+		}
+		p, ok = info.Principal, true
+	}
 	if !ok {
 		problem(w, 401, "unauthenticated")
 		return
@@ -107,6 +114,11 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "oidc_disabled")
 		return
 	}
+	origin := r.Header.Get("Origin")
+	if origin != "" && origin != h.publicURL {
+		problem(w, 403, "origin_not_allowed")
+		return
+	}
 	var session identity.SessionInfo
 	var principal identity.Principal
 	if h.sessions != nil {
@@ -127,7 +139,11 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session.Principal = principal
-	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: purpose, Principal: principal, Session: session, CurrentPassword: password})
+	previousBrowserToken, validPreviousBrowserCookie := h.singleFlowCookie(r)
+	if !validPreviousBrowserCookie {
+		previousBrowserToken = ""
+	}
+	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: purpose, Principal: principal, Session: session, CurrentPassword: password, PreviousBrowserToken: previousBrowserToken})
 	switch {
 	case errors.Is(err, identity.ErrOIDCInvalidPurpose):
 		writeOIDCValidation(w, "purpose")
@@ -147,28 +163,37 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"authorizationUrl": result.AuthorizationURL})
 	}
 }
+func (h *OIDCHandler) singleFlowCookie(r *http.Request) (string, bool) {
+	var token string
+	count := 0
+	for _, cookie := range r.Cookies() {
+		if cookie.Name == h.flowCookieName() {
+			token = cookie.Value
+			count++
+		}
+	}
+	return token, count == 1
+}
+
 func (h *OIDCHandler) callback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if h.service == nil {
 		h.setFlowCookie(w, "", -1)
-		h.redirect(w, "/login#oidcError=unavailable", "")
+		h.redirect(w, "/login#oidcError=unavailable")
 		return
 	}
-	var browser string
-	count := 0
-	for _, c := range r.Cookies() {
-		if c.Name == h.flowCookieName() {
-			browser = c.Value
-			count++
-		}
-	}
-	if count > 1 {
+	browser, validBrowserCookie := h.singleFlowCookie(r)
+	if !validBrowserCookie {
 		browser = ""
 	}
-	sessionToken, validSessionCookie := h.sessions.sessionToken(r)
-	if !validSessionCookie {
-		sessionToken = ""
+	sessionToken := ""
+	if h.sessions != nil {
+		var validSessionCookie bool
+		sessionToken, validSessionCookie = h.sessions.sessionToken(r)
+		if !validSessionCookie {
+			sessionToken = ""
+		}
 	}
 	result, err := h.service.Callback(r.Context(), r.URL.Query(), browser, sessionToken)
 	if err != nil {
@@ -178,9 +203,9 @@ func (h *OIDCHandler) callback(w http.ResponseWriter, r *http.Request) {
 	if result.SessionToken != "" {
 		h.sessions.setCookie(w, result.SessionToken, int(identity.SessionLifetime/time.Second))
 	}
-	h.redirect(w, result.Destination, "")
+	h.redirect(w, result.Destination)
 }
-func (h *OIDCHandler) redirect(w http.ResponseWriter, destination, _ string) {
+func (h *OIDCHandler) redirect(w http.ResponseWriter, destination string) {
 	w.Header().Set("Location", destination)
 	w.WriteHeader(http.StatusSeeOther)
 }

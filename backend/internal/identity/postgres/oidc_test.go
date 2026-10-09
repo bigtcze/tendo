@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -52,6 +53,7 @@ func TestOIDCPostgresRepositoryAndConstraints(t *testing.T) {
 		`INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES('https://issuer.test','bad sub','` + uid + `',now())`,
 		`INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES('https://issuer.test','bad家','` + uid + `',now())`,
 		`INSERT INTO oidc_flows(state_hash,browser_token_hash,issuer,client_id,nonce,pkce_verifier,purpose,created_at,expires_at) VALUES(decode(repeat('01',32),'hex'),decode(repeat('02',31),'hex'),'i','c','n','1234567890123456789012345678901234567890123','login',now(),now()+interval '1 minute')`,
+		`INSERT INTO oidc_flows(state_hash,browser_token_hash,issuer,client_id,nonce,pkce_verifier,purpose,created_at,expires_at) VALUES(decode(repeat('11',32),'hex'),decode(repeat('12',32),'hex'),'i','c','n','!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!','login',now(),now()+interval '1 minute')`,
 		`INSERT INTO oidc_flows(state_hash,browser_token_hash,issuer,client_id,nonce,pkce_verifier,purpose,created_at,expires_at) VALUES(decode(repeat('09',31),'hex'),decode(repeat('10',32),'hex'),'i','c','n','1234567890123456789012345678901234567890123','login',now(),now()+interval '1 minute')`,
 		`INSERT INTO oidc_flows(state_hash,browser_token_hash,issuer,client_id,nonce,pkce_verifier,purpose,user_id,session_id,created_at,expires_at) VALUES(decode(repeat('03',32),'hex'),decode(repeat('04',32),'hex'),'i','c','n','1234567890123456789012345678901234567890123','login','` + uid + `',(SELECT id FROM user_sessions LIMIT 1),now(),now()+interval '1 minute')`,
 		`INSERT INTO oidc_flows(state_hash,browser_token_hash,issuer,client_id,nonce,pkce_verifier,purpose,created_at,expires_at) VALUES(decode(repeat('05',32),'hex'),decode(repeat('06',32),'hex'),'i','c','n','1234567890123456789012345678901234567890123','link',now(),now()+interval '1 minute')`,
@@ -87,17 +89,23 @@ func TestOIDCPostgresRepositoryAndConstraints(t *testing.T) {
 	}
 
 	f := oidcTestFlow(now, 30)
+	browserTokenHash := sha256.Sum256(bytes32(31))
+	f.BrowserTokenHash = browserTokenHash[:]
 	if err = repo.InsertFlow(ctx, f); err != nil {
 		t.Fatal(err)
 	}
 	f2 := oidcTestFlow(now, 32)
-	f2.BrowserTokenHash = f.BrowserTokenHash
+	previousBrowserHash := sha256.Sum256(bytes32(31))
+	f2.PreviousBrowserTokenHash = previousBrowserHash[:]
 	if err = repo.InsertFlow(ctx, f2); err != nil {
 		t.Fatal(err)
 	}
 	var n int
-	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_flows WHERE browser_token_hash=$1`, f.BrowserTokenHash).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("browser replace n=%d err=%v", n, err)
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_flows WHERE state_hash=$1`, f.StateHash).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("previous browser flow remains n=%d err=%v", n, err)
+	}
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_flows WHERE state_hash=$1`, f2.StateHash).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("latest browser flow missing n=%d err=%v", n, err)
 	}
 	old := oidcTestFlow(now.Add(-6*time.Minute), 40)
 	old.ExpiresAt = now.Add(-time.Minute)
@@ -240,8 +248,9 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e5',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, user1).Scan(&rollbackSession); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user1, SessionID: rollbackSession}, identity.OIDCVerifiedIdentity{Issuer: verified.Issuer, Subject: "rollback-subject"}, identity.NewSession{UserID: user1, TokenHash: bytes32(112), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(5)); err == nil {
-		t.Fatal("invalid new-session user unexpectedly linked")
+	// A token hash already held by an existing session forces insertion to fail after identity insert.
+	if _, err = repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user1, SessionID: rollbackSession}, identity.OIDCVerifiedIdentity{Issuer: verified.Issuer, Subject: "rollback-subject"}, identity.NewSession{UserID: user1, TokenHash: bytes32(110), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(5)); err == nil {
+		t.Fatal("duplicate token hash unexpectedly linked")
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_identities WHERE subject='rollback-subject'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("rollback identity count=%d err=%v", count, err)

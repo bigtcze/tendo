@@ -98,17 +98,46 @@ func TestOIDCRuntimeCompositionDoesNotDiscoverProviderAtStartup(t *testing.T) {
 				cfg.OIDCDisplayName = "Unreachable IdP"
 			}
 			gate := security.NewPasswordGate(2)
+			sessionRepo := &startupOIDCSessionRepo{}
+			sessions, err := identityapp.NewSessionService(sessionRepo, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessions.SetPasswordVerifier(gate.VerifyPassword)
 			var repo identityapp.OIDCRepository
 			if tc.enabled {
 				repo = &startupOIDCRepo{}
 			}
-			oidc, err := newOIDCService(cfg, repo, gate, time.Now)
+			oidc, err := newOIDCService(cfg, repo, sessions, time.Now)
 			if err != nil {
 				t.Fatalf("service composition failed: %v", err)
 			}
 			routes := chi.NewRouter()
-			sessions := identityhttp.NewSession(&fakeOIDCSessionService{}, cfg.PublicURL)
-			newOIDCHandler(oidc, sessions, cfg.PublicURL).Register(routes)
+			sessionHandler := identityhttp.NewSession(&fakeOIDCSessionService{}, cfg.PublicURL)
+			newOIDCHandler(oidc, sessionHandler, cfg.PublicURL).Register(routes)
+			if !tc.enabled {
+				for _, request := range []*http.Request{
+					httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/identity", nil),
+					httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`)),
+					httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/callback", nil),
+				} {
+					request.Header.Set("Content-Type", "application/json")
+					request.Header.Set("Origin", cfg.PublicURL)
+					response := httptest.NewRecorder()
+					routes.ServeHTTP(response, request)
+					if request.Method == http.MethodGet && strings.Contains(request.URL.Path, "identity") {
+						if response.Code != 404 || !strings.Contains(response.Body.String(), "oidc_disabled") {
+							t.Fatalf("identity status=%d body=%s", response.Code, response.Body)
+						}
+					} else if request.Method == http.MethodPost {
+						if response.Code != 404 {
+							t.Fatalf("start status=%d", response.Code)
+						}
+					} else if response.Code != 303 || response.Header().Get("Location") != "/login#oidcError=unavailable" {
+						t.Fatalf("callback status=%d location=%s", response.Code, response.Header().Get("Location"))
+					}
+				}
+			}
 			response := httptest.NewRecorder()
 			routes.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc", nil))
 			if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != tc.wantBody {
@@ -117,6 +146,20 @@ func TestOIDCRuntimeCompositionDoesNotDiscoverProviderAtStartup(t *testing.T) {
 		})
 	}
 }
+
+type startupOIDCSessionRepo struct{}
+
+func (*startupOIDCSessionRepo) FindLogin(context.Context, string) (identityapp.LoginRecord, error) {
+	return identityapp.LoginRecord{}, identityapp.ErrNotFound
+}
+func (*startupOIDCSessionRepo) PruneExpired(context.Context, string, time.Time) error { return nil }
+func (*startupOIDCSessionRepo) CreateSession(context.Context, identityapp.NewSession) (string, error) {
+	return "", nil
+}
+func (*startupOIDCSessionRepo) FindActive(context.Context, []byte, time.Time) (identityapp.SessionInfo, error) {
+	return identityapp.SessionInfo{}, identityapp.ErrNotFound
+}
+func (*startupOIDCSessionRepo) DeleteByTokenHash(context.Context, []byte) error { return nil }
 
 type startupOIDCRepo struct{}
 

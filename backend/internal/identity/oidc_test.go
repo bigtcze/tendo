@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"net/url"
 	"strings"
@@ -23,6 +24,7 @@ type oidcFakeRepo struct {
 	credentials               map[string]string
 	sessions                  map[string]SessionInfo
 	identityErr, sessionErr   error
+	consumeErr                error
 	inserted, created, linked int
 }
 
@@ -33,6 +35,13 @@ func identityKey(issuer, sub string) string { return issuer + "\x00" + sub }
 func (r *oidcFakeRepo) InsertFlow(_ context.Context, f OIDCFlow) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if len(f.PreviousBrowserTokenHash) == 32 {
+		for state, old := range r.flows {
+			if string(old.BrowserTokenHash) == string(f.PreviousBrowserTokenHash) {
+				delete(r.flows, state)
+			}
+		}
+	}
 	r.flows[string(f.StateHash)] = f
 	r.inserted++
 	return nil
@@ -40,6 +49,9 @@ func (r *oidcFakeRepo) InsertFlow(_ context.Context, f OIDCFlow) error {
 func (r *oidcFakeRepo) ConsumeFlow(_ context.Context, state, browser []byte, now time.Time, issuer, client string) (OIDCFlow, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.consumeErr != nil {
+		return OIDCFlow{}, r.consumeErr
+	}
 	k := string(state)
 	f, ok := r.flows[k]
 	if !ok || string(f.BrowserTokenHash) != string(browser) || f.Issuer != issuer || f.ClientID != client || !f.ExpiresAt.After(now) {
@@ -178,6 +190,9 @@ func newOIDCFixture(t *testing.T) *oidcFixture {
 	return &oidcFixture{t: t, repo: repo, service: svc, clock: &now, provider: stub, secret: h}
 }
 func (f *oidcFixture) start(purpose OIDCPurpose, user, sessionID, token, password string) OIDCStartResult {
+	return f.startWithPrevious(purpose, user, sessionID, token, password, "")
+}
+func (f *oidcFixture) startWithPrevious(purpose OIDCPurpose, user, sessionID, token, password, previous string) OIDCStartResult {
 	f.t.Helper()
 	pr := Principal{}
 	si := SessionInfo{}
@@ -188,7 +203,7 @@ func (f *oidcFixture) start(purpose OIDCPurpose, user, sessionID, token, passwor
 			f.repo.sessions[string(digest([]byte(token)))] = si
 		}
 	}
-	r, e := f.service.Start(context.Background(), OIDCStartParams{Purpose: purpose, Principal: pr, Session: si, CurrentPassword: password})
+	r, e := f.service.Start(context.Background(), OIDCStartParams{Purpose: purpose, Principal: pr, Session: si, CurrentPassword: password, PreviousBrowserToken: previous})
 	if e != nil {
 		f.t.Fatalf("start %s: %v", purpose, e)
 	}
@@ -228,6 +243,27 @@ func assertNoSessionIdentity(t *testing.T, r *oidcFakeRepo) {
 	t.Helper()
 	if len(r.sessions) != 0 || len(r.identities) != 0 {
 		t.Fatalf("sessions=%d identities=%v", len(r.sessions), r.identities)
+	}
+}
+
+func TestOIDCLoginPresentedActiveSessionRejectedBeforeExchange(t *testing.T) {
+	f := newOIDCFixture(t)
+	token := "active-ordinary-session"
+	f.repo.sessions[string(digest([]byte(token)))] = SessionInfo{ID: "active", Principal: Principal{UserID: "u"}, ExpiresAt: f.clock.Add(time.Hour)}
+	start := f.start(OIDCPurposeLogin, "", "", "", "")
+	result := invoke(t, f.service, start, callbackParams(startState(t, start), "code"), token)
+	if result.Destination != "/login#oidcError=session_changed" || f.provider.calls != 0 || len(f.repo.sessions) != 1 || len(f.repo.identities) != 0 {
+		t.Fatalf("result=%+v calls=%d sessions=%d identities=%d", result, f.provider.calls, len(f.repo.sessions), len(f.repo.identities))
+	}
+}
+func TestOIDCLoginPresentedSessionLookupOutageUnavailable(t *testing.T) {
+	f := newOIDCFixture(t)
+	f.repo.sessionErr = errors.New("database down")
+	start := f.start(OIDCPurposeLogin, "", "", "", "")
+	token := "token"
+	r := invoke(t, f.service, start, callbackParams(startState(t, start), "code"), token)
+	if r.Destination != "/login#oidcError=unavailable" || f.provider.calls != 0 {
+		t.Fatalf("%+v calls=%d", r, f.provider.calls)
 	}
 }
 
@@ -324,6 +360,34 @@ func TestOIDCLinkSessionChangedPrecheckAndConflict(t *testing.T) {
 		t.Fatal("state mutated")
 	}
 }
+func TestOIDCLatestStartWinsForSameBrowser(t *testing.T) {
+	f := newOIDCFixture(t)
+	first := f.start(OIDCPurposeLogin, "", "", "", "")
+	firstState := startState(t, first)
+	second, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLogin, PreviousBrowserToken: first.BrowserToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.repo.flows) != 1 {
+		t.Fatalf("flows=%d", len(f.repo.flows))
+	}
+	replay := invoke(t, f.service, first, callbackParams(firstState, "code"), "")
+	if replay.Destination != "/login#oidcError=invalid_flow" {
+		t.Fatalf("first flow remained: %+v", replay)
+	}
+	if _, ok := f.repo.flows[string(func() []byte { raw, _ := base64.RawURLEncoding.DecodeString(startState(t, second)); return digest(raw) }())]; !ok {
+		t.Fatal("latest flow missing")
+	}
+}
+func TestOIDCConsumeRepositoryOutageUnavailable(t *testing.T) {
+	f := newOIDCFixture(t)
+	start := f.start(OIDCPurposeLogin, "", "", "", "")
+	f.repo.consumeErr = errors.New("db down")
+	r := invoke(t, f.service, start, callbackParams(startState(t, start), "code"), "")
+	if r.Destination != "/login#oidcError=unavailable" {
+		t.Fatalf("%+v", r)
+	}
+}
 func TestOIDCCallbackConsumeReplayCancelAndStrictParams(t *testing.T) {
 	t.Run("replay", func(t *testing.T) {
 		f := newOIDCFixture(t)
@@ -404,7 +468,7 @@ func TestOIDCStartValidationPasswordAndURL(t *testing.T) {
 	if _, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLogin, Session: SessionInfo{ID: "active"}}); !errors.Is(err, ErrOIDCAlreadySignedIn) {
 		t.Fatalf("signed-in err=%v", err)
 	}
-	if _, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLink, Principal: Principal{UserID: "user-1"}, Session: SessionInfo{ID: "s1", Principal: Principal{UserID: "user-1"}}, CurrentPassword: "wrong password"}); !errors.Is(err, ErrInvalidCredentials) || f.repo.inserted != 0 {
+	if _, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLink, Principal: Principal{UserID: "user-1"}, Session: SessionInfo{ID: "s1", Principal: Principal{UserID: "user-1"}}, CurrentPassword: strings.Repeat("x", 513)}); !errors.Is(err, ErrInvalidCredentials) || f.repo.inserted != 0 {
 		t.Fatalf("wrong password err=%v inserted=%d", err, f.repo.inserted)
 	}
 	if _, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLink}); !errors.Is(err, ErrUnauthenticated) {
@@ -438,6 +502,14 @@ func onlyFlow(t *testing.T, r *oidcFakeRepo) OIDCFlow {
 		return f
 	}
 	panic("unreachable")
+}
+func TestOIDCCancelledStartAndRepositoryContextBounded(t *testing.T) {
+	f := newOIDCFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := f.service.Start(ctx, OIDCStartParams{Purpose: OIDCPurposeLogin}); !errors.Is(err, ErrOIDCUnavailable) {
+		t.Fatalf("cancelled start err=%v", err)
+	}
 }
 func TestOIDCStartPropagatesPasswordGateWorkLimit(t *testing.T) {
 	f := newOIDCFixture(t)
