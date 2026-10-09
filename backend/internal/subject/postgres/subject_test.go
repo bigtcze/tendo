@@ -11,6 +11,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/subject"
+	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -54,7 +55,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	defer reset()
 
 	var currentUser string
-	if err := app.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser); err != nil || currentUser != "tendo" {
+	if err := app.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser); err != nil || currentUser != testpostgres.MustRuntimeRole(t) {
 		t.Fatalf("must use the restricted runtime role, got %q err=%v", currentUser, err)
 	}
 	newHousehold := func(name string) string {
@@ -391,18 +392,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	admin := connect(t, ctx, adminURL)
-	const dbName = "tendo_upgrade_v3_subjects_test"
-	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+dbName); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		c, cc := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cc()
-		_, _ = admin.Exec(c, `DROP DATABASE IF EXISTS `+dbName+` WITH (FORCE)`)
-	}()
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
 	adminCfg, err := pgxpool.ParseConfig(adminURL)
 	if err != nil {
 		t.Fatal(err)
@@ -418,9 +408,6 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	appCfg.ConnConfig.Database = dbName
-	if _, err := admin.Exec(ctx, `GRANT CONNECT ON DATABASE `+dbName+` TO tendo`); err != nil {
-		t.Fatal(err)
-	}
 	upApp, err := pgxpool.NewWithConfig(ctx, appCfg)
 	if err != nil {
 		t.Fatal(err)

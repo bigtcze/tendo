@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,7 +12,9 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func oidcTestFlow(now time.Time, suffix byte) identity.OIDCFlow {
@@ -26,7 +29,7 @@ func bytes32(b byte) []byte {
 }
 
 func TestOIDCPostgresRepositoryAndConstraints(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	if _, err := admin.Exec(ctx, `TRUNCATE user_accounts, household_memberships, households CASCADE`); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +137,7 @@ func TestOIDCPostgresRepositoryAndConstraints(t *testing.T) {
 }
 
 func TestOIDCPostgresConcurrentConsume(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	repo := New(app, nil)
 	now := time.Now().UTC().Truncate(time.Second)
 	f := oidcTestFlow(now, 70)
@@ -163,7 +166,7 @@ func TestOIDCPostgresConcurrentConsume(t *testing.T) {
 }
 
 func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	if _, err := admin.Exec(ctx, `TRUNCATE user_accounts, household_memberships, households CASCADE`); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +279,7 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 }
 
 func TestOIDCPostgresConcurrentLinkAndDeleteCascade(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	if _, err := admin.Exec(ctx, `TRUNCATE user_accounts, household_memberships, households CASCADE`); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +344,25 @@ func TestOIDCPostgresConcurrentLinkAndDeleteCascade(t *testing.T) {
 }
 
 func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
+	adminCfg := testpostgres.PoolConfigForDatabase(t, os.Getenv("TEST_DATABASE_ADMIN_URL"), dbName)
+	admin.Close()
+	admin, err := pgxpool.NewWithConfig(ctx, adminCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.Close)
+	appCfg := testpostgres.PoolConfigForDatabase(t, os.Getenv("TEST_DATABASE_URL"), dbName)
+	app.Close()
+	app, err = pgxpool.NewWithConfig(ctx, appCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Close)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := admin.Exec(ctx, `TRUNCATE user_accounts, household_memberships, households CASCADE`); err != nil {
 		t.Fatal(err)
 	}

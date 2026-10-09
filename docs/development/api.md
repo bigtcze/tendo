@@ -91,6 +91,6 @@ Checks run in this order and the first failure is returned: 401 session, 403/421
 
 ## Regenerating and checking
 
-- `make -C api generate` regenerates the TypeScript types (`api/generated/`) and the Go transport types (`*.gen.go`). It needs Docker.
-- `npm run check` in `api/` lints the contract, runs the contract tests, and fails if generated files differ from a fresh generation.
+- `make -C api generate` regenerates the TypeScript types (`api/generated/`) and the Go transport types (`*.gen.go`) using native Go and locked Node dependencies; it does not require Docker.
+- `npm run check` in `api/` lints the contract, runs all three contract/health/OIDC checker test files, and fails if generated files differ from a fresh generation. Run `npm audit --audit-level=moderate` as part of verification.
 - `bash scripts/setup-smoke.sh` records real responses and validates them against the contract.

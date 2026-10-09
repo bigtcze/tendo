@@ -10,10 +10,29 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
+	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestInvitationMigrationV8Upgrade(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
+	adminCfg := testpostgres.PoolConfigForDatabase(t, os.Getenv("TEST_DATABASE_ADMIN_URL"), dbName)
+	admin.Close()
+	admin, err := pgxpool.NewWithConfig(ctx, adminCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.Close)
+	appCfg := testpostgres.PoolConfigForDatabase(t, os.Getenv("TEST_DATABASE_URL"), dbName)
+	app.Close()
+	app, err = pgxpool.NewWithConfig(ctx, appCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Close)
 	if e := database.Migrate(ctx, admin); e != nil {
 		t.Fatal(e)
 	}
@@ -58,7 +77,7 @@ func TestInvitationMigrationV8Upgrade(t *testing.T) {
 	}
 }
 func TestInvitationParallelExistingAccountInvitesAcrossHouseholds(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, h1 := invitationFixture(t, ctx, admin)
 	var h2 string
 	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('parallel second','UTC') RETURNING id::text`).Scan(&h2); e != nil {
@@ -131,7 +150,7 @@ func TestInvitationParallelExistingAccountInvitesAcrossHouseholds(t *testing.T) 
 	}
 }
 func TestInvitationDifferentDefaultAndElsewhereMembershipConflict(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, h1 := invitationFixture(t, ctx, admin)
 	var h2 string
 	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('second conflict home','UTC') RETURNING id::text`).Scan(&h2); e != nil {
@@ -170,7 +189,7 @@ func TestInvitationDifferentDefaultAndElsewhereMembershipConflict(t *testing.T) 
 	}
 }
 func TestInvitationMemberOwnerPoliciesDefaultMembershipAndNoChanges(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, h := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, h, "member-policy")

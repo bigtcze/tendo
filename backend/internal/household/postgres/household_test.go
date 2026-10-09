@@ -9,6 +9,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -45,7 +46,7 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 	defer reset()
 
 	var currentUser string
-	if err := app.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser); err != nil || currentUser != "tendo" {
+	if err := app.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser); err != nil || currentUser != testpostgres.MustRuntimeRole(t) {
 		t.Fatalf("reads must use the restricted runtime role, got %q err=%v", currentUser, err)
 	}
 

@@ -1,83 +1,77 @@
 #!/usr/bin/env bash
-# Browser E2E against the production-built Tendo image and real PostgreSQL.
-# Requires `npm ci` in frontend/ beforehand (Playwright test runner comes from node_modules).
 set -Eeuo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-playwright_image_tag=v1.63.0-noble
-playwright_image=mcr.microsoft.com/playwright:$playwright_image_tag
+: "${TENDO_TEST_POSTGRES_ADMIN_URL:?Set TENDO_TEST_POSTGRES_ADMIN_URL to the dedicated PostgreSQL 18 service}"
+: "${TENDO_TEST_CLOCK_ACK:=isolated-e2e-only}"
+if [[ "$TENDO_TEST_CLOCK_ACK" != isolated-e2e-only ]]; then
+  printf 'TENDO_TEST_CLOCK_ACK must be isolated-e2e-only\n' >&2
+  exit 1
+fi
 if [[ ! -x "$root/frontend/node_modules/.bin/playwright" ]]; then
-  printf 'frontend/node_modules is missing; run `npm ci` in frontend/ first\n' >&2
+  printf 'frontend/node_modules is missing; run npm ci in frontend/ first\n' >&2
   exit 1
 fi
-# The browser image and the @playwright/test runner must be the same version.
-installed_playwright=$(node -p "require('$root/frontend/node_modules/@playwright/test/package.json').version")
-if [[ "v${installed_playwright}-noble" != "$playwright_image_tag" ]]; then
-  printf 'Playwright version mismatch: node_modules has %s but image tag is %s\n' "$installed_playwright" "$playwright_image_tag" >&2
+installed=$(node -p "require('$root/frontend/node_modules/@playwright/test/package.json').version")
+if [[ "$installed" != 1.63.0 ]]; then
+  printf 'Playwright version mismatch: expected 1.63.0, found %s\n' "$installed" >&2
   exit 1
 fi
-project="tendo-e2e-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
-export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME TENDO_TEST_CLOCK_ACK TENDO_TEST_CLOCK_NOW TENDO_OIDC_HOST_PORT OIDC_SMOKE_BACKEND="$root/backend"
-TENDO_TEST_CLOCK_ACK=isolated-e2e-only
-TENDO_TEST_CLOCK_NOW=2026-01-15T22:59:59Z
-POSTGRES_PASSWORD=$(openssl rand -hex 32)
-TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
-TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
-TENDO_OIDC_ISSUER=
-TENDO_OIDC_CLIENT_ID=
-TENDO_OIDC_CLIENT_SECRET=
-TENDO_OIDC_CLIENT_SECRET_FILE=
-TENDO_OIDC_DISPLAY_NAME=
-E2E_OWNER_PASSWORD=$(openssl rand -hex 24)
-TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
-# The journey signs in through the isolated test identity provider (deploy/compose.oidc-test.yaml).
-TENDO_OIDC_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
-TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
-TENDO_TRUSTED_PROXY_CIDRS=
-TENDO_RESTART_POLICY=no
-TENDO_DB_TIMEOUT=2
-TENDO_SHUTDOWN_TIMEOUT=10
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.e2e.yaml" -f "$root/deploy/compose.oidc-test.yaml")
+command -v go >/dev/null 2>&1 || { printf 'go is required\n' >&2; exit 1; }
+tmp=$(mktemp -d)
+frontend_dist="$root/frontend/dist"
+embedded_dist="$root/backend/internal/platform/webui/dist"
+frontend_existed=0
+embedded_existed=0
+if [[ -e "$frontend_dist" ]]; then frontend_existed=1; cp -a "$frontend_dist" "$tmp/frontend-dist-before"; fi
+if [[ -e "$embedded_dist" ]]; then embedded_existed=1; cp -a "$embedded_dist" "$tmp/embedded-dist-before"; fi
 cleanup() {
   local result=$?
   trap - EXIT
-  if ! "${compose[@]}" down --volumes --remove-orphans --rmi local; then
-    printf 'Compose cleanup failed\n' >&2
-    ((result != 0)) || result=1
-  fi
+  local cleanup_failed=0
+  rm -rf "$frontend_dist" "$embedded_dist" || cleanup_failed=1
+  if (( frontend_existed )); then cp -a "$tmp/frontend-dist-before" "$frontend_dist" || cleanup_failed=1; fi
+  if (( embedded_existed )); then cp -a "$tmp/embedded-dist-before" "$embedded_dist" || cleanup_failed=1; fi
+  rm -rf "$tmp" || cleanup_failed=1
+  if (( result == 0 && cleanup_failed )); then result=1; fi
+  if (( result != 0 && cleanup_failed )); then printf 'E2E cleanup also failed; primary test failure preserved\n' >&2; fi
   exit "$result"
 }
 trap cleanup EXIT
-origin=$TENDO_PUBLIC_URL
-timeout 900 "${compose[@]}" up -d --build --wait --wait-timeout 180
-ready=0
-for _ in $(seq 1 60); do
-  if curl -fsS --max-time 3 "$origin/health/ready" >/dev/null; then ready=1; break; fi
-  sleep 1
-done
-if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "$origin" >&2; exit 1; fi
-mkdir -p "$root/frontend/test-results/$project"
-# Secrets and clock settings are passed by name only (-e NAME) so values stay out of argv.
-export E2E_BASE_URL=$origin E2E_SETUP_TOKEN=$TENDO_SETUP_TOKEN E2E_OWNER_PASSWORD E2E_CLOCK_NOW=$TENDO_TEST_CLOCK_NOW E2E_CLOCK_FIXTURE_PATH="test-results/$project/attention-clock.json" E2E_OIDC_HOST_PORT=$TENDO_OIDC_HOST_PORT
-run_playwright() {
-  timeout 600 docker run --rm --network host --ipc=host \
-    --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e E2E_BASE_URL -e E2E_SETUP_TOKEN -e E2E_OWNER_PASSWORD -e E2E_CLOCK_NOW -e E2E_CLOCK_PHASE -e E2E_CLOCK_FIXTURE_PATH -e E2E_OIDC_HOST_PORT -e CI \
-    -v "$root":/repo -w /repo/frontend \
-    "$playwright_image" npx --no-install playwright test "$@"
+rm -rf "$frontend_dist" "$embedded_dist"
+(cd "$root/frontend" && npm run build)
+[[ -s "$root/backend/internal/platform/webui/dist/index.html" ]] || { printf 'frontend build did not produce embedded dist/index.html\n' >&2; exit 1; }
+find "$root/backend/internal/platform/webui/dist/assets" -type f -print -quit | grep -q . || { printf 'frontend build did not produce hashed embedded assets\n' >&2; exit 1; }
+(cd "$root/backend" && go build -trimpath -o "$tmp/tendo" ./cmd/tendo && go build -trimpath -o "$tmp/oidc-provider" ./test/oidc-provider)
+[[ -s "$tmp/tendo" && -s "$tmp/oidc-provider" ]] || { printf 'native production binaries were not built\n' >&2; exit 1; }
+export TENDO_E2E_BINARY="$tmp/tendo" TENDO_OIDC_PROVIDER_BINARY="$tmp/oidc-provider" TENDO_E2E_ROOT="$root"
+wrapper_child=""
+forward_signal() {
+  local sig=$1 status=0
+  trap - INT TERM
+  if [[ -n "$wrapper_child" ]]; then
+    if kill -0 "$wrapper_child" 2>/dev/null; then
+      kill -s "$sig" "$wrapper_child" || status=$?
+    fi
+    # Normal signal cleanup budget in postgres-test-service is bounded; leave
+    # headroom for this shell to restore frontend/embed dist snapshots.
+    wait_for=35
+    ( sleep "$wait_for"; kill -KILL "$wrapper_child" 2>/dev/null ) &
+    watchdog=$!
+    wait "$wrapper_child" || status=$?
+    if kill -0 "$watchdog" 2>/dev/null; then kill "$watchdog" 2>/dev/null || :; fi
+    wait "$watchdog" 2>/dev/null || :
+    wrapper_child=""
+  fi
+  if (( status != 0 )); then printf 'failed forwarding %s to owned E2E wrapper (status %s)\n' "$sig" "$status" >&2; fi
+  exit $((128 + $(kill -l "$sig")))
 }
-unset E2E_CLOCK_PHASE
-run_playwright
-export E2E_CLOCK_PHASE=before
-run_playwright e2e/attention-clock.spec.ts
-TENDO_TEST_CLOCK_NOW=2026-01-15T23:00:00Z
-E2E_CLOCK_NOW=$TENDO_TEST_CLOCK_NOW
-"${compose[@]}" up -d --no-deps --force-recreate --wait --wait-timeout 120 app
-ready=0
-for _ in $(seq 1 60); do
-  if curl -fsS --max-time 3 "$origin/health/ready" >/dev/null; then ready=1; break; fi
-  sleep 1
-done
-if (( ready == 0 )); then printf 'App did not become ready after clock recreation: %s/health/ready\n' "$origin" >&2; exit 1; fi
-export E2E_CLOCK_NOW E2E_CLOCK_PHASE=after
-run_playwright e2e/attention-clock.spec.ts
-printf 'Browser E2E smoke passed.\n'
+trap 'forward_signal INT' INT
+trap 'forward_signal TERM' TERM
+set +e
+python3 "$root/scripts/postgres-test-service.py" python3 "$root/scripts/e2e-native-runner.py" --root "$root" --app "$tmp/tendo" --provider "$tmp/oidc-provider" &
+wrapper_child=$!
+wait "$wrapper_child"
+result=$?
+wrapper_child=""
+set -e
+exit "$result"

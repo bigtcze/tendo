@@ -47,7 +47,7 @@ func (l txLoginLookup) LoginsByUserIDs(ctx context.Context, ids []string) (map[s
 func invitationFactory(tx householddb.DBTX) InvitationHouseholdService {
 	return householdpostgres.MembershipServiceFor(tx, txLoginLookup{tx})
 }
-func invitationPools(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.Pool) {
+func invitationPools(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.Pool, *pgxpool.Pool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
@@ -66,10 +66,24 @@ func invitationPools(t *testing.T) (context.Context, *pgxpool.Pool, *pgxpool.Poo
 	}
 	t.Cleanup(admin.Close)
 	t.Cleanup(app.Close)
+	observerConfig, e := pgxpool.ParseConfig(appURL)
+	if e != nil {
+		app.Close()
+		admin.Close()
+		t.Fatal(e)
+	}
+	observerConfig.ConnConfig.RuntimeParams["application_name"] = "tendo_pg_test_observer"
+	observer, e := pgxpool.NewWithConfig(ctx, observerConfig)
+	if e != nil {
+		app.Close()
+		admin.Close()
+		t.Fatal(e)
+	}
+	t.Cleanup(observer.Close)
 	if e = database.Migrate(ctx, admin); e != nil {
 		t.Fatal(e)
 	}
-	return ctx, admin, app
+	return ctx, admin, app, observer
 }
 func invitationFixture(t *testing.T, ctx context.Context, admin *pgxpool.Pool) (string, string) {
 	t.Helper()
@@ -89,7 +103,7 @@ func invitationFixture(t *testing.T, ctx context.Context, admin *pgxpool.Pool) (
 	return owner, house
 }
 func TestInvitationPostgresDigestIdempotencyConcurrencyAndAdmission(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	first, e := svc.CreateInvitation(ctx, owner, house, "first-key")
@@ -143,7 +157,7 @@ func TestInvitationPostgresDigestIdempotencyConcurrencyAndAdmission(t *testing.T
 	}
 }
 func TestInvitationPostgresPasswordHashDoesNotHoldInvitationLock(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	if err != nil {
@@ -217,7 +231,7 @@ func TestInvitationPostgresPasswordHashDoesNotHoldInvitationLock(t *testing.T) {
 }
 
 func TestInvitationPostgresConcurrentAcceptAndRevoke(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	for n := 0; n < 20; n++ {
@@ -250,7 +264,7 @@ func TestInvitationPostgresConcurrentAcceptAndRevoke(t *testing.T) {
 	}
 }
 func TestInvitationPostgresRuntimePrivilegesConstraintsAndCascade(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "privilege-key")
@@ -285,7 +299,7 @@ func TestInvitationPostgresRuntimePrivilegesConstraintsAndCascade(t *testing.T) 
 	}
 }
 func TestInvitationPostgresAcceptanceRollbackLeavesInvitationRedeemable(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
@@ -340,7 +354,7 @@ func TestInvitationPostgresAcceptanceRollbackLeavesInvitationRedeemable(t *testi
 }
 
 func TestInvitationPostgresLoginCollisionLeavesReusableInvitation(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	var id, original string
 	if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('collision_login') RETURNING id::text`).Scan(&id); e != nil {
@@ -371,7 +385,7 @@ func TestInvitationPostgresLoginCollisionLeavesReusableInvitation(t *testing.T) 
 	}
 }
 func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
@@ -419,7 +433,7 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	}
 }
 func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "policy")
@@ -464,7 +478,7 @@ func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.
 	}
 }
 func TestInvitationPostgresExpiryStatusesAndClockBoundaries(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	clock := time.Date(2026, 4, 5, 6, 7, 8, 0, time.UTC)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), func() time.Time { return clock })
@@ -522,7 +536,7 @@ func TestInvitationPostgresExpiryStatusesAndClockBoundaries(t *testing.T) {
 	}
 }
 func TestInvitationPostgresRevokeAfterAcceptKeepsMembership(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "accept-revoke")

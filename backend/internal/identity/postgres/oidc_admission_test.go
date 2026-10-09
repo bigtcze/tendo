@@ -36,7 +36,7 @@ func (p *captureOIDCProvider) Exchange(ctx context.Context, x identity.OIDCExcha
 }
 
 func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) {
-	ctx, admin, _ := invitationPools(t)
+	ctx, admin, _, observer := invitationPools(t)
 	var user, session string
 	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("oidc_cancel_%d", time.Now().UnixNano())).Scan(&user); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 		t.Fatal(err)
 	}
 	workerConfig.ConnConfig.RuntimeParams["application_name"] = "tendo_oidc_cancel_rollback_test"
-	workerCtx, workerCancel := context.WithCancel(ctx)
+	workerCtx, workerCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	worker, err := pgxpool.NewWithConfig(workerCtx, workerConfig)
 	if err != nil {
 		workerCancel()
@@ -73,34 +73,38 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 		_, e := workerRepo.LinkAndCreateSession(workerCtx, identity.OIDCFlow{UserID: user, SessionID: session}, identity.OIDCVerifiedIdentity{Issuer: "https://issuer.test", Subject: "cancelled-subject"}, identity.NewSession{UserID: user, TokenHash: bytes32(211), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, oldHash)
 		done <- e
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	deadline := time.Now().Add(8 * time.Second)
+	observed := false
+	var workerErr error
+	for !observed {
 		var active bool
-		err := admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND application_name='tendo_oidc_cancel_rollback_test' AND (query ILIKE '%INSERT INTO user_sessions%' OR wait_event_type='Extension') AND state='active')`).Scan(&active)
+		err := observer.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND usename=current_user AND application_name='tendo_oidc_cancel_rollback_test' AND state='active' AND query ILIKE '%INSERT INTO user_sessions%' AND wait_event_type='Timeout' AND wait_event='PgSleep')`).Scan(&active)
 		if err != nil {
 			workerCancel()
-			t.Fatal(err)
+			t.Fatalf("observe runtime OIDC worker: %v", err)
 		}
 		if active {
+			observed = true
 			break
+		}
+		select {
+		case workerErr = <-done:
+			workerCancel()
+			t.Fatalf("OIDC worker completed before reaching the delayed session insert: %v", workerErr)
+		case <-time.After(20 * time.Millisecond):
 		}
 		if time.Now().After(deadline) {
 			workerCancel()
-			select {
-			case <-done:
-			case <-time.After(3 * time.Second):
-			}
-			t.Fatal("session insert trigger was not reached")
+			t.Fatal("timed out waiting for runtime observer to see the session insert trigger")
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
 	workerCancel()
 	select {
-	case err := <-done:
-		if err == nil {
+	case workerErr = <-done:
+		if workerErr == nil {
 			t.Fatal("cancelled link unexpectedly succeeded")
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("cancelled transaction failed to clean up promptly")
 	}
 	var identities, sessions int
@@ -113,10 +117,18 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 	if identities != 0 || sessions != 1 {
 		t.Fatalf("rollback identity=%d initiating sessions=%d", identities, sessions)
 	}
+	var originalSession int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE id=$1 AND token_hash=$2`, session, oldHash).Scan(&originalSession); err != nil || originalSession != 1 {
+		t.Fatalf("initiating session changed or disappeared: count=%d err=%v", originalSession, err)
+	}
+	var replacementSession int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE token_hash=$1`, bytes32(211)).Scan(&replacementSession); err != nil || replacementSession != 0 {
+		t.Fatalf("replacement session survived canceled link: count=%d err=%v", replacementSession, err)
+	}
 }
 
 func TestOIDCPostgresServiceAdmission(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, app, _ := invitationPools(t)
 	if _, err := admin.Exec(ctx, `TRUNCATE user_accounts,household_memberships,households CASCADE`); err != nil {
 		t.Fatal(err)
 	}
