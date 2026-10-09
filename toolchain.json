@@ -24,8 +24,8 @@
     "traefik": "traefik:v3.7.14"
   },
   "actions": {
-    "actions/checkout": "v4",
-    "actions/setup-go": "v5",
-    "actions/setup-node": "v4"
+    "actions/checkout": "v7.0.1",
+    "actions/setup-go": "v7.0.0",
+    "actions/setup-node": "v7.1.0"
   }
 }

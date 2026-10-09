@@ -19,8 +19,8 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.27.2'
           cache: true
@@ -76,12 +76,12 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.27.2'
           cache: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24.21.0'
           cache: npm
@@ -100,8 +100,8 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24.21.0'
           cache: npm
@@ -134,8 +134,8 @@ jobs:
     env:
       TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:5432/postgres?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.27.2'
           cache: true
@@ -186,7 +186,7 @@ jobs:
         run: bash scripts/setup-integration.sh
       - name: sqlc generated output is current
         run: bash scripts/check-sqlc.sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24.21.0'
           cache: npm
@@ -230,8 +230,8 @@ jobs:
     env:
       TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:5432/postgres?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.27.2'
           cache: true
@@ -271,7 +271,7 @@ jobs:
             CREATE ROLE tendo NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
           END $$;
           SQL
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24.21.0'
           cache: npm
@@ -297,13 +297,13 @@ jobs:
       matrix:
         smoke: [runtime-smoke, setup-smoke, oidc-smoke, proxy-smoke, backup-restore-smoke, household-backup-smoke]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: '1.27.2'
           cache: true
           cache-dependency-path: backend/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24.21.0'
           cache: npm
