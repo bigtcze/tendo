@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-The complete local gate targets Go 1.26.8, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 22.22.3 (as in CI and the production image) or 24.x with npm, native PostgreSQL `psql` 18, native `sqlc` 1.30.0, and Playwright 1.63.0 with its matching Chromium browser. Repository-pinned JavaScript tools include oapi-codegen v2.4.1, openapi-typescript 7.6.1 and `@playwright/test` 1.63.0. Both Node versions satisfy the package engine ranges.
+The complete local gate targets Go 1.26.8, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 24.x with npm, native PostgreSQL `psql` 18, native `sqlc` 1.30.0, and Playwright 1.63.0 with its matching Chromium browser. Repository-pinned JavaScript tools include oapi-codegen v2.4.1, openapi-typescript 7.6.1 and `@playwright/test` 1.63.0. Node 22.22.3 remains compatible with package engines, and is used in PR A CI.
 
-Install the local Playwright browser before running the complete gate:
+Install the local Playwright browser before E2E:
 
 ```sh
 cd frontend
@@ -13,34 +13,32 @@ npx --no-install playwright install chromium
 cd ..
 ```
 
-Install Go/Node/native PostgreSQL/sqlc tools using your platform's trusted package sources. The gate does not use Docker for its native integration or E2E layers. CI installs the pinned sqlc release archive only after SHA-256 verification.
+Install Go/Node/native PostgreSQL/sqlc tools using trusted package sources. The complete local entrypoint does not use Docker for its native integration or E2E layers. CI installs the pinned sqlc official release archive only after SHA-256 verification.
 
-## Isolated PostgreSQL service prerequisite
+## Dedicated PostgreSQL service setup
 
-Use a dedicated PostgreSQL 18 test instance, never a production/shared application database. It needs a maintenance database named `postgres` and a pre-provisioned shared runtime grant role:
+Use a dedicated PostgreSQL 18 test instance, never a production/shared application database. It needs a `postgres` maintenance database and this pre-provisioned shared role:
 
 ```sql
 CREATE ROLE tendo NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 ```
 
-Provision that prerequisite once as the dedicated service administrator. The test harness validates that `tendo` is NOLOGIN, has no elevated role attributes and inherits no other roles; it never creates, alters, grants to, changes the password of, or drops this shared role. Per-run login roles/databases and upgrade fixtures are unique. Runtime test connections are random login users inheriting `tendo`; migrations preserve the existing `GRANT ... TO tendo` permissions.
+Run the prerequisite SQL once as the administrator of that isolated test instance. The harness validates the role is NOLOGIN, has no elevated attributes and inherits no other roles. It never changes shared-role attributes/password or grants membership to shared `tendo`; it only grants the fixed role to each freshly-created per-run runtime login. Migrations retain existing permissions granted to `tendo`.
 
-Export the service admin URL privately in the shell (replace host/password with your dedicated service values; do not put real credentials in repository files or print the variable):
+Export the service admin URL privately in the shell, replacing host, password and CA path with values for the dedicated service. This example uses a TLS-verifying connection and does not echo the password or URL:
 
 ```sh
-read -rsp 'Dedicated PostgreSQL 18 test admin password: ' PG_TEST_ADMIN_PASSWORD; printf '\n'
+read -rsp 'Dedicated test-service PostgreSQL admin password: ' PG_TEST_ADMIN_PASSWORD; printf '\n'
 PG_TEST_ADMIN_PASSWORD_ENC=$(PG_TEST_ADMIN_PASSWORD="$PG_TEST_ADMIN_PASSWORD" python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["PG_TEST_ADMIN_PASSWORD"], safe=""))')
 export TENDO_TEST_POSTGRES_ADMIN_URL="postgresql://postgres:${PG_TEST_ADMIN_PASSWORD_ENC}@127.0.0.1:5432/postgres?sslmode=verify-full&sslrootcert=/path/to/test-service-ca.pem"
 unset PG_TEST_ADMIN_PASSWORD PG_TEST_ADMIN_PASSWORD_ENC
 ```
 
-The password is percent-encoded so URI-reserved characters (`@`, `/`, `?`, `#`, `%`) remain valid. This section lists the prerequisites of an existing dedicated service; it is not a recipe for starting or stopping one.
+For a local disposable PostgreSQL instance only, `sslmode=disable` is acceptable. The URI must select the dedicated server's `postgres` maintenance database; the value is a high-privilege service admin connection, must not target production, must not be stored in repo config, and must never be printed. The test helpers remove the admin URL from child environments. Service setup is operator-specific and deliberately does not create/alter/drop the shared grant role. Per-run migrator/runtime roles, databases and upgrade fixtures are unique; OID/owner-checked cleanup deletes only positively-owned resources. Collisions fail without adoption/deletion. SIGKILL cannot perform cleanup, so uniquely-named resources can remain for later ownership-verified cleanup. Never broad-drop cluster roles/databases or use `DROP OWNED`.
 
-Use the service's actual CA path and TLS settings; for a strictly local disposable service, `sslmode=disable` is acceptable. The URL must connect to that service's `postgres` maintenance database. It is a high-privilege bootstrap credential: never print it, pass it to child applications, or point it at production. Setup scripts fail closed if the URL or service prerequisite is unavailable. A reused test cluster may contain colliding names; collisions fail without adopting/deleting those resources. SIGKILL cannot run cleanup; uniquely named resources may remain and must only be cleaned after verifying their ownership/OIDs. Do not broad-drop roles/databases or use `DROP OWNED`.
+## Targeted checks and complete pre-PR gate
 
-## Targeted checks and complete gate
-
-After setting up the dedicated test service and tools, useful targeted checks include:
+After the dedicated service and pinned tools are available, targeted commands for debugging are:
 
 ```sh
 (cd backend && go vet ./...)
@@ -49,54 +47,57 @@ bash scripts/setup-integration.sh
 bash scripts/check-sqlc.sh
 (cd api && npm ci && npm audit --audit-level=moderate && npm run check)
 (cd frontend && npm ci && npm audit --audit-level=moderate && npm run check)
-python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py
+python3 -m unittest scripts/test_verify_local.py
+python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py
 python3 scripts/test_postgres_live.py
 python3 -m unittest scripts/test_generation_drift.py
 python3 scripts/test_e2e_interrupt.py
 bash scripts/e2e-smoke.sh
 ```
 
-The required pre-PR command is the complete, mandatory sequence:
+The mandatory complete pre-PR command has no skip switches:
 
 ```sh
 bash scripts/verify-local.sh
 ```
 
-There are no skip flags. It fails fast and reports stage status/duration and downstream NOT RUN. A local pass does not replace CI; do not open/update a PR with a known failing required check. The complete verifier includes bootstrap/controller syntax only, Go formatting/vet/race unit/build, real PostgreSQL integration, sqlc drift, API install/audit/check, frontend install/audit/check, native deterministic/live/generator/interruption harness tests and full native production E2E.
+It fails fast and reports stage status/duration, primary failure, and downstream NOT RUN. A local pass never replaces required GitHub checks. Do not request review with a known failing required check or use retries to hide a failure.
 
-## CI stage map
+## CI job map
 
-The required workflow remains one serial `required` job and keeps every deployment smoke. Its order is:
+The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, native E2E and six deployment-smoke jobs run independently. The aggregate uses `if: always()` and passes only if every dependency result is exactly `success`; failure, cancellation and skipped all fail the gate.
 
-1. checkout and Go 1.26.8 setup;
-2. native psql 18 + sqlc 1.30.0 verified release install;
-3. one-time `tendo` NOLOGIN bootstrap on the PostgreSQL 18.6 service container (started before the steps);
-4. autonomous bootstrap, Go format/vet/race unit tests;
-5. PostgreSQL integration, sqlc drift, Go build;
-6. Node 22.22.3 setup, API npm-ci/audit/check, frontend npm-ci/audit/check;
-7. pinned Chromium installation, then PostgreSQL/process/generator/verifier harness tests;
-8. unchanged production runtime, setup, OIDC, proxy, backup/restore, and full-household-backup Docker smokes;
-9. native production-binary browser E2E.
+| Job | Commands and prerequisites |
+|---|---|
+| `backend` | Go 1.26.8/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py` and `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all six smokes, in-job prerequisite order, aggregate needs/count) |
+| `api` | Go 1.26.8, Node 22.22.3, API npm cache; `npm ci`, moderate audit, `npm run check` |
+| `frontend` | Node 22.22.3/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
+| `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.30.0 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |
+| `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 22.22.3, frontend `npm ci`, Playwright 1.63.0 Chromium install, full native production-build E2E |
+| `deployment` matrix, `fail-fast: false` | Six entries: runtime, setup, OIDC, proxy, backup/restore, household backup. Each checks out and installs Go/Node/API dependencies before running its unchanged Docker smoke. Each matrix job builds its own images; image transfer is YAGNI absent measured evidence for artifact handoff. Proxy and household-backup retain their 12/15 minute bounds using per-matrix-step `timeout` values. |
+| `required` aggregate | `if: always()`, `needs` every other job, prints results and jq-requires exactly six successes. |
 
-Retained E2E artifacts (`frontend/test-results/`, Playwright traces, screenshots and logs) contain disposable fixture credentials, setup/session/invitation tokens and OIDC callback material. They are not redacted: treat them as sensitive, and sanitize them before sharing or uploading.
+The native browser suite is not a replacement for deployment smokes. Production runtime, setup/API, OIDC API, all reverse proxies, backup/restore and household backup remain mandatory CI jobs.
 
-The local native E2E is not the runtime/setup/OIDC/proxy/backup deployment suite. Those Docker-based deployment checks remain mandatory in CI and targeted local debugging.
+## Assertion coverage map
 
-## Coverage and baseline
-
-| Layer | Protected assertions |
+| Layer | Assertions retained |
 |---|---|
 | Go static/unit | formatting, vet, all unit packages, race detector |
 | PostgreSQL | empty/upgrade migrations; privilege and SQLSTATE 42501 restrictions; rollback/concurrency/persistence/auth/session/household/item/OIDC/invitations |
-| SQL generation | identity, household, subject and item complete dbgen trees; changed/missing/extra artifacts |
-| API | recommended OpenAPI lint; all 3 Node checker files/78 checks; health/source checks; exact 2 TS and 5 Go outputs |
+| SQL generation | identity, household, subject, item complete dbgen trees; changed/missing/extra artifacts |
+| API | recommended OpenAPI lint; all three Node files/78 checks; health/source checkers; exact 2 TypeScript and 5 Go output drift |
 | Frontend | eslint, typecheck, Vitest, production build, npm audit |
 | Runtime | production-image UI embedding, migration startup, health/outage recovery, request IDs/problems, non-root/read-only, no published DB, bounded shutdown |
-| Setup | real response/DB graph, setup/origin/validation/rate limits, session digest/cookies, household isolation, CRUD/ETags/recurrence/completion/idempotency/undo/responsible, invitations/contracts |
-| OIDC | real provider link/login, callback/replay/password gate/session replacement, unknown identity unchanged DB, denial/origin/log privacy/contracts |
-| Proxy | Caddy/Nginx/Traefik TLS, SNI/Host, trusted forwarding, forgery rejection, Origin, health/SPA headers, cookies, outage recovery, secret-free logs |
-| Backup | archive round trip, Unicode/null rows, ownership/FK/CHECK/runtime permissions, existing-target/truncation safety |
-| Household backup | API-populated restore with fresh credentials, counts/ledger/API bodies/ETags/session/password/idempotency/undo/new writes/invitations/restrictions |
+| Setup | real response and DB graph; setup/origin/validation/rate limits; session digest/cookies; household isolation; subject/item CRUD/ETags/recurrence/completion/idempotency/undo/responsible; invitations/contracts |
+| OIDC | real link/login, callback/replay/password gate/session replacement, unknown identity unchanged DB, denial/origin/log privacy/contracts |
+| Proxy | Caddy/Nginx/Traefik TLS, SNI/Host, trusted forwarding, forged-header rejection, Origin, health/SPA headers, cookies, outage recovery, secret-free logs |
+| Backup | archive round trip, Unicode/null rows, ownership/FK/CHECK/runtime permissions, existing target/truncation safety |
+| Household backup | API-populated restore with fresh credentials; counts/ledger/API bodies/ETags/session/password/idempotency/undo/new writes/invitations/restrictions |
 | Browser | 27 serial production journeys; onboarding, CRUD, authorization, OIDC, viewports/keyboard/localization/security; persisted item across app-only midnight restart |
 
-Baseline evidence: five successful required runs on 2026-10-09; median total workflow duration 11m19s (range 10m50s–11m45s), median job duration 11m17s. Median stage timings: Go vet 25s; unit race 60s; PostgreSQL integration 93s; sqlc 2s; API install/audit/contract/generation 162s; frontend install/check 39s; runtime 52s; setup 20s; OIDC 25s; proxy variants 81s; backup safety 9s; household backup 19s; browser 78s. Detailed GitHub job log downloads returned HTTP 403, so per-command sub-timing/cache-hit analysis was unavailable; five samples describe the recent release family, not a long-term performance guarantee.
+## Historical CI baseline
+
+Five successful required runs on 2026-10-09: median full run 11m19s (range 10m50s–11m45s), median job 11m17s. Median stage times: Go vet 25s; unit race 60s; PostgreSQL integration 93s; sqlc 2s; API install/audit/contract/generation 162s; frontend install/check 39s; production runtime 52s; setup 20s; OIDC 25s; proxy variants 81s; backup safety 9s; household backup 19s; browser E2E 78s. Detailed GitHub logs returned HTTP 403, so per-command/build/cache subtimings are unknown. Five runs describe the recent release family, not a long-term estimate.
+
+**After PR B:** fill in measured total/job and per-job ranges after the first successful required workflow run; no post-parallel timing is claimed yet.
