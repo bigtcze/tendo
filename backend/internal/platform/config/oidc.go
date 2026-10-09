@@ -18,6 +18,10 @@ func loadOIDC(c *Config, lookup envLookup, public string) error {
 	secretFile, fileSet := lookup("TENDO_OIDC_CLIENT_SECRET_FILE")
 	display, displaySet := lookup("TENDO_OIDC_DISPLAY_NAME")
 	enabled := issuerSet && issuer != ""
+	idSet = idSet && id != ""
+	secretSet = secretSet && secret != ""
+	fileSet = fileSet && secretFile != ""
+	displaySet = displaySet && (enabled || display != "")
 	if !enabled {
 		if idSet || secretSet || fileSet || displaySet {
 			return errors.New("OIDC settings require TENDO_OIDC_ISSUER")

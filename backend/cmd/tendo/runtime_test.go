@@ -108,7 +108,7 @@ func TestOIDCRuntimeCompositionDoesNotDiscoverProviderAtStartup(t *testing.T) {
 			}
 			routes := chi.NewRouter()
 			sessions := identityhttp.NewSession(&fakeOIDCSessionService{}, cfg.PublicURL)
-			identityhttp.NewOIDC(oidc, sessions, cfg.PublicURL).Register(routes)
+			newOIDCHandler(oidc, sessions, cfg.PublicURL).Register(routes)
 			response := httptest.NewRecorder()
 			routes.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc", nil))
 			if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != tc.wantBody {

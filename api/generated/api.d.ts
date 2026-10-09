@@ -809,11 +809,6 @@ export interface components {
     requestBodies: never;
     headers: {
         /**
-         * @description Ten-minute browser-binding cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc.
-         * @example __Host-tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax
-         */
-        SetOIDCFlowCookie: string;
-        /**
          * @description Sent only when the request carried one session cookie naming an unknown, expired, or revoked session. Clears that cookie with an empty value and Max-Age=0, using the same name and attributes as SetSessionCookie.
          * @example __Host-tendo_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax
          */
@@ -1210,7 +1205,11 @@ export interface operations {
             /** @description Authorization URL and flow cookie. */
             200: {
                 headers: {
-                    "Set-Cookie": components["headers"]["SetOIDCFlowCookie"];
+                    /**
+                     * @description Short-lived flow cookie. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc. Both are HttpOnly, SameSite=Lax, Path=/, no Domain, Max-Age=600.
+                     * @example tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax
+                     */
+                    "Set-Cookie"?: string;
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;

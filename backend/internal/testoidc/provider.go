@@ -86,7 +86,7 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", 400)
 		return
 	}
-	if p.Faults.Deny {
+	if p.Faults.Deny || q.Get("deny") == "1" {
 		u, _ := url.Parse(redirect)
 		v := u.Query()
 		v.Set("error", "access_denied")

@@ -14,7 +14,7 @@ func TestOIDCConfig(t *testing.T) {
 		set  map[string]string
 		bad  bool
 	}{
-		{"disabled", nil, false}, {"partial", map[string]string{"TENDO_OIDC_CLIENT_ID": "x"}, true},
+		{"disabled", nil, false}, {"empty defaults disabled", map[string]string{"TENDO_OIDC_ISSUER": "", "TENDO_OIDC_CLIENT_ID": "", "TENDO_OIDC_CLIENT_SECRET": "", "TENDO_OIDC_CLIENT_SECRET_FILE": ""}, false}, {"partial", map[string]string{"TENDO_OIDC_CLIENT_ID": "x"}, true},
 		{"issuer scheme", merge(valid, map[string]string{"TENDO_OIDC_ISSUER": "ftp://issuer.test"}), true}, {"userinfo", merge(valid, map[string]string{"TENDO_OIDC_ISSUER": "https://user:pass@issuer.test"}), true}, {"query", merge(valid, map[string]string{"TENDO_OIDC_ISSUER": "https://issuer.test?x=y"}), true}, {"fragment", merge(valid, map[string]string{"TENDO_OIDC_ISSUER": "https://issuer.test#x"}), true}, {"https public http issuer", merge(valid, map[string]string{"TENDO_OIDC_ISSUER": "http://issuer.test"}), true}, {"secret both", merge(valid, map[string]string{"TENDO_OIDC_CLIENT_SECRET_FILE": "unused"}), true}, {"empty display", merge(valid, map[string]string{"TENDO_OIDC_DISPLAY_NAME": ""}), true}, {"display bounds", merge(valid, map[string]string{"TENDO_OIDC_DISPLAY_NAME": strings.Repeat("a", 81)}), true}, {"display controls", merge(valid, map[string]string{"TENDO_OIDC_DISPLAY_NAME": "bad\nname"}), true}, {"client id bounds", merge(valid, map[string]string{"TENDO_OIDC_CLIENT_ID": strings.Repeat("x", 513)}), true},
 	}
 	for _, tc := range cases {

@@ -93,6 +93,9 @@ jobs:
       - name: First-owner setup API and PostgreSQL smoke
         run: bash scripts/setup-smoke.sh
 
+      - name: OIDC API and provider smoke
+        run: bash scripts/oidc-smoke.sh
+
       - name: Reverse proxy boundary smoke
         timeout-minutes: 12
         run: bash scripts/proxy-smoke.sh

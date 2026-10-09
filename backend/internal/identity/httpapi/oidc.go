@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"time"
 
@@ -58,16 +57,8 @@ func (h *OIDCHandler) flowCookieName() string {
 func (h *OIDCHandler) setFlowCookie(w http.ResponseWriter, token string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: h.flowCookieName(), Value: token, Path: "/", HttpOnly: true, Secure: h.secure(), SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
 }
-func isNilInterface(value any) bool {
-	if value == nil {
-		return true
-	}
-	v := reflect.ValueOf(value)
-	return (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) && v.IsNil()
-}
-
 func (h *OIDCHandler) status(w http.ResponseWriter, _ *http.Request) {
-	if h.service == nil || isNilInterface(h.service) {
+	if h.service == nil {
 		writeJSON(w, 200, map[string]any{"enabled": false})
 		return
 	}

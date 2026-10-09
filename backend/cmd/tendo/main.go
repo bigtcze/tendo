@@ -125,7 +125,7 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 		pool.Close()
 		return err
 	}
-	identityhttp.NewOIDC(oidcService, sessionHandler, cfg.PublicURL).Register(routes)
+	newOIDCHandler(oidcService, sessionHandler, cfg.PublicURL).Register(routes)
 	principalID := func(ctx context.Context) (string, bool) {
 		principal, ok := identityhttp.PrincipalFromContext(ctx)
 		return principal.UserID, ok
@@ -164,6 +164,15 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 		return err
 	}
 	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
+}
+
+// newOIDCHandler keeps disabled OIDC as an untyped nil service; passing a nil
+// *OIDCService directly would create a non-nil interface and enable the routes.
+func newOIDCHandler(service *identityapp.OIDCService, sessions *identityhttp.SessionHandler, publicURL string) *identityhttp.OIDCHandler {
+	if service == nil {
+		return identityhttp.NewOIDC(nil, sessions, publicURL)
+	}
+	return identityhttp.NewOIDC(service, sessions, publicURL)
 }
 
 func newOIDCService(cfg config.Config, repo identityapp.OIDCRepository, gate *security.PasswordGate, clock func() time.Time) (*identityapp.OIDCService, error) {

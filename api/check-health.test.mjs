@@ -94,8 +94,12 @@ test('health checker validates OIDC 303 headers and multiple Set-Cookie fields',
   try {
     const good = await run({ 'set-cookie': ['tendo_oidc=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax', `tendo_session=${'A'.repeat(43)}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`] })
     assert.equal(good.code, 0, good.stderr)
+    const unknown = await run({ 'set-cookie': ['tendo_oidc=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax', 'unexpected=secret'] })
+    assert.notEqual(unknown.code, 0, 'checker must reject undocumented second cookie')
     const bad = await run({ 'set-cookie': ['tendo_oidc=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'] , 'referrer-policy': 'unsafe-url' })
     assert.notEqual(bad.code, 0)
+    const wrongBody = await run({ 'set-cookie': ['tendo_oidc=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'] })
+    assert.equal(wrongBody.code, 0, wrongBody.stderr)
   } finally { await (await import('node:fs/promises')).rm(directory, { recursive: true, force: true }) }
 })
 

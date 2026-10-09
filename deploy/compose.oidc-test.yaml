@@ -1,0 +1,31 @@
+# Isolated OIDC protocol smoke only; never use this override for installs.
+services:
+  oidc-provider:
+    build:
+      context: ${OIDC_SMOKE_BACKEND:?Set OIDC_SMOKE_BACKEND to backend directory}
+      dockerfile: test/oidc-provider/Dockerfile
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8089
+      ISSUER_URL: http://oidc.test:8089
+      CLIENT_ID: tendo-oidc-smoke
+      CLIENT_SECRET: tendo-oidc-smoke-secret
+      REDIRECT_URI: ${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL}/api/v1/auth/oidc/callback
+      SUBJECTS: owner-subject,unknown-subject
+    command: ["-listen", "0.0.0.0:8089", "-issuer", "http://oidc.test:8089", "-client-id", "tendo-oidc-smoke", "-client-secret", "tendo-oidc-smoke-secret", "-redirect-uri", "${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL}/api/v1/auth/oidc/callback", "-subjects", "owner-subject,unknown-subject"]
+    ports:
+      - "127.0.0.1:${TENDO_OIDC_HOST_PORT:-18089}:8089"
+    networks:
+      default:
+        aliases: [oidc.test]
+    healthcheck:
+      test: ["CMD", "/oidc-provider", "-listen", ":8089", "-healthcheck"]
+      interval: 2s
+      timeout: 2s
+      retries: 3
+
+  app:
+    environment:
+      TENDO_OIDC_ISSUER: http://oidc.test:8089
+      TENDO_OIDC_CLIENT_ID: tendo-oidc-smoke
+      TENDO_OIDC_CLIENT_SECRET: tendo-oidc-smoke-secret
+      TENDO_OIDC_DISPLAY_NAME: OIDC Smoke Provider

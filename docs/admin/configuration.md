@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This development Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Invitation management is currently API-only; no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). OIDC is not available. PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This development Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Invitation management is currently API-only; no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). OIDC account linking and login are available through the API when configured, but browser buttons are not included in this release; see the [OIDC guide](oidc.md). PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
 Copy `.env.example` to `.env` and generate two independent hexadecimal database passwords:
 
@@ -35,6 +35,11 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 | `TENDO_DB_TIMEOUT` | `2` seconds | PostgreSQL readiness ping bound, 1–10 seconds. |
 | `TENDO_SHUTDOWN_TIMEOUT` | `10` seconds | HTTP drain and pool cleanup bound, 1–60 seconds. Compose allows 70 seconds. |
 | `TENDO_RESTART_POLICY` | `unless-stopped` | App Compose restart policy. |
+| `TENDO_OIDC_ISSUER` | Empty; OIDC disabled | Provider issuer URL. Set with client ID and exactly one secret source; see [OIDC setup](oidc.md). |
+| `TENDO_OIDC_CLIENT_ID` | Required when OIDC enabled | Confidential client identifier. |
+| `TENDO_OIDC_CLIENT_SECRET` | Required when OIDC enabled unless file is configured | Confidential secret; protect `.env` and never log or commit it. |
+| `TENDO_OIDC_CLIENT_SECRET_FILE` | Optional alternative to client secret | Secret-file path, normally supplied through a user Compose override mounting a read-only secret; also set `TENDO_OIDC_CLIENT_SECRET` empty when using the override. |
+| `TENDO_OIDC_DISPLAY_NAME` | `OpenID Connect` | Optional printable status label; max 80 bytes. |
 | `DATABASE_URL` | Compose constructs it | Migration service receives admin access separately; web app receives restricted DML role only. Compose uses `sslmode=disable` on its private bridge. |
 | `TENDO_LISTEN_ADDR` | Compose sets `0.0.0.0:8080` | Container HTTP bind address; process defaults to `:8080` outside Compose. |
 
@@ -42,7 +47,7 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 
 `TENDO_TEST_CLOCK_NOW` and `TENDO_TEST_CLOCK_ACK` are reserved for isolated automated tests. Leave both unset for real time; the normal `compose.yaml` does not pass them to the app. Setting only one, or setting either to an empty value, stops startup. Set both together; the instant must be whole-second UTC RFC3339 ending in `Z`, and the acknowledgement must be exactly `isolated-e2e-only`. When enabled, `TENDO_PUBLIC_URL` must use HTTP with `localhost` or a literal loopback IP, and `TENDO_TRUSTED_PROXY_CIDRS` must be empty. The clock affects item business dates only; sessions and runtime timeouts remain real-time. A changed value takes effect only when the app container is recreated, not restarted. Never set these variables in a real install.
 
-Compose migrates using administrator credentials in a successful one-shot migration dependency; the app itself does not receive database administrator credentials. On upgrades with an existing volume, migrations do not reset data or automatically repair old grants: follow the documented upgrade path and grant migration deliberately with administrator access if needed. See [reverse proxy deployment](reverse-proxy.md) before exposing HTTP behind TLS and [backup and restore](backup-restore.md) for data recovery scope. Setup creates the first owner and household only; OIDC and household editing are not implemented.
+Compose migrates using administrator credentials in a successful one-shot migration dependency; the app itself does not receive database administrator credentials. On upgrades with an existing volume, migrations do not reset data or automatically repair old grants: follow the documented upgrade path and grant migration deliberately with administrator access if needed. See [reverse proxy deployment](reverse-proxy.md) before exposing HTTP behind TLS and [backup and restore](backup-restore.md) for data recovery scope. Setup creates the first owner and household only. OIDC is available as an API-only link/login flow when configured; the browser buttons are not present in this release. Household editing is not implemented.
 
 ## Login sessions
 

@@ -169,7 +169,7 @@ paths:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/OIDCStartRequest' }, examples: { login: { value: { purpose: login } }, link: { value: { purpose: link, currentPassword: a-long-unique-passphrase } } } } }
       responses:
-        '200': { description: Authorization URL and flow cookie., headers: { Set-Cookie: { $ref: '#/components/headers/SetOIDCFlowCookie' }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OIDCStartResponse' }, example: { authorizationUrl: 'https://idp.example/authorize?client_id=client&state=opaque' } } } }
+        '200': { description: Authorization URL and flow cookie., headers: { Set-Cookie: { description: 'Short-lived flow cookie. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc. Both are HttpOnly, SameSite=Lax, Path=/, no Domain, Max-Age=600.', schema: { type: string }, example: 'tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax' }, X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OIDCStartResponse' }, example: { authorizationUrl: 'https://idp.example/authorize?client_id=client&state=opaque' } } } }
         '400': { description: Malformed request or forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '401': { description: Link session missing or current password invalid., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: invalid_credentials } } } }
         '403': { description: Origin is missing or foreign., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
@@ -1237,11 +1237,6 @@ components:
       name: X-Tendo-Setup-Token
       description: Standard base64 encoding of 32 random bytes (44 characters ending in =). Operator generates with openssl rand -base64 32.
   headers:
-    SetOIDCFlowCookie:
-      required: true
-      description: Ten-minute browser-binding cookie. HttpOnly; Path=/; SameSite=Lax; no Domain. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc.
-      schema: { type: string }
-      example: __Host-tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax
     ClearStaleSessionCookie:
       description: Sent only when the request carried one session cookie naming an unknown, expired, or revoked session. Clears that cookie with an empty value and Max-Age=0, using the same name and attributes as SetSessionCookie.
       required: false
