@@ -6,9 +6,9 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 
 | Component | Pinned | Newest checked | Status |
 | --- | --- | --- | --- |
-| Go toolchain (CI, Docker build, OIDC test provider) | 1.26.9 | 1.27.2 | 1.26.9 is the security patch of the current line; Go 1.27 is a separate, dedicated upgrade |
-| `go` directive (`backend/go.mod`) | 1.26.0 | — | Minimum language version; unchanged |
-| Node.js (CI, Docker web build) | 22.22.3 | 24.21.0 (LTS) | Node 24 is a separate, dedicated upgrade; package engines already allow `>=24` |
+| Go toolchain (CI, Docker build, OIDC test provider) | 1.27.2 | 1.27.2 | Current |
+| `go` directive (`backend/go.mod`) | 1.26.0 | — | Minimum language version; builds use the pinned toolchain |
+| Node.js (CI, Docker web build) | 24.21.0 | 24.21.0 (LTS) | Current; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
 | oapi-codegen | v2.4.1 | v2.8.0 | Held; see generator notes |
@@ -33,7 +33,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 
 All direct and required indirect modules are at their latest releases. `go list -m -u all` lists only newer versions for module-graph entries that do not enter the build.
 
-`govulncheck` (x/vuln v1.8.0, Go 1.26.9): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
+`govulncheck` (x/vuln v1.8.0, Go 1.27.2): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
 
 ## Node packages
 
@@ -55,4 +55,4 @@ All direct and required indirect modules are at their latest releases. `go list 
 - **TypeScript 7.0.2**: `typescript-eslint` 8.71.1 declares a `typescript <6.1.0` peer range. TypeScript's documented side-by-side setup (TS 6 for tooling, TS 7 native compiler for type checking) is possible but adds a second compiler; revisit when `typescript-eslint` supports TS 7.
 - **oapi-codegen v2.5.1–v2.7.2**: v2.5.1 output differs only in the version header. v2.6.0 and v2.7.2 add enum `Valid()` methods and typed security-scope context keys; the output builds and passes vet and unit tests unchanged. Adopting either is a separate generator change.
 - **oapi-codegen v2.8.0**: breaking for this contract. Nullable fields become double pointers, enum constant names change, and OAuth scope constants are removed. Generated code does not compile against current adapters without migration.
-- **Go 1.27, Node 24, Actions v7, Debian 13 images**: runtime/CI majors land as separate, focused changes with full CI evidence.
+- **Actions v7, Debian 13 images**: CI/base-image majors land as separate, focused changes with full CI evidence.
