@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +19,9 @@ import (
 type Faults struct {
 	Deny, BadSignature, WrongIssuer, WrongAudience, WrongAZP, MultiAudienceNoAZP, Expired, FutureIssuedAt, NonceMismatch, MissingIDToken, TokenServerError bool
 	Delay                                                                                                                                                  time.Duration
+	MissingAuthEndpoint, MissingTokenEndpoint, MissingJWKSURI, WrongJWKSHTTP, SecureAuthEndpoints, NoCodeResponseType                                      bool
+	DiscoveryUnavailable, InvalidGrant                                                                                                                     bool
+	SubjectEmpty, SubjectNonASCII, SubjectTooLong, MissingIssuedAt, StringIssuedAt, DisallowedAlgorithm                                                    bool
 }
 type Provider struct {
 	Server                                       *httptest.Server
@@ -61,8 +65,32 @@ func (p *Provider) Issuer() string { return p.Server.URL }
 func (p *Provider) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/.well-known/openid-configuration":
+		if p.Faults.DiscoveryUnavailable {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer(), "authorization_endpoint": p.Issuer() + "/authorize", "token_endpoint": p.Issuer() + "/token", "jwks_uri": p.Issuer() + "/keys", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}})
+		auth, token, jwks := p.Issuer()+"/authorize", p.Issuer()+"/token", p.Issuer()+"/keys"
+		if p.Faults.SecureAuthEndpoints {
+			auth, token, jwks = "https://auth.test/authorize", "https://auth.test/token", "https://auth.test/keys"
+		}
+		if p.Faults.MissingAuthEndpoint {
+			auth = ""
+		}
+		if p.Faults.MissingTokenEndpoint {
+			token = ""
+		}
+		if p.Faults.MissingJWKSURI {
+			jwks = ""
+		}
+		if p.Faults.WrongJWKSHTTP {
+			jwks = "http://127.0.0.1:1/keys"
+		}
+		responses := []string{"code"}
+		if p.Faults.NoCodeResponseType {
+			responses = []string{"id_token"}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer(), "authorization_endpoint": auth, "token_endpoint": token, "jwks_uri": jwks, "response_types_supported": responses, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}})
 	case "/keys":
 		p.keys(w)
 	case "/authorize":
@@ -137,6 +165,12 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream", 500)
 		return
 	}
+	if p.Faults.InvalidGrant {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+		return
+	}
 	if r.Method != "POST" {
 		http.Error(w, "method", 405)
 		return
@@ -182,6 +216,21 @@ func (p *Provider) idToken(c code) (string, error) {
 	iss := p.Issuer()
 	var aud any = p.ClientID
 	claims := map[string]any{"iss": iss, "sub": c.subject, "aud": aud, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(), "nonce": c.nonce}
+	if p.Faults.SubjectEmpty {
+		claims["sub"] = ""
+	}
+	if p.Faults.SubjectNonASCII {
+		claims["sub"] = "sübject"
+	}
+	if p.Faults.SubjectTooLong {
+		claims["sub"] = strings.Repeat("s", 256)
+	}
+	if p.Faults.MissingIssuedAt {
+		delete(claims, "iat")
+	}
+	if p.Faults.StringIssuedAt {
+		claims["iat"] = "not-numeric"
+	}
 	if p.Faults.WrongIssuer {
 		claims["iss"] = "https://wrong.test"
 	}
@@ -204,7 +253,11 @@ func (p *Provider) idToken(c code) (string, error) {
 	if p.Faults.NonceMismatch {
 		claims["nonce"] = "wrong"
 	}
-	header, _ := json.Marshal(map[string]string{"alg": "RS256", "kid": "test", "typ": "JWT"})
+	alg := "RS256"
+	if p.Faults.DisallowedAlgorithm {
+		alg = "HS256"
+	}
+	header, _ := json.Marshal(map[string]string{"alg": alg, "kid": "test", "typ": "JWT"})
 	payload, _ := json.Marshal(claims)
 	msg := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
 	key := p.key

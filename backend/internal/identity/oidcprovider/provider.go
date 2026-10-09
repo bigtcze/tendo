@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,15 +30,39 @@ type Provider struct {
 func New(issuer, clientID, secret string, client *http.Client, clock func() time.Time, allowHTTP bool) *Provider {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
+	} else {
+		copy := *client
+		client = &copy
+		if client.Timeout == 0 {
+			client.Timeout = 10 * time.Second
+		}
 	}
-	if client.Timeout == 0 {
-		client.Timeout = 10 * time.Second
+	priorCheck := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return errors.New("OIDC redirect limit exceeded")
+		}
+		if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
+			return errors.New("OIDC HTTPS downgrade refused")
+		}
+		if priorCheck != nil {
+			return priorCheck(req, via)
+		}
+		return nil
 	}
 	if clock == nil {
 		clock = time.Now
 	}
 	return &Provider{issuer: issuer, clientID: clientID, clientSecret: secret, client: client, clock: clock, allowHTTP: allowHTTP}
 }
+
+type discoveryClaims struct {
+	AuthorizationEndpoint  string   `json:"authorization_endpoint"`
+	TokenEndpoint          string   `json:"token_endpoint"`
+	JWKSURI                string   `json:"jwks_uri"`
+	ResponseTypesSupported []string `json:"response_types_supported"`
+}
+
 func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -45,32 +72,48 @@ func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, error) {
 	ctx = oidc.ClientContext(ctx, p.client)
 	provider, err := oidc.NewProvider(ctx, p.issuer)
 	if err != nil {
-		return nil, errors.New("OIDC provider unavailable")
+		return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
 	}
-	for _, endpoint := range []string{provider.Endpoint().AuthURL, provider.Endpoint().TokenURL, provider.Endpoint().DeviceAuthURL} {
-		if endpoint != "" {
-			if err = validateEndpoint(endpoint, p.allowHTTP); err != nil {
-				return nil, errors.New("OIDC provider unavailable")
+	var claims discoveryClaims
+	if err = provider.Claims(&claims); err != nil {
+		return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+	}
+	for _, endpoint := range []string{claims.AuthorizationEndpoint, claims.TokenEndpoint, claims.JWKSURI} {
+		if endpoint == "" || validateEndpoint(endpoint, p.allowHTTP) != nil {
+			return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+		}
+	}
+	if len(claims.ResponseTypesSupported) > 0 {
+		found := false
+		for _, responseType := range claims.ResponseTypesSupported {
+			if responseType == "code" {
+				found = true
+				break
 			}
+		}
+		if !found {
+			return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
 		}
 	}
 	p.discovered = provider
 	return provider, nil
 }
+
 func validateEndpoint(raw string, allowHTTP bool) error {
-	u, e := url.Parse(raw)
-	if e != nil || u.Host == "" || u.User != nil || u.Scheme != "https" && u.Scheme != "http" || u.Scheme == "http" && !allowHTTP {
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "https" && u.Scheme != "http") || (u.Scheme == "http" && !allowHTTP) {
 		return errors.New("invalid OIDC endpoint")
 	}
 	return nil
 }
+
 func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthorizationParams) (string, error) {
 	provider, err := p.discovery(ctx)
 	if err != nil {
 		return "", err
 	}
 	if a.Issuer != p.issuer || a.ClientID != p.clientID {
-		return "", errors.New("OIDC configuration mismatch")
+		return "", fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 	}
 	sum := sha256.Sum256([]byte(a.PKCEVerifier))
 	cfg := oauth2.Config{ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(), RedirectURL: a.RedirectURL, Scopes: []string{oidc.ScopeOpenID}}
@@ -80,9 +123,10 @@ func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthoriz
 	}
 	return cfg.AuthCodeURL(a.State, options...), nil
 }
+
 func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) (identity.OIDCVerifiedIdentity, error) {
-	if len(x.CallbackIssuer) > 0 && x.CallbackIssuer != p.issuer {
-		return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+	if x.CallbackIssuer != "" && x.CallbackIssuer != p.issuer {
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 	}
 	provider, err := p.discovery(ctx)
 	if err != nil {
@@ -92,30 +136,45 @@ func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) 
 	cfg := oauth2.Config{ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(), RedirectURL: x.RedirectURL, Scopes: []string{oidc.ScopeOpenID}}
 	tok, err := cfg.Exchange(ctx, x.Code, oauth2.SetAuthURLParam("code_verifier", x.PKCEVerifier))
 	if err != nil {
-		return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+		var retrieve *oauth2.RetrieveError
+		if errors.As(err, &retrieve) && retrieve.Response != nil && retrieve.Response.StatusCode >= 400 && retrieve.Response.StatusCode < 500 {
+			return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		}
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok || raw == "" {
-		return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 	}
 	id, err := provider.Verifier(&oidc.Config{ClientID: p.clientID, Now: p.clock}).Verify(ctx, raw)
 	if err != nil {
-		return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 	}
 	if id.Nonce != x.Nonce || id.Issuer != p.issuer || id.Subject == "" || len(id.Subject) > 255 || id.IssuedAt.After(p.clock().Add(time.Minute)) {
-		return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 	}
-	// The aud claim may be a string or an array; go-oidc normalizes it into id.Audience.
 	var claims struct {
-		Azp string `json:"azp"`
+		Azp      string       `json:"azp"`
+		IssuedAt *json.Number `json:"iat"`
 	}
-	if id.Claims(&claims) != nil || len(id.Audience) > 1 && claims.Azp != p.clientID || claims.Azp != "" && claims.Azp != p.clientID {
-		return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+	if id.Claims(&claims) != nil || claims.IssuedAt == nil {
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+	}
+	if _, err = claims.IssuedAt.Int64(); err != nil {
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+	}
+	if len(id.Audience) > 1 && claims.Azp != p.clientID || claims.Azp != "" && claims.Azp != p.clientID {
+		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 	}
 	for _, r := range id.Subject {
 		if r < 0x21 || r > 0x7e {
-			return identity.OIDCVerifiedIdentity{}, errors.New("OIDC authentication failed")
+			return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
 		}
 	}
 	return identity.OIDCVerifiedIdentity{Issuer: id.Issuer, Subject: id.Subject}, nil
+}
+
+// RedirectPolicy is exposed for focused verification of transport downgrade protection.
+func (p *Provider) RedirectPolicy() func(*http.Request, []*http.Request) error {
+	return p.client.CheckRedirect
 }

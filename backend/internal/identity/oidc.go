@@ -37,7 +37,9 @@ var (
 	ErrOIDCInvalidPurpose  = errors.New("invalid OIDC purpose")
 	ErrOIDCAlreadySignedIn = errors.New("already signed in")
 	// ErrOIDCSessionChanged: the initiating session ended before the link committed.
-	ErrOIDCSessionChanged = errors.New("oidc initiating session changed")
+	ErrOIDCSessionChanged       = errors.New("oidc initiating session changed")
+	ErrOIDCProviderUnavailable  = errors.New("OIDC provider unavailable")
+	ErrOIDCAuthenticationFailed = errors.New("OIDC authentication failed")
 )
 
 type OIDCVerifiedIdentity struct{ Issuer, Subject string }
