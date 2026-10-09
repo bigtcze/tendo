@@ -43,7 +43,7 @@ function watch(page: Page) {
 async function signIn(page: Page, password: string) {
   await page.getByLabel(en['login.login']).fill(ownerLogin);
   await page.getByLabel(en['login.password']).fill(password);
-  await page.getByRole('button', { name: en['login.submit'] }).click();
+  await page.getByRole('button', { name: en['login.submit'], exact: true }).click();
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -821,7 +821,7 @@ test.describe('Tendo production journey', () => {
       await memberPage.goto('/');
       await memberPage.locator('#login').fill('member_e2e');
       await memberPage.locator('#password').fill(`${ownerPassword}-member`);
-      await memberPage.getByRole('button', { name: en['login.submit'] }).click();
+      await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
       await expect(memberPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
 
       const invitationPath = `/api/v1/households/${householdId}/invitations`;
@@ -897,6 +897,65 @@ test.describe('Tendo production journey', () => {
     } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
   });
 
+  test('n9. the owner connects the test identity provider from Account, then signs in with it; refusals are calm', async () => {
+    const provider = 'OIDC Smoke Provider';
+    await page.goto('/');
+    await page.getByRole('link', { name: en['home.account'] }).click();
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    const before = await page.request.get('/api/v1/auth/oidc/identity');
+    expect(await before.json()).toEqual({ linked: false });
+    await page.getByLabel(en['account.oidc.password']).fill(ownerPassword);
+    await page.getByRole('button', { name: en['account.oidc.connect'].replace('{provider}', provider) }).click();
+    // Real redirect chain: Tendo start -> provider authorize -> Tendo callback -> /account#oidc=connected.
+    await expect(page.getByText(en['account.oidc.connected'])).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/account');
+    expect(new URL(page.url()).hash).toBe('');
+    await expect(page.getByText(en['account.oidc.linked'].replace('{provider}', provider))).toBeVisible();
+    expect(await (await page.request.get('/api/v1/auth/oidc/identity')).json()).toEqual({ linked: true });
+    // Linking replaces the session: the earlier cookie is revoked server-side.
+    const fresh = await request.newContext({ baseURL });
+    try {
+      expect((await fresh.get('/api/v1/session', { headers: { Cookie: `tendo_session=${sessionToken}` } })).status()).toBe(401);
+    } finally {
+      await fresh.dispose();
+    }
+    sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
+    expect(sessionToken).not.toBe('');
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
+
+    await page.getByRole('button', { name: en['header.signOut'] }).click();
+    await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
+    const oidcButton = page.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider) });
+
+    // An identity nobody connected is refused without creating anything.
+    const authorize = 'http://oidc.test:8089/authorize**';
+    await page.route(authorize, (route) => route.continue({ url: `${route.request().url()}&sub=unknown-subject` }));
+    await oidcButton.click();
+    await expect(page.getByText(en['oidc.error.identity_not_linked'])).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/login');
+    expect(new URL(page.url()).hash).toBe('');
+    await page.unroute(authorize);
+
+    // Cancelling at the provider returns to the login screen with a calm notice.
+    await page.route(authorize, (route) => route.continue({ url: `${route.request().url()}&deny=1` }));
+    await oidcButton.click();
+    await expect(page.getByText(en['oidc.error.cancelled'])).toBeVisible();
+    await page.unroute(authorize);
+
+    await oidcButton.click();
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
+    const signedIn = (await (await page.request.get('/api/v1/session')).json()) as { login: string; defaultHouseholdId: string };
+    expect(signedIn.login).toBe(ownerLogin);
+    expect(signedIn.defaultHouseholdId).toBe(householdId);
+    sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
+    expect(sessionToken).not.toBe('');
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
@@ -932,7 +991,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByLabel(en['login.password'])).toBeFocused();
     await page.keyboard.type(ownerPassword);
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('button', { name: en['login.submit'] })).toBeFocused();
+    await expect(page.getByRole('button', { name: en['login.submit'], exact: true })).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(page.getByLabel(en['login.password'])).toBeFocused();
     await page.keyboard.press('Enter');

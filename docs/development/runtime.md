@@ -5,7 +5,7 @@ The Compose stack is for development and CI only. It runs:
 - PostgreSQL and health endpoints
 - first-owner setup, protected by an operator-generated setup code, used by the browser onboarding screen
 - local login sessions (`POST`/`GET`/`DELETE /api/v1/session`)
-- optional OIDC account linking and login API; the UI buttons are not yet included
+- optional OIDC account linking and sign-in: API plus the sign-in button and **Your account** screen
 - a session-authenticated household read (`GET /api/v1/households/{householdId}`, members only; malformed, nonexistent, and non-member IDs all return the same 404)
 - an embedded web UI served by the app: first-run onboarding, a sign-in page, and an empty home screen (see [frontend development](frontend.md))
 

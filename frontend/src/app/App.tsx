@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AccountScreen } from '../features/auth/AccountScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
+import { parseOidcFragment, type OidcOutcome } from '../features/auth/oidcApi';
 import { OnboardingScreen } from '../features/auth/OnboardingScreen';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
 import { HomeScreen } from '../features/home/HomeScreen';
@@ -16,12 +18,16 @@ import { ErrorScreen, LoadingScreen } from './StatusScreens';
 const PEOPLE_PATH = '/people';
 const MEMBERS_PATH = '/members';
 const INVITE_PATH = '/invite';
-type Route = { kind: 'home' | 'people' | 'members' | 'invite' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
+const LOGIN_PATH = '/login';
+const ACCOUNT_PATH = '/account';
+type Route = { kind: 'home' | 'people' | 'members' | 'invite' | 'login' | 'account' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
 function readRoute(): Route {
   const path = window.location.pathname;
   if (path === PEOPLE_PATH) return { kind: 'people' };
   if (path === MEMBERS_PATH) return { kind: 'members' };
   if (path === INVITE_PATH) return { kind: 'invite' };
+  if (path === LOGIN_PATH) return { kind: 'login' };
+  if (path === ACCOUNT_PATH) return { kind: 'account' };
   if (path === '/') return { kind: 'home' };
   const match = /^\/items\/([^/]+)$/.exec(path);
   if (match) return /^[0-9a-f-]{36}$/i.test(match[1]!) ? { kind: 'item', itemId: match[1]! } : { kind: 'invalidItem' };
@@ -74,6 +80,16 @@ export function App() {
     return hash.startsWith('#') ? hash.slice(1) || null : null;
   });
   const [accountReadyNotice, setAccountReadyNotice] = useState(false);
+  // The OIDC callback reports its result in a fixed fragment on /login or /account. Read it once,
+  // keep it in memory only, and scrub it from the address bar so reload/share never repeats it.
+  const [oidcOutcome, setOidcOutcome] = useState<OidcOutcome | null>(() => {
+    const path = window.location.pathname;
+    return path === LOGIN_PATH || path === ACCOUNT_PATH ? parseOidcFragment(window.location.hash) : null;
+  });
+  useEffect(() => {
+    const path = window.location.pathname;
+    if ((path === LOGIN_PATH || path === ACCOUNT_PATH) && window.location.hash) window.history.replaceState(window.history.state, '', path);
+  }, []);
   const [inviteFocusLogin, setInviteFocusLogin] = useState(false);
 
   useEffect(() => {
@@ -142,11 +158,13 @@ export function App() {
     transitioned.current = true;
     window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
+    setOidcOutcome(null);
     setAccountReadyNotice(true);
     setState({ kind: 'signedOut' });
   }, []);
   const signedOut = useCallback(() => {
     clearPendingCompletions();
+    setOidcOutcome(null);
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
@@ -159,6 +177,12 @@ export function App() {
     window.history.pushState(null, '', PEOPLE_PATH);
     setRoute({ kind: 'people' });
   }, []);
+  const openAccount = useCallback(() => {
+    transitioned.current = true;
+    setOidcOutcome(null);
+    window.history.pushState(null, '', ACCOUNT_PATH);
+    setRoute({ kind: 'account' });
+  }, []);
   const openMembers = useCallback(() => {
     transitioned.current = true;
     window.history.pushState(null, '', MEMBERS_PATH);
@@ -167,12 +191,14 @@ export function App() {
   // Back links from People and item details push home so browser Back still returns to them.
   const goHome = useCallback(() => {
     transitioned.current = true;
+    setOidcOutcome(null);
     window.history.pushState(null, '', '/');
     setRoute({ kind: 'home' });
   }, []);
   useEffect(() => {
     const onPop = () => {
       transitioned.current = true;
+      setOidcOutcome(null);
       setRoute(readRoute());
     };
     window.addEventListener('popstate', onPop);
@@ -185,10 +211,16 @@ export function App() {
   useEffect(() => {
     if (noHouseholdOnPeople) window.history.replaceState(null, '', '/');
   }, [noHouseholdOnPeople]);
+  // /login is only a landing path for sign-in results; a signed-in visitor belongs on home.
+  const signedInOnLogin = state.kind === 'signedIn' && route.kind === 'login';
+  useEffect(() => {
+    if (signedInOnLogin) window.history.replaceState(null, '', '/');
+  }, [signedInOnLogin]);
   const signedIn = useCallback((session: Session) => {
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
+    setOidcOutcome(null);
     setAccountReadyNotice(false);
     setInviteFocusLogin(false);
     setState({ kind: 'signedIn', session });
@@ -200,6 +232,8 @@ export function App() {
       <ScreenTransitionContext value={transitioned}>
         {route.kind === 'invite' ? (
           <InviteScreen key={inviteVisit} token={inviteToken} session={state.session} onSignedIn={signedIn} onSignedOut={inviteSignedOut} onAccountReady={accountReady} onJoinedSignedOut={signedOut} />
+        ) : route.kind === 'account' ? (
+          <AccountScreen login={state.session.login} outcome={oidcOutcome} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'people' && householdId ? (
           <SubjectsScreen householdId={householdId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'members' && householdId ? (
@@ -209,7 +243,7 @@ export function App() {
         ) : route.kind === 'invalidItem' && householdId ? (
           <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : (
-          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenMembers={openMembers} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenMembers={openMembers} onOpenAccount={openAccount} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
     );
@@ -221,7 +255,7 @@ export function App() {
       {state.kind === 'loading' ? <LoadingScreen message={t('app.loading')} /> : null}
       {state.kind === 'error' ? <ErrorScreen onRetry={retry} /> : null}
       {state.kind === 'setupRequired' ? <OnboardingScreen onSignedIn={signedIn} onSetupComplete={signedOut} /> : null}
-      {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} notice={accountReadyNotice ? t('invite.error.accountReady') : undefined} /> : null}
+      {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} notice={accountReadyNotice ? t('invite.error.accountReady') : oidcOutcome?.kind === 'error' ? t(`oidc.error.${oidcOutcome.code}`) : undefined} /> : null}
     </Layout>}
     </ScreenTransitionContext>
   );

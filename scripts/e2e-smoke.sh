@@ -16,7 +16,7 @@ if [[ "v${installed_playwright}-noble" != "$playwright_image_tag" ]]; then
   exit 1
 fi
 project="tendo-e2e-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
-export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME TENDO_TEST_CLOCK_ACK TENDO_TEST_CLOCK_NOW
+export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME TENDO_TEST_CLOCK_ACK TENDO_TEST_CLOCK_NOW TENDO_OIDC_HOST_PORT OIDC_SMOKE_BACKEND="$root/backend"
 TENDO_TEST_CLOCK_ACK=isolated-e2e-only
 TENDO_TEST_CLOCK_NOW=2026-01-15T22:59:59Z
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
@@ -29,12 +29,14 @@ TENDO_OIDC_CLIENT_SECRET_FILE=
 TENDO_OIDC_DISPLAY_NAME=
 E2E_OWNER_PASSWORD=$(openssl rand -hex 24)
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+# The journey signs in through the isolated test identity provider (deploy/compose.oidc-test.yaml).
+TENDO_OIDC_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
 TENDO_TRUSTED_PROXY_CIDRS=
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.e2e.yaml")
+compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.e2e.yaml" -f "$root/deploy/compose.oidc-test.yaml")
 cleanup() {
   local result=$?
   trap - EXIT
@@ -46,7 +48,7 @@ cleanup() {
 }
 trap cleanup EXIT
 origin=$TENDO_PUBLIC_URL
-timeout 600 "${compose[@]}" up -d --build --wait --wait-timeout 120
+timeout 900 "${compose[@]}" up -d --build --wait --wait-timeout 180
 ready=0
 for _ in $(seq 1 60); do
   if curl -fsS --max-time 3 "$origin/health/ready" >/dev/null; then ready=1; break; fi
@@ -55,11 +57,11 @@ done
 if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "$origin" >&2; exit 1; fi
 mkdir -p "$root/frontend/test-results/$project"
 # Secrets and clock settings are passed by name only (-e NAME) so values stay out of argv.
-export E2E_BASE_URL=$origin E2E_SETUP_TOKEN=$TENDO_SETUP_TOKEN E2E_OWNER_PASSWORD E2E_CLOCK_NOW=$TENDO_TEST_CLOCK_NOW E2E_CLOCK_FIXTURE_PATH="test-results/$project/attention-clock.json"
+export E2E_BASE_URL=$origin E2E_SETUP_TOKEN=$TENDO_SETUP_TOKEN E2E_OWNER_PASSWORD E2E_CLOCK_NOW=$TENDO_TEST_CLOCK_NOW E2E_CLOCK_FIXTURE_PATH="test-results/$project/attention-clock.json" E2E_OIDC_HOST_PORT=$TENDO_OIDC_HOST_PORT
 run_playwright() {
   timeout 600 docker run --rm --network host --ipc=host \
     --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e E2E_BASE_URL -e E2E_SETUP_TOKEN -e E2E_OWNER_PASSWORD -e E2E_CLOCK_NOW -e E2E_CLOCK_PHASE -e E2E_CLOCK_FIXTURE_PATH -e CI \
+    -e E2E_BASE_URL -e E2E_SETUP_TOKEN -e E2E_OWNER_PASSWORD -e E2E_CLOCK_NOW -e E2E_CLOCK_PHASE -e E2E_CLOCK_FIXTURE_PATH -e E2E_OIDC_HOST_PORT -e CI \
     -v "$root":/repo -w /repo/frontend \
     "$playwright_image" npx --no-install playwright test "$@"
 }
