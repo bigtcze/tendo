@@ -134,6 +134,12 @@ func writeProblem(w http.ResponseWriter, code int, title string) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(Problem{Type: "about:blank", Title: title, Status: code})
 }
+
+// RequestMiddlewareForTest exposes the production request logger wrapper for privacy regression tests.
+func RequestMiddlewareForTest(next http.Handler, logger *slog.Logger) http.Handler {
+	return requestMiddleware(next, logger)
+}
+
 func requestMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")

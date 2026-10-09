@@ -24,6 +24,12 @@ function assertBody(path, status, body, method) {
   assert.ok(validate(body), `${path} HTTP ${status} body invalid: ${JSON.stringify(validate.errors)}`)
 }
 
+function cookieValues(value) {
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') return [value]
+  return []
+}
+
 function assertSessionCookie(path, status, setCookie) {
   assert.equal(typeof setCookie, 'string', `${path} HTTP ${status} missing Set-Cookie`)
   const [pair, ...attributes] = setCookie.split(';').map(part => part.trim())
@@ -60,11 +66,37 @@ function assertResponse(path, status, body, method, headers = {}) {
     const etagPattern = responseSpec.headers.ETag.schema?.pattern
     if (etagPattern) assert.match(headers.etag, new RegExp(etagPattern), `${path} HTTP ${status} ETag does not match its documented pattern`)
   }
-  const cookieRef = responseSpec.headers?.['Set-Cookie']?.$ref
+  const cookieHeader = responseSpec.headers?.['Set-Cookie']
+  const cookieRef = cookieHeader?.$ref
   if (cookieRef) {
     const cookieSpec = contract.components.headers[cookieRef.split('/').pop()]
     if (cookieSpec.required === true || headers['set-cookie'] !== undefined) assertSessionCookie(path, status, headers['set-cookie'])
+  } else if (cookieHeader && path === '/api/v1/auth/oidc/start') {
+    const cookies = cookieValues(headers['set-cookie'])
+    assert.equal(cookies.length, 1, `${path} HTTP ${status} must set exactly one flow cookie`)
+    const [pair, ...attributes] = cookies[0].split(';').map(part => part.trim())
+    const name = pair.slice(0, pair.indexOf('='))
+    const value = pair.slice(pair.indexOf('=') + 1)
+    assert.ok(['tendo_oidc', '__Host-tendo_oidc'].includes(name), `${path} HTTP ${status} unexpected flow cookie name`)
+    assert.match(value, /^[A-Za-z0-9_-]{43}$/)
+    const lower = attributes.map(attribute => attribute.toLowerCase())
+    for (const required of ['httponly', 'samesite=lax', 'path=/', 'max-age=600']) assert.ok(lower.includes(required), `${path} flow cookie missing ${required}`)
+    assert.ok(!lower.some(attribute => attribute.startsWith('domain=')))
+    if (name.startsWith('__Host-')) assert.ok(lower.includes('secure'))
+  } else if (cookieHeader && path === '/api/v1/auth/oidc/callback') {
+    const cookies = cookieValues(headers['set-cookie'])
+    assert.ok(cookies.length >= 1 && cookies.length <= 2, `${path} HTTP ${status} must clear flow cookie and may set session cookie`)
+    const flow = cookies.find(value => /^(tendo_oidc|__Host-tendo_oidc)=/.test(value))
+    assert.ok(flow, `${path} HTTP ${status} missing flow cookie clear`)
+    const [pair, ...attributes] = flow.split(';').map(part => part.trim())
+    assert.equal(pair.slice(pair.indexOf('=') + 1), '')
+    const lower = attributes.map(attribute => attribute.toLowerCase())
+    for (const required of ['httponly', 'samesite=lax', 'path=/', 'max-age=0']) assert.ok(lower.includes(required), `${path} flow clear missing ${required}`)
+    assert.ok(!lower.some(attribute => attribute.startsWith('domain=')))
+    const session = cookies.find(value => /^(tendo_session|__Host-tendo_session)=/.test(value))
+    if (session) assertSessionCookie(path, 201, session)
   } else assert.equal(headers['set-cookie'], undefined, `${path} HTTP ${status} sends an undocumented Set-Cookie`)
+  if (responseSpec.headers?.['Referrer-Policy']) assert.equal(headers['referrer-policy'], 'no-referrer')
   if (responseSpec.headers?.Location) {
     const locationSchema = responseSpec.headers.Location.schema ?? {}
     if (locationSchema.const !== undefined) assert.equal(headers.location, locationSchema.const, `${path} HTTP ${status} has invalid Location`)
@@ -74,6 +106,11 @@ function assertResponse(path, status, body, method, headers = {}) {
     }
   }
   assertBody(path, status, body, method)
+  if (path === '/api/v1/auth/oidc' && method === 'get' && status === 200) {
+    assert.equal(typeof body.enabled, 'boolean', `${path} enabled must be boolean`)
+    assert.equal(Object.hasOwn(body, 'displayName'), body.enabled, `${path} displayName must be present exactly when enabled`)
+    if (body.enabled) assert.equal(typeof body.displayName, 'string', `${path} displayName must be a string`)
+  }
   if (body && typeof body === 'object' && 'status' in body && expectedMedia.includes('application/problem+json')) {
     assert.equal(body.status, Number(status), `${path} HTTP ${status} problem status does not match HTTP status`)
   }

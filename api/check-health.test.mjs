@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 const checker = new URL('./check-health.mjs', import.meta.url)
@@ -76,6 +78,26 @@ const cases = [
     status: 204, headers: healthyHeaders, body: '',
   }],
 ]
+
+test('health checker validates OIDC 303 headers and multiple Set-Cookie fields', async () => {
+  const directory = await (await import('node:fs/promises')).mkdtemp(join(tmpdir(), 'tendo-oidc-contract-'))
+  const fixturePath = join(directory, 'responses.json')
+  const run = async (headers) => {
+    const fixture = { path: '/api/v1/auth/oidc/callback', method: 'get', status: 303, headers: { 'x-request-id': requestId, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', location: '/', ...headers }, body: undefined }
+    await (await import('node:fs/promises')).writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname, fixturePath], { env: { ...process.env, RUNTIME_HEALTH_ORIGIN: undefined, SETUP_URL: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    return { code, stderr }
+  }
+  try {
+    const good = await run({ 'set-cookie': ['tendo_oidc=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax', `tendo_session=${'A'.repeat(43)}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`] })
+    assert.equal(good.code, 0, good.stderr)
+    const bad = await run({ 'set-cookie': ['tendo_oidc=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'] , 'referrer-policy': 'unsafe-url' })
+    assert.notEqual(bad.code, 0)
+  } finally { await (await import('node:fs/promises')).rm(directory, { recursive: true, force: true }) }
+})
 
 test('health checker validates readiness response contract', async (t) => {
   for (const [name, response] of cases) {

@@ -33,6 +33,35 @@ async function checkSetupResponse({ status = 201, headers = {}, body = '{"requir
   }
 }
 
+test('OIDC plain schemas preserve purpose values and document field combinations', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const Ajv2020 = (await import('ajv/dist/2020.js')).default
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const ajv = new Ajv2020({ strict: false })
+  for (const [name, schema] of Object.entries(contract.components.schemas)) ajv.addSchema(schema, `#/components/schemas/${name}`)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCStatus)({ enabled: false }), true)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCStatus)({ enabled: false, displayName: 'hidden' }), true)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCStatus)({ enabled: true, displayName: 'IdP' }), true)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCIdentityStatus)({ linked: true }), true)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCStartRequest)({ purpose: 'login' }), true)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCStartRequest)({ purpose: 'login', currentPassword: 'secret' }), true)
+  assert.equal(ajv.compile(contract.components.schemas.OIDCStartRequest)({ purpose: 'link', currentPassword: 'secret' }), true)
+})
+
+test('OIDC contract documents callback redirects and multiple cookies', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const callback = contract.paths['/api/v1/auth/oidc/callback'].get
+  assert.equal(callback.operationId, 'completeOidcCallback')
+  assert.match(callback.responses['303'].headers.Location.schema.pattern, /login#oidcError/)
+  assert.deepEqual(callback.responses['303'].headers['Set-Cookie'].schema, { type: 'array', items: { type: 'string' } })
+  assert.equal(callback.responses['303'].headers['Referrer-Policy'].schema.const, 'no-referrer')
+  assert.ok(callback.responses['303'].headers.Location.schema.pattern.includes('account'))
+  for (const name of ['code', 'state', 'error', 'error_description', 'iss']) assert.ok(callback.parameters.some(parameter => parameter.name === name))
+})
+
 test('invitation request and response examples satisfy contract schemas', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')

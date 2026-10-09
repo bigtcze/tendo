@@ -17,12 +17,14 @@ import (
 	householddb "github.com/bigtcze/tendo/backend/internal/household/postgres/dbgen"
 	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
 	identityhttp "github.com/bigtcze/tendo/backend/internal/identity/httpapi"
+	"github.com/bigtcze/tendo/backend/internal/identity/oidcprovider"
 	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
 	itemapp "github.com/bigtcze/tendo/backend/internal/item"
 	itemhttp "github.com/bigtcze/tendo/backend/internal/item/httpapi"
 	itempostgres "github.com/bigtcze/tendo/backend/internal/item/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	"github.com/bigtcze/tendo/backend/internal/platform/httporigin"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/bigtcze/tendo/backend/internal/platform/webui"
@@ -76,7 +78,11 @@ func migrate() error {
 }
 
 func run() error {
-	cfg, err := config.Load()
+	return runWithConfig(config.Load)
+}
+
+func runWithConfig(loadConfig func() (config.Config, error)) error {
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
@@ -114,6 +120,12 @@ func run() error {
 	sessions.SetPasswordVerifier(passwordGate.VerifyPassword)
 	sessionHandler := identityhttp.NewSession(sessions, cfg.PublicURL)
 	sessionHandler.Register(routes)
+	oidcService, err := newOIDCService(cfg, identityRepository, passwordGate, time.Now)
+	if err != nil {
+		pool.Close()
+		return err
+	}
+	identityhttp.NewOIDC(oidcService, sessionHandler, cfg.PublicURL).Register(routes)
 	principalID := func(ctx context.Context) (string, bool) {
 		principal, ok := identityhttp.PrincipalFromContext(ctx)
 		return principal.UserID, ok
@@ -152,6 +164,24 @@ func run() error {
 		return err
 	}
 	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
+}
+
+func newOIDCService(cfg config.Config, repo identityapp.OIDCRepository, gate *security.PasswordGate, clock func() time.Time) (*identityapp.OIDCService, error) {
+	if cfg.OIDCIssuer == "" {
+		return nil, nil
+	}
+	publicOrigin, _ := httporigin.Parse(cfg.PublicURL, true)
+	provider := oidcprovider.New(cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCClientSecret, nil, clock, publicOrigin.Scheme == "http")
+	return identityapp.NewOIDCService(repo, provider, cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCDisplayName, cfg.PublicURL, clock, nil, func(hash, password string) error {
+		valid, err := gate.VerifyPassword(hash, password)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return identityapp.ErrInvalidCredentials
+		}
+		return nil
+	})
 }
 
 func newRuntimeServer(addr string, handler http.Handler, serviceTimeout time.Duration) *http.Server {
