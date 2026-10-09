@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-The complete local gate targets Go 1.26.8, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 24.x with npm, native PostgreSQL `psql` 18, native `sqlc` 1.30.0, and Playwright 1.63.0 with its matching Chromium browser. Repository-pinned JavaScript tools include oapi-codegen v2.4.1, openapi-typescript 7.6.1 and `@playwright/test` 1.63.0. Node 22.22.3 remains compatible with package engines, and is used in PR A CI.
+The complete local gate targets Go 1.26.9, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 24.x with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.0 with its matching Chromium browser. Repository-pinned JavaScript tools include oapi-codegen v2.4.1, openapi-typescript 7.13.0 and `@playwright/test` 1.64.0. Node 22.22.3 remains compatible with package engines, and is used in CI. See [dependency and toolchain inventory](dependencies.md); `toolchain.json` is the canonical pin list.
 
 Install the local Playwright browser before E2E:
 
@@ -48,7 +48,7 @@ bash scripts/check-sqlc.sh
 (cd api && npm ci && npm audit --audit-level=moderate && npm run check)
 (cd frontend && npm ci && npm audit --audit-level=moderate && npm run check)
 python3 -m unittest scripts/test_verify_local.py
-python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py
+python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py
 python3 scripts/test_postgres_live.py
 python3 -m unittest scripts/test_generation_drift.py
 python3 scripts/test_e2e_interrupt.py
@@ -69,11 +69,11 @@ The required workflow retains one stable branch-protection aggregate check named
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.26.8/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py` and `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all six smokes, in-job prerequisite order, aggregate needs/count) |
-| `api` | Go 1.26.8, Node 22.22.3, API npm cache; `npm ci`, moderate audit, `npm run check` |
+| `backend` | Go 1.26.9/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all six smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`) |
+| `api` | Go 1.26.9, Node 22.22.3, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 22.22.3/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
-| `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.30.0 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |
-| `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 22.22.3, frontend `npm ci`, Playwright 1.63.0 Chromium install, full native production-build E2E |
+| `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.31.1 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |
+| `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 22.22.3, frontend `npm ci`, Playwright 1.64.0 Chromium install, full native production-build E2E |
 | `deployment` matrix, `fail-fast: false` | Six entries: runtime, setup, OIDC, proxy, backup/restore, household backup. Each checks out and installs Go/Node/API dependencies before running its unchanged Docker smoke. Each matrix job builds its own images; image transfer is YAGNI absent measured evidence for artifact handoff. Proxy and household-backup retain their 12/15 minute bounds using per-matrix-step `timeout` values. |
 | `required` aggregate | `if: always()`, `needs` every other job, prints results and jq-requires exactly six successes. |
 

@@ -70,6 +70,7 @@ For configuration, health checks, and stop/start details, see [runtime developme
 - [Runtime development](docs/development/runtime.md)
 - [Frontend development](docs/development/frontend.md)
 - [Complete development testing and pre-PR verification](docs/development/testing.md)
+- [Dependency and toolchain inventory](docs/development/dependencies.md)
 - [Configuration reference](docs/admin/configuration.md)
 - [Schedule-domain notes](docs/development/schedule-domain.md)
 

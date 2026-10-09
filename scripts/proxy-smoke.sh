@@ -86,7 +86,7 @@ services:
     networks:
       - proxy-net
   proxy:
-    image: $([[ "$proxy" == caddy ]] && printf 'caddy:2.11.4-alpine' || ([[ "$proxy" == nginx ]] && printf 'nginx:1.30.3-alpine' || printf 'traefik:v3.7.7'))
+    image: $([[ "$proxy" == caddy ]] && printf 'caddy:2.11.7-alpine' || ([[ "$proxy" == nginx ]] && printf 'nginx:1.30.5-alpine' || printf 'traefik:v3.7.14'))
     depends_on:
       app:
         condition: service_started

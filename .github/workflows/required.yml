@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
           cache: true
           cache-dependency-path: backend/go.sum
       - name: Validate autonomous bootstrap
@@ -69,7 +69,7 @@ jobs:
         working-directory: backend
         run: go build ./...
       - name: Verify local gate failure propagation and CI workflow structure
-        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py
+        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py
 
   api:
     name: api
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
           cache: false
       - uses: actions/setup-node@v4
         with:
@@ -137,10 +137,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
           cache: true
           cache-dependency-path: backend/go.sum
-      - name: Install native PostgreSQL 18 client and sqlc 1.30.0
+      - name: Install native PostgreSQL 18 client and sqlc 1.31.1
         shell: bash
         run: |
           set -euo pipefail
@@ -158,12 +158,12 @@ jobs:
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/bin"
-          archive="$RUNNER_TEMP/sqlc_1.30.0_linux_amd64.tar.gz"
-          curl -fsSL --retry 3 -o "$archive" https://github.com/sqlc-dev/sqlc/releases/download/v1.30.0/sqlc_1.30.0_linux_amd64.tar.gz
-          printf '%s  %s\n' '468aecee071bfe55e97fcbcac52ea0208eeca444f67736f3b8f0f3d6a106132e' "$archive" | sha256sum -c -
+          archive="$RUNNER_TEMP/sqlc_1.31.1_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" https://github.com/sqlc-dev/sqlc/releases/download/v1.31.1/sqlc_1.31.1_linux_amd64.tar.gz
+          printf '%s  %s\n' '497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354' "$archive" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP/bin" sqlc
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/bin/sqlc" version | grep -Fx 'v1.30.0'
+          "$RUNNER_TEMP/bin/sqlc" version | grep -Fx 'v1.31.1'
       - name: Bootstrap PostgreSQL 18 integration service
         shell: bash
         run: |
@@ -233,7 +233,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
           cache: true
           cache-dependency-path: backend/go.sum
       - name: Install native PostgreSQL 18 client
@@ -300,7 +300,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.9'
           cache: true
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-node@v4

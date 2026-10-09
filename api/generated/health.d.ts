@@ -854,6 +854,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "required": true
+                     *     }
+                     */
                     "application/json": components["schemas"]["SetupStatus"];
                 };
             };
@@ -865,6 +870,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -876,6 +889,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -923,12 +944,14 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "login": "owner",
                  *       "password": "a-long-unique-passphrase",
                  *       "householdName": "Veselí",
                  *       "timezone": "Europe/Prague"
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["SetupRequest"];
             };
         };
@@ -942,6 +965,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "required": false
+                     *     }
+                     */
                     "application/json": components["schemas"]["SetupStatus"];
                 };
             };
@@ -953,6 +981,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -964,6 +1000,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthorized"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -975,6 +1019,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -986,6 +1037,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "setup_complete"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1030,6 +1089,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_timezone",
+                     *       "field": "timezone"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["ValidationProblem"];
                 };
             };
@@ -1042,6 +1110,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1064,6 +1140,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1114,6 +1198,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1164,6 +1255,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "linked": false
+                     *     }
+                     */
                     "application/json": components["schemas"]["OIDCIdentityStatus"];
                 };
             };
@@ -1187,6 +1283,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1198,6 +1302,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1209,6 +1320,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "oidc_disabled"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1242,6 +1361,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1281,6 +1408,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "authorizationUrl": "https://idp.example/authorize?client_id=client&state=opaque"
+                     *     }
+                     */
                     "application/json": components["schemas"]["OIDCStartResponse"];
                 };
             };
@@ -1292,6 +1424,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1304,6 +1444,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "invalid_credentials"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1315,6 +1463,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1326,6 +1481,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "oidc_disabled"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1348,6 +1511,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "already_signed_in"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1359,6 +1530,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Payload Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1370,6 +1549,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1392,6 +1579,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_value",
+                     *       "field": "purpose"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["OIDCValidationProblem"];
                 };
             };
@@ -1405,6 +1601,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1525,6 +1729,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "login": "owner",
+                     *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *       "expiresAt": "2026-11-05T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Session"];
                 };
             };
@@ -1536,6 +1748,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1548,6 +1768,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1559,6 +1787,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1570,6 +1806,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1581,6 +1824,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1606,10 +1857,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "login": "owner",
                  *       "password": "a-long-unique-passphrase"
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["LoginRequest"];
             };
         };
@@ -1624,6 +1877,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "login": "owner",
+                     *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *       "expiresAt": "2026-11-05T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Session"];
                 };
             };
@@ -1635,6 +1896,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1646,6 +1915,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "invalid_credentials"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1657,6 +1934,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1668,6 +1953,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1679,6 +1972,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1690,6 +1991,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1702,6 +2010,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1713,6 +2029,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1756,6 +2080,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1767,6 +2099,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1778,6 +2118,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1789,6 +2136,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1839,6 +2194,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "limit"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1851,6 +2215,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1873,6 +2245,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1884,6 +2264,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1895,6 +2282,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1948,6 +2343,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90",
+                     *       "role": "member",
+                     *       "status": "pending",
+                     *       "createdAt": "2026-10-08T10:00:00Z",
+                     *       "expiresAt": "2026-10-15T10:00:00Z",
+                     *       "acceptedAt": null,
+                     *       "revokedAt": null,
+                     *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                     *     }
+                     */
                     "application/json": components["schemas"]["InvitationCreated"];
                 };
             };
@@ -1959,6 +2366,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "idempotency_key_required"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1971,6 +2386,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1982,6 +2405,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "owner_required"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -1993,6 +2424,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2004,6 +2443,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2015,6 +2462,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2026,6 +2481,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2037,6 +2499,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2081,6 +2551,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2093,6 +2571,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2115,6 +2601,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2126,6 +2620,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2137,6 +2638,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2157,11 +2666,13 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                  *       "login": "invited_user",
                  *       "password": "a sufficiently long passphrase"
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["AcceptInvitationNewAccountRequest"];
             };
         };
@@ -2186,6 +2697,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2197,6 +2716,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2208,6 +2735,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "invalid_invitation"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2219,6 +2754,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "login_unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2230,6 +2773,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2241,6 +2792,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2252,6 +2811,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2263,6 +2829,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_format",
+                     *       "field": "login"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["InvitationValidationProblem"];
                 };
             };
@@ -2276,6 +2851,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2287,6 +2870,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2307,9 +2898,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["AcceptInvitationRequest"];
             };
         };
@@ -2334,6 +2927,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2346,6 +2947,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2357,6 +2966,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2368,6 +2985,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "invalid_invitation"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2390,6 +3015,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2401,6 +3034,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2412,6 +3053,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2425,6 +3073,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2436,6 +3092,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2486,6 +3150,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "cursor"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2498,6 +3171,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2509,6 +3190,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2520,6 +3209,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2531,6 +3228,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2542,6 +3246,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2581,6 +3293,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
+                     *       "name": "Veselí",
+                     *       "timezone": "Europe/Prague",
+                     *       "createdAt": "2026-10-06T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Household"];
                 };
             };
@@ -2592,6 +3312,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2604,6 +3332,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2615,6 +3351,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2626,6 +3370,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2637,6 +3389,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2648,6 +3407,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2689,6 +3456,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *           "type": "vehicle",
+                     *           "name": "Octavia",
+                     *           "archived": false,
+                     *           "createdAt": "2026-10-07T10:00:00Z",
+                     *           "updatedAt": "2026-10-07T10:00:00Z"
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["SubjectList"];
                 };
             };
@@ -2700,6 +3482,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "limit"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["QueryProblem"];
                 };
             };
@@ -2712,6 +3503,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2723,6 +3522,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2734,6 +3541,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2745,6 +3560,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2756,6 +3578,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2782,10 +3612,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "name": "Octavia",
                  *       "type": "vehicle"
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["CreateSubjectRequest"];
             };
         };
@@ -2808,6 +3640,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "type": "vehicle",
+                     *       "name": "Octavia",
+                     *       "archived": false,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-10-07T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Subject"];
                 };
             };
@@ -2819,6 +3661,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2831,6 +3681,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2842,6 +3700,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2853,6 +3719,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2864,6 +3738,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Request Entity Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2875,6 +3757,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2886,6 +3776,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2897,6 +3794,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_length",
+                     *       "field": "name"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["SubjectValidationProblem"];
                 };
             };
@@ -2908,6 +3814,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2952,6 +3866,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "type": "vehicle",
+                     *       "name": "Octavia",
+                     *       "archived": false,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-10-07T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Subject"];
                 };
             };
@@ -2963,6 +3887,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2975,6 +3907,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2986,6 +3926,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -2997,6 +3945,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3008,6 +3964,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3019,6 +3982,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3055,9 +4026,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "name": "Škoda Octavia"
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["UpdateSubjectRequest"];
             };
         };
@@ -3075,6 +4048,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "type": "vehicle",
+                     *       "name": "Škoda Octavia",
+                     *       "archived": false,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-10-07T11:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Subject"];
                 };
             };
@@ -3086,6 +4069,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3098,6 +4089,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3109,6 +4108,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3120,6 +4127,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3131,6 +4146,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3142,6 +4165,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Request Entity Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3153,6 +4184,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3164,6 +4203,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3175,6 +4221,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_length",
+                     *       "field": "name"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["SubjectValidationProblem"];
                 };
             };
@@ -3186,6 +4241,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3197,6 +4260,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3240,6 +4311,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80",
+                     *           "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *           "responsibleUserId": null,
+                     *           "title": "Renew car insurance",
+                     *           "notes": "Compare two quotes first.",
+                     *           "attentionOn": "2026-11-01",
+                     *           "recurrence": null,
+                     *           "workflowState": "open",
+                     *           "attention": "upcoming",
+                     *           "archived": false,
+                     *           "done": false,
+                     *           "lastCompletedOn": null,
+                     *           "createdAt": "2026-10-07T10:00:00Z",
+                     *           "updatedAt": "2026-10-07T10:00:00Z"
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["ItemList"];
                 };
             };
@@ -3251,6 +4345,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "limit"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["QueryProblem"];
                 };
             };
@@ -3263,6 +4366,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3274,6 +4385,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3285,6 +4404,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3296,6 +4423,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3307,6 +4441,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3333,7 +4475,8 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "title": "Replace water filter",
                  *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
                  *       "historicalCompletedOn": "2026-10-06",
@@ -3342,7 +4485,8 @@ export interface operations {
                  *         "intervalUnit": "month",
                  *         "mode": "fixed"
                  *       }
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["CreateItemRequest"];
             };
         };
@@ -3365,6 +4509,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80",
+                     *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "responsibleUserId": null,
+                     *       "title": "Replace water filter",
+                     *       "notes": null,
+                     *       "attentionOn": "2027-04-06",
+                     *       "recurrence": {
+                     *         "intervalValue": 6,
+                     *         "intervalUnit": "month",
+                     *         "mode": "fixed"
+                     *       },
+                     *       "workflowState": "open",
+                     *       "attention": "upcoming",
+                     *       "archived": false,
+                     *       "done": false,
+                     *       "lastCompletedOn": "2026-10-06",
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-10-07T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Item"];
                 };
             };
@@ -3376,6 +4542,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3388,6 +4562,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3399,6 +4581,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3410,6 +4600,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3421,6 +4619,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Request Entity Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3432,6 +4638,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3443,6 +4657,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3454,6 +4675,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_length",
+                     *       "field": "title"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["ItemValidationProblem"];
                 };
             };
@@ -3465,6 +4695,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3509,6 +4747,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "nextCursor": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["CompletionList"];
                 };
             };
@@ -3520,6 +4764,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "cursor"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["QueryProblem"];
                 };
             };
@@ -3532,6 +4785,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3543,6 +4804,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3554,6 +4823,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3565,6 +4842,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3576,6 +4860,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3634,6 +4926,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90",
+                     *       "itemId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80",
+                     *       "completedOn": "2026-10-07",
+                     *       "completedByUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "cycleAttentionOn": "2026-10-01",
+                     *       "recurrence": null,
+                     *       "nextAttentionOn": null,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "undoneAt": null,
+                     *       "undoneByUserId": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["Completion"];
                 };
             };
@@ -3645,6 +4951,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_idempotency_key"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["CompletionProblem"];
                 };
             };
@@ -3657,6 +4971,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3668,6 +4990,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3679,6 +5009,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3690,6 +5028,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "item_done"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["CompletionProblem"];
                 };
             };
@@ -3701,6 +5047,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3712,6 +5066,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3723,6 +5085,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3734,6 +5104,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3745,6 +5122,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "future_date",
+                     *       "field": "completedOn"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["CompletionProblem"];
                 };
             };
@@ -3756,6 +5142,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3767,6 +5161,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3804,9 +5206,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "undone": true
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["UndoCompletionRequest"];
             };
         };
@@ -3819,6 +5223,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90",
+                     *       "itemId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80",
+                     *       "completedOn": "2026-10-07",
+                     *       "completedByUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "cycleAttentionOn": "2026-10-01",
+                     *       "recurrence": null,
+                     *       "nextAttentionOn": null,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "undoneAt": "2026-10-07T11:00:00Z",
+                     *       "undoneByUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Completion"];
                 };
             };
@@ -3830,6 +5248,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3842,6 +5268,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3853,6 +5287,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3864,6 +5306,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3875,6 +5325,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "completion_not_latest"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["CompletionProblem"];
                 };
             };
@@ -3886,6 +5344,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3897,6 +5363,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3908,6 +5382,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3919,6 +5401,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3930,6 +5419,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_value",
+                     *       "field": "undone"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["CompletionProblem"];
                 };
             };
@@ -3941,6 +5439,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3952,6 +5458,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3996,6 +5510,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80",
+                     *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "responsibleUserId": null,
+                     *       "title": "Renew car insurance",
+                     *       "notes": "Compare two quotes first.",
+                     *       "attentionOn": "2026-11-01",
+                     *       "recurrence": null,
+                     *       "workflowState": "open",
+                     *       "attention": "upcoming",
+                     *       "archived": false,
+                     *       "done": false,
+                     *       "lastCompletedOn": null,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-10-07T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Item"];
                 };
             };
@@ -4007,6 +5539,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4019,6 +5559,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4030,6 +5578,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4041,6 +5597,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4052,6 +5616,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4063,6 +5634,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4099,13 +5678,15 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /** @example {
+                /**
+                 * @example {
                  *       "recurrence": {
                  *         "intervalValue": 1,
                  *         "intervalUnit": "year",
                  *         "mode": "fixed"
                  *       }
-                 *     } */
+                 *     }
+                 */
                 "application/json": components["schemas"]["UpdateItemRequest"];
             };
         };
@@ -4123,6 +5704,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80",
+                     *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "responsibleUserId": null,
+                     *       "title": "Renew car insurance",
+                     *       "notes": "Compare two quotes first.",
+                     *       "attentionOn": "2026-11-01",
+                     *       "recurrence": {
+                     *         "intervalValue": 1,
+                     *         "intervalUnit": "year",
+                     *         "mode": "fixed"
+                     *       },
+                     *       "workflowState": "open",
+                     *       "attention": "upcoming",
+                     *       "archived": false,
+                     *       "done": false,
+                     *       "lastCompletedOn": null,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-10-07T11:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Item"];
                 };
             };
@@ -4134,6 +5737,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4146,6 +5757,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4157,6 +5776,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4168,6 +5795,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4179,6 +5814,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4190,6 +5833,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Request Entity Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4201,6 +5852,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4212,6 +5871,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4223,6 +5889,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_length",
+                     *       "field": "title"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["ItemValidationProblem"];
                 };
             };
@@ -4234,6 +5909,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4245,6 +5928,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -4273,6 +5964,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "ok"
+                     *     }
+                     */
                     "application/json": components["schemas"]["StatusResponse"];
                 };
             };
@@ -4301,6 +5997,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "ok"
+                     *     }
+                     */
                     "application/json": components["schemas"]["StatusResponse"];
                 };
             };
@@ -4312,6 +6013,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };

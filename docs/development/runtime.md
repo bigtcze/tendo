@@ -14,7 +14,7 @@ This runtime includes the household item and invitation flows described in the u
 ## Prerequisites
 
 - Docker Engine with the Compose plugin
-- Go 1.26.8, Node.js 22.22.2+ (or 24+) with npm, Make, Python 3, curl, and OpenSSL for Compose checks
+- Go 1.26.9, Node.js 22.22.2+ (or 24+) with npm, Make, Python 3, curl, and OpenSSL for Compose checks
 - For the complete native pre-PR suite, also see [development testing](testing.md) for native PostgreSQL 18, sqlc, and Playwright prerequisites
 - An unused local TCP port (default `8080`)
 
