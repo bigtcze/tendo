@@ -103,6 +103,10 @@ jobs:
       - name: PostgreSQL backup and restore smoke
         run: bash scripts/backup-restore-smoke.sh
 
+      - name: Full household backup and restore smoke
+        timeout-minutes: 15
+        run: bash scripts/household-backup-smoke.sh
+
       - name: Browser E2E against production build and PostgreSQL
         timeout-minutes: 15
         run: bash scripts/e2e-smoke.sh
