@@ -60,6 +60,27 @@ type LocalCredential struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type OidcFlow struct {
+	StateHash        []byte
+	BrowserTokenHash []byte
+	Issuer           string
+	ClientID         string
+	Nonce            string
+	PkceVerifier     string
+	Purpose          string
+	UserID           pgtype.UUID
+	SessionID        pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	ExpiresAt        pgtype.Timestamptz
+}
+
+type OidcIdentity struct {
+	Issuer    string
+	Subject   string
+	UserID    pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+}
+
 type Subject struct {
 	ID          pgtype.UUID
 	HouseholdID pgtype.UUID

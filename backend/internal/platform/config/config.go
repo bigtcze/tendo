@@ -23,6 +23,10 @@ type Config struct {
 	ShutdownTimeout   time.Duration
 	SetupToken        string
 	TestClockNow      *time.Time
+	OIDCIssuer        string
+	OIDCClientID      string
+	OIDCClientSecret  string
+	OIDCDisplayName   string
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -60,6 +64,9 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return c, errors.New("TENDO_PUBLIC_URL must be an absolute HTTP(S) root origin")
 	}
 	c.PublicURL = canonical
+	if err := loadOIDC(&c, lookup, canonical); err != nil {
+		return Config{}, err
+	}
 	if proxies, ok := lookup("TENDO_TRUSTED_PROXY_CIDRS"); ok && strings.TrimSpace(proxies) != "" {
 		for _, entry := range strings.Split(proxies, ",") {
 			entry = strings.TrimSpace(entry)
