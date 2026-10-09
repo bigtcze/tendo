@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/identity/oidcprovider"
@@ -33,7 +36,7 @@ func (p *captureOIDCProvider) Exchange(ctx context.Context, x identity.OIDCExcha
 }
 
 func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) {
-	ctx, admin, app := invitationPools(t)
+	ctx, admin, _ := invitationPools(t)
 	var user, session string
 	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("oidc_cancel_%d", time.Now().UnixNano())).Scan(&user); err != nil {
 		t.Fatal(err)
@@ -50,32 +53,48 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 		defer cancel()
 		_, _ = admin.Exec(cleanup, `DROP TRIGGER IF EXISTS tendo_oidc_test_delay_session_insert ON user_sessions; DROP FUNCTION IF EXISTS tendo_oidc_test_delay_session_insert()`)
 	})
-	repo := New(app, nil)
-	op, cancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
+	done := make(chan error, 2)
 	now := time.Now().UTC().Truncate(time.Second)
+	workerConfig, err := pgxpool.ParseConfig(os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerConfig.ConnConfig.RuntimeParams["application_name"] = "tendo_oidc_cancel_rollback_test"
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	worker, err := pgxpool.NewWithConfig(workerCtx, workerConfig)
+	if err != nil {
+		workerCancel()
+		t.Fatal(err)
+	}
+	defer worker.Close()
+	defer workerCancel()
+	workerRepo := New(worker, nil)
 	go func() {
-		_, e := repo.LinkAndCreateSession(op, identity.OIDCFlow{UserID: user, SessionID: session}, identity.OIDCVerifiedIdentity{Issuer: "https://issuer.test", Subject: "cancelled-subject"}, identity.NewSession{UserID: user, TokenHash: bytes32(211), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, oldHash)
+		_, e := workerRepo.LinkAndCreateSession(workerCtx, identity.OIDCFlow{UserID: user, SessionID: session}, identity.OIDCVerifiedIdentity{Issuer: "https://issuer.test", Subject: "cancelled-subject"}, identity.NewSession{UserID: user, TokenHash: bytes32(211), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, oldHash)
 		done <- e
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		var active bool
-		err := admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE query ILIKE '%INSERT INTO user_sessions%' AND state='active')`).Scan(&active)
+		err := admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND application_name='tendo_oidc_cancel_rollback_test' AND (query ILIKE '%INSERT INTO user_sessions%' OR wait_event_type='Extension') AND state='active')`).Scan(&active)
 		if err != nil {
-			cancel()
+			workerCancel()
 			t.Fatal(err)
 		}
 		if active {
 			break
 		}
 		if time.Now().After(deadline) {
-			cancel()
+			workerCancel()
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+			}
 			t.Fatal("session insert trigger was not reached")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	cancel()
+	workerCancel()
 	select {
 	case err := <-done:
 		if err == nil {

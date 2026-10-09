@@ -101,8 +101,7 @@ function assertResponse(path, status, body, method, headers = {}) {
     const etagPattern = responseSpec.headers.ETag.schema?.pattern
     if (etagPattern) assert.match(headers.etag, new RegExp(etagPattern), `${path} HTTP ${status} ETag does not match its documented pattern`)
   }
-  const cookieHeader = responseSpec.headers?.['Set-Cookie'] ?? (path === '/api/v1/auth/oidc/start' && status === 200 ? { description: 'OIDC start emits flow binding.' } : undefined)
-  const hasFlowCookieContract = Boolean(cookieHeader) || (path === '/api/v1/auth/oidc/start' && status === 200)
+  const cookieHeader = responseSpec.headers?.['Set-Cookie']
   const cookieRef = cookieHeader?.$ref
   if (cookieRef && path === '/api/v1/auth/oidc/identity') {
     // On authenticated routes this header describes a stale session clear; a valid
@@ -111,6 +110,11 @@ function assertResponse(path, status, body, method, headers = {}) {
   } else if (cookieRef) {
     const cookieSpec = contract.components.headers[cookieRef.split('/').pop()]
     if (cookieSpec.required === true || headers['set-cookie'] !== undefined) assertSessionCookie(path, status, headers['set-cookie'])
+  } else if (path === '/api/v1/auth/oidc/start' && status === 200) {
+    assert.ok(cookieHeader, `${path} HTTP ${status} missing Set-Cookie contract declaration`)
+    const cookies = cookieValues(headers['set-cookie'])
+    assert.equal(cookies.length, 1, `${path} HTTP ${status} must set exactly one flow cookie`)
+    assertFlowCookie(path,status,cookies[0],false)
   } else if (cookieHeader && path === '/api/v1/auth/oidc/start') {
     const cookies = cookieValues(headers['set-cookie'])
     assert.equal(cookies.length, 1, `${path} HTTP ${status} must set exactly one flow cookie`)

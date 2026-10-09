@@ -54,6 +54,21 @@ func TestProviderValidation(t *testing.T) {
 	}
 }
 
+func TestFractionalIssuedAtNumericDateAccepted(t *testing.T) {
+	fake, err := testoidc.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fake.Close()
+	fake.Faults.FractionalIssuedAt = true
+	p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, &http.Client{Timeout: 2 * time.Second}, time.Now, true)
+	code, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
+	verified, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
+	if err != nil || verified.Subject != "subject-1" {
+		t.Fatalf("fractional NumericDate rejected: %+v err=%v", verified, err)
+	}
+}
+
 func TestProviderSuccessAndAuthorizationParameters(t *testing.T) {
 	fake, err := testoidc.New()
 	if err != nil {

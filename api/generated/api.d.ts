@@ -1106,6 +1106,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description A supplied Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Method not allowed. */
             405: {
                 headers: {
@@ -1173,6 +1184,17 @@ export interface operations {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
                     "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A supplied Origin is foreign, malformed, or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1444,7 +1466,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description A supplied Origin is foreign or duplicated. */
+            /** @description A supplied Origin is foreign, malformed, or duplicated. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -561,11 +561,18 @@ func TestOIDCRedirectURIIgnoresForgedHost(t *testing.T) {
 func TestOIDCCallbackRequestLogOmitsSecrets(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
-	callback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusSeeOther) })
+	callback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "/login#oidcError=invalid_flow")
+		w.WriteHeader(http.StatusSeeOther)
+	})
 	wrapped := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: oidcTestPublicURL}, func(r chi.Router) { r.Get("/api/v1/auth/oidc/callback", callback) }, logger)
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/callback?code=private-code&state=private-state", nil)
+	r := httptest.NewRequest(http.MethodGet, "http://tendo.test/api/v1/auth/oidc/callback?code=private-code&state=private-state", nil)
 	r.AddCookie(&http.Cookie{Name: "tendo_oidc", Value: "private-cookie"})
-	wrapped.ServeHTTP(httptest.NewRecorder(), r)
+	response := httptest.NewRecorder()
+	wrapped.ServeHTTP(response, r)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d", response.Code)
+	}
 	for _, secret := range []string{"private-code", "private-state", "private-cookie", "code="} {
 		if strings.Contains(logs.String(), secret) {
 			t.Fatalf("request log contains %q: %s", secret, logs.String())

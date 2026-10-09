@@ -244,15 +244,19 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	if _, err = repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user1, SessionID: u1session}, identity.OIDCVerifiedIdentity{Issuer: verified.Issuer, Subject: "another-subject"}, identity.NewSession{UserID: user1, TokenHash: bytes32(118), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(4)); !errors.Is(err, identity.ErrOIDCConflict) {
 		t.Fatalf("second subject err=%v", err)
 	}
-	var rollbackSession string
-	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e5',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, user1).Scan(&rollbackSession); err != nil {
+	var rollbackUser, rollbackSession string
+	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("oidc_rollback_%d", time.Now().UnixNano())).Scan(&rollbackUser); err != nil {
 		t.Fatal(err)
 	}
-	// A token hash already held by an existing session forces insertion to fail after identity insert.
-	if _, err = repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: user1, SessionID: rollbackSession}, identity.OIDCVerifiedIdentity{Issuer: verified.Issuer, Subject: "rollback-subject"}, identity.NewSession{UserID: user1, TokenHash: bytes32(110), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(5)); err == nil {
-		t.Fatal("duplicate token hash unexpectedly linked")
+	if err = admin.QueryRow(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,decode(repeat('e5',32),'hex'),now(),now()+interval '1 day') RETURNING id::text`, rollbackUser).Scan(&rollbackSession); err != nil {
+		t.Fatal(err)
 	}
-	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_identities WHERE subject='rollback-subject'`).Scan(&count); err != nil || count != 0 {
+	_, rollbackErr := repo.LinkAndCreateSession(ctx, identity.OIDCFlow{UserID: rollbackUser, SessionID: rollbackSession}, identity.OIDCVerifiedIdentity{Issuer: "https://rollback-issuer.test", Subject: "rollback-subject"}, identity.NewSession{UserID: rollbackUser, TokenHash: bytes32(110), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, bytes32(5))
+	var pgErr *pgconn.PgError
+	if !errors.As(rollbackErr, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "user_sessions_token_hash_key" {
+		t.Fatalf("rollback error=%v, expected duplicate user_sessions token hash", rollbackErr)
+	}
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_identities WHERE issuer='https://rollback-issuer.test' AND subject='rollback-subject'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("rollback identity count=%d err=%v", count, err)
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM user_sessions WHERE id=$1::uuid`, rollbackSession).Scan(&count); err != nil || count != 1 {

@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -72,15 +72,15 @@ func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, error) {
 	ctx = oidc.ClientContext(ctx, p.client)
 	provider, err := oidc.NewProvider(ctx, p.issuer)
 	if err != nil {
-		return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+		return nil, identity.ErrOIDCProviderUnavailable
 	}
 	var claims discoveryClaims
 	if err = provider.Claims(&claims); err != nil {
-		return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+		return nil, identity.ErrOIDCProviderUnavailable
 	}
 	for _, endpoint := range []string{claims.AuthorizationEndpoint, claims.TokenEndpoint, claims.JWKSURI} {
 		if endpoint == "" || validateEndpoint(endpoint, p.allowHTTP) != nil {
-			return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+			return nil, identity.ErrOIDCProviderUnavailable
 		}
 	}
 	if len(claims.ResponseTypesSupported) > 0 {
@@ -92,7 +92,7 @@ func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, error) {
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+			return nil, identity.ErrOIDCProviderUnavailable
 		}
 	}
 	p.discovered = provider
@@ -113,7 +113,7 @@ func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthoriz
 		return "", err
 	}
 	if a.Issuer != p.issuer || a.ClientID != p.clientID {
-		return "", fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return "", identity.ErrOIDCAuthenticationFailed
 	}
 	sum := sha256.Sum256([]byte(a.PKCEVerifier))
 	cfg := oauth2.Config{ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(), RedirectURL: a.RedirectURL, Scopes: []string{oidc.ScopeOpenID}}
@@ -126,7 +126,7 @@ func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthoriz
 
 func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) (identity.OIDCVerifiedIdentity, error) {
 	if x.CallbackIssuer != "" && x.CallbackIssuer != p.issuer {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	provider, err := p.discovery(ctx)
 	if err != nil {
@@ -138,37 +138,41 @@ func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) 
 	if err != nil {
 		var retrieve *oauth2.RetrieveError
 		if errors.As(err, &retrieve) && retrieve.Response != nil && retrieve.Response.StatusCode >= 400 && retrieve.Response.StatusCode < 500 {
-			return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+			return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 		}
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCProviderUnavailable)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCProviderUnavailable
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok || raw == "" {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	id, err := provider.Verifier(&oidc.Config{ClientID: p.clientID, Now: p.clock}).Verify(ctx, raw)
 	if err != nil {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	if id.Nonce != x.Nonce || id.Issuer != p.issuer || id.Subject == "" || len(id.Subject) > 255 || id.IssuedAt.After(p.clock().Add(time.Minute)) {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	var claims struct {
 		Azp      string       `json:"azp"`
 		IssuedAt *json.Number `json:"iat"`
 	}
 	if id.Claims(&claims) != nil || claims.IssuedAt == nil {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
-	if _, err = claims.IssuedAt.Int64(); err != nil {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+	issuedAt, parseErr := claims.IssuedAt.Float64()
+	if parseErr != nil {
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
+	}
+	if math.IsNaN(issuedAt) || math.IsInf(issuedAt, 0) || issuedAt < 0 || issuedAt > float64(p.clock().Add(time.Minute).Unix()) {
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	if len(id.Audience) > 1 && claims.Azp != p.clientID || claims.Azp != "" && claims.Azp != p.clientID {
-		return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	for _, r := range id.Subject {
 		if r < 0x21 || r > 0x7e {
-			return identity.OIDCVerifiedIdentity{}, fmt.Errorf("%w", identity.ErrOIDCAuthenticationFailed)
+			return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 		}
 	}
 	return identity.OIDCVerifiedIdentity{Issuer: id.Issuer, Subject: id.Subject}, nil

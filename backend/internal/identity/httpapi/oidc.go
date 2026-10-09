@@ -40,13 +40,6 @@ func (h *OIDCHandler) Register(r chi.Router) {
 	r.Get("/api/v1/auth/oidc/callback", h.callback)
 }
 
-func (h *OIDCHandler) requireSession(next http.Handler) http.Handler {
-	if h.sessions == nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { problem(w, 401, "unauthenticated") })
-	}
-	return h.sessions.RequireSession(next)
-}
-
 func (h *OIDCHandler) secure() bool { return strings.HasPrefix(h.publicURL, "https://") }
 func (h *OIDCHandler) flowCookieName() string {
 	if h.secure() {

@@ -21,7 +21,7 @@ type Faults struct {
 	Delay                                                                                                                                                  time.Duration
 	MissingAuthEndpoint, MissingTokenEndpoint, MissingJWKSURI, WrongJWKSHTTP, SecureAuthEndpoints, NoCodeResponseType                                      bool
 	DiscoveryUnavailable, InvalidGrant                                                                                                                     bool
-	SubjectEmpty, SubjectNonASCII, SubjectTooLong, MissingIssuedAt, StringIssuedAt, DisallowedAlgorithm                                                    bool
+	SubjectEmpty, SubjectNonASCII, SubjectTooLong, MissingIssuedAt, StringIssuedAt, FractionalIssuedAt, DisallowedAlgorithm                                bool
 }
 type Provider struct {
 	Server                                       *httptest.Server
@@ -230,6 +230,9 @@ func (p *Provider) idToken(c code) (string, error) {
 	}
 	if p.Faults.StringIssuedAt {
 		claims["iat"] = "not-numeric"
+	}
+	if p.Faults.FractionalIssuedAt {
+		claims["iat"] = float64(now.Unix()) + 0.5
 	}
 	if p.Faults.WrongIssuer {
 		claims["iss"] = "https://wrong.test"
