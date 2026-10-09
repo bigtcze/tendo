@@ -12,8 +12,8 @@ if [[ ! -x "$root/frontend/node_modules/.bin/playwright" ]]; then
   exit 1
 fi
 installed=$(node -p "require('$root/frontend/node_modules/@playwright/test/package.json').version")
-if [[ "$installed" != 1.63.0 ]]; then
-  printf 'Playwright version mismatch: expected 1.63.0, found %s\n' "$installed" >&2
+if [[ "$installed" != 1.64.0 ]]; then
+  printf 'Playwright version mismatch: expected 1.64.0, found %s\n' "$installed" >&2
   exit 1
 fi
 command -v go >/dev/null 2>&1 || { printf 'go is required\n' >&2; exit 1; }

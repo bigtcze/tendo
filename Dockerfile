@@ -8,7 +8,7 @@ COPY frontend/ ./
 RUN npm run build && test -f /src/backend/internal/platform/webui/dist/index.html
 
 # Build using the project-pinned Go toolchain; keep generated binary independent of libc.
-FROM golang:1.26.8-bookworm AS build
+FROM golang:1.26.9-bookworm AS build
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

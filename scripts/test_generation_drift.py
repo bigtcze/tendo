@@ -135,7 +135,7 @@ class GenerationDriftTests(unittest.TestCase):
         env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
         result = subprocess.run(["bash", str(self.root / "scripts/check-sqlc.sh")], cwd=self.root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("expected v1.30.0, found v1.29.0", result.stdout)
+        self.assertIn("expected v1.31.1, found v1.29.0", result.stdout)
 
 
 if __name__ == "__main__":

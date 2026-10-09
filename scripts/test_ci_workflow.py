@@ -24,7 +24,7 @@ REQUIRED_COMMANDS = (
     "python3 scripts/test_postgres_live.py",
     "python3 -m unittest scripts/test_generation_drift.py",
     "python3 scripts/test_e2e_interrupt.py",
-    "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py",
+    "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py",
     "npx --no-install playwright install --with-deps chromium",
     'bash "scripts/${SMOKE}.sh"',
     "bash scripts/e2e-smoke.sh",
@@ -87,6 +87,11 @@ def job_section(text: str, job_id: str) -> str:
     return "\n".join(lines[start:end])
 
 
+def active_text(text: str) -> str:
+    """Workflow text with comments removed, so commented-out commands never count."""
+    return "\n".join(re.sub(r"(?:^|\s)#.*$", "", line) for line in text.splitlines())
+
+
 PROJECT_CHECKS = {
     "api": ("working-directory: api", "npm ci", "npm audit --audit-level=moderate", "npm run check"),
     "frontend": ("working-directory: frontend", "npm ci", "npm audit --audit-level=moderate", "npm run check"),
@@ -114,8 +119,9 @@ def workflow_errors(text: str):
         for marker in markers:
             if marker not in section:
                 errors.append(f"{job_id} job is missing: {marker}")
+    active = active_text(text)
     for command in REQUIRED_COMMANDS:
-        if command not in text:
+        if command not in active:
             errors.append(f"mandatory command missing: {command}")
     matrix_line = next((line.strip() for line in text.splitlines() if line.strip().startswith("smoke: [")), "")
     if not matrix_line:
@@ -153,10 +159,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertCountEqual(jobs, ["backend", "api", "frontend", "postgres", "e2e", "deployment", "required"])
         self.assertIn("services:", self.text)
         self.assertIn("image: postgres:18.6-bookworm", self.text)
-        self.assertIn("sqlc_1.30.0_linux_amd64.tar.gz", self.text)
+        self.assertIn("sqlc_1.31.1_linux_amd64.tar.gz", self.text)
         self.assertIn("TENDO_TEST_POSTGRES_ADMIN_URL:", self.text)
         self.assertIn("postgresql-client-18", self.text)
-        self.assertIn("468aecee071bfe55e97fcbcac52ea0208eeca444f67736f3b8f0f3d6a106132e", self.text)
+        self.assertIn("497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354", self.text)
         self.assertIn("postgres:ci-postgres-password@127.0.0.1:5432/postgres", self.text)
         self.assertIn("PGPASSWORD=ci-postgres-password psql", self.text)
         self.assertIn('bash "scripts/${SMOKE}.sh"', self.text)
@@ -178,6 +184,13 @@ class WorkflowStructureTests(unittest.TestCase):
         errors = workflow_errors(mutated)
         self.assertTrue(any("missing deployment matrix smoke: oidc-smoke" in error for error in errors), errors)
 
+    def test_commented_out_command_fails_structure_validation(self):
+        command = "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py"
+        mutated = self.text.replace(f"run: {command}", f"run: true  # {command}", 1)
+        self.assertNotEqual(mutated, self.text)
+        errors = workflow_errors(mutated)
+        self.assertTrue(any(f"mandatory command missing: {command}" in error for error in errors), errors)
+
     def test_missing_aggregate_need_fails_structure_validation(self):
         mutated = self.text.replace("needs: [backend, api, frontend, postgres, e2e, deployment]", "needs: [backend, api, frontend, postgres, e2e]", 1)
         errors = workflow_errors(mutated)
@@ -198,9 +211,9 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_prerequisites_precede_consumers_within_each_job(self):
         # Jobs run in parallel on fresh runners, so ordering is only meaningful within one job.
-        self.assertIn("python3 -m unittest scripts/test_ci_workflow.py", self.job_text("backend").replace("scripts/test_verify_local.py ", ""))
+        self.assertIn("python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py", active_text(self.job_text("backend")))
         postgres = self.job_text("postgres")
-        self.assert_ordered(postgres, "sqlc_1.30.0_linux_amd64.tar.gz", "CREATE ROLE tendo NOLOGIN", "bash scripts/setup-integration.sh", "bash scripts/check-sqlc.sh")
+        self.assert_ordered(postgres, "sqlc_1.31.1_linux_amd64.tar.gz", "CREATE ROLE tendo NOLOGIN", "bash scripts/setup-integration.sh", "bash scripts/check-sqlc.sh")
         self.assert_ordered(postgres, "working-directory: api\n        run: npm ci", "python3 scripts/test_postgres_live.py")
         self.assert_ordered(postgres, "working-directory: frontend\n        run: npm ci", "npx --no-install playwright install --with-deps chromium", "python3 -m unittest scripts/test_postgres_test_service.py")
         e2e = self.job_text("e2e")

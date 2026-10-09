@@ -2,10 +2,10 @@
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 backend="$root/backend"
-command -v sqlc >/dev/null 2>&1 || { printf 'sqlc 1.30.0 is required (native executable); source the pinned native tools environment or install it and retry\n' >&2; exit 1; }
+command -v sqlc >/dev/null 2>&1 || { printf 'sqlc 1.31.1 is required (native executable); source the pinned native tools environment or install it and retry\n' >&2; exit 1; }
 version=$(sqlc version)
-if [[ "$version" != "v1.30.0" ]]; then
-  printf 'sqlc version mismatch: expected v1.30.0, found %s\n' "$version" >&2
+if [[ "$version" != "v1.31.1" ]]; then
+  printf 'sqlc version mismatch: expected v1.31.1, found %s\n' "$version" >&2
   exit 1
 fi
 tmp=$(mktemp -d)

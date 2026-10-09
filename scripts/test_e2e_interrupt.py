@@ -55,7 +55,7 @@ class E2EWrapperInterruptTests(unittest.TestCase):
    (embedded/"index.html").write_text("old embedded index"); (embedded/"assets/old.js").write_text("old embedded asset")
    for name in ("e2e-smoke.sh","e2e-native-runner.py","postgres-test-service.py"):
     import shutil; shutil.copy2(ROOT/"scripts"/name,repo/"scripts"/name)
-   pkg=repo/"frontend/node_modules/@playwright/test/package.json"; pkg.parent.mkdir(parents=True); pkg.write_text('{"version":"1.63.0"}')
+   pkg=repo/"frontend/node_modules/@playwright/test/package.json"; pkg.parent.mkdir(parents=True); pkg.write_text('{"version":"1.64.0"}')
    pw=repo/"frontend/node_modules/.bin/playwright"; pw.write_text("#!/usr/bin/env bash\nexit 0\n"); pw.chmod(0o755)
    bindir=tmp/"bin";bindir.mkdir()
    go=bindir/"go";go.write_text("#!/usr/bin/env python3\nimport os,sys\na=sys.argv[1:];out=a[a.index('-o')+1];src=os.environ['E2E_FAKE_APP'] if 'oidc-provider' not in a[-1] else os.environ['E2E_FAKE_PROVIDER'];open(out,'w').write(open(src).read());os.chmod(out,0o755)\n");go.chmod(0o755)

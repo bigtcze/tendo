@@ -8,7 +8,7 @@ Today the UI shows first-run onboarding when setup has not been completed (setup
 
 - Node.js 22.22.2 or newer (or 24+) with npm
 - Docker Engine with the Compose plugin (for the backend)
-- Playwright 1.63.0 and matching Chromium browser for native E2E (see [development testing](testing.md))
+- Playwright 1.64.0 and matching Chromium browser for native E2E (see [development testing](testing.md))
 
 ## Run locally
 
@@ -64,7 +64,7 @@ From the repository root, after `npm ci` in `frontend/`:
 bash scripts/e2e-smoke.sh
 ```
 
-It builds the production frontend assets and native Go app/provider binaries, then runs Playwright 1.63.0 against the embedded production UI and real PostgreSQL using the locally installed matching browser. It does not use Docker or Vite's dev server. The app is gracefully stopped and restarted at the controlled 2026-01-15 midnight boundary with the same database; the same future one-off item is verified before and after. These dates use the explicit isolated test clock, never sleeping. The complete serial journey covers onboarding (timezone proposal/correction, wrong setup code, persisted household name/timezone), closing setup, failed/successful sign-in, home, people/things CRUD/archive/restore and no account creation, deep links, Czech/English, narrow/wide viewports, keyboard, sign out, security headers, invitations/member access, item lifecycle/recurrence/history, OIDC link/login/unknown identity/cancel, and authorization boundaries. Artifacts are kept in a unique `frontend/test-results/native-*` directory for diagnosis. See [development testing](testing.md) for the complete pre-PR command and native dependencies.
+It builds the production frontend assets and native Go app/provider binaries, then runs Playwright 1.64.0 against the embedded production UI and real PostgreSQL using the locally installed matching browser. It does not use Docker or Vite's dev server. The app is gracefully stopped and restarted at the controlled 2026-01-15 midnight boundary with the same database; the same future one-off item is verified before and after. These dates use the explicit isolated test clock, never sleeping. The complete serial journey covers onboarding (timezone proposal/correction, wrong setup code, persisted household name/timezone), closing setup, failed/successful sign-in, home, people/things CRUD/archive/restore and no account creation, deep links, Czech/English, narrow/wide viewports, keyboard, sign out, security headers, invitations/member access, item lifecycle/recurrence/history, OIDC link/login/unknown identity/cancel, and authorization boundaries. Artifacts are kept in a unique `frontend/test-results/native-*` directory for diagnosis. See [development testing](testing.md) for the complete pre-PR command and native dependencies.
 
 ## Production build
 
