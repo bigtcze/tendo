@@ -79,6 +79,23 @@ const cases = [
   }],
 ]
 
+test('health checker accepts the backend OIDC start Set-Cookie format and rejects malformed cookies', async () => {
+  const directory = await (await import('node:fs/promises')).mkdtemp(join(tmpdir(), 'tendo-oidc-start-cookie-'))
+  const fixturePath = join(directory, 'responses.json')
+  const run = async (cookie) => {
+    const fixture = { path: '/api/v1/auth/oidc/start', method: 'post', status: 200, headers: { 'x-request-id': requestId, 'cache-control': 'no-store', 'content-type': 'application/json', 'set-cookie': cookie }, body: { authorizationUrl: 'https://issuer.test/authorize' } }
+    await (await import('node:fs/promises')).writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath,[checker.pathname,fixturePath],{env:{...process.env,RUNTIME_HEALTH_ORIGIN:undefined,SETUP_URL:undefined},stdio:['ignore','ignore','pipe']})
+    let stderr='';child.stderr.setEncoding('utf8').on('data',chunk=>{stderr+=chunk});const [code]=await once(child,'close');return {code,stderr}
+  }
+  try {
+    const actual='tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax'
+    const accepted=await run(actual);assert.equal(accepted.code,0,accepted.stderr)
+    const secureHost=await run('__Host-tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax; Secure');assert.equal(secureHost.code,0,secureHost.stderr)
+    for(const malformed of [undefined,'tendo_oidc=bad; Path=/; Max-Age=600; HttpOnly; SameSite=Lax','tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; SameSite=Lax','tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax; Domain=evil.test','__Host-tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax']) { const rejected=await run(malformed);assert.notEqual(rejected.code,0,`accepted malformed flow cookie: ${malformed}`) }
+  } finally { await (await import('node:fs/promises')).rm(directory,{recursive:true,force:true}) }
+})
+
 test('health checker validates OIDC 303 headers and multiple Set-Cookie fields', async () => {
   const directory = await (await import('node:fs/promises')).mkdtemp(join(tmpdir(), 'tendo-oidc-contract-'))
   const fixturePath = join(directory, 'responses.json')

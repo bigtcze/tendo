@@ -30,6 +30,35 @@ function cookieValues(value) {
   return []
 }
 
+function assertFlowCookie(path, status, setCookie, clearing = false) {
+  assert.equal(typeof setCookie, 'string', `${path} HTTP ${status} missing Set-Cookie`)
+  const parts = setCookie.split(';').map(part => part.trim())
+  const pair = parts.shift() ?? ''
+  const separator = pair.indexOf('=')
+  assert.ok(separator > 0, `${path} HTTP ${status} malformed flow cookie`)
+  const name = pair.slice(0, separator)
+  const value = pair.slice(separator + 1)
+  assert.ok(['tendo_oidc', '__Host-tendo_oidc'].includes(name), `${path} HTTP ${status} unexpected flow cookie name`)
+  const attributes = parts.map(attribute => attribute.toLowerCase())
+  const requireAttribute = attribute => assert.ok(attributes.includes(attribute), `${path} flow cookie missing ${attribute}`)
+  requireAttribute('path=/')
+  requireAttribute('httponly')
+  requireAttribute('samesite=lax')
+  assert.ok(!attributes.some(attribute => attribute.startsWith('domain=')), `${path} flow cookie must not set Domain`)
+  if (name.startsWith('__Host-')) requireAttribute('secure')
+  const maxAge = attributes.find(attribute => attribute.startsWith('max-age='))
+  assert.ok(maxAge, `${path} flow cookie missing Max-Age`)
+  if (clearing) {
+    assert.equal(value, '', `${path} flow clear must have an empty value`)
+    assert.ok(['max-age=0', 'max-age=-1'].includes(maxAge), `${path} flow clear must have a clearing Max-Age`)
+  } else {
+    assert.match(value, /^[A-Za-z0-9_-]{43}$/, `${path} flow cookie value must be 43 base64url characters`)
+    assert.equal(maxAge, 'max-age=600', `${path} flow cookie must have Max-Age=600`)
+    const expires = attributes.find(attribute => attribute.startsWith('expires='))
+    if (expires) assert.ok(Number.isFinite(Date.parse(expires.slice('expires='.length))), `${path} flow cookie has invalid Expires`)
+  }
+}
+
 function assertSessionCookie(path, status, setCookie) {
   if (Array.isArray(setCookie)) {
     assert.equal(setCookie.length, 1, `${path} HTTP ${status} expected one session cookie`)
@@ -55,6 +84,8 @@ function assertSessionCookie(path, status, setCookie) {
 }
 
 function assertResponse(path, status, body, method, headers = {}) {
+  const normalizedHeaders = Object.fromEntries(Object.entries(headers).map(([key,value])=>[key.toLowerCase(),value]))
+  headers = normalizedHeaders
   const responseSpec = contract.paths[path][method]?.responses[String(status)]
   assert.ok(responseSpec, `${path}: undocumented HTTP ${status}`)
   const expectedMedia = Object.keys(responseSpec.content ?? {})
@@ -70,7 +101,8 @@ function assertResponse(path, status, body, method, headers = {}) {
     const etagPattern = responseSpec.headers.ETag.schema?.pattern
     if (etagPattern) assert.match(headers.etag, new RegExp(etagPattern), `${path} HTTP ${status} ETag does not match its documented pattern`)
   }
-  const cookieHeader = responseSpec.headers?.['Set-Cookie']
+  const cookieHeader = responseSpec.headers?.['Set-Cookie'] ?? (path === '/api/v1/auth/oidc/start' && status === 200 ? { description: 'OIDC start emits flow binding.' } : undefined)
+  const hasFlowCookieContract = Boolean(cookieHeader) || (path === '/api/v1/auth/oidc/start' && status === 200)
   const cookieRef = cookieHeader?.$ref
   if (cookieRef && path === '/api/v1/auth/oidc/identity') {
     // On authenticated routes this header describes a stale session clear; a valid
@@ -82,25 +114,13 @@ function assertResponse(path, status, body, method, headers = {}) {
   } else if (cookieHeader && path === '/api/v1/auth/oidc/start') {
     const cookies = cookieValues(headers['set-cookie'])
     assert.equal(cookies.length, 1, `${path} HTTP ${status} must set exactly one flow cookie`)
-    const [pair, ...attributes] = cookies[0].split(';').map(part => part.trim())
-    const name = pair.slice(0, pair.indexOf('='))
-    const value = pair.slice(pair.indexOf('=') + 1)
-    assert.ok(['tendo_oidc', '__Host-tendo_oidc'].includes(name), `${path} HTTP ${status} unexpected flow cookie name`)
-    assert.match(value, /^[A-Za-z0-9_-]{43}$/)
-    const lower = attributes.map(attribute => attribute.toLowerCase())
-    for (const required of ['httponly', 'samesite=lax', 'path=/', 'max-age=600']) assert.ok(lower.includes(required), `${path} flow cookie missing ${required}`)
-    assert.ok(!lower.some(attribute => attribute.startsWith('domain=')))
-    if (name.startsWith('__Host-')) assert.ok(lower.includes('secure'))
+    assertFlowCookie(path,status,cookies[0],false)
   } else if (cookieHeader && path === '/api/v1/auth/oidc/callback') {
     const cookies = cookieValues(headers['set-cookie'])
     assert.ok(cookies.length >= 1 && cookies.length <= 2, `${path} HTTP ${status} must clear flow cookie and may set session cookie`)
     const flow = cookies.find(value => /^(tendo_oidc|__Host-tendo_oidc)=/.test(value))
     assert.ok(flow, `${path} HTTP ${status} missing flow cookie clear`)
-    const [pair, ...attributes] = flow.split(';').map(part => part.trim())
-    assert.equal(pair.slice(pair.indexOf('=') + 1), '')
-    const lower = attributes.map(attribute => attribute.toLowerCase())
-    for (const required of ['httponly', 'samesite=lax', 'path=/', 'max-age=0']) assert.ok(lower.includes(required), `${path} flow clear missing ${required}`)
-    assert.ok(!lower.some(attribute => attribute.startsWith('domain=')))
+    assertFlowCookie(path,status,flow,true)
     const sessionCookies = cookies.filter(value => /^(tendo_session|__Host-tendo_session)=/.test(value))
     assert.equal(cookies.length, 1 + sessionCookies.length, `${path} HTTP ${status} sends an undocumented cookie`)
     assert.equal(cookies.filter(value => /^(tendo_oidc|__Host-tendo_oidc)=/.test(value)).length, 1)

@@ -17,7 +17,7 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
     if (!operation || typeof operation !== 'object' || !operation.operationId) continue
     for (const output of [generated, generatedHealth]) assert.ok(output.includes(operation.operationId), `TypeScript output missing ${operation.operationId}`)
     for (const [status, response] of Object.entries(operation.responses ?? {})) {
-      const responseSchema = response.content?.['application/json']?.schema ?? response.content?.['application/problem+json']?.schema
+      const responseSchema = response.content?.['application/json']?.schema ?? response.content?.['application/problem+json']?.schema ?? Object.values(response.content ?? {}).map(media => media.schema).find(schema => schema?.$ref)
       if (responseSchema?.$ref) {
         const name = responseSchema.$ref.split('/').at(-1)
         const start = generated.indexOf(`${operation.operationId}:`)

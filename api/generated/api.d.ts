@@ -70,7 +70,7 @@ export interface paths {
         put?: never;
         /**
          * Start OIDC login or account linking
-         * @description Requires canonical Origin. Link requires an active session and current local password. Flow cookie is short-lived, HttpOnly and SameSite=Lax.
+         * @description Requires canonical Origin. Link requires an active session and current local password. Duplicate flow cookies are ignored; one valid flow cookie enables latest-attempt-wins replacement.
          */
         post: operations["startOidc"];
         delete?: never;
@@ -88,7 +88,7 @@ export interface paths {
         };
         /**
          * Complete OIDC authorization code callback
-         * @description Always redirects to a fixed SPA destination with an empty body. Query values are never reflected or logged.
+         * @description Redirect-only callback. Provider errors, invalid state/cookies, protocol errors, session races, and backend outages are mapped to fixed fragments in Location; no user input is reflected.
          */
         get: operations["completeOidcCallback"];
         put?: never;
@@ -1106,6 +1106,17 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Method not allowed. */
+            405: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Authority mismatch. */
             421: {
                 headers: {
@@ -1145,6 +1156,17 @@ export interface operations {
                     "application/json": components["schemas"]["OIDCIdentityStatus"];
                 };
             };
+            /** @description Malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description No valid session; stale cookie is cleared. */
             401: {
                 headers: {
@@ -1159,6 +1181,28 @@ export interface operations {
             };
             /** @description OIDC is disabled. */
             404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Method not allowed. */
+            405: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Authority mismatch. */
+            421: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
@@ -1202,11 +1246,11 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Authorization URL and flow cookie. */
+            /** @description Authorization URL and flow cookie. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc. Both are HttpOnly, SameSite=Lax, Path=/, no Domain, Max-Age=600. */
             200: {
                 headers: {
                     /**
-                     * @description Short-lived flow cookie. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc. Both are HttpOnly, SameSite=Lax, Path=/, no Domain, Max-Age=600.
+                     * @description Exactly one short-lived browser-binding cookie.
                      * @example tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax
                      */
                     "Set-Cookie"?: string;
@@ -1218,7 +1262,7 @@ export interface operations {
                     "application/json": components["schemas"]["OIDCStartResponse"];
                 };
             };
-            /** @description Malformed request or forwarded metadata. */
+            /** @description Malformed request body or forwarded metadata. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1229,7 +1273,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Link session missing or current password invalid. */
+            /** @description Link requires active authentication and valid current local password. */
             401: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1241,7 +1285,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Origin is missing or foreign. */
+            /** @description Missing or foreign Origin. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1252,7 +1296,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description OIDC disabled. */
+            /** @description OIDC is disabled. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1263,7 +1307,18 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Login requested while already signed in. */
+            /** @description Method not allowed. */
+            405: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Login purpose is not allowed while already signed in. */
             409: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1274,7 +1329,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Body exceeds 4 KiB. */
+            /** @description Request body exceeds 4 KiB. */
             413: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1285,7 +1340,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Unsupported media type. */
+            /** @description Unsupported media type or charset. */
             415: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1323,14 +1378,15 @@ export interface operations {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
-                    "Retry-After"?: number;
+                    /** @description Retry delay in seconds. */
+                    "Retry-After"?: number | string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Provider or persistence unavailable. */
+            /** @description Provider discovery/unavailability returns oidc_unavailable; repository outage returns unavailable. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -1364,11 +1420,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Redirect to fixed SPA route; body is always empty. */
+            /** @description Fixed-location redirect, always with empty body. Flow cookie is cleared; session cookie is set only after success. */
             303: {
                 headers: {
                     Location?: string;
-                    /** @description Flow cookie cleared; a session cookie is additionally set only on success. Multiple Set-Cookie header fields are possible. */
+                    /** @description One clearing flow-cookie field plus optional successful session-cookie field. */
                     "Set-Cookie"?: string[];
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
@@ -1377,8 +1433,30 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Malformed forwarded metadata. */
+            /** @description Malformed trusted forwarded metadata. */
             400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A supplied Origin is foreign or duplicated. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Method not allowed. */
+            405: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
