@@ -39,6 +39,12 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 - Revoke succeeds for terminal invitations and does not remove members. New-account acceptance is `POST /api/v1/auth/invitations/accept`, returns `{userId, login, householdId, role}`, and does not set a session cookie; sign in through `POST /api/v1/session`. Existing-account acceptance is `POST /api/v1/invitations/accept`, returns `{userId, householdId, role}`, and rejects an account with an existing default household or other household membership (`409 household_conflict`); an existing member gets `409 already_member`. Malformed, unknown, expired, revoked, and already-used tokens all return `404 invalid_invitation`.
 - Request evaluation order for management routes: global Origin/authority middleware (400 for malformed trusted forwarded metadata, 403 Origin, 421 authority) → session authentication (401, clearing a stale single cookie) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before owner authorization. All responses include `X-Request-ID`; application responses use `Cache-Control: no-store`.
 
+## OIDC authentication
+
+- `GET /api/v1/auth/oidc` reports whether the configured provider is enabled; `displayName` appears only when enabled. `GET /api/v1/auth/oidc/identity` requires a session and reports `{linked}`.
+- Start with `POST /api/v1/auth/oidc/start` and `{ "purpose": "login" }`, or link with `{ "purpose": "link", "currentPassword": "..." }` while signed in. Linking reauthenticates the local password. The request requires canonical Origin; success returns an authorization URL and sets a ten-minute HttpOnly flow cookie.
+- The provider callback is `GET /api/v1/auth/oidc/callback`. It consumes the single-use flow and always returns an empty `303` redirect to a fixed application route. Success sets a fresh session cookie; link success revokes the initiating session. Failures expose only stable `oidcError` codes.
+
 ## Cursor pagination
 
 Collections return `{"items": [...], "nextCursor": string | null}`. `nextCursor` is always present and is `null` on the last page.

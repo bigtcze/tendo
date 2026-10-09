@@ -43,6 +43,9 @@ func (f *fakeSessionService) Lookup(_ context.Context, token string) (identity.S
 	if f.lookupErr != nil {
 		return identity.SessionInfo{}, f.lookupErr
 	}
+	if token == "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" {
+		return identity.SessionInfo{ID: "old-session", Principal: identity.Principal{UserID: "user-1", Login: "owner"}, ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}
 	if token != fakeToken {
 		return identity.SessionInfo{}, identity.ErrUnauthenticated
 	}

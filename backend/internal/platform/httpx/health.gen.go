@@ -101,6 +101,23 @@ const (
 	MembershipRoleMember MembershipRole = "member"
 )
 
+// Defines values for OIDCStartRequestPurpose.
+const (
+	OIDCPurposeLink  OIDCStartRequestPurpose = "link"
+	OIDCPurposeLogin OIDCStartRequestPurpose = "login"
+)
+
+// Defines values for OIDCValidationProblemCode.
+const (
+	InvalidValue OIDCValidationProblemCode = "invalid_value"
+)
+
+// Defines values for OIDCValidationProblemField.
+const (
+	CurrentPassword OIDCValidationProblemField = "currentPassword"
+	Purpose         OIDCValidationProblemField = "purpose"
+)
+
 // Defines values for QueryProblemParameter.
 const (
 	QueryProblemParameterArchived QueryProblemParameter = "archived"
@@ -432,6 +449,46 @@ type Membership struct {
 // MembershipRole defines model for Membership.Role.
 type MembershipRole string
 
+// OIDCIdentityStatus defines model for OIDCIdentityStatus.
+type OIDCIdentityStatus struct {
+	Linked bool `json:"linked"`
+}
+
+// OIDCStartRequest currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem.
+type OIDCStartRequest struct {
+	CurrentPassword *string                 `json:"currentPassword,omitempty"`
+	Purpose         OIDCStartRequestPurpose `json:"purpose"`
+}
+
+// OIDCStartRequestPurpose defines model for OIDCStartRequest.Purpose.
+type OIDCStartRequestPurpose string
+
+// OIDCStartResponse defines model for OIDCStartResponse.
+type OIDCStartResponse struct {
+	AuthorizationUrl string `json:"authorizationUrl"`
+}
+
+// OIDCStatus displayName is present exactly when enabled is true.
+type OIDCStatus struct {
+	DisplayName *string `json:"displayName,omitempty"`
+	Enabled     bool    `json:"enabled"`
+}
+
+// OIDCValidationProblem defines model for OIDCValidationProblem.
+type OIDCValidationProblem struct {
+	Code   OIDCValidationProblemCode  `json:"code"`
+	Field  OIDCValidationProblemField `json:"field"`
+	Status int                        `json:"status"`
+	Title  string                     `json:"title"`
+	Type   string                     `json:"type"`
+}
+
+// OIDCValidationProblemCode defines model for OIDCValidationProblem.Code.
+type OIDCValidationProblemCode string
+
+// OIDCValidationProblemField defines model for OIDCValidationProblem.Field.
+type OIDCValidationProblemField string
+
 // Problem defines model for Problem.
 type Problem struct {
 	Code                 *string                `json:"code,omitempty"`
@@ -625,6 +682,37 @@ type SubjectId = string
 type AcceptInvitationWithNewAccountParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetOidcStatusParams defines parameters for GetOidcStatus.
+type GetOidcStatusParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CompleteOidcCallbackParams defines parameters for CompleteOidcCallback.
+type CompleteOidcCallbackParams struct {
+	Code             *string `form:"code,omitempty" json:"code,omitempty"`
+	State            *string `form:"state,omitempty" json:"state,omitempty"`
+	Error            *string `form:"error,omitempty" json:"error,omitempty"`
+	ErrorDescription *string `form:"error_description,omitempty" json:"error_description,omitempty"`
+	Iss              *string `form:"iss,omitempty" json:"iss,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetOidcIdentityParams defines parameters for GetOidcIdentity.
+type GetOidcIdentityParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// StartOidcParams defines parameters for StartOidc.
+type StartOidcParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+	Origin     string     `json:"Origin"`
 }
 
 // GetInitialSetupParams defines parameters for GetInitialSetup.
@@ -837,6 +925,9 @@ type GetReadinessParams struct {
 
 // AcceptInvitationWithNewAccountJSONRequestBody defines body for AcceptInvitationWithNewAccount for application/json ContentType.
 type AcceptInvitationWithNewAccountJSONRequestBody = AcceptInvitationNewAccountRequest
+
+// StartOidcJSONRequestBody defines body for StartOidc for application/json ContentType.
+type StartOidcJSONRequestBody = OIDCStartRequest
 
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest

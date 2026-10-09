@@ -25,6 +25,7 @@ var (
 const SessionLifetime = 30 * 24 * time.Hour
 
 const (
+	DummyPassword    = "tendo fixed dummy password"
 	maxPasswordBytes = 512
 	repositoryBudget = 5 * time.Second
 )
@@ -87,7 +88,7 @@ func NewSessionService(repository SessionRepository, clock func() time.Time) (*S
 	if clock == nil {
 		clock = time.Now
 	}
-	dummy, err := security.HashPassword("tendo fixed dummy password")
+	dummy, err := security.HashPassword(DummyPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -107,6 +108,21 @@ func (s *SessionService) now() time.Time { return s.clock().UTC().Truncate(time.
 func tokenDigest(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	return sum[:]
+}
+
+// VerifyCurrentPassword verifies a known local credential without performing login or creating a session.
+func (s *SessionService) VerifyCurrentPassword(hash, password string) error {
+	if !utf8.ValidString(password) || len(password) == 0 || len(password) > maxPasswordBytes {
+		return ErrInvalidCredentials
+	}
+	valid, err := s.verifyPassword(hash, password)
+	if errors.Is(err, ErrPasswordWorkLimit) {
+		return ErrPasswordWorkLimit
+	}
+	if err != nil || !valid {
+		return ErrInvalidCredentials
+	}
+	return nil
 }
 
 func (s *SessionService) Login(ctx context.Context, login, password string) (Session, error) {

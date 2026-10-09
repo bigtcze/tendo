@@ -129,6 +129,98 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+  /api/v1/auth/oidc:
+    get:
+      operationId: getOidcStatus
+      summary: Read configured OIDC status
+      tags: [Auth]
+      security: []
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200':
+          description: OIDC availability; displayName is present only when enabled.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/OIDCStatus' }, examples: { disabled: { value: { enabled: false } }, enabled: { value: { enabled: true, displayName: OpenID Connect } } } } }
+        '400': { description: Malformed trusted forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: 'A supplied Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
+        '421': { description: Authority mismatch., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '405': { description: Method not allowed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  /api/v1/auth/oidc/identity:
+    get:
+      operationId: getOidcIdentity
+      summary: Read whether the current account has a linked OIDC identity
+      tags: [Auth]
+      security: [{ SessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/RequestId' }]
+      responses:
+        '200': { description: Link status., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/OIDCIdentityStatus' }, example: { linked: false } } } }
+        '400': { description: Malformed trusted forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: 'A supplied Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
+        '401': { description: No valid session; stale cookie is cleared., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '404': { description: OIDC is disabled., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: oidc_disabled } } } }
+        '503': { description: Identity lookup unavailable., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+        '421': { description: Authority mismatch., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '405': { description: Method not allowed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  /api/v1/auth/oidc/start:
+    post:
+      operationId: startOidc
+      summary: Start OIDC login or account linking
+      description: Requires canonical Origin. Link requires an active session and current local password. Duplicate flow cookies are ignored; one valid flow cookie enables latest-attempt-wins replacement.
+      tags: [Auth]
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { name: Origin, in: header, required: true, schema: { type: string, format: uri }, example: https://tendo.example }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/OIDCStartRequest' }, examples: { login: { value: { purpose: login } }, link: { value: { purpose: link, currentPassword: a-long-unique-passphrase } } } } }
+      responses:
+        '200':
+          description: Authorization URL and flow cookie. HTTPS uses __Host-tendo_oidc with Secure; HTTP uses tendo_oidc. Both are HttpOnly, SameSite=Lax, Path=/, no Domain, Max-Age=600.
+          headers:
+            Set-Cookie: { description: Exactly one short-lived browser-binding cookie., schema: { type: string }, example: 'tendo_oidc=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=600; HttpOnly; SameSite=Lax' }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content: { application/json: { schema: { $ref: '#/components/schemas/OIDCStartResponse' }, example: { authorizationUrl: 'https://idp.example/authorize?client_id=client&state=opaque' } } }
+        '400': { description: Malformed request body or forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: Link requires active authentication and valid current local password., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: invalid_credentials } } } }
+        '403': { description: Missing or foreign Origin., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403 } } } }
+        '404': { description: OIDC is disabled., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: oidc_disabled } } } }
+        '405': { description: Method not allowed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '409': { description: Login purpose is not allowed while already signed in., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Conflict, status: 409, code: already_signed_in } } } }
+        '413': { description: Request body exceeds 4 KiB., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Payload Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: Unsupported media type or charset., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: Authority mismatch., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '422': { description: Invalid purpose/body combination., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/OIDCValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_value, field: purpose } } } }
+        '429': { description: Rate limit exceeded., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { description: Retry delay in seconds., schema: { oneOf: [{ type: integer, minimum: 0 }, { type: string, pattern: '^[0-9]+$' }] } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited } } } }
+        '503': { description: 'Provider discovery/unavailability returns oidc_unavailable; repository outage returns unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, examples: { provider: { value: { type: 'about:blank', title: Service Unavailable, status: 503, code: oidc_unavailable } }, persistence: { value: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } } } }
+  /api/v1/auth/oidc/callback:
+    get:
+      operationId: completeOidcCallback
+      summary: Complete OIDC authorization code callback
+      description: Redirect-only callback. Provider errors, invalid state/cookies, protocol errors, session races, and backend outages are mapped to fixed fragments in Location; no user input is reflected.
+      tags: [Auth]
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { name: code, in: query, required: false, schema: { type: string, maxLength: 4096 } }
+        - { name: state, in: query, required: false, schema: { type: string, maxLength: 2048 } }
+        - { name: error, in: query, required: false, schema: { type: string, maxLength: 128 } }
+        - { name: error_description, in: query, required: false, schema: { type: string, maxLength: 4096 } }
+        - { name: iss, in: query, required: false, schema: { type: string, maxLength: 2048 } }
+      responses:
+        '303':
+          description: Fixed-location redirect, always with empty body. Flow cookie is cleared; session cookie is set only after success.
+          headers:
+            Location: { schema: { type: string, pattern: '^/(|login#oidcError=(cancelled|invalid_flow|identity_not_linked|identity_conflict|session_changed|authentication_failed|unavailable)|account(#oidc=connected|#oidcError=(cancelled|invalid_flow|identity_conflict|session_changed|authentication_failed|unavailable)))$' } }
+            Set-Cookie: { description: One clearing flow-cookie field plus optional successful session-cookie field., schema: { type: array, items: { type: string } } }
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+            Referrer-Policy: { schema: { type: string, const: no-referrer } }
+        '400': { description: Malformed trusted forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '403': { description: 'A supplied Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '405': { description: Method not allowed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '421': { description: Authority mismatch., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
   /api/v1/session:
     post:
       operationId: createSession
@@ -1243,6 +1335,42 @@ components:
       description: false (default) lists unfinished items; true lists completed one-off items.
       schema: { type: boolean, default: false }
   schemas:
+    OIDCStatus:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      description: displayName is present exactly when enabled is true.
+      properties:
+        enabled: { type: boolean }
+        displayName: { type: string }
+    OIDCIdentityStatus:
+      type: object
+      additionalProperties: false
+      required: [linked]
+      properties: { linked: { type: boolean } }
+    OIDCStartRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose]
+      description: currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem.
+      properties:
+        purpose: { type: string, enum: [login, link], x-enum-varnames: [OIDCPurposeLogin, OIDCPurposeLink] }
+        currentPassword: { type: string, maxLength: 512 }
+    OIDCStartResponse:
+      type: object
+      additionalProperties: false
+      required: [authorizationUrl]
+      properties: { authorizationUrl: { type: string, format: uri } }
+    OIDCValidationProblem:
+      type: object
+      required: [type, title, status, code, field]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer, const: 422 }
+        code: { type: string, enum: [invalid_value] }
+        field: { type: string, enum: [purpose, currentPassword] }
+      additionalProperties: false
     Problem:
       type: object
       required: [type, title, status]

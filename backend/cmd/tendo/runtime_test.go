@@ -5,12 +5,18 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	identityapp "github.com/bigtcze/tendo/backend/internal/identity"
+	identityhttp "github.com/bigtcze/tendo/backend/internal/identity/httpapi"
+	"github.com/bigtcze/tendo/backend/internal/platform/config"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/security"
+	"github.com/go-chi/chi/v5"
 )
 
 type httpResult struct {
@@ -73,6 +79,120 @@ func startRequest(client *http.Client, url string) <-chan httpResult {
 	}()
 	return result
 }
+
+func TestOIDCRuntimeCompositionDoesNotDiscoverProviderAtStartup(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		enabled  bool
+		wantBody string
+	}{
+		{"disabled", false, `{"enabled":false}`},
+		{"configured unreachable issuer", true, `{"displayName":"Unreachable IdP","enabled":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{PublicURL: "http://127.0.0.1"}
+			if tc.enabled {
+				cfg.OIDCIssuer = "http://127.0.0.1:1"
+				cfg.OIDCClientID = "client"
+				cfg.OIDCClientSecret = "secret"
+				cfg.OIDCDisplayName = "Unreachable IdP"
+			}
+			gate := security.NewPasswordGate(2)
+			sessionRepo := &startupOIDCSessionRepo{}
+			sessions, err := identityapp.NewSessionService(sessionRepo, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessions.SetPasswordVerifier(gate.VerifyPassword)
+			var repo identityapp.OIDCRepository
+			if tc.enabled {
+				repo = &startupOIDCRepo{}
+			}
+			oidc, err := newOIDCService(cfg, repo, sessions, time.Now)
+			if err != nil {
+				t.Fatalf("service composition failed: %v", err)
+			}
+			routes := chi.NewRouter()
+			sessionHandler := identityhttp.NewSession(&fakeOIDCSessionService{}, cfg.PublicURL)
+			newOIDCHandler(oidc, sessionHandler, cfg.PublicURL).Register(routes)
+			if !tc.enabled {
+				for _, request := range []*http.Request{
+					httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/identity", nil),
+					httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`)),
+					httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc/callback", nil),
+				} {
+					request.Header.Set("Content-Type", "application/json")
+					request.Header.Set("Origin", cfg.PublicURL)
+					response := httptest.NewRecorder()
+					routes.ServeHTTP(response, request)
+					if request.Method == http.MethodGet && strings.Contains(request.URL.Path, "identity") {
+						if response.Code != 404 || !strings.Contains(response.Body.String(), "oidc_disabled") {
+							t.Fatalf("identity status=%d body=%s", response.Code, response.Body)
+						}
+					} else if request.Method == http.MethodPost {
+						if response.Code != 404 {
+							t.Fatalf("start status=%d", response.Code)
+						}
+					} else if response.Code != 303 || response.Header().Get("Location") != "/login#oidcError=unavailable" {
+						t.Fatalf("callback status=%d location=%s", response.Code, response.Header().Get("Location"))
+					}
+				}
+			}
+			response := httptest.NewRecorder()
+			routes.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/auth/oidc", nil))
+			if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != tc.wantBody {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body)
+			}
+		})
+	}
+}
+
+type startupOIDCSessionRepo struct{}
+
+func (*startupOIDCSessionRepo) FindLogin(context.Context, string) (identityapp.LoginRecord, error) {
+	return identityapp.LoginRecord{}, identityapp.ErrNotFound
+}
+func (*startupOIDCSessionRepo) PruneExpired(context.Context, string, time.Time) error { return nil }
+func (*startupOIDCSessionRepo) CreateSession(context.Context, identityapp.NewSession) (string, error) {
+	return "", nil
+}
+func (*startupOIDCSessionRepo) FindActive(context.Context, []byte, time.Time) (identityapp.SessionInfo, error) {
+	return identityapp.SessionInfo{}, identityapp.ErrNotFound
+}
+func (*startupOIDCSessionRepo) DeleteByTokenHash(context.Context, []byte) error { return nil }
+
+type startupOIDCRepo struct{}
+
+func (*startupOIDCRepo) InsertFlow(context.Context, identityapp.OIDCFlow) error { return nil }
+func (*startupOIDCRepo) ConsumeFlow(context.Context, []byte, []byte, time.Time, string, string) (identityapp.OIDCFlow, error) {
+	return identityapp.OIDCFlow{}, identityapp.ErrNotFound
+}
+func (*startupOIDCRepo) FindIdentity(context.Context, string, string) (string, error) {
+	return "", identityapp.ErrNotFound
+}
+func (*startupOIDCRepo) FindSession(context.Context, []byte, time.Time) (identityapp.SessionInfo, error) {
+	return identityapp.SessionInfo{}, identityapp.ErrNotFound
+}
+func (*startupOIDCRepo) FindCredential(context.Context, string) (string, error) {
+	return "", identityapp.ErrNotFound
+}
+func (*startupOIDCRepo) CreateOIDCLoginSession(context.Context, identityapp.NewSession) (string, error) {
+	return "", nil
+}
+func (*startupOIDCRepo) LinkAndCreateSession(context.Context, identityapp.OIDCFlow, identityapp.OIDCVerifiedIdentity, identityapp.NewSession, []byte) (string, error) {
+	return "", nil
+}
+func (*startupOIDCRepo) Linked(context.Context, string, string) (bool, error) { return false, nil }
+
+type fakeOIDCSessionService struct{}
+
+func (*fakeOIDCSessionService) Login(context.Context, string, string) (identityapp.Session, error) {
+	return identityapp.Session{}, nil
+}
+func (*fakeOIDCSessionService) Lookup(context.Context, string) (identityapp.SessionInfo, error) {
+	return identityapp.SessionInfo{}, nil
+}
+func (*fakeOIDCSessionService) Logout(context.Context, string) error { return nil }
 
 func TestRuntimeServerWriteBudgetCoversReadAndServiceBudgets(t *testing.T) {
 	server := newRuntimeServer(":0", http.NotFoundHandler(), 5*time.Second)

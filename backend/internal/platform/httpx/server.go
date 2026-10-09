@@ -41,8 +41,17 @@ func NewAppWithRoutes(pool Pinger, timeout time.Duration, draining <-chan struct
 // fallback receives every request (any method) that matches no route, except
 // under /api and /health, which keep the problem+json 404/405 responses.
 func NewAppWithUI(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy, register func(chi.Router), ui http.Handler) http.Handler {
+	return newAppWithUIAndLogger(pool, timeout, draining, policy, register, ui, slog.Default())
+}
+
+func NewAppWithLogger(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy, register func(chi.Router), logger *slog.Logger) http.Handler {
+	return newAppWithUIAndLogger(pool, timeout, draining, policy, register, nil, logger)
+}
+
+func newAppWithUIAndLogger(pool Pinger, timeout time.Duration, draining <-chan struct{}, policy OriginPolicy, register func(chi.Router), ui http.Handler, logger *slog.Logger) http.Handler {
+
 	config, err := newOriginConfig(policy)
-	return newRouterWithUI(pool, timeout, draining, originMiddlewareConfig(config, err), ui, register)
+	return newRouterWithLogger(pool, timeout, draining, originMiddlewareConfig(config, err), ui, logger, register)
 }
 func newRouter(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, registers ...func(chi.Router)) http.Handler {
 	return newRouterWithUI(pool, timeout, draining, origin, nil, registers...)
@@ -53,9 +62,12 @@ func isReservedPath(p string) bool {
 }
 
 func newRouterWithUI(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, ui http.Handler, registers ...func(chi.Router)) http.Handler {
+	return newRouterWithLogger(pool, timeout, draining, origin, ui, slog.Default(), registers...)
+}
+func newRouterWithLogger(pool Pinger, timeout time.Duration, draining <-chan struct{}, origin func(http.Handler) http.Handler, ui http.Handler, logger *slog.Logger, registers ...func(chi.Router)) http.Handler {
 	h := &Health{pool: pool, timeout: timeout, draining: draining}
 	r := chi.NewRouter()
-	r.Use(func(next http.Handler) http.Handler { return requestMiddleware(next, slog.Default()) })
+	r.Use(func(next http.Handler) http.Handler { return requestMiddleware(next, logger) })
 	if origin != nil {
 		r.Use(origin)
 	}
@@ -134,6 +146,7 @@ func writeProblem(w http.ResponseWriter, code int, title string) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(Problem{Type: "about:blank", Title: title, Status: code})
 }
+
 func requestMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")

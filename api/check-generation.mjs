@@ -9,6 +9,7 @@ const goSetup = await readFile(new URL('../backend/internal/identity/httpapi/set
 const goHealth = await readFile(new URL('../backend/internal/platform/httpx/health.gen.go', import.meta.url), 'utf8')
 const goHousehold = await readFile(new URL('../backend/internal/household/httpapi/household.gen.go', import.meta.url), 'utf8')
 const goSubject = await readFile(new URL('../backend/internal/subject/httpapi/subject.gen.go', import.meta.url), 'utf8')
+const goItem = await readFile(new URL('../backend/internal/item/httpapi/item.gen.go', import.meta.url), 'utf8')
 
 for (const [path, pathItem] of Object.entries(contract.paths)) {
   assert.ok(generated.includes(JSON.stringify(path)), `TypeScript output missing ${path}`)
@@ -16,7 +17,7 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
     if (!operation || typeof operation !== 'object' || !operation.operationId) continue
     for (const output of [generated, generatedHealth]) assert.ok(output.includes(operation.operationId), `TypeScript output missing ${operation.operationId}`)
     for (const [status, response] of Object.entries(operation.responses ?? {})) {
-      const responseSchema = response.content?.['application/json']?.schema ?? response.content?.['application/problem+json']?.schema
+      const responseSchema = response.content?.['application/json']?.schema ?? response.content?.['application/problem+json']?.schema ?? Object.values(response.content ?? {}).map(media => media.schema).find(schema => schema?.$ref)
       if (responseSchema?.$ref) {
         const name = responseSchema.$ref.split('/').at(-1)
         const start = generated.indexOf(`${operation.operationId}:`)
@@ -37,7 +38,7 @@ for (const [name, schema] of Object.entries(contract.components.schemas)) {
   assert.ok(generated.includes(`${name}:`), `TypeScript output missing schema ${name}`)
   for (const field of Object.keys(schema.properties ?? {})) assert.ok(generated.includes(field), `TypeScript output missing field ${name}.${field}`)
   for (const value of schema.properties?.status?.enum ?? []) assert.ok(generated.includes(JSON.stringify(value)), `TypeScript output missing status value ${value}`)
-  assert.ok(goSetup.includes(name) || goHealth.includes(name) || goHousehold.includes(name) || goSubject.includes(name), `Generated Go missing model ${name}`)
+  assert.ok(goSetup.includes(name) || goHealth.includes(name) || goHousehold.includes(name) || goSubject.includes(name) || goItem.includes(name), `Generated Go missing model ${name}`)
 }
 for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
 assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goSetup), 'Generated Go Session must have optional DefaultHouseholdId')
