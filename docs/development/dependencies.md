@@ -12,7 +12,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
 | oapi-codegen | v2.4.1 | v2.8.0 | Held; see generator notes |
-| Distroless runtime images | `base-debian12`, `static-debian12` (`nonroot`) | `debian13` variants | Held; base OS change is a separate upgrade |
+| Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
 | GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
 
@@ -55,4 +55,3 @@ All direct and required indirect modules are at their latest releases. `go list 
 - **TypeScript 7.0.2**: `typescript-eslint` 8.71.1 declares a `typescript <6.1.0` peer range. TypeScript's documented side-by-side setup (TS 6 for tooling, TS 7 native compiler for type checking) is possible but adds a second compiler; revisit when `typescript-eslint` supports TS 7.
 - **oapi-codegen v2.5.1–v2.7.2**: v2.5.1 output differs only in the version header. v2.6.0 and v2.7.2 add enum `Valid()` methods and typed security-scope context keys; the output builds and passes vet and unit tests unchanged. Adopting either is a separate generator change.
 - **oapi-codegen v2.8.0**: breaking for this contract. Nullable fields become double pointers, enum constant names change, and OAuth scope constants are removed. Generated code does not compile against current adapters without migration.
-- **Debian 13 distroless images**: base-OS change lands as a separate, focused change with full CI evidence.
