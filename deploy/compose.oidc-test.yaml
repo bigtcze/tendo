@@ -1,4 +1,4 @@
-# Isolated OIDC protocol smoke only; never use this override for installs.
+# Isolated OIDC protocol smoke and browser E2E only; never use this override for installs.
 services:
   oidc-provider:
     build:

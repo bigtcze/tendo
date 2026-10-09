@@ -20,12 +20,14 @@ export function HomeScreen({
   onSignedOut,
   onOpenPeople,
   onOpenMembers,
+  onOpenAccount,
   onOpenItem,
 }: {
   session: Session;
   onSignedOut: () => void;
   onOpenPeople: () => void;
   onOpenMembers: () => void;
+  onOpenAccount: () => void;
   onOpenItem: (itemId: string) => void;
 }) {
   const { t } = useI18n();
@@ -96,6 +98,13 @@ export function HomeScreen({
             className="mt-1 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {t('home.members')}
+          </NavLink>
+          <NavLink
+            href="/account"
+            onNavigate={onOpenAccount}
+            className="mt-1 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {t('home.account')}
           </NavLink>
         </section>
       ) : null}
