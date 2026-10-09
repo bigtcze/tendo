@@ -16,7 +16,7 @@ COPY backend/ ./
 COPY --from=web /src/backend/internal/platform/webui/dist/ ./internal/platform/webui/dist/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/tendo ./cmd/tendo
 
-FROM gcr.io/distroless/base-debian12:nonroot
+FROM gcr.io/distroless/base-debian13:nonroot
 COPY --from=build /out/tendo /tendo
 COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /usr/local/go/lib/time/zoneinfo.zip
 ENV ZONEINFO=/usr/local/go/lib/time/zoneinfo.zip
