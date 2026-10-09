@@ -78,6 +78,7 @@ if [[ "$1" == -m && "$2" == unittest ]]; then
       python-unit-postgres:scripts/test_postgres_test_service.py) exit 37 ;;
       python-e2e-runner:scripts/test_e2e_native_runner.py) exit 37 ;;
       python-verify-local:scripts/test_verify_local.py) exit 37 ;;
+      python-ci-workflow:scripts/test_ci_workflow.py) exit 37 ;;
       python-unit-generator:scripts/test_generation_drift.py) exit 37 ;;
       python-interrupt:scripts/test_e2e_interrupt.py) exit 37 ;;
     esac
@@ -160,14 +161,19 @@ exit 0
                 self.assertEqual(len(npm_calls), calls_before_failure)
                 self.assertNotIn("script:e2e-smoke", log)
 
+    def test_ci_workflow_mutation_test_failure_is_mandatory(self):
+        log = self.assert_failed_stage("python-ci-workflow", "native-harness-tests")
+        self.assertIn("scripts/test_ci_workflow.py", log)
+        self.assertNotIn("script:e2e-smoke", log)
+
     def test_each_harness_python_command_is_fail_fast(self):
         cases = (
             ("python-unit-postgres", 1),
             ("python-e2e-runner", 2),
             ("python-verify-local", 3),
-            ("python-live-postgres", 4),
-            ("python-unit-generator", 5),
-            ("python-interrupt", 6),
+            ("python-live-postgres", 5),
+            ("python-unit-generator", 6),
+            ("python-interrupt", 7),
         )
         for command, expected_count in cases:
             with self.subTest(command=command):
