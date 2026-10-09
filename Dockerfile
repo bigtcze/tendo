@@ -1,5 +1,5 @@
 # Build the production frontend; vite writes to /src/backend/internal/platform/webui/dist.
-FROM node:22.22.3-bookworm-slim AS web
+FROM node:24.21.0-bookworm-slim AS web
 WORKDIR /src/frontend
 COPY api/generated/ /src/api/generated/
 COPY frontend/package.json frontend/package-lock.json ./
@@ -8,7 +8,7 @@ COPY frontend/ ./
 RUN npm run build && test -f /src/backend/internal/platform/webui/dist/index.html
 
 # Build using the project-pinned Go toolchain; keep generated binary independent of libc.
-FROM golang:1.26.9-bookworm AS build
+FROM golang:1.27.2-bookworm AS build
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

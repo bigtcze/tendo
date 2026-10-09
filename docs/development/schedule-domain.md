@@ -4,10 +4,10 @@ This repository includes a pure Go schedule package and a persisted household-sc
 
 ## Tooling and checks
 
-The schedule package uses the Go standard library only. Requires Go 1.26.9 and a C compiler for race checks, or Docker. From repository root:
+The schedule package uses the Go standard library only. Requires Go 1.27.2 and a C compiler for race checks, or Docker. From repository root:
 
 ```sh
-docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=1g --mount "type=bind,src=$PWD/backend,dst=/src" -w /src -e GOCACHE=/tmp/go-build golang:1.26.9-bookworm bash -c 'go version && test -z "$(gofmt -l internal/schedule/*.go)" && go vet ./... && go test -race ./... && go build ./...'
+docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=1g --mount "type=bind,src=$PWD/backend,dst=/src" -w /src -e GOCACHE=/tmp/go-build golang:1.27.2-bookworm bash -c 'go version && test -z "$(gofmt -l internal/schedule/*.go)" && go vet ./... && go test -race ./... && go build ./...'
 ```
 
 ## Current schedule behavior

@@ -6,7 +6,7 @@ Today the UI shows first-run onboarding when setup has not been completed (setup
 
 ## Prerequisites
 
-- Node.js 22.22.2 or newer (or 24+) with npm
+- Node.js 24.21.0 (22.22.2+ also supported) with npm
 - Docker Engine with the Compose plugin (for the backend)
 - Playwright 1.64.0 and matching Chromium browser for native E2E (see [development testing](testing.md))
 
