@@ -60,7 +60,7 @@ Select **Create household**. Tendo creates your account and household, signs you
 
 Setup works only once. When it is done, clear `TENDO_SETUP_TOKEN` in `.env` and run `docker compose up -d --force-recreate app` again. Use an HTTPS `TENDO_PUBLIC_URL` for any non-local deployment; see [configuration](docs/admin/configuration.md).
 
-For configuration, health checks, and stop/start details, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md). See [reverse proxy deployment](docs/admin/reverse-proxy.md) before internet exposure and [backup and restore](docs/admin/backup-restore.md) for tested recovery limits.
+For configuration, health checks, and stop/start details, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md). See [reverse proxy deployment](docs/admin/reverse-proxy.md) before internet exposure and [back up and restore](docs/admin/backup-restore.md) to protect your household data.
 
 ## Documentation
 
