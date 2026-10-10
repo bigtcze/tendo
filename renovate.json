@@ -1,0 +1,264 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["npm", "gomod", "dockerfile", "docker-compose", "github-actions", "custom.regex"],
+  "ignorePaths": ["**/node_modules/**", "**/vendor/**", ".slim/**"],
+  "prConcurrentLimit": 3,
+  "branchConcurrentLimit": 3,
+  "prHourlyLimit": 1,
+  "dependencyDashboard": true,
+  "labels": ["dependencies", "renovate"],
+  "ignoreUnstable": true,
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "internalChecksFilter": "strict",
+  "prCreation": "immediate",
+  "separateMajorMinor": true,
+  "automerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "ignoreTests": false,
+  "rebaseWhen": "behind-base-branch",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": "0 days",
+    "automerge": false,
+    "labels": ["dependencies", "renovate", "security"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Authoritative Go runtime pin; image and workflow pins are grouped with it",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"go\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Authoritative Node runtime pin, restricted to LTS by node versioning",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"node\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version",
+      "versioningTemplate": "node"
+    },
+    {
+      "customType": "regex",
+      "description": "PostgreSQL server version, using the official Docker image release stream",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"postgres\":\\s*\"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "postgres",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "sqlc proposal only: release-asset SHA-256, installer pins and generated code require developer completion",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"sqlc\":\\s*\\{\\s*\"version\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "sqlc-dev/sqlc",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "mise proposal only: developer must verify the new linux-x64 release-asset SHA-256",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"mise\":\\s*\\{\\s*\"version\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "jdx/mise",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "oapi-codegen manifest and invocation pin; generated output is completed by the developer",
+      "managerFilePatterns": ["/^toolchain\\.json$/", "/^api/Makefile$/"],
+      "matchStrings": ["\"oapiCodegen\":\\s*\"(?<currentValue>v[^\"]+)\"", "OAPI_CODEGEN_VERSION := (?<currentValue>v[^\\s]+)"],
+      "depNameTemplate": "oapi-codegen/oapi-codegen",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Node-based generators and Playwright manifest pins, grouped with the npm package",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"openapiTypescript\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "openapi-typescript",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Playwright manifest pin; lockfile, browser revision and smoke-script pin must also agree",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"playwright\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "@playwright/test",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Manifest Docker image tags, including proxy smoke images not in static Compose",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"(?<depType>goBuild|oidcProviderBuild|nodeBuild|runtime|oidcProviderRuntime|postgres|caddy|nginx|traefik)\":\\s*\"(?<depName>[^\"@:\\s]+):(?<currentValue>[^\"@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?\""],
+      "autoReplaceStringTemplate": "\"{{depType}}\": \"{{depName}}:{{newValue}}{{#if newDigest}}@{{newDigest}}{{/if}}\"",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Authoritative GitHub Actions tags, grouped with workflow uses pins",
+      "managerFilePatterns": ["/^toolchain\\.json$/"],
+      "matchStrings": ["\"(?<depName>actions/[^\"]+)\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "github-actions"
+    },
+    {
+      "customType": "regex",
+      "description": "Docker image tags embedded in the proxy smoke shell script",
+      "managerFilePatterns": ["/^scripts/proxy-smoke\\.sh$/"],
+      "matchStrings": ["'(?<depName>caddy|nginx|traefik):(?<currentValue>[^']+)'", "(?<depName>curlimages/curl):(?<currentValue>[0-9.]+)"],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep required indirect Go modules maintained as well as direct dependencies",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "enabled": true
+    },
+    {
+      "description": "Only independent, stable, explicitly reviewed libraries may automerge patch/minor PRs",
+      "matchManagers": ["npm", "gomod"],
+      "matchPackageNames": ["clsx", "tailwind-merge", "ajv", "ajv-formats", "yaml", "@testing-library/jest-dom", "@testing-library/user-event", "github.com/go-chi/chi/v5"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "matchCurrentVersion": ">=1.0.0",
+      "groupName": null,
+      "automerge": true
+    },
+    {
+      "description": "React runtime and matching type declarations migrate together",
+      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "groupName": "React",
+      "automerge": false
+    },
+    {
+      "description": "Tailwind compiler and Vite integration migrate together",
+      "matchPackageNames": ["tailwindcss", "@tailwindcss/vite"],
+      "groupName": "Tailwind CSS",
+      "automerge": false
+    },
+    {
+      "description": "ESLint core and its configuration package migrate together",
+      "matchPackageNames": ["eslint", "@eslint/js"],
+      "groupName": "ESLint",
+      "automerge": false
+    },
+    {
+      "description": "Go runtime, build images and setup-go input pins",
+      "matchPackageNames": ["go", "golang", "actions/go-versions"],
+      "groupName": "Go toolchain",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "The go directive is a deliberate language minimum, not the runtime pin",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang"],
+      "enabled": false
+    },
+    {
+      "description": "Node runtime, build image and setup-node input pins; never Current",
+      "matchPackageNames": ["node", "actions/node-versions"],
+      "groupName": "Node.js LTS toolchain",
+      "versioning": "node",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "PostgreSQL server and service images; all updates reviewed, majors need a data migration",
+      "matchPackageNames": ["postgres"],
+      "groupName": "PostgreSQL",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "sqlc generator: never complete without verified checksum and regenerated SQL code",
+      "matchPackageNames": ["sqlc-dev/sqlc"],
+      "groupName": "sqlc generator",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "mise installer: verified checksum and candidate wrapper provisioning required",
+      "matchPackageNames": ["jdx/mise"],
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "Go API generator: regenerate and migrate the contract in the same PR",
+      "matchPackageNames": ["oapi-codegen/oapi-codegen"],
+      "groupName": "oapi-codegen generator",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "TypeScript API generator: npm lockfile and generated artifacts must agree",
+      "matchPackageNames": ["openapi-typescript"],
+      "groupName": "openapi-typescript generator",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "Playwright: npm lockfile, browser and smoke pins require coordinated validation",
+      "matchPackageNames": ["@playwright/test", "playwright", "playwright-core"],
+      "groupName": "Playwright toolchain",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "Each action updates its manifest and every workflow reference, without unrelated actions",
+      "matchPackageNames": ["actions/checkout", "actions/setup-go", "actions/setup-node"],
+      "groupName": "{{depName}} action",
+      "groupSlug": "{{depName}}-action",
+      "addLabels": ["toolchain", "migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "Other images update one image family at a time; runtime changes never automerge",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["caddy", "nginx", "traefik", "curlimages/curl", "gcr.io/distroless/base-debian13", "gcr.io/distroless/static-debian13"],
+      "groupName": "{{depName}} image",
+      "groupSlug": "{{depName}}-image",
+      "automerge": false
+    },
+    {
+      "description": "Track immutable digests for Distroless nonroot tags; Debian image-family migrations remain developer-owned",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["gcr.io/distroless/base-debian13", "gcr.io/distroless/static-debian13"],
+      "pinDigests": true,
+      "automerge": false
+    },
+    {
+      "description": "Nginx stable releases use even minor versions, not the odd-minor mainline",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["nginx"],
+      "allowedVersions": "/^\\d+\\.(?:\\d*[02468])\\.\\d+(?:-.*)?$/"
+    },
+    {
+      "description": "All majors require migration review, including allowlisted libraries",
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["migration-required"],
+      "automerge": false
+    },
+    {
+      "description": "Runtime, generator, manifest and workflow updates are proposals, never automatic merges",
+      "matchManagers": ["custom.regex", "dockerfile", "docker-compose", "github-actions"],
+      "automerge": false
+    }
+  ]
+}

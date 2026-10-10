@@ -59,6 +59,45 @@ All direct and required indirect modules are at their latest releases. `go list 
 4. Run `bash scripts/dev-exec.sh --versions`, then the complete gate through the wrapper. Both use the branch's own pins, so a candidate version never replaces what other branches or tools use.
 5. For a major version, read the upstream release notes and migration guide first and record behavior changes under a migration-notes heading in this file.
 
+## Renovate maintenance
+
+[`renovate.json`](../../renovate.json) uses Mend-hosted Renovate with `config:recommended`, the Dependency Dashboard, at most three regular PRs/branches and one new regular PR per hour. Ordinary releases wait three days; sources without a release timestamp remain eligible rather than being silently disabled. GitHub vulnerability-alert fixes skip the normal queue and age delay, carry `security`, and require review. Dependabot alerts are enabled for this repository; Dependabot's separate update bot is not enabled. Alert delivery also requires the Renovate app's permission to read alerts; `npm audit` remains a mandatory independent gate.
+
+### Detection and synchronization
+
+| Dependency | Detection | Completion boundary |
+| --- | --- | --- |
+| npm packages | Native npm manager, both package manifests and lockfiles | Install/audit, API or frontend checks. React/types, Tailwind/compiler integration and ESLint/core configuration have narrow groups. Required indirect Go modules are enabled too. |
+| Go modules | Native gomod manager | Module graph/sums, release notes, race/integration/build checks; dependencies may require a deliberate language-minimum migration. |
+| Go runtime | Manifest regex, Dockerfiles and setup-go inputs | Grouped proposal; developer synchronizes every pin and verifies the candidate through `dev-exec.sh`. Go's `1.x` language releases are semver-minor but never automerge. The `goModuleDirective` is a deliberate minimum, not an automatically bumped runtime. |
+| Node.js | Manifest regex, Dockerfile and setup-node inputs | Node versioning admits LTS, not Current, retaining image suffixes. Package engines are compatibility ranges, not authoritative runtime pins. |
+| sqlc / mise | Manifest regex against official GitHub releases | Version-only proposal. Developer obtains the correct architecture's release-asset SHA-256, updates installer/configuration pins and verifies provisioning. sqlc additionally requires regenerated code and drift checks. |
+| oapi-codegen | Manifest and Makefile regex against official GitHub releases | Regenerate Go output, migrate behavior and validate contracts. |
+| openapi-typescript / Playwright | Manifest regex plus native npm manager | Manifest, package and lockfile agree; generator drift or Playwright smoke/version/browser checks must pass. |
+| PostgreSQL | Manifest version/image regex, Compose and workflow services | Synchronize server/client/configuration pins and integration fixtures. Majors require an explicit data-preserving migration and backup/restore validation. |
+| Docker images | Native Dockerfile/Compose/workflow managers; manifest and proxy-script regex | One image family per PR. Nginx is restricted to even-minor stable releases. Distroless `nonroot` tags are digest-pinned/updated; switching Debian image families is a developer migration, not version discovery. |
+| GitHub Actions | Native workflow manager plus manifest regex | Each action groups its own manifest/workflow references, not unrelated actions. GitHub runner `ubuntu-latest` is intentionally floating, not a version pin. |
+
+The test-provider Dockerfile under `backend/test/` is explicitly included by overriding the recommended test-directory exclusions. Compose overrides without images still remain supported package-file locations. Documentation versions, shell installer comparisons, PostgreSQL client-major assertions and generated headers are not rewritten automatically. Different datasources may publish at different times, so grouping does **not** promise a complete synchronized upgrade.
+
+Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. The autonomous developer finishes incomplete proposals following `.autonomous/FLOW.md` **Dependency maintenance**, which already requires open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI. Agent/controller instructions are unchanged.
+
+### Merge policy
+
+Automerge is opt-in only for patch/minor updates to `clsx`, `tailwind-merge`, `ajv`, `ajv-formats`, `yaml`, `@testing-library/jest-dom`, `@testing-library/user-event` and `github.com/go-chi/chi/v5`, with current versions at least 1.0.0 and no grouping with other packages. All majors, pre-1.0 updates, runtime/toolchain/images/actions, generators, Playwright, PostgreSQL and security-alert PRs require developer review. Unlisted dependencies do not automerge.
+
+Renovate performs **PR-based** automerge (`automergeType=pr`, `platformAutomerge=false`, `ignoreTests=false`) after checks pass; this works without enabling GitHub's repository-native auto-merge setting. It never uses direct-main/branch automerge. Strict `required` protection, enforced for administrators, still requires an up-to-date branch and resolved conversations. The unchanged `required` aggregate includes manifest consistency, checksum-verified wrapper provisioning, generated-output drift, audits, native integration/E2E and deployment/backup checks. A version-only toolchain proposal is not complete while any of these fail; never merge it merely to test Renovate.
+
+### Validate a configuration change
+
+Use the official validator through the pinned runtime (temporary npm tool cache only; no project dependency or new manager):
+
+```sh
+bash scripts/dev-exec.sh -- npm exec --yes --package=renovate -- renovate-config-validator --strict renovate.json
+```
+
+For extraction/lookup diagnostics, use the official Renovate CLI with `--platform=local --dry-run=extract` or `--dry-run=lookup` in the checkout. Provide `GITHUB_COM_TOKEN` privately for GitHub datasources; local-platform `RENOVATE_TOKEN` alone does not authenticate those lookups. Never print or commit tokens or raw authenticated logs. A local dry run does not prove the hosted app has run; inspect its Dashboard and first actual PR after onboarding.
+
 ## Held upgrades
 
 - **TypeScript 7.0.2**: `typescript-eslint` 8.71.1 declares a `typescript <6.1.0` peer range. TypeScript's documented side-by-side setup (TS 6 for tooling, TS 7 native compiler for type checking) is possible but adds a second compiler; revisit when `typescript-eslint` supports TS 7.
