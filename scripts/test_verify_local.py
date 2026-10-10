@@ -80,6 +80,7 @@ if [[ "$1" == -m && "$2" == unittest ]]; then
       python-verify-local:scripts/test_verify_local.py) exit 37 ;;
       python-ci-workflow:scripts/test_ci_workflow.py) exit 37 ;;
       python-toolchain-manifest:scripts/test_toolchain_manifest.py) exit 37 ;;
+      python-dev-toolchain:scripts/test_dev_toolchain.py) exit 37 ;;
       python-unit-generator:scripts/test_generation_drift.py) exit 37 ;;
       python-interrupt:scripts/test_e2e_interrupt.py) exit 37 ;;
     esac
@@ -173,9 +174,10 @@ exit 0
             ("python-e2e-runner", 2),
             ("python-verify-local", 3),
             ("python-toolchain-manifest", 5),
-            ("python-live-postgres", 6),
-            ("python-unit-generator", 7),
-            ("python-interrupt", 8),
+            ("python-dev-toolchain", 6),
+            ("python-live-postgres", 7),
+            ("python-unit-generator", 8),
+            ("python-interrupt", 9),
         )
         for command, expected_count in cases:
             with self.subTest(command=command):

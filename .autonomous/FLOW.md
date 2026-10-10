@@ -64,6 +64,21 @@ For behavior/API/schema changes:
 - Regression -> reproducing failing test first when practical.
 - Time/concurrency/idempotency paths require deterministic tests.
 
+## Dependency maintenance
+Dependency PRs (human, Renovate or self-opened) are ordinary open PRs: Start step 4 applies, so finish them before new feature work.
+1. Run every tool through `scripts/dev-exec.sh`; it provisions the checked-out branch's `toolchain.json` pins in the user cache. Never install candidate versions globally, edit shell profiles, or change controller/OpenCode runtimes.
+2. Read the upstream release notes for every bumped version; for a major, read the migration guide and record behavior changes in `docs/development/dependencies.md`.
+3. Keep `toolchain.json` and all pins in sync (`scripts/test_toolchain_manifest.py`). New archive checksums come from the release asset digest.
+4. Diagnose each failing required check to root cause: read the failing job log, reproduce locally through the wrapper, then fix code/tests/generated output. Never weaken tests, pin backwards silently, or retry to green.
+5. Run the complete gate: `scripts/dev-exec.sh -- bash scripts/verify-local.sh`.
+6. Merge only through normal protection; afterwards verify green `main` CI (Work step 15).
+
+Renovate PRs:
+- Patch/minor with green required CI: review the diff and release notes, then merge normally.
+- Renovate stops updating a branch once it has non-Renovate commits. If a migration needs code changes, push fixes to the Renovate branch only when that PR is the single focused change; otherwise close it and open a focused migration PR that supersedes it, and reference it.
+- Do not use rebase/recreate checkboxes or labels to hide failures; a fresh run must pass on its own.
+- Do not create schedulers, bots or Renovate config changes without a separate justified PR.
+
 ## Dependency/tool failures
 - Identify root cause before workaround.
 - Install only what GUARDRAILS permits.

@@ -9,6 +9,10 @@
     "version": "1.31.1",
     "linuxAmd64Sha256": "497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
   },
+  "mise": {
+    "version": "2026.10.7",
+    "linuxX64Sha256": "3d31e3a53e8041b278ca999a4772d4575583098025384126e7aa8a31e0dac11c"
+  },
   "oapiCodegen": "v2.8.0",
   "openapiTypescript": "7.13.0",
   "playwright": "1.64.0",
