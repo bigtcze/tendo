@@ -353,6 +353,14 @@ class PlaywrightTests(TempDirTest):
 
 
 class CommandExecutionTests(TempDirTest):
+    def assert_not_running(self, pid: int, message: str = "process is still running"):
+        """Gone or a zombie: a zombie executes nothing, and its adoptive parent may reap it at any time."""
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+        except FileNotFoundError:
+            return
+        self.assertIn(stat[stat.rindex(")") + 2], "ZX", message)
+
     STUB = textwrap.dedent("""\
         import importlib.util, sys
         spec = importlib.util.spec_from_file_location("dt", sys.argv[1])
@@ -426,8 +434,7 @@ class CommandExecutionTests(TempDirTest):
         self.assertLess(time.monotonic() - started, 10, "TERM-ignoring installer must be escalated to SIGKILL")
         self.assertEqual(first.returncode, -signal.SIGTERM, stderr)
         self.assertIn("installer processes stopped", stderr)
-        with self.assertRaises(ProcessLookupError):
-            os.kill(installer, 0)
+        self.assert_not_running(installer, "installer outlived the wrapper")
         self.assertFalse((self.tmp / "installer-finished").exists(), "installer outlived the wrapper")
 
     def test_installer_descendant_ignoring_term_is_killed_even_after_leader_exits(self):
@@ -446,8 +453,7 @@ class CommandExecutionTests(TempDirTest):
             with mock.patch.object(dt.subprocess.Popen, "__init__", start_then_wait), self.assertRaises(KeyboardInterrupt):
                 dt.run(["sh", "-c", script], env=dict(os.environ))
         descendant = int(pidfile.read_text())
-        with self.assertRaises(ProcessLookupError):
-            os.kill(descendant, 0)
+        self.assert_not_running(descendant)
 
     def assert_descendant_killed_after_leader_exit(self, status: int):
         pidfile = self.tmp / f"descendant-{status}.pid"
@@ -461,8 +467,7 @@ class CommandExecutionTests(TempDirTest):
                     with self.assertRaisesRegex(dt.ToolchainError, f"failed \\({status}\\)"):
                         dt.run(["sh", "-c", script], env=dict(os.environ))
             descendant = int(pidfile.read_text())
-            with self.assertRaises(ProcessLookupError, msg="installer descendant outlived run()"):
-                os.kill(descendant, 0)
+            self.assert_not_running(descendant, "installer descendant outlived run()")
         finally:
             if pidfile.exists() and pidfile.read_text().strip():
                 try:
@@ -505,20 +510,27 @@ class CommandExecutionTests(TempDirTest):
             signal.signal(signal.SIGTERM, previous)
         installer = int(pidfile.read_text())
         try:
-            with self.assertRaises(ProcessLookupError, msg="installer outlived a signal during spawn"):
-                os.kill(installer, 0)
+            self.assert_not_running(installer, "installer outlived a signal during spawn")
         finally:
             try:
                 os.kill(installer, signal.SIGKILL)
             except ProcessLookupError:
                 pass
 
-    def test_installer_starts_with_caller_signal_mask(self):
-        """Deferring signals around the spawn must not leave them blocked in the installer itself."""
-        blocked = int(dt.run(["sh", "-c", "awk '/^SigBlk/ {print $2}' /proc/self/status"], env=dict(os.environ)), 16)
-        for signum in dt.DEFERRED_SIGNALS:
-            self.assertFalse(blocked & (1 << (signum - 1)), f"{signum!r} is blocked in the installer")
-        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()) & dt.DEFERRED_SIGNALS, set())
+    def test_installer_inherits_exactly_the_caller_signal_mask(self):
+        """Deferring signals around the spawn must leave neither the installer nor the caller with them blocked.
+        The probe is exec'd directly: an intermediate shell would reset the mask and hide a leak."""
+        probe = [sys.executable, "-c", "import signal; print(sorted(map(int, signal.pthread_sigmask(signal.SIG_BLOCK, []))))"]
+        for caller_blocks in (set(), {signal.SIGUSR1}):
+            with self.subTest(caller_blocks=caller_blocks):
+                before = signal.pthread_sigmask(signal.SIG_BLOCK, caller_blocks)
+                try:
+                    expected = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+                    self.assertEqual(expected & dt.DEFERRED_SIGNALS, set())
+                    self.assertEqual(json.loads(dt.run(probe, env=dict(os.environ))), sorted(map(int, expected)))
+                    self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, []), expected, "caller mask not restored")
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, before)
 
     def test_zombie_group_members_do_not_count_as_running(self):
         child = subprocess.Popen(["true"], start_new_session=True)

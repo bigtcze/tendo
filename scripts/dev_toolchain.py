@@ -213,6 +213,8 @@ def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None, timeou
             raise ToolchainError(f"{' '.join(args[:3])} exceeded {timeout:.0f}s") from exc
         finally:
             stop_group(proc)
+            for stream in (proc.stdout, proc.stderr):
+                stream.close()
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
     if proc.returncode != 0:
