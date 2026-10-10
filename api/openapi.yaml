@@ -1442,8 +1442,8 @@ components:
         status: { $ref: '#/components/schemas/InvitationStatus' }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
-        acceptedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
-        revokedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
     InvitationCreated:
       type: object
       additionalProperties: false
@@ -1454,8 +1454,8 @@ components:
         status: { $ref: '#/components/schemas/InvitationStatus' }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
-        acceptedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
-        revokedAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
         token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
     InvitationList:
       type: object
@@ -1463,7 +1463,7 @@ components:
       required: [items, nextCursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Invitation' } }
-        nextCursor: { type: [string, 'null'], x-go-type: '*string' }
+        nextCursor: { type: [string, 'null'] }
     Member:
       type: object
       additionalProperties: false
@@ -1478,7 +1478,7 @@ components:
       required: [items, nextCursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Member' } }
-        nextCursor: { type: [string, 'null'], x-go-type: '*string' }
+        nextCursor: { type: [string, 'null'] }
     InvitedAccount:
       type: object
       additionalProperties: false
@@ -1540,7 +1540,7 @@ components:
           type: array
           maxItems: 100
           items: { $ref: '#/components/schemas/Subject' }
-        nextCursor: { type: [string, 'null'], x-go-type: '*string', description: Opaque cursor for the next page; null on the last page. }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
     CreateSubjectRequest:
       type: object
       additionalProperties: false
@@ -1600,11 +1600,11 @@ components:
       properties:
         id: { type: string, format: uuid, x-go-type: string }
         subjectId: { type: string, format: uuid, x-go-type: string }
-        responsibleUserId: { type: [string, 'null'], format: uuid, x-go-type: '*string', description: Assigned household member userId from the members list; null means unassigned. }
+        responsibleUserId: { type: [string, 'null'], format: uuid, x-go-type: string, description: Assigned household member userId from the members list; null means unassigned. }
         title: { type: string, minLength: 1, maxLength: 200 }
-        notes: { type: [string, 'null'], x-go-type: '*string', maxLength: 4000 }
-        attentionOn: { type: [string, 'null'], format: date, x-go-type: '*string', description: Current attention date; null means needs attention immediately. }
-        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence', description: Recurrence policy; null disables repeat. Policy changes affect the next completion and never change attentionOn. }
+        notes: { type: [string, 'null'], maxLength: 4000 }
+        attentionOn: { type: [string, 'null'], format: date, x-go-type: string, description: Current attention date; null means needs attention immediately. }
+        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], description: Recurrence policy; null disables repeat. Policy changes affect the next completion and never change attentionOn. }
         workflowState: { $ref: '#/components/schemas/WorkflowState' }
         attention: { $ref: '#/components/schemas/ItemAttention' }
         archived: { type: boolean }
@@ -1632,19 +1632,19 @@ components:
         itemId: { type: string, format: uuid, x-go-type: string }
         completedOn: { type: string, format: date, x-go-type: string }
         completedByUserId: { type: string, format: uuid, x-go-type: string }
-        cycleAttentionOn: { type: [string, 'null'], format: date, x-go-type: '*string' }
-        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }], x-go-type: '*ItemRecurrence' }
-        nextAttentionOn: { type: [string, 'null'], format: date, x-go-type: '*string' }
+        cycleAttentionOn: { type: [string, 'null'], format: date, x-go-type: string }
+        recurrence: { oneOf: [{ $ref: '#/components/schemas/ItemRecurrence' }, { type: 'null' }] }
+        nextAttentionOn: { type: [string, 'null'], format: date, x-go-type: string }
         createdAt: { type: string, format: date-time }
-        undoneAt: { type: [string, 'null'], format: date-time, x-go-type: '*time.Time' }
-        undoneByUserId: { type: [string, 'null'], format: uuid, x-go-type: '*string' }
+        undoneAt: { type: [string, 'null'], format: date-time }
+        undoneByUserId: { type: [string, 'null'], format: uuid, x-go-type: string }
     CompletionList:
       type: object
       additionalProperties: false
       required: [items, nextCursor]
       properties:
         items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/Completion' } }
-        nextCursor: { type: [string, 'null'], x-go-type: '*string' }
+        nextCursor: { type: [string, 'null'] }
     CompletionProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'
@@ -1660,7 +1660,7 @@ components:
           type: array
           maxItems: 100
           items: { $ref: '#/components/schemas/Item' }
-        nextCursor: { type: [string, 'null'], x-go-type: '*string', description: Opaque cursor for the next page; null on the last page. }
+        nextCursor: { type: [string, 'null'], description: Opaque cursor for the next page; null on the last page. }
     CreateItemRequest:
       type: object
       additionalProperties: false

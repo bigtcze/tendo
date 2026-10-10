@@ -579,3 +579,28 @@ func TestOIDCCallbackRequestLogOmitsSecrets(t *testing.T) {
 		}
 	}
 }
+
+// TestOIDCValidationProblemMatchesGeneratedModel decodes the OIDC 422 body into
+// the generated model. oapi-codegen v2.8.0 types the `const: 422` status as the
+// OIDCValidationProblemStatus enum; the wire value must remain the integer 422.
+func TestOIDCValidationProblemMatchesGeneratedModel(t *testing.T) {
+	for body, field := range map[string]OIDCValidationProblemField{
+		`{"purpose":"invalid"}`: Purpose,
+		`{"purpose":"link"}`:    CurrentPassword,
+	} {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		oidcRouter(&oidcHTTPFake{}, "http://localhost", &fakeSessionService{}).ServeHTTP(w, r)
+		var got OIDCValidationProblem
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 422 || got.Status != N422 || !got.Status.Valid() || got.Code != InvalidValue || !got.Code.Valid() || got.Field != field || !strings.Contains(w.Body.String(), `"status":422`) {
+			t.Fatalf("%s: status=%d body=%s", body, w.Code, w.Body)
+		}
+	}
+	if OIDCValidationProblemStatus(400).Valid() {
+		t.Fatal("generated status enum accepted a non-422 value")
+	}
+}

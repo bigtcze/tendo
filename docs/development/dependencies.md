@@ -11,7 +11,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | Node.js (CI, Docker web build) | 24.21.0 | 24.21.0 (LTS) | Current; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
-| oapi-codegen | v2.7.2 | v2.8.0 | Newest non-breaking release; v2.8.0 held, see below |
+| oapi-codegen | v2.8.0 | v2.8.0 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
 | GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
@@ -53,4 +53,9 @@ All direct and required indirect modules are at their latest releases. `go list 
 ## Held upgrades
 
 - **TypeScript 7.0.2**: `typescript-eslint` 8.71.1 declares a `typescript <6.1.0` peer range. TypeScript's documented side-by-side setup (TS 6 for tooling, TS 7 native compiler for type checking) is possible but adds a second compiler; revisit when `typescript-eslint` supports TS 7.
-- **oapi-codegen v2.8.0**: breaking for this contract. Nullable fields become double pointers, enum constant names change, and OAuth scope constants are removed. Generated code does not compile against current adapters without migration.
+
+## oapi-codegen v2.8.0 migration notes
+
+- **Nullability**: v2.8.0 maps OpenAPI 3.1 `type: [T, 'null']` and `oneOf: [..., {type: 'null'}]` to `*T` natively. `x-go-type` now names the base Go type, so pointer hints (`x-go-type: '*string'`) stack into `**T`. Response schemas therefore carry no pointer `x-go-type` hints; `api/check-generation.mjs` fails if a required nullable response property is not a single, always-serialized pointer. Request schemas keep their `x-go-type: '*T'` hints so the generated optional request models stay `**T` (omitted / null / value), exactly as with v2.7.2; requests are decoded by `httpx.ReadObject`, not these models. The readOnly `Item.lastCompletedOn` keeps its v2.7.2 `**string` shape, always set by the adapter.
+- **Enum constants**: colliding enum values are now prefixed with the type name (for example `SubjectValidationProblemCodeInvalidLength`), and `const` values generate enums (`OIDCValidationProblemStatus`). Wire values are unchanged; no adapter referenced the renamed constants.
+- **Security scopes**: `SessionCookieScopes`/`SetupTokenScopes` and their context-key types are no longer emitted. They were never used for enforcement. `backend/cmd/tendo/security_contract_test.go` instead walks the production route composition and checks every operation against its declared `security` requirement. The `enable-auth-scopes-on-context` compatibility flag is intentionally not used.
