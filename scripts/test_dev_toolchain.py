@@ -506,16 +506,38 @@ class CommandExecutionTests(TempDirTest):
             with mock.patch.object(dt, "STOP_GRACE_SECONDS", 0.3), \
                     mock.patch.object(dt.subprocess.Popen, "__init__", spawn_then_signal), self.assertRaises(Stop):
                 dt.run(["sh", "-c", f"trap '' TERM; echo $$ > {pidfile}; exec sleep 30"], env=dict(os.environ))
+            self.assert_not_running(int(pidfile.read_text()), "installer outlived a signal during spawn")
         finally:
             signal.signal(signal.SIGTERM, previous)
-        installer = int(pidfile.read_text())
+            if pidfile.exists() and pidfile.read_text().strip():
+                try:
+                    os.kill(int(pidfile.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_timeout_stops_installer_group_and_restores_mask(self):
+        pidfile = self.tmp / "slow.pid"
+        expected = signal.pthread_sigmask(signal.SIG_BLOCK, [])
         try:
-            self.assert_not_running(installer, "installer outlived a signal during spawn")
+            with mock.patch.object(dt, "STOP_GRACE_SECONDS", 0.3), \
+                    self.assertRaisesRegex(dt.ToolchainError, "exceeded") as raised:
+                dt.run(["sh", "-c", f"(trap '' TERM; exec sh -c 'echo $$ > {pidfile}; exec sleep 30') & wait"], env=dict(os.environ),
+                       timeout=0.5)
+            self.assertIsInstance(raised.exception.__cause__, subprocess.TimeoutExpired)
+            self.assert_not_running(int(pidfile.read_text()), "installer descendant outlived a timeout")
+            self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, []), expected)
         finally:
-            try:
-                os.kill(installer, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            if pidfile.exists() and pidfile.read_text().strip():
+                try:
+                    os.kill(int(pidfile.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_spawn_failure_is_reported_and_restores_mask(self):
+        expected = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+        with self.assertRaisesRegex(dt.ToolchainError, "cannot run"):
+            dt.run([str(self.tmp / "no-such-installer")], env=dict(os.environ))
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, []), expected)
 
     def test_installer_inherits_exactly_the_caller_signal_mask(self):
         """Deferring signals around the spawn must leave neither the installer nor the caller with them blocked.
