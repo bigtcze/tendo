@@ -132,37 +132,56 @@ def require_supported_platform() -> None:
 STOP_GRACE_SECONDS = 10.0
 
 
-def group_alive(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+DEFERRED_SIGNALS = {signal.SIGINT, signal.SIGTERM, signal.SIGHUP}
+
+
+def live_group_members(pgid: int) -> list[int]:
+    """PIDs in process group `pgid` that can still run. Zombies are excluded: they execute nothing, and an
+    adoptive parent that reaps slowly must not keep the wrapper (and its cache lock) waiting forever."""
+    members = []
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = Path(entry.path, "stat").read_text()
+        except OSError:
+            continue
+        fields = stat[stat.rindex(")") + 2:].split()
+        state, group = fields[0], int(fields[2])
+        if group == pgid and state not in ("Z", "X"):
+            members.append(int(entry.name))
+    return members
 
 
 def stop_group(proc: subprocess.Popen) -> None:
     """Stop an installer's whole process group, not only its leader: SIGTERM, wait up to the grace period for every
-    member to exit, then SIGKILL whatever remains and reap the leader. Returns only once the group is empty."""
+    member to exit, then SIGKILL until no member can run, and reap the leader. Termination signals are deferred
+    meanwhile, so a repeated Ctrl-C cannot abandon cleanup; they are delivered once the group is gone."""
     pgid = proc.pid
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, DEFERRED_SIGNALS)
     try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    deadline = time.monotonic() + STOP_GRACE_SECONDS
-    while time.monotonic() < deadline:
-        proc.poll()
-        if proc.returncode is not None and not group_alive(pgid):
-            return
-        time.sleep(0.05)
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    proc.wait()
-    while group_alive(pgid):  # killed orphans are reaped by init; wait until they are gone
-        time.sleep(0.01)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + STOP_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            proc.poll()
+            if proc.returncode is not None and not live_group_members(pgid):
+                return
+            time.sleep(0.05)
+        # SIGKILL cannot be ignored, so this loop ends as soon as the kernel has torn the members down.
+        while True:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.poll()
+            if proc.returncode is not None and not live_group_members(pgid):
+                return
+            time.sleep(0.01)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None, timeout: float = 1800) -> str:
@@ -506,8 +525,14 @@ def main(argv: list[str]) -> int:
         return 2
     base = dict(os.environ)
 
+    first_signal: list[int] = []
+
     def interrupted(signum, _frame):
-        raise Interrupted(signum)
+        # Only the first signal interrupts provisioning; later ones (including those deferred while installers are
+        # being stopped) must not unwind cleanup a second time.
+        if not first_signal:
+            first_signal.append(signum)
+            raise Interrupted(signum)
 
     handled = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
     previous = {signum: signal.signal(signum, interrupted) for signum in handled}
@@ -522,12 +547,15 @@ def main(argv: list[str]) -> int:
         return 1
     except Interrupted as exc:
         log(f"interrupted by signal {exc.signum}; installer processes stopped")
+        for signum in handled:
+            signal.signal(signum, signal.SIG_IGN)
         signal.signal(exc.signum, signal.SIG_DFL)
         os.kill(os.getpid(), exc.signum)
         return 128 + exc.signum
     finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
+        if not first_signal:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
     try:
         os.execvpe(command[0], command, env)
     except OSError as exc:

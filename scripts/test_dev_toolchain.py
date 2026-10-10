@@ -388,6 +388,12 @@ class CommandExecutionTests(TempDirTest):
 
     def test_signal_during_provisioning_stops_installer_before_lock_release(self):
         """A second wrapper must not provision while the first one's installer may still be running."""
+        self.interrupt_provisioning(repeat=False)
+
+    def test_repeated_signal_during_cleanup_does_not_abandon_installer(self):
+        self.interrupt_provisioning(repeat=True)
+
+    def interrupt_provisioning(self, *, repeat: bool):
         cache = self.tmp / "cache"
         script = textwrap.dedent(f"""\
             import importlib.util, sys
@@ -397,13 +403,13 @@ class CommandExecutionTests(TempDirTest):
                 with dt.provisioning_lock(dt.cache_root(base)):
                     dt.run(["sh", "-c", "trap '' TERM; echo $$ > {self.tmp}/installer.pid; sleep 20; touch {self.tmp}/installer-finished"], env=base)
             dt.provision = provision
-            dt.STOP_GRACE_SECONDS = 0.5
+            dt.STOP_GRACE_SECONDS = float(sys.argv[1])
             sys.exit(dt.main(["--", "true"]))
             """)
         stub = self.tmp / "interrupt.py"
         stub.write_text(script)
         env = dict(os.environ, TENDO_TOOLCHAIN_CACHE=str(cache))
-        first = subprocess.Popen([sys.executable, str(stub)], env=env, stderr=subprocess.PIPE, text=True)
+        first = subprocess.Popen([sys.executable, str(stub), "1.0" if repeat else "0.5"], env=env, stderr=subprocess.PIPE, text=True)
         pidfile = self.tmp / "installer.pid"
         for _ in range(500):
             if pidfile.exists() and pidfile.read_text().strip():
@@ -412,6 +418,10 @@ class CommandExecutionTests(TempDirTest):
         installer = int(pidfile.read_text())
         started = time.monotonic()
         first.send_signal(signal.SIGTERM)
+        if repeat:
+            time.sleep(0.3)  # inside the TERM grace period, while the installer still ignores TERM
+            first.send_signal(signal.SIGTERM)
+            first.send_signal(signal.SIGINT)
         _, stderr = first.communicate(timeout=30)
         self.assertLess(time.monotonic() - started, 10, "TERM-ignoring installer must be escalated to SIGKILL")
         self.assertEqual(first.returncode, -signal.SIGTERM, stderr)
@@ -438,6 +448,24 @@ class CommandExecutionTests(TempDirTest):
         descendant = int(pidfile.read_text())
         with self.assertRaises(ProcessLookupError):
             os.kill(descendant, 0)
+
+    def test_zombie_group_members_do_not_count_as_running(self):
+        child = subprocess.Popen(["true"], start_new_session=True)
+        try:
+            for _ in range(500):
+                if Path(f"/proc/{child.pid}/stat").read_text().split(") ", 1)[1].startswith("Z"):
+                    break
+                time.sleep(0.01)
+            os.killpg(child.pid, 0)  # the zombie still owns its process group
+            self.assertEqual(dt.live_group_members(child.pid), [])
+        finally:
+            child.wait()
+        sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        try:
+            self.assertEqual(dt.live_group_members(sleeper.pid), [sleeper.pid])
+        finally:
+            sleeper.kill()
+            sleeper.wait()
 
     def test_shell_entrypoint_is_valid(self):
         subprocess.run(["bash", "-n", str(ROOT / "scripts/dev-exec.sh")], check=True)
