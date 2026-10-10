@@ -9,7 +9,7 @@
     "version": "1.31.1",
     "linuxAmd64Sha256": "497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
   },
-  "oapiCodegen": "v2.7.2",
+  "oapiCodegen": "v2.8.0",
   "openapiTypescript": "7.13.0",
   "playwright": "1.64.0",
   "images": {

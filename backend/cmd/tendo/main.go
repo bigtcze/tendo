@@ -105,6 +105,24 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 	startupCancel()
 	draining := make(chan struct{})
 	routes := chi.NewRouter()
+	if err := registerAPI(routes, cfg, pool); err != nil {
+		pool.Close()
+		return err
+	}
+	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
+	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
+	listener, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		pool.Close()
+		return err
+	}
+	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
+}
+
+// registerAPI composes every /api/v1 route with its authentication middleware.
+// It performs no database I/O, so tests can verify the composed security
+// boundary against the OpenAPI contract without PostgreSQL.
+func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error {
 	identityRepository := identitypostgres.New(pool, func(queries *householddb.Queries) identityapp.OwnerHouseholdService {
 		return household.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
 	})
@@ -114,7 +132,6 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 	identityhttp.New(setupService, cfg.SetupToken).Register(routes)
 	sessions, err := identityapp.NewSessionService(identityRepository, time.Now)
 	if err != nil {
-		pool.Close()
 		return err
 	}
 	sessions.SetPasswordVerifier(passwordGate.VerifyPassword)
@@ -122,7 +139,6 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 	sessionHandler.Register(routes)
 	oidcService, err := newOIDCService(cfg, identityRepository, sessions, time.Now)
 	if err != nil {
-		pool.Close()
 		return err
 	}
 	newOIDCHandler(oidcService, sessionHandler, cfg.PublicURL).Register(routes)
@@ -139,7 +155,6 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 	})
 	invitationService, err := identityapp.NewInvitationService(invitationRepo, time.Now)
 	if err != nil {
-		pool.Close()
 		return err
 	}
 	invitationService.SetPasswordHasher(passwordGate.HashPassword)
@@ -156,14 +171,7 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 	}
 	itemService := itemapp.NewService(itempostgres.NewRepository(pool), itemHouseholds(householdService.Get), itemSubjects(subjectService.Get), itemMembers(membershipService.GetMembership), itemNow)
 	itemhttp.New(itemService, sessionHandler.RequireSession, principalID).Register(routes)
-	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
-	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
-	listener, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		pool.Close()
-		return err
-	}
-	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
+	return nil
 }
 
 // newOIDCHandler keeps disabled OIDC as an untyped nil service; passing a nil

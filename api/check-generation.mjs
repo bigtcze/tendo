@@ -42,7 +42,30 @@ for (const [name, schema] of Object.entries(contract.components.schemas)) {
 }
 for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
 assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goSetup), 'Generated Go Session must have optional DefaultHouseholdId')
-assert.ok(goSetup.includes('SessionCookieScopes'), 'Generated Go missing SessionCookie security scheme')
+// oapi-codegen v2.8.0 no longer emits SessionCookieScopes/SetupTokenScopes. Those constants never enforced
+// authentication; enforcement is verified against this contract by backend/cmd/tendo/security_contract_test.go.
+assert.deepEqual(Object.keys(contract.components.securitySchemes).sort(), ['SessionCookie', 'SetupToken'], 'Contract security schemes changed; update security_contract_test.go')
+for (const [path, pathItem] of Object.entries(contract.paths)) {
+  for (const [method, operation] of Object.entries(pathItem)) {
+    if (!operation || typeof operation !== 'object' || !operation.operationId) continue
+    assert.ok(Array.isArray(operation.security), `${method.toUpperCase()} ${path} must declare security explicitly`)
+    assert.ok(operation.security.length <= 1 && operation.security.every(requirement => Object.keys(requirement).length === 1 && contract.components.securitySchemes[Object.keys(requirement)[0]]), `${method.toUpperCase()} ${path} must declare [] or exactly one known security scheme`)
+  }
+}
+// Required nullable response properties must stay single pointers that always serialize, so null is emitted
+// explicitly rather than omitted. Guards against x-go-type pointer hints stacking on v2.8.0 native nullability.
+const isNullable = property => (Array.isArray(property.type) && property.type.includes('null')) || (property.oneOf ?? []).some(branch => branch.type === 'null')
+for (const [file, goModels] of Object.entries({ 'setup.gen.go': goSetup, 'health.gen.go': goHealth, 'household.gen.go': goHousehold, 'subject.gen.go': goSubject, 'item.gen.go': goItem })) {
+  for (const [name, schema] of Object.entries(contract.components.schemas)) {
+    for (const [field, property] of Object.entries(schema.properties ?? {})) {
+      if (!isNullable(property) || !(schema.required ?? []).includes(field) || property.readOnly) continue
+      const struct = goModels.match(new RegExp(`type ${name} struct \\{[^}]*\\}`, 's'))?.[0]
+      assert.ok(struct, `${file}: generated Go missing struct ${name}`)
+      const goField = field[0].toUpperCase() + field.slice(1)
+      assert.match(struct, new RegExp(`\\n\\s*${goField}\\s+\\*[A-Za-z][\\w.]*\\s+\`json:"${field}"\``), `${file}: ${name}.${field} must be a single-pointer, always-serialized nullable field`)
+    }
+  }
+}
 for (const operationId of ['createInvitation','listInvitations','revokeInvitation','acceptInvitationWithNewAccount','acceptInvitation','listMembers','createSession','getSession','deleteSession']) assert.ok(generated.includes(`${operationId}:`), `TypeScript output missing operation ${operationId}`)
 assert.ok(/Session: \{[^}]*defaultHouseholdId\?: string/s.test(generated), 'TypeScript Session must have optional defaultHouseholdId')
 assert.ok(/LoginRequest: \{[^}]*login: string[^}]*password: string/s.test(generated), 'TypeScript LoginRequest missing required fields')
