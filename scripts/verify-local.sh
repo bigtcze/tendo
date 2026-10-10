@@ -61,6 +61,6 @@ run_stage sqlc-drift 'bash scripts/check-sqlc.sh'
 run_stage go-build 'cd backend' 'go build ./...'
 run_stage api-contract-audit 'cd api' 'npm ci' 'npm audit --audit-level=moderate' 'npm run check'
 run_stage frontend-check 'cd frontend' 'npm ci' 'npm audit --audit-level=moderate' 'npm run check'
-run_stage native-harness-tests 'python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py' 'python3 scripts/test_postgres_live.py' 'python3 -m unittest scripts/test_generation_drift.py' 'python3 scripts/test_e2e_interrupt.py'
+run_stage native-harness-tests 'python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py' 'python3 scripts/test_postgres_live.py' 'python3 -m unittest scripts/test_generation_drift.py' 'python3 scripts/test_e2e_interrupt.py'
 run_stage native-production-e2e 'bash scripts/e2e-smoke.sh'
 print_summary 0

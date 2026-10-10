@@ -11,6 +11,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | Node.js (CI, Docker web build) | 24.21.0 | 24.21.0 (LTS) | Current; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
+| mise (installer used by `scripts/dev-exec.sh`) | 2026.10.7 | 2026.10.7 | Current; release archive SHA-256 verified against the GitHub release asset digest; MIT |
 | oapi-codegen | v2.8.0 | v2.8.0 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
@@ -49,6 +50,14 @@ All direct and required indirect modules are at their latest releases. `go list 
 | `frontend`: `react` / `react-dom` | 19.3.0 | |
 | `frontend`: `typescript` | 6.0.3 | Held; see below |
 | `frontend`: `typescript-eslint` | 8.71.1 | |
+
+## Upgrading a pin
+
+1. Change `toolchain.json` and every pin it lists in the same branch; `scripts/test_toolchain_manifest.py` names any you missed.
+2. For a release archive (sqlc, mise), take the SHA-256 from the release asset digest (`gh api repos/<owner>/<repo>/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`), never from a local download alone.
+3. Playwright: update `@playwright/test` with npm so `frontend/package-lock.json` and `toolchain.json` agree; the wrapper derives the Chromium revision from the lockfile.
+4. Run `bash scripts/dev-exec.sh --versions`, then the complete gate through the wrapper. Both use the branch's own pins, so a candidate version never replaces what other branches or tools use.
+5. For a major version, read the upstream release notes and migration guide first and record behavior changes under a migration-notes heading in this file.
 
 ## Held upgrades
 

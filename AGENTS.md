@@ -17,6 +17,11 @@ when_platform_or_future_seam=ROADMAP
 Paths are `.autonomous/<NAME>.md`.
 If a change crosses concerns, read every applicable locked file before editing.
 
+## Tooling
+toolchain=`bash scripts/dev-exec.sh -- <command>` runs with the exact `toolchain.json` pins from the user cache; do not install or rely on host Go/Node/sqlc/Playwright.
+full_gate=`bash scripts/dev-exec.sh -- bash scripts/verify-local.sh` (needs `TENDO_TEST_POSTGRES_ADMIN_URL`; see docs/development/testing.md)
+dependency_or_renovate_PR=FLOW "Dependency maintenance"
+
 ## Context rules
 - English only in agent context/code/docs unless user-facing localization requires otherwise.
 - Prefer `key=value`, tables, terse bullets, stable IDs.

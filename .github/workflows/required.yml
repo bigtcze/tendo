@@ -68,8 +68,17 @@ jobs:
       - name: Go build
         working-directory: backend
         run: go build ./...
-      - name: Verify local gate failure propagation and CI workflow structure
-        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py
+      - name: Verify local gate failure propagation, CI workflow structure, and toolchain wrapper
+        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py
+      - name: Provision toolchain.json pins through the developer wrapper
+        shell: bash
+        env:
+          TENDO_TOOLCHAIN_CACHE: ${{ runner.temp }}/tendo-toolchain
+        run: |
+          set -euo pipefail
+          bash scripts/dev-exec.sh --versions
+          bash scripts/dev-exec.sh -- python3 -m unittest scripts/test_dev_toolchain.py
+          bash scripts/dev-exec.sh -- bash -c 'cd backend && go version && node --version && sqlc version && go build ./...'
 
   api:
     name: api

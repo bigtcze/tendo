@@ -24,7 +24,9 @@ REQUIRED_COMMANDS = (
     "python3 scripts/test_postgres_live.py",
     "python3 -m unittest scripts/test_generation_drift.py",
     "python3 scripts/test_e2e_interrupt.py",
-    "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py",
+    "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py",
+    "bash scripts/dev-exec.sh --versions",
+    "bash scripts/dev-exec.sh -- python3 -m unittest scripts/test_dev_toolchain.py",
     "npx --no-install playwright install --with-deps chromium",
     'bash "scripts/${SMOKE}.sh"',
     "bash scripts/e2e-smoke.sh",
@@ -185,7 +187,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertTrue(any("missing deployment matrix smoke: oidc-smoke" in error for error in errors), errors)
 
     def test_commented_out_command_fails_structure_validation(self):
-        command = "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py"
+        command = "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py"
         mutated = self.text.replace(f"run: {command}", f"run: true  # {command}", 1)
         self.assertNotEqual(mutated, self.text)
         errors = workflow_errors(mutated)
@@ -211,7 +213,9 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_prerequisites_precede_consumers_within_each_job(self):
         # Jobs run in parallel on fresh runners, so ordering is only meaningful within one job.
-        self.assertIn("python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py", active_text(self.job_text("backend")))
+        backend = active_text(self.job_text("backend"))
+        self.assertIn("python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py", backend)
+        self.assert_ordered(backend, "TENDO_TOOLCHAIN_CACHE: ${{ runner.temp }}/tendo-toolchain", "bash scripts/dev-exec.sh --versions", "bash scripts/dev-exec.sh -- bash -c")
         postgres = self.job_text("postgres")
         self.assert_ordered(postgres, "sqlc_1.31.1_linux_amd64.tar.gz", "CREATE ROLE tendo NOLOGIN", "bash scripts/setup-integration.sh", "bash scripts/check-sqlc.sh")
         self.assert_ordered(postgres, "working-directory: api\n        run: npm ci", "python3 scripts/test_postgres_live.py")
@@ -249,6 +253,13 @@ class WorkflowStructureTests(unittest.TestCase):
         mutated = self.text.replace("scripts/test_verify_local.py scripts/test_ci_workflow.py", "scripts/test_verify_local.py", 1)
         errors = workflow_errors(mutated)
         self.assertTrue(any("test_ci_workflow.py" in error for error in errors), errors)
+
+    def test_dropping_wrapper_tests_or_real_provisioning_fails_structure_validation(self):
+        for removed, replacement in ((" scripts/test_dev_toolchain.py", ""), ("bash scripts/dev-exec.sh --versions", "true")):
+            with self.subTest(removed=removed):
+                mutated = self.text.replace(removed, replacement, 1)
+                self.assertNotEqual(mutated, self.text)
+                self.assertTrue(workflow_errors(mutated))
 
     def test_wrong_aggregate_count_fails_structure_validation(self):
         mutated = self.text.replace("length == 6 and all(.[]; .result == \"success\")", "length == 5 and all(.[]; .result == \"success\")", 1)
