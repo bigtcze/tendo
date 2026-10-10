@@ -449,6 +449,77 @@ class CommandExecutionTests(TempDirTest):
         with self.assertRaises(ProcessLookupError):
             os.kill(descendant, 0)
 
+    def assert_descendant_killed_after_leader_exit(self, status: int):
+        pidfile = self.tmp / f"descendant-{status}.pid"
+        script = (f"(trap '' TERM; exec sh -c 'echo $$ > {pidfile}; exec sleep 30' </dev/null >/dev/null 2>&1) & "
+                  f"while [ ! -s {pidfile} ]; do sleep 0.01; done; echo done; exit {status}")
+        try:
+            with mock.patch.object(dt, "STOP_GRACE_SECONDS", 0.3):
+                if status == 0:
+                    self.assertEqual(dt.run(["sh", "-c", script], env=dict(os.environ)), "done")
+                else:
+                    with self.assertRaisesRegex(dt.ToolchainError, f"failed \\({status}\\)"):
+                        dt.run(["sh", "-c", script], env=dict(os.environ))
+            descendant = int(pidfile.read_text())
+            with self.assertRaises(ProcessLookupError, msg="installer descendant outlived run()"):
+                os.kill(descendant, 0)
+        finally:
+            if pidfile.exists() and pidfile.read_text().strip():
+                try:
+                    os.kill(int(pidfile.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_descendant_of_successful_installer_is_stopped(self):
+        self.assert_descendant_killed_after_leader_exit(0)
+
+    def test_descendant_of_failed_installer_is_stopped(self):
+        self.assert_descendant_killed_after_leader_exit(3)
+
+    def test_signal_during_spawn_still_stops_installer(self):
+        """A signal arriving between fork and `proc` registration must not leave an unowned installer running."""
+        pidfile = self.tmp / "spawned.pid"
+
+        class Stop(Exception):
+            pass
+
+        def handler(_signum, _frame):
+            raise Stop
+
+        original = dt.subprocess.Popen.__init__
+
+        def spawn_then_signal(proc, *args, **kwargs):
+            original(proc, *args, **kwargs)
+            for _ in range(500):
+                if pidfile.exists() and pidfile.read_text().strip():
+                    break
+                time.sleep(0.01)
+            os.kill(os.getpid(), signal.SIGTERM)  # lands before run() has bound `proc`
+
+        previous = signal.signal(signal.SIGTERM, handler)
+        try:
+            with mock.patch.object(dt, "STOP_GRACE_SECONDS", 0.3), \
+                    mock.patch.object(dt.subprocess.Popen, "__init__", spawn_then_signal), self.assertRaises(Stop):
+                dt.run(["sh", "-c", f"trap '' TERM; echo $$ > {pidfile}; exec sleep 30"], env=dict(os.environ))
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        installer = int(pidfile.read_text())
+        try:
+            with self.assertRaises(ProcessLookupError, msg="installer outlived a signal during spawn"):
+                os.kill(installer, 0)
+        finally:
+            try:
+                os.kill(installer, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def test_installer_starts_with_caller_signal_mask(self):
+        """Deferring signals around the spawn must not leave them blocked in the installer itself."""
+        blocked = int(dt.run(["sh", "-c", "awk '/^SigBlk/ {print $2}' /proc/self/status"], env=dict(os.environ)), 16)
+        for signum in dt.DEFERRED_SIGNALS:
+            self.assertFalse(blocked & (1 << (signum - 1)), f"{signum!r} is blocked in the installer")
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()) & dt.DEFERRED_SIGNALS, set())
+
     def test_zombie_group_members_do_not_count_as_running(self):
         child = subprocess.Popen(["true"], start_new_session=True)
         try:

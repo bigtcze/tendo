@@ -160,6 +160,9 @@ def stop_group(proc: subprocess.Popen) -> None:
     pgid = proc.pid
     previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, DEFERRED_SIGNALS)
     try:
+        proc.poll()
+        if proc.returncode is not None and not live_group_members(pgid):
+            return  # nothing left to stop; never signal a process group ID that may since have been reused
         try:
             os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
@@ -185,19 +188,33 @@ def stop_group(proc: subprocess.Popen) -> None:
 
 
 def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None, timeout: float = 1800) -> str:
+    """Run an installer in its own process group and return its stdout.
+
+    Termination signals stay blocked from before the spawn until `proc` is bound inside the cleanup scope, so no
+    signal can unwind between fork and registration and leave an unowned installer running. The child restores the
+    caller's mask before exec. Whatever way the call ends (success, nonzero status, timeout, or signal), the whole
+    group is stopped before returning, so no descendant can outlive the caller's cache lock."""
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, DEFERRED_SIGNALS)
     try:
-        proc = subprocess.Popen(args, env=env, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                start_new_session=True)
-    except OSError as exc:
-        raise ToolchainError(f"cannot run {args[0]}: {exc}") from exc
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        stop_group(proc)
-        raise ToolchainError(f"{' '.join(args[:3])} exceeded {timeout:.0f}s") from exc
-    except BaseException:
-        stop_group(proc)
-        raise
+        try:
+            proc = subprocess.Popen(args, env=env, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    start_new_session=True,
+                                    preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask))
+        except OSError as exc:
+            raise ToolchainError(f"cannot run {args[0]}: {exc}") from exc
+        try:
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)  # a deferred signal is delivered here
+                stdout, stderr = proc.communicate(timeout=timeout)
+            finally:
+                # Defer signals again so that cleanup below cannot be skipped by one arriving after communicate().
+                signal.pthread_sigmask(signal.SIG_BLOCK, DEFERRED_SIGNALS)
+        except subprocess.TimeoutExpired as exc:
+            raise ToolchainError(f"{' '.join(args[:3])} exceeded {timeout:.0f}s") from exc
+        finally:
+            stop_group(proc)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
     if proc.returncode != 0:
         detail = (stderr or stdout).strip().splitlines()[-5:]
         raise ToolchainError(f"{' '.join(args[:3])} failed ({proc.returncode}): {' | '.join(detail) or 'no output'}")
