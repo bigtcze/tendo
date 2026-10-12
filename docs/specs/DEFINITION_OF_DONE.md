@@ -124,3 +124,6 @@ L=scope
 - [ ] No V2+ integration became a V1 dependency.
 - [ ] ROADMAP remains future direction only.
 - [ ] PRODUCT/UX/ARCHITECTURE/API/TESTING/DOCUMENTATION constraints remain satisfied.
+
+## V1 completion
+V1 is complete when every item in `docs/specs/DEFINITION_OF_DONE.md` is verified on `main`, the required CI check is green on `main`, no known release-blocking defect remains, and Head marks the Tendo V1 milestone/project status complete in Paperclip. Completion needs no marker file.
