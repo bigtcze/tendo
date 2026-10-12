@@ -25,26 +25,22 @@ jobs:
           go-version: '1.27.2'
           cache: true
           cache-dependency-path: backend/go.sum
-      - name: Validate autonomous bootstrap
+      - name: Validate repository specifications
         shell: bash
         run: |
           set -euo pipefail
           test -f AGENTS.md
-          test -f .autonomous/GUARDRAILS.md
-          test -f .autonomous/CHARTER.md
-          test -f .autonomous/PRODUCT.md
-          test -f .autonomous/ROADMAP.md
-          test -f .autonomous/UX.md
-          test -f .autonomous/ARCHITECTURE.md
-          test -f .autonomous/API.md
-          test -f .autonomous/TESTING.md
-          test -f .autonomous/DOCUMENTATION.md
-          test -f .autonomous/DEFINITION_OF_DONE.md
-          test -f .autonomous/FLOW.md
-          test -f .autonomous/STATE.md
-          test -f .autonomous/LEARNINGS.md
-          test -f .autonomous/CYCLE_PROMPT.md
-          bash -n scripts/autonomous-loop.sh
+          test -f docs/specs/GUARDRAILS.md
+          test -f docs/specs/CHARTER.md
+          test -f docs/specs/PRODUCT.md
+          test -f docs/specs/ARCHITECTURE.md
+          test -f docs/specs/TESTING.md
+          test -f docs/specs/DEFINITION_OF_DONE.md
+          test -f docs/specs/UX.md
+          test -f docs/specs/API.md
+          test -f docs/specs/DOCUMENTATION.md
+          test -f docs/specs/ROADMAP.md
+          test -f docs/development/workflow.md
       - name: Check Go formatting
         shell: bash
         run: |

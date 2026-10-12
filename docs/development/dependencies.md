@@ -80,7 +80,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 
 The test-provider Dockerfile under `backend/test/` is explicitly included by overriding the recommended test-directory exclusions. Compose overrides without images still remain supported package-file locations. Documentation versions, shell installer comparisons, PostgreSQL client-major assertions and generated headers are not rewritten automatically. Different datasources may publish at different times, so grouping does **not** promise a complete synchronized upgrade.
 
-Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. The autonomous developer finishes incomplete proposals following `.autonomous/FLOW.md` **Dependency maintenance**, which already requires open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI. Agent/controller instructions are unchanged.
+Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. Developers finish incomplete proposals following `docs/development/workflow.md` **Dependency maintenance**, which requires open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI.
 
 ### Merge policy
 

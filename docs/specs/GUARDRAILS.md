@@ -22,10 +22,9 @@ agent_must_not_edit=this_file
 - No AI, document ingestion, Nextcloud, calendar sync, email ingestion, chatbot, native mobile app, analytics dashboard, gamification, household ERP, or general-purpose autonomous agent runtime in V1.
 - Platform-ready means stable boundaries/contracts, not empty plugin frameworks or unused abstractions.
 
-## Controller boundary
-- Do not upgrade/reconfigure OpenCode, Oh My OpenAgent Slim, provider auth, global OpenCode config, this systemd unit, or `scripts/autonomous-loop.sh`.
-- If controller tooling is broken, record exact evidence in STATE and use a safe alternative when possible.
-- Never edit unrelated repositories or host services.
+## Agent runtime boundary
+- Do not modify agent runtimes, global agent configuration, provider credentials, host services, or unrelated repositories.
+- Record blockers in the owning task tracker.
 
 ## Tooling autonomy
 Allowed when directly required to build/test Tendo:
@@ -39,7 +38,7 @@ For apt:
 - allowed operations are update/install of required development/build/test packages;
 - never remove packages, dist-upgrade, alter repositories, or wait for a sudo password;
 - verify installed version and rerun the blocked task;
-- record durable requirements once; do not repeatedly reinstall the same tool.
+- record durable requirements once in project documentation or the task tracker; do not repeatedly reinstall the same tool.
 
 ## Secrets/privacy
 - Never expose/commit credentials, tokens, private keys, cookies, session secrets, or `.env` contents.
