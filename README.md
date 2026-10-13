@@ -11,7 +11,7 @@ Examples:
 - keep an item visible while it is being handled or while you are waiting for someone else;
 - track obligations around family members, home, vehicles, pets, or anything custom.
 
-> **Project status:** early development. You can set up the first household in the browser, sign in, and add people and things (such as a child, your home, or the car), rename them, archive them, and restore them. There are no items or invitations yet, so this is not yet a usable household product.
+> **Project status:** Tendo is in active development. It supports household items, recurring obligations, and owner-issued invitation links. See [items](docs/user/items.md) and [household members and invitations](docs/user/household-members.md) for current usage; this is not a claim that V1 is complete or production-ready.
 
 ## Development runtime
 
@@ -76,4 +76,4 @@ For configuration, health checks, and stop/start details, see [runtime developme
 
 ## Development
 
-The repository contains a Go backend, PostgreSQL wiring, the pure Go schedule package, and a small React web UI embedded in the Go binary. The setup and session API are described in `api/openapi.yaml`. This remains development-only and does not provide a usable household application.
+Create one-off items or set them to repeat on a fixed cadence or from the date you complete them. Items can have an optional attention date, status, notes, and responsible household member; completing an item preserves its history and can be undone. Owners can invite members with private links—Tendo does not send email. Sign-in works with a local password, with optional OIDC when configured. See [items](docs/user/items.md), [household members and invitations](docs/user/household-members.md), and [your account and sign-in](docs/user/account.md).
