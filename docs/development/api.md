@@ -21,7 +21,7 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | 404 | `not_found` | Malformed ID, nonexistent resource, resource of another household, or caller not a member. The bodies are identical |
 | 404 | `invalid_invitation` | Malformed, unknown, expired, revoked, or already-used invitation token |
 | 403 | `owner_required` | Caller is a current household member but not an owner managing invitations |
-| 400 | `idempotency_key_required`, `invalid_idempotency_key` | Invitation create key is missing or malformed |
+| 400 | `idempotency_key_required`, `invalid_idempotency_key` | `Idempotency-Key` is missing or malformed on invitation, subject, or completion create |
 | 409 | `already_member`, `household_conflict` | Existing-account invitation acceptance conflicts with current membership/default household |
 | 429 | `rate_limited` | Session or invitation acceptance limit; response includes `Retry-After` |
 | 412 | `precondition_failed` | `If-Match` is malformed, weak, a list, or stale |
@@ -38,6 +38,11 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 - Owner list uses `limit` and opaque `n1:` cursors. Members list uses opaque `m1:` cursors and is available to any household member. Both default to 50 and cap at 100.
 - Revoke succeeds for terminal invitations and does not remove members. New-account acceptance is `POST /api/v1/auth/invitations/accept`, returns `{userId, login, householdId, role}`, and does not set a session cookie; sign in through `POST /api/v1/session`. Existing-account acceptance is `POST /api/v1/invitations/accept`, returns `{userId, householdId, role}`, and rejects an account with an existing default household or other household membership (`409 household_conflict`); an existing member gets `409 already_member`. Malformed, unknown, expired, revoked, and already-used tokens all return `404 invalid_invitation`.
 - Request evaluation order for management routes: global Origin/authority middleware (400 for malformed trusted forwarded metadata, 403 Origin, 421 authority) → session authentication (401, clearing a stale single cookie) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before owner authorization. All responses include `X-Request-ID`; application responses use `Cache-Control: no-store`.
+
+## Subjects
+
+- Create with `POST /api/v1/households/{householdId}/subjects` and exactly one case-sensitive `Idempotency-Key`: 1–128 visible ASCII bytes (`0x21`–`0x7E`). Missing returns `400 idempotency_key_required`; empty, invalid, or repeated headers return `400 invalid_idempotency_key`. Evaluation order: global Origin/authority middleware (400/403/421) → session (401) → key syntax (400) → strict body decoding (415/413/400) → household membership (404) → replay lookup → name/type validation (422).
+- Keys are scoped to the resource kind, household, authenticated actor, and key. Membership authorization is still required on every retry. Replay lookup occurs after membership and before name/type domain validation. The intent is the trimmed name and the exact type. A matching submitted intent returns `201` with the subject's current representation, ETag, and original Location; edits and archive state made since creation are reflected and no version is incremented. Reusing a key for a different intent returns `422 idempotency_key_reused` without a `field`. Invalid or rejected requests do not reserve a key.
 
 ## OIDC authentication
 
@@ -58,7 +63,7 @@ Collections return `{"items": [...], "nextCursor": string | null}`. `nextCursor`
 
 ## Evaluation order
 
-Checks run in this order and the first failure is returned: 401 session, 403/421 origin and authority (global middleware), 428/412 `If-Match` syntax, 415/413/400 request body, 404 household membership and subject existence, 422 field validation, 412 stale version. The `PATCH` consequence: a non-member who omits `If-Match` gets 428, and one who sends a well-formed `If-Match` gets the uniform 404. `If-Match: *`, weak tags and lists are rejected with 412.
+Checks run in this order and the first failure is returned: 403/421 origin and authority (global middleware), 401 session, 428/412 `If-Match` syntax, 415/413/400 request body, 404 household membership and subject existence, 422 field validation, 412 stale version. The `PATCH` consequence: a non-member who omits `If-Match` gets 428, and one who sends a well-formed `If-Match` gets the uniform 404. `If-Match: *`, weak tags and lists are rejected with 412.
 
 ## Items
 

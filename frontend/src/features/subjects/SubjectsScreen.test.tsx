@@ -13,6 +13,7 @@ import {
   type RecordedRequest,
 } from '../../test/fakeServer';
 import type { Subject } from './subjectsApi';
+import { clearPendingSubjectCreates } from './pendingSubjectCreate';
 
 function renderApp() {
   return render(
@@ -52,6 +53,8 @@ const signedIn = {
 };
 
 beforeEach(() => {
+  clearPendingSubjectCreates();
+  sessionStorage.clear();
   vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']);
 });
 
@@ -221,6 +224,8 @@ describe('add', () => {
     const post = sent(fake.requests, 'POST')[0]!;
     expect(post.path).toBe(`${base}/subjects`);
     expect(JSON.parse(post.body)).toEqual({ name: '  Zuzka ', type: 'person' });
+    expect(post.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
+    await screen.findByText('Zuzka');
     const row = within(screen.getByRole('list')).getByText('Zuzka').closest('li')!;
     expect(row).toHaveTextContent('Person');
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
@@ -302,8 +307,52 @@ describe('add', () => {
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
-    expect(await within(form).findByRole('alert')).toHaveTextContent('Couldn’t save that.');
+    expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
+    expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible();
     expect(within(form).getByLabelText('Name')).toHaveValue('Zuzka');
+    expect(within(form).getByLabelText('Name')).toBeDisabled();
+  });
+
+  it('retries an uncertain create with the stored key and body regardless of later form edits', async () => {
+    let posts = 0;
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([]),
+      [createKey]: (req) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, subject('s-retry', JSON.parse(req.body).name)),
+    });
+    renderApp();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Original');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    const first = sent(fake.requests, 'POST')[0]!;
+    const storedBody = JSON.parse(first.body);
+    const retry = within(screen.getByRole('form')).getByRole('button', { name: 'Check again' });
+    await waitFor(() => expect(within(screen.getByRole('form')).getByText('We couldn’t confirm this was saved.').closest('[role="status"]')).toHaveFocus());
+    await userEvent.click(retry);
+    expect(await screen.findByText('Original was added.')).toBeVisible();
+    const postsSent = sent(fake.requests, 'POST');
+    expect(postsSent).toHaveLength(2);
+    expect(postsSent[1]!.headers.get('Idempotency-Key')).toBe(first.headers.get('Idempotency-Key'));
+    expect(JSON.parse(postsSent[1]!.body)).toEqual(storedBody);
+  });
+
+  it('422 field validation clears the attempt and a corrected submit gets a new key', async () => {
+    let calls = 0;
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([]),
+      [createKey]: (req) => ++calls === 1 ? problem(422, { field: 'name', code: 'invalid_length' }) : json(201, subject('s-fixed', JSON.parse(req.body).name)),
+    });
+    renderApp();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'x');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await within(form).findByRole('alert');
+    const first = sent(fake.requests, 'POST')[0]!;
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(await screen.findByText('x was added.')).toBeVisible();
+    const posts = sent(fake.requests, 'POST');
+    expect(posts[1]!.headers.get('Idempotency-Key')).not.toBe(first.headers.get('Idempotency-Key'));
   });
 
   it('401 on create returns to sign-in', async () => {
@@ -608,6 +657,17 @@ describe('archive and restore', () => {
 });
 
 describe('Czech', () => {
+  it('shows the uncertain-create notice in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ ...signedIn, [listKey]: page([]), [createKey]: problem(503) });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Lidé a věci' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Přidat' }));
+    await userEvent.type(screen.getByLabelText('Jméno nebo název'), 'Anna');
+    await userEvent.click(screen.getByRole('button', { name: 'Přidat' }));
+    expect(await screen.findByText('Nepodařilo se ověřit, že se to uložilo.')).toBeVisible();
+  });
+
   it('renders the screen, types and actions in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...signedIn, [listKey]: page([anna, octavia]) });

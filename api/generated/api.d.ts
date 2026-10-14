@@ -260,7 +260,7 @@ export interface paths {
         put?: never;
         /**
          * Create a subject
-         * @description Creates a household-scoped subject. Any household member may create subjects. A person subject never requires a login account. The name is stored trimmed. Requires the canonical Origin header.
+         * @description Creates a household-scoped subject. Any household member may create subjects. A person subject never requires a login account. The name is stored trimmed. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes). Identical retries return 201 with the subject current representation, ETag, and original Location; a changed request with the same key returns 422 idempotency_key_reused.
          */
         post: operations["createSubject"];
         delete?: never;
@@ -626,6 +626,13 @@ export interface components {
             field: "name" | "type";
             /** @enum {string} */
             code: "invalid_characters" | "invalid_length" | "invalid_type";
+        };
+        /** @description Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
+        SubjectCreateProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field?: "name" | "type";
+            /** @enum {string} */
+            code: "invalid_characters" | "invalid_length" | "invalid_type" | "idempotency_key_reused";
         };
         /** @enum {string} */
         WorkflowState: "open" | "in_progress" | "waiting" | "paused";
@@ -3594,12 +3601,17 @@ export interface operations {
     createSubject: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 /**
                  * @description Optional caller-supplied correlation ID.
                  * @example smoke-test_01
                  */
                 "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Case-sensitive visible ASCII key, 1–128 bytes. Reuse the same key only for retries of the same create intent.
+                 * @example subject-create-0198a2f0
+                 */
+                "Idempotency-Key": string;
             };
             path: {
                 /**
@@ -3622,7 +3634,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Subject created. */
+            /** @description Subject created or an identical retry replaying the current representation. */
             201: {
                 headers: {
                     /**
@@ -3653,7 +3665,7 @@ export interface operations {
                     "application/json": components["schemas"]["Subject"];
                 };
             };
-            /** @description Malformed JSON, unknown or duplicate keys, null values, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
+            /** @description Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values, wrong value types, or malformed trusted forwarded metadata. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -3661,14 +3673,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "type": "about:blank",
-                     *       "title": "Bad Request",
-                     *       "status": 400,
-                     *       "code": "invalid_request"
-                     *     }
-                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -3786,7 +3790,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. field is name or type; code is invalid_characters, invalid_length, or invalid_type. */
+            /** @description Field validation failed or Idempotency-Key was reused for a different intent. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -3794,16 +3798,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "type": "about:blank",
-                     *       "title": "Validation Failed",
-                     *       "status": 422,
-                     *       "code": "invalid_length",
-                     *       "field": "name"
-                     *     }
-                     */
-                    "application/problem+json": components["schemas"]["SubjectValidationProblem"];
+                    "application/problem+json": components["schemas"]["SubjectCreateProblem"];
                 };
             };
             /** @description Persistence unavailable. */

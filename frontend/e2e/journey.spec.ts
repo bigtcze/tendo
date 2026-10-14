@@ -205,7 +205,12 @@ test.describe('Tendo production journey', () => {
     const form = page.getByRole('form', { name: en['subjects.add.formLabel'] });
     await form.getByLabel(en['subjects.name']).fill('Anička');
     await form.getByRole('radio', { name: en['subjects.type.person'] }).check();
+    const createRequestPromise = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith(`/api/v1/households/${householdId}/subjects`));
     await form.getByRole('button', { name: en['subjects.add.submit'] }).click();
+    const createRequest = await createRequestPromise;
+    const createBody = createRequest.postDataJSON() as { name: string; type: string };
+    const createKey = createRequest.headers()['idempotency-key'];
+    expect(createKey).toMatch(/^[0-9a-f]{32}$/);
 
     await expect(page.getByRole('status').filter({ hasText: 'Anička' })).toHaveText(
       en['subjects.notice.added'].replace('{name}', 'Anička'),
@@ -217,6 +222,15 @@ test.describe('Tendo production journey', () => {
     expect(afterPerson).toHaveLength(1);
     expect(afterPerson[0]).toMatchObject({ name: 'Anička', type: 'person', archived: false });
     expect(Object.keys(afterPerson[0]).sort()).toEqual(subjectKeys);
+    expect(createBody).toEqual({ name: 'Anička', type: 'person' });
+    const replay = await page.request.post(`/api/v1/households/${householdId}/subjects`, {
+      headers: { 'Idempotency-Key': createKey, Origin: new URL(page.url()).origin },
+      data: createBody,
+    });
+    expect(replay.status()).toBe(201);
+    expect((await replay.json() as { id: string }).id).toBe(afterPerson[0]!.id);
+    const afterReplay = await serverSubjects(false);
+    expect(afterReplay.filter((entry) => entry.name === 'Anička')).toHaveLength(1);
 
     await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
     const second = page.getByRole('form', { name: en['subjects.add.formLabel'] });

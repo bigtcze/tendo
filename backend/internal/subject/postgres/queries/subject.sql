@@ -1,7 +1,13 @@
 -- name: CreateSubject :one
-INSERT INTO subjects (household_id, type, name)
-VALUES ($1, $2, $3)
+INSERT INTO subjects (household_id, type, name, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES (sqlc.arg('household_id'), sqlc.arg('type'), sqlc.arg('name'), sqlc.arg('created_by_user_id'), sqlc.arg('creation_key'), sqlc.arg('creation_request_fingerprint'))
+ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
 RETURNING id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version;
+
+-- name: FindSubjectCreation :one
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, creation_request_fingerprint
+FROM subjects
+WHERE household_id = $1 AND created_by_user_id = $2 AND creation_key = $3;
 
 -- name: GetSubject :one
 SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version

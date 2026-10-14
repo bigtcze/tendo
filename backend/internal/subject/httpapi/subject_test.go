@@ -40,6 +40,7 @@ type userKey struct{}
 type fixture struct {
 	repo     *subjecttest.Repo
 	authErr  error
+	denyUser string
 	authHits int
 	svcHits  int
 	handler  http.Handler
@@ -63,7 +64,7 @@ func newFixture(authenticate bool) *fixture {
 		if f.authErr != nil {
 			return f.authErr
 		}
-		if userID != authorizedUser || hid != householdID {
+		if userID == f.denyUser || userID != authorizedUser || hid != householdID {
 			return subject.ErrNotFound
 		}
 		return nil
@@ -77,13 +78,16 @@ func newFixture(authenticate bool) *fixture {
 	return f
 }
 
-func (f *fixture) do(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+func (f *fixture) doAs(method, path, body string, headers map[string]string, user string) *httptest.ResponseRecorder {
 	var req *http.Request
 	if body == "" {
 		req = httptest.NewRequest(method, path, nil)
 	} else {
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if user != "" {
+		req = req.WithContext(context.WithValue(req.Context(), userKey{}, user))
 	}
 	for k, v := range headers {
 		if v == "" {
@@ -95,6 +99,10 @@ func (f *fixture) do(method, path, body string, headers map[string]string) *http
 	w := httptest.NewRecorder()
 	f.handler.ServeHTTP(w, req)
 	return w
+}
+
+func (f *fixture) do(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	return f.doAs(method, path, body, headers, "")
 }
 
 func jsonEqual(t *testing.T, got, want string) bool {
@@ -134,7 +142,7 @@ func (f *fixture) stored(t *testing.T, id string) subject.Subject {
 
 func TestCreateReturns201WithLocationETagAndPersistsTrimmedName(t *testing.T) {
 	f := newFixture(true)
-	w := f.do("POST", base, `{"name":"  Rex 🐕  ","type":"pet"}`, nil)
+	w := f.do("POST", base, `{"name":"  Rex 🐕  ","type":"pet"}`, map[string]string{"Idempotency-Key": "creation-test"})
 	if w.Code != 201 {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
@@ -157,11 +165,97 @@ func TestCreateReturns201WithLocationETagAndPersistsTrimmedName(t *testing.T) {
 	}
 }
 
+func TestCreateIdempotencyKeyErrorsAndEvaluationOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []string
+		code   string
+	}{
+		{"missing", nil, "idempotency_key_required"}, {"empty", []string{""}, "invalid_idempotency_key"}, {"repeated", []string{"one", "two"}, "invalid_idempotency_key"}, {"oversized", []string{strings.Repeat("a", 129)}, "invalid_idempotency_key"}, {"nonascii", []string{"café"}, "invalid_idempotency_key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(true)
+			req := httptest.NewRequest("POST", base, strings.NewReader("not-json"))
+			req.Header.Set("Content-Type", "application/json")
+			for _, v := range tc.values {
+				req.Header.Add("Idempotency-Key", v)
+			}
+			w := httptest.NewRecorder()
+			f.handler.ServeHTTP(w, req)
+			want := problemBody(400, "Bad Request", tc.code)
+			if w.Code != 400 || !jsonEqual(t, w.Body.String(), want) || f.repo.Calls != 0 {
+				t.Fatalf("status=%d body=%s calls=%d", w.Code, w.Body, f.repo.Calls)
+			}
+		})
+	}
+	f := newFixture(false)
+	w := f.do("POST", base, "not-json", map[string]string{"Idempotency-Key": "auth-order"})
+	if w.Code != 401 || !jsonEqual(t, w.Body.String(), problemBody(401, "Unauthorized", "unauthenticated")) {
+		t.Fatalf("auth priority: %d %s", w.Code, w.Body)
+	}
+	f = newFixture(true)
+	req := httptest.NewRequest("POST", base, strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", " ")
+	w = httptest.NewRecorder()
+	f.handler.ServeHTTP(w, req)
+	if w.Code != 400 || !jsonEqual(t, w.Body.String(), problemBody(400, "Bad Request", "invalid_idempotency_key")) {
+		t.Fatalf("key priority: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestCreateReplayReturnsCurrentStateAndReuseProblem(t *testing.T) {
+	f := newFixture(true)
+	key := map[string]string{"Idempotency-Key": "replay-key"}
+	first := f.do("POST", base, `{"name":"  Rex  ","type":"pet"}`, key)
+	if first.Code != 201 {
+		t.Fatalf("first=%d %s", first.Code, first.Body)
+	}
+	var firstBody Subject
+	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
+		t.Fatal(err)
+	}
+	row := f.stored(t, firstBody.Id)
+	row.Name = "Renamed"
+	row.Archived = true
+	row.Version = 4
+	f.repo.Seed(row)
+	replay := f.do("POST", base, `{"type":"pet","name":"Rex"}`, key)
+	want := `{"id":"` + row.ID + `","type":"pet","name":"Renamed","archived":true,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	if replay.Code != 201 || !jsonEqual(t, replay.Body.String(), want) || replay.Header().Get("ETag") != "\"4\"" || replay.Header().Get("Location") != first.Header().Get("Location") || f.stored(t, row.ID).Version != 4 {
+		t.Fatalf("replay status=%d headers=%v body=%s", replay.Code, replay.Header(), replay.Body)
+	}
+	reused := f.do("POST", base, `{"name":" ","type":"pet"}`, key)
+	wantProblem := `{"type":"about:blank","title":"Unprocessable Entity","status":422,"code":"idempotency_key_reused"}`
+	if reused.Code != 422 || !jsonEqual(t, reused.Body.String(), wantProblem) || strings.Contains(reused.Body.String(), "field") {
+		t.Fatalf("reuse status=%d body=%s", reused.Code, reused.Body)
+	}
+}
+
+func TestCreateReplayStillRequiresMembership(t *testing.T) {
+	f := newFixture(true)
+	key := map[string]string{"Idempotency-Key": "membership-replay"}
+	created := f.do("POST", base, `{"name":"Member subject","type":"person"}`, key)
+	if created.Code != 201 {
+		t.Fatalf("create=%d %s", created.Code, created.Body)
+	}
+	var body Subject
+	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	rowBefore := f.stored(t, body.Id)
+	f.denyUser = callerID
+	replay := f.doAs("POST", base, `{"name":"Member subject","type":"person"}`, key, callerID)
+	if replay.Code != 404 || !jsonEqual(t, replay.Body.String(), problemBody(404, "Not Found", "not_found")) || f.stored(t, body.Id) != rowBefore {
+		t.Fatalf("denied replay status=%d body=%s row=%+v", replay.Code, replay.Body, f.stored(t, body.Id))
+	}
+}
+
 func TestLocationUsesCanonicalLowercaseIDs(t *testing.T) {
 	f := newFixture(true)
 	upper := strings.ToUpper(householdID)
 	// Uppercase household in the path is the same household for the service.
-	w := f.do("POST", "/api/v1/households/"+upper+"/subjects", `{"name":"x","type":"home"}`, nil)
+	w := f.do("POST", "/api/v1/households/"+upper+"/subjects", `{"name":"x","type":"home"}`, map[string]string{"Idempotency-Key": "location-test"})
 	// The fake membership compares canonical lowercase ids.
 	if w.Code != 201 {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
@@ -334,7 +428,7 @@ func TestCreateRejectsMalformedBodies(t *testing.T) {
 		"wrong type":    `{"name":1,"type":"home"}`,
 		"empty":         `{}`,
 	} {
-		w := f.do("POST", base, body, nil)
+		w := f.do("POST", base, body, map[string]string{"Idempotency-Key": "malformed-" + strings.ReplaceAll(name, " ", "-")})
 		if w.Code != 400 || !jsonEqual(t, w.Body.String(), problemBody(400, "Bad Request", "invalid_request")) {
 			t.Fatalf("%s: status=%d body=%s", name, w.Code, w.Body)
 		}
@@ -353,7 +447,7 @@ func TestValidationFailureIs422WithFieldAndCode(t *testing.T) {
 		{`{"name":"a\u200bb","type":"home"}`, "name", "invalid_characters"},
 		{`{"name":"ok","type":"robot"}`, "type", "invalid_type"},
 	} {
-		w := f.do("POST", base, tc.body, nil)
+		w := f.do("POST", base, tc.body, map[string]string{"Idempotency-Key": "validation-" + tc.code})
 		want := `{"type":"about:blank","title":"Validation Failed","status":422,"code":"` + tc.code + `","field":"` + tc.field + `"}`
 		if w.Code != 422 || w.Header().Get("Content-Type") != "application/problem+json" || !jsonEqual(t, w.Body.String(), want) {
 			t.Fatalf("%s: status=%d body=%s", tc.body, w.Code, w.Body)
@@ -376,7 +470,7 @@ func TestValidationFailureIs422WithFieldAndCode(t *testing.T) {
 
 func TestMediaTypeAndSizeLimits(t *testing.T) {
 	f := newFixture(true)
-	w := f.do("POST", base, `{"name":"a","type":"home"}`, map[string]string{"Content-Type": "text/plain"})
+	w := f.do("POST", base, `{"name":"a","type":"home"}`, map[string]string{"Content-Type": "text/plain", "Idempotency-Key": "media-type"})
 	if w.Code != 415 || !jsonEqual(t, w.Body.String(), problemBody(415, "Unsupported Media Type", "unsupported_media_type")) {
 		t.Fatalf("415: status=%d body=%s", w.Code, w.Body)
 	}
@@ -385,13 +479,14 @@ func TestMediaTypeAndSizeLimits(t *testing.T) {
 		t.Fatalf("patch 415: %d", w.Code)
 	}
 	big := `{"name":"` + strings.Repeat("a", 5000) + `","type":"home"}`
-	w = f.do("POST", base, big, nil)
+	w = f.do("POST", base, big, map[string]string{"Idempotency-Key": "large-body"})
 	if w.Code != 413 || !jsonEqual(t, w.Body.String(), problemBody(413, "Request Entity Too Large", "content_too_large")) {
 		t.Fatalf("413: status=%d body=%s", w.Code, w.Body)
 	}
 	req := httptest.NewRequest("POST", base, strings.NewReader(big))
 	req.ContentLength = -1
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "chunked-test")
 	rec := httptest.NewRecorder()
 	f.handler.ServeHTTP(rec, req)
 	if rec.Code != 413 {
@@ -421,7 +516,11 @@ func TestNotFoundBodiesAreIdentical(t *testing.T) {
 		"patch foreign subject via own": {"PATCH", base + "/" + foreign, `{"archived":true}`},
 		"patch malformed subject":       {"PATCH", base + "/nope", `{"archived":true}`},
 	} {
-		w := f.do(tc.method, tc.path, tc.body, ifMatch1)
+		headers := ifMatch1
+		if tc.method == "POST" {
+			headers = map[string]string{"Idempotency-Key": "non-member-test"}
+		}
+		w := f.do(tc.method, tc.path, tc.body, headers)
 		if w.Code != 404 || w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("ETag") != "" || !jsonEqual(t, w.Body.String(), want) {
 			t.Fatalf("%s: status=%d body=%s", name, w.Code, w.Body)
 		}
@@ -470,7 +569,11 @@ func TestUnauthenticatedShortCircuitsBeforeService(t *testing.T) {
 	for _, tc := range []struct{ method, path, body string }{
 		{"GET", base, ""}, {"GET", one, ""}, {"POST", base, `{"name":"a","type":"home"}`}, {"PATCH", one, `{"archived":true}`},
 	} {
-		w := f.do(tc.method, tc.path, tc.body, ifMatch1)
+		headers := ifMatch1
+		if tc.method == "POST" {
+			headers = map[string]string{"Idempotency-Key": "anonymous-test"}
+		}
+		w := f.do(tc.method, tc.path, tc.body, headers)
 		if w.Code != 401 || strings.Contains(w.Body.String(), subjectID) {
 			t.Fatalf("%s %s: status=%d body=%s", tc.method, tc.path, w.Code, w.Body)
 		}
@@ -489,6 +592,9 @@ func TestMissingPrincipalAfterAuthIs401(t *testing.T) {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("If-Match", `"1"`)
+		if tc.method == "POST" {
+			req.Header.Set("Idempotency-Key", "principal-test")
+		}
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		if w.Code != 401 {
@@ -511,7 +617,11 @@ func TestInfrastructureFailureIs503WithoutInternals(t *testing.T) {
 		for _, tc := range []struct{ method, path, body string }{
 			{"GET", base, ""}, {"GET", one, ""}, {"POST", base, `{"name":"a","type":"home"}`}, {"PATCH", one, `{"archived":true}`},
 		} {
-			w := f.do(tc.method, tc.path, tc.body, ifMatch1)
+			headers := ifMatch1
+			if tc.method == "POST" {
+				headers = map[string]string{"Idempotency-Key": "failure-test"}
+			}
+			w := f.do(tc.method, tc.path, tc.body, headers)
 			if w.Code != 503 || w.Header().Get("Content-Type") != "application/problem+json" || strings.Contains(w.Body.String(), "pq") || strings.Contains(w.Body.String(), "10.1.2.3") {
 				t.Fatalf("%s %s: status=%d body=%s", name, tc.method, w.Code, w.Body)
 			}

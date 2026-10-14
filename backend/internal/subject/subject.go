@@ -4,8 +4,11 @@
 package subject
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"strings"
 	"time"
@@ -22,6 +25,8 @@ var (
 	ErrVersionMismatch = errors.New("subject version mismatch")
 	// ErrUnavailable is an infrastructure failure without internal detail.
 	ErrUnavailable = errors.New("subject unavailable")
+	// ErrIdempotencyKeyReused means the key was committed for another intent.
+	ErrIdempotencyKeyReused = errors.New("idempotency key reused")
 	// ErrEmptyPatch means an update named no field. It is a malformed request,
 	// not a field validation failure.
 	ErrEmptyPatch = errors.New("empty patch")
@@ -104,7 +109,8 @@ type Page struct {
 // subjects with id greater than afterID in ascending id order, at most limit.
 // Any other error is an infrastructure failure.
 type Repository interface {
-	Create(ctx context.Context, householdID, name string, t Type) (Subject, error)
+	CreateIdempotent(ctx context.Context, householdID, actorID, key, name string, t Type, fingerprint []byte) (Subject, bool, error)
+	FindCreation(ctx context.Context, householdID, actorID, key string) (Subject, []byte, error)
 	Get(ctx context.Context, householdID, subjectID string) (Subject, error)
 	List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]Subject, error)
 	Update(ctx context.Context, householdID, subjectID string, expectedVersion int64, p Patch) (Subject, error)
@@ -149,10 +155,19 @@ func mapRepoErr(err error) error {
 	}
 }
 
-func (s *Service) Create(ctx context.Context, userID, householdID, name string, t Type) (Subject, error) {
+func (s *Service) Create(ctx context.Context, userID, householdID, key, name string, t Type) (Subject, error) {
 	householdID, err := s.check(ctx, userID, householdID)
 	if err != nil {
 		return Subject{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	trimmedForFingerprint := strings.TrimSpace(name)
+	fingerprint := creationFingerprint(strings.ToLower(userID), trimmedForFingerprint, t)
+	if existing, stored, findErr := s.repository.FindCreation(ctx, householdID, strings.ToLower(userID), key); findErr == nil {
+		return compareCreation(existing, stored, fingerprint)
+	} else if !errors.Is(findErr, ErrNotFound) {
+		return Subject{}, mapRepoErr(findErr)
 	}
 	trimmed, err := ValidateName(name)
 	if err != nil {
@@ -161,13 +176,37 @@ func (s *Service) Create(ctx context.Context, userID, householdID, name string, 
 	if _, ok := ParseType(string(t)); !ok {
 		return Subject{}, &ValidationError{"type", "invalid_type"}
 	}
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	created, err := s.repository.Create(ctx, householdID, trimmed, t)
+	created, inserted, err := s.repository.CreateIdempotent(ctx, householdID, strings.ToLower(userID), key, trimmed, t, fingerprint)
 	if err != nil {
 		return Subject{}, mapRepoErr(err)
 	}
-	return created, nil
+	if inserted {
+		return created, nil
+	}
+	existing, stored, err := s.repository.FindCreation(ctx, householdID, strings.ToLower(userID), key)
+	if err != nil {
+		return Subject{}, mapRepoErr(err)
+	}
+	return compareCreation(existing, stored, fingerprint)
+}
+
+func compareCreation(existing Subject, stored, submitted []byte) (Subject, error) {
+	if !bytes.Equal(stored, submitted) {
+		return Subject{}, ErrIdempotencyKeyReused
+	}
+	return existing, nil
+}
+
+func creationFingerprint(actor, name string, t Type) []byte {
+	var encoded []byte
+	for _, field := range []string{"tendo.subject.create.v1", actor, name, string(t)} {
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], uint32(len(field)))
+		encoded = append(encoded, size[:]...)
+		encoded = append(encoded, field...)
+	}
+	digest := sha256.Sum256(encoded)
+	return digest[:]
 }
 
 func (s *Service) Get(ctx context.Context, userID, householdID, subjectID string) (Subject, error) {

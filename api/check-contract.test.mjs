@@ -343,6 +343,7 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
   const problem = { ...base, 'content-type': 'application/problem+json' }
   const subject = { id, type: 'vehicle', name: 'Octavia', archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
   const created = { path: collection, method: 'post', status: 201, headers: { ...json, etag: '"1"', location: `/api/v1/households/${household}/subjects/${id}` }, body: subject }
+  const reused = { path: collection, method: 'post', status: 422, headers: problem, body: { type: 'about:blank', title: 'Unprocessable Entity', status: 422, code: 'idempotency_key_reused' } }
   const list = { path: collection, method: 'get', status: 200, headers: json, body: { items: [subject], nextCursor: null } }
   const listNext = { ...structuredClone(list), body: { items: [subject], nextCursor: 'czE6MDE5OGEyZjA' } }
   const got = { path: item, method: 'get', status: 200, headers: { ...json, etag: '"1"' }, body: subject }
@@ -360,7 +361,7 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
     return { code, stderr }
   }
   try {
-    for (const fixture of [created, list, listNext, got, patched, failed, required, badQuery, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    for (const fixture of [created, reused, list, listNext, got, patched, failed, required, badQuery, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
     for (const [name, fixture, mutate, diagnostic] of [
       ['created without ETag', created, f => { delete f.headers.etag }, 'missing ETag'],
       ['created without Location', created, f => { delete f.headers.location }, 'missing Location'],
@@ -380,6 +381,10 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
       ['428 documented on get is undocumented', { ...required, method: 'get', path: item }, () => {}, 'undocumented HTTP 428'],
       ['query problem unknown parameter', badQuery, f => { f.body.parameter = 'offset' }, 'body invalid'],
       ['422 unknown field', invalid, f => { f.body.field = 'archived' }, 'body invalid'],
+      ['422 reused key with field rejected', reused, f => { f.body.field = 'name' }, 'body invalid'],
+      ['422 reused key missing code rejected', reused, f => { delete f.body.code }, 'body invalid'],
+      ['422 field validation missing field rejected', invalid, f => { delete f.body.field }, 'body invalid'],
+      ['422 reused key on patch rejected', { ...reused, path: item, method: 'patch' }, () => {}, 'body invalid'],
       ['undocumented status on list', list, f => { f.status = 412 }, 'undocumented HTTP 412'],
     ]) {
       await t.test(name, async () => {

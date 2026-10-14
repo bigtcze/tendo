@@ -19,7 +19,7 @@ var (
 )
 
 type service interface {
-	Create(ctx context.Context, userID, householdID, name string, t subject.Type) (subject.Subject, error)
+	Create(ctx context.Context, userID, householdID, key, name string, t subject.Type) (subject.Subject, error)
 	Get(ctx context.Context, userID, householdID, subjectID string) (subject.Subject, error)
 	List(ctx context.Context, userID, householdID string, q subject.ListQuery) (subject.Page, error)
 	Update(ctx context.Context, userID, householdID, subjectID string, expectedVersion int64, p subject.Patch) (subject.Subject, error)
@@ -52,12 +52,21 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
+	keys := r.Header.Values("Idempotency-Key")
+	if len(keys) == 0 {
+		problem(w, http.StatusBadRequest, "idempotency_key_required")
+		return
+	}
+	if len(keys) != 1 || !validCreationKey(keys[0]) {
+		problem(w, http.StatusBadRequest, "invalid_idempotency_key")
+		return
+	}
 	values, ok := httpx.ReadObject(w, r, createFields, bodyLimit)
 	if !ok {
 		return
 	}
 	householdID := chi.URLParam(r, "householdId")
-	created, err := h.service.Create(r.Context(), userID, householdID, values["name"].(string), subject.Type(values["type"].(string)))
+	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], values["name"].(string), subject.Type(values["type"].(string)))
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -141,10 +150,24 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toJSON(updated))
 }
 
+func validCreationKey(key string) bool {
+	if len(key) < 1 || len(key) > 128 {
+		return false
+	}
+	for i := range key {
+		if key[i] < '!' || key[i] > '~' {
+			return false
+		}
+	}
+	return true
+}
+
 func writeServiceError(w http.ResponseWriter, err error) {
 	var validation *subject.ValidationError
 	var query *subject.InvalidQueryError
 	switch {
+	case errors.Is(err, subject.ErrIdempotencyKeyReused):
+		httpx.ProblemResponse(w, http.StatusUnprocessableEntity, "idempotency_key_reused")
 	case errors.Is(err, subject.ErrNotFound):
 		problem(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, subject.ErrEmptyPatch):

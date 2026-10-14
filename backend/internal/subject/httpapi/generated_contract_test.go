@@ -21,7 +21,7 @@ func TestValidationProblemCodesMatchGeneratedEnum(t *testing.T) {
 		if !tc.want.Valid() {
 			t.Fatalf("%q is not a valid generated enum member", tc.want)
 		}
-		w := newFixture(true).do("POST", base, tc.body, nil)
+		w := newFixture(true).do("POST", base, tc.body, map[string]string{"Idempotency-Key": "contract-test"})
 		var problem SubjectValidationProblem
 		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 			t.Fatal(err)

@@ -1,8 +1,10 @@
 package subject
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -17,23 +19,64 @@ const (
 // memRepo is a household-scoped in-memory repository with the same observable
 // contract as the PostgreSQL adapter.
 type memRepo struct {
-	calls    int
-	err      error
-	rows     []Subject
-	lastList struct {
+	calls        int
+	findCalls    int
+	err          error
+	rows         []Subject
+	creations    map[string]Subject
+	fingerprints map[string][]byte
+	lastList     struct {
 		after string
 		limit int
 	}
 }
 
-func (m *memRepo) Create(_ context.Context, hid, name string, t Type) (Subject, error) {
+func (m *memRepo) CreateIdempotent(_ context.Context, hid, actor, key, name string, t Type, fingerprint []byte) (Subject, bool, error) {
 	m.calls++
 	if m.err != nil {
-		return Subject{}, m.err
+		return Subject{}, false, m.err
 	}
-	s := Subject{ID: subjectID, HouseholdID: hid, Type: t, Name: name, Version: 1, CreatedAt: time.Unix(0, 0).UTC(), UpdatedAt: time.Unix(0, 0).UTC()}
+	if m.creations == nil {
+		m.creations = map[string]Subject{}
+		m.fingerprints = map[string][]byte{}
+	}
+	creationKey := hid + "/" + actor + "/" + key
+	if existing, ok := m.creations[creationKey]; ok {
+		return existing, false, nil
+	}
+	s := Subject{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b%02d", len(m.rows)+70), HouseholdID: hid, Type: t, Name: name, Version: 1, CreatedAt: time.Unix(0, 0).UTC(), UpdatedAt: time.Unix(0, 0).UTC()}
 	m.rows = append(m.rows, s)
-	return s, nil
+	m.creations[creationKey] = s
+	m.fingerprints[creationKey] = append([]byte(nil), fingerprint...)
+	return s, true, nil
+}
+
+func (m *memRepo) FindCreation(_ context.Context, hid, actor, key string) (Subject, []byte, error) {
+	m.findCalls++
+	if m.err != nil {
+		return Subject{}, nil, m.err
+	}
+	creationKey := hid + "/" + actor + "/" + key
+	s, ok := m.creations[creationKey]
+	if !ok {
+		return Subject{}, nil, ErrNotFound
+	}
+	for _, current := range m.rows {
+		if current.ID == s.ID {
+			s = current
+			break
+		}
+	}
+	return s, append([]byte(nil), m.fingerprints[creationKey]...), nil
+}
+
+func (m *memRepo) Row(id string) (Subject, bool) {
+	for _, row := range m.rows {
+		if row.ID == id {
+			return row, true
+		}
+	}
+	return Subject{}, false
 }
 
 func (m *memRepo) Get(_ context.Context, hid, sid string) (Subject, error) {
@@ -152,19 +195,105 @@ func TestParseType(t *testing.T) {
 func TestCreateStoresTrimmedNameAndRejectsBadInput(t *testing.T) {
 	repo := &memRepo{}
 	svc := NewService(repo, allow)
-	created, err := svc.Create(context.Background(), userID, householdID, "  Rex 🐕  ", TypePet)
+	created, err := svc.Create(context.Background(), userID, householdID, "key-1", "  Rex 🐕  ", TypePet)
 	if err != nil || created.Name != "Rex 🐕" || created.Type != TypePet || created.Version != 1 || len(repo.rows) != 1 || repo.rows[0].Name != "Rex 🐕" {
 		t.Fatalf("created=%+v err=%v rows=%+v", created, err, repo.rows)
 	}
 	var v *ValidationError
-	if _, err = svc.Create(context.Background(), userID, householdID, "ok", Type("robot")); !errors.As(err, &v) || v.Field != "type" || v.Code != "invalid_type" {
+	if _, err = svc.Create(context.Background(), userID, householdID, "key-2", "ok", Type("robot")); !errors.As(err, &v) || v.Field != "type" || v.Code != "invalid_type" {
 		t.Fatalf("type err=%v", err)
 	}
-	if _, err = svc.Create(context.Background(), userID, householdID, " ", TypeHome); !errors.As(err, &v) || v.Field != "name" {
+	if _, err = svc.Create(context.Background(), userID, householdID, "key-3", " ", TypeHome); !errors.As(err, &v) || v.Field != "name" {
 		t.Fatalf("name err=%v", err)
 	}
 	if len(repo.rows) != 1 {
 		t.Fatalf("invalid input persisted: %+v", repo.rows)
+	}
+}
+
+func TestCreateFingerprintReplayAndScope(t *testing.T) {
+	repo := &memRepo{}
+	svc := NewService(repo, allow)
+	ctx := context.Background()
+	first, err := svc.Create(ctx, userID, householdID, "same", "  Name ", TypeHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := svc.Create(ctx, userID, householdID, "same", "Name", TypeHome)
+	if err != nil || replay.ID != first.ID {
+		t.Fatalf("trim replay=%+v err=%v", replay, err)
+	}
+	for _, tc := range []struct {
+		actor, hid, name, key string
+		typ                   Type
+	}{{userID, householdID, "Other", "field-name", TypeHome}, {userID, householdID, "Name", "field-type", TypePet}, {"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62", householdID, "Name", "actor", TypeHome}, {userID, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63", "Name", "household", TypeHome}} {
+		if bytes.Equal(creationFingerprint(userID, "Name", TypeHome), creationFingerprint(tc.actor, tc.name, tc.typ)) && tc.actor != userID {
+			t.Fatal("actor missing from fingerprint")
+		}
+		got, e := svc.Create(ctx, tc.actor, tc.hid, tc.key, tc.name, tc.typ)
+		if e != nil || got.ID == first.ID && (got.Name != "Other" || tc.typ != TypeHome) {
+			t.Fatalf("independent scope got=%+v err=%v", got, e)
+		}
+	}
+	name := "Renamed"
+	_, err = svc.Update(ctx, userID, householdID, first.ID, 1, Patch{Name: &name, Archived: new(bool)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := true
+	_, err = svc.Update(ctx, userID, householdID, first.ID, 2, Patch{Archived: &archived})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := svc.Create(ctx, userID, householdID, "same", "Name", TypeHome)
+	if err != nil || current.Name != "Renamed" || !current.Archived || current.Version != 3 {
+		t.Fatalf("current replay=%+v err=%v", current, err)
+	}
+	deniedActor := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64"
+	membership := true
+	badSvc := NewService(repo, func(_ context.Context, actor, hid string) error {
+		if actor == deniedActor && !membership {
+			return ErrNotFound
+		}
+		return nil
+	})
+	createdByActor, err := badSvc.Create(ctx, deniedActor, householdID, "member-replay", "Actor subject", TypeHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findCalls := repo.findCalls
+	creationBefore := repo.creations[householdID+"/"+deniedActor+"/member-replay"]
+	membership = false
+	if _, err = badSvc.Create(ctx, deniedActor, householdID, "member-replay", "Actor subject", TypeHome); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("denied replay=%v", err)
+	}
+	if repo.findCalls != findCalls {
+		t.Fatalf("membership denial ran lookup: before=%d after=%d", findCalls, repo.findCalls)
+	}
+	storedRow, _ := repo.Row(createdByActor.ID)
+	if storedRow != createdByActor {
+		t.Fatalf("denied replay changed stored row: before=%+v after=%+v", createdByActor, storedRow)
+	}
+	if repo.creations[householdID+"/"+deniedActor+"/member-replay"] != creationBefore || createdByActor.ID == "" {
+		t.Fatal("denied replay changed creation record")
+	}
+	if _, err = svc.Create(ctx, userID, householdID, "invalid", " ", TypeHome); err == nil {
+		t.Fatal("invalid create accepted")
+	}
+	valid, err := svc.Create(ctx, userID, householdID, "invalid", "Valid", TypeHome)
+	if err != nil || valid.ID == "" {
+		t.Fatalf("invalid key was reserved: %+v %v", valid, err)
+	}
+	if _, err = svc.Create(ctx, userID, householdID, "same", " ", TypeHome); !errors.Is(err, ErrIdempotencyKeyReused) {
+		t.Fatalf("stored key with invalid changed name: %v", err)
+	}
+	for name, pair := range map[string][2][]byte{"actor": {creationFingerprint(userID, "n", TypeHome), creationFingerprint("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b65", "n", TypeHome)}, "name": {creationFingerprint(userID, "n", TypeHome), creationFingerprint(userID, "m", TypeHome)}, "type": {creationFingerprint(userID, "n", TypeHome), creationFingerprint(userID, "n", TypePet)}} {
+		if bytes.Equal(pair[0], pair[1]) {
+			t.Fatalf("%s omitted from fingerprint", name)
+		}
+	}
+	if len(creationFingerprint(userID, "n", TypeHome)) != 32 {
+		t.Fatal("fingerprint length is not SHA-256")
 	}
 }
 
@@ -175,7 +304,7 @@ func TestMalformedIdentifiersAreNotFoundWithoutRepositoryOrAuthorizer(t *testing
 	ctx := context.Background()
 	patch := Patch{Archived: new(bool)}
 	for _, bad := range []string{"", "not-a-uuid", "0198a2f07c1e7a539b0e5d3f2c1a4b70", "{0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70}", "urn:uuid:0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70"} {
-		if _, err := svc.Create(ctx, userID, bad, "x", TypeHome); !errors.Is(err, ErrNotFound) {
+		if _, err := svc.Create(ctx, userID, bad, "key", "x", TypeHome); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("create %q: %v", bad, err)
 		}
 		if _, err := svc.List(ctx, userID, bad, ListQuery{}); !errors.Is(err, ErrNotFound) {
@@ -201,7 +330,7 @@ func TestAuthorizationDenialReturnsNotFoundAndLeavesRepositoryUntouched(t *testi
 	svc := NewService(repo, func(context.Context, string, string) error { return ErrNotFound })
 	ctx := context.Background()
 	name := "Hacked"
-	if _, err := svc.Create(ctx, userID, householdID, "x", TypeHome); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.Create(ctx, userID, householdID, "key", "x", TypeHome); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("create: %v", err)
 	}
 	if _, err := svc.List(ctx, userID, householdID, ListQuery{}); !errors.Is(err, ErrNotFound) {
@@ -231,7 +360,7 @@ func TestRepositoryFailureIsUnavailable(t *testing.T) {
 	repo := &memRepo{err: errors.New("pq: password authentication failed")}
 	svc := NewService(repo, allow)
 	ctx := context.Background()
-	if _, err := svc.Create(ctx, userID, householdID, "x", TypeHome); !errors.Is(err, ErrUnavailable) {
+	if _, err := svc.Create(ctx, userID, householdID, "key", "x", TypeHome); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("create: %v", err)
 	}
 	if _, err := svc.Get(ctx, userID, householdID, subjectID); !errors.Is(err, ErrUnavailable) {

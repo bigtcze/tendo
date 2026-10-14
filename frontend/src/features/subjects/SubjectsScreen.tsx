@@ -6,6 +6,7 @@ import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { SubjectForm, typeLabelKey, type SubjectValues, type SubmitOutcome } from './SubjectForm';
+import { clearPendingSubjectCreate, getPendingSubjectCreate, setPendingSubjectCreate, type PendingSubjectCreate } from './pendingSubjectCreate';
 import {
   createSubject,
   getSubject,
@@ -27,7 +28,9 @@ type Notice =
   | { kind: 'archived'; subject: Subject }
   | { kind: 'restored'; subject: Subject }
   | { kind: 'gone' }
-  | { kind: 'changed' };
+  | { kind: 'changed' }
+  | { kind: 'uncertain' }
+  | { kind: 'reused' };
 
 type Editing = { subject: Subject; etag: string; conflict: boolean; mine?: SubjectValues };
 
@@ -48,12 +51,20 @@ function replaceById(items: Subject[], subject: Subject): Subject[] {
 const rowLink =
   '-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
+function idempotencyKey() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function SubjectsScreen({
+  userId,
   householdId,
   login,
   onBack,
   onSignedOut,
 }: {
+  userId: string;
   householdId: string;
   login: string;
   onBack: () => void;
@@ -63,10 +74,12 @@ export function SubjectsScreen({
   const [showArchived, setShowArchived] = useState(false);
   const [list, setList] = useState<ListState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
-  const [adding, setAdding] = useState(false);
+  const [pendingCreate, setPendingCreate] = useState<PendingSubjectCreate | undefined>(() => getPendingSubjectCreate(userId, householdId));
+  const [createUncertain, setCreateUncertain] = useState(() => Boolean(getPendingSubjectCreate(userId, householdId)));
+  const [adding, setAdding] = useState(() => Boolean(getPendingSubjectCreate(userId, householdId)));
   const [editing, setEditing] = useState<Editing | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const [notice, setNotice] = useState<Notice | null>();
   const [actionFailed, setActionFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const busy = useRef(false);
@@ -129,14 +142,23 @@ export function SubjectsScreen({
   }
 
   function startAdding() {
+    const pending = getPendingSubjectCreate(userId, householdId);
+    setPendingCreate(pending);
+    if (pending) {
+      setCreateUncertain(true);
+      setNotice(null);
+    } else {
+      setCreateUncertain(false);
+      setNotice(null);
+    }
     setEditing(null);
-    setNotice(null);
     setActionFailed(false);
     setAdding(true);
   }
 
   function cancelAdding() {
     focusKey.current = 'add';
+    setNotice(null);
     setAdding(false);
   }
 
@@ -241,25 +263,44 @@ export function SubjectsScreen({
 
   async function add(values: SubjectValues): Promise<SubmitOutcome> {
     const started = generation.current;
-    const result = await createSubject(householdId, values);
+    const pending = pendingCreate ?? { version: 1 as const, key: idempotencyKey(), body: { name: values.name, type: values.type } };
+    if (!pendingCreate) {
+      setPendingSubjectCreate(userId, householdId, pending);
+      setPendingCreate(pending);
+    }
+    const result = await createSubject(householdId, pending.body, pending.key);
     if (result.kind === 'unauthenticated') {
       onSignedOut();
       return { kind: 'handled' };
     }
     if (result.kind === 'ok') {
-      // It was created even if the view changed meanwhile, so say so; only the current list may take the row.
-      if (started === generation.current) {
-        setList((current) =>
-          current.kind === 'ready' ? { ...current, items: mergeById(current.items, [result.subject]) } : current,
-        );
+      clearPendingSubjectCreate(userId, householdId);
+      setPendingCreate(undefined);
+      setCreateUncertain(false);
+      const refreshed = await listSubjects(householdId, { archived: false });
+      if (refreshed.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' }; }
+      if (started === generation.current && refreshed.kind === 'ok') {
+        setList({ kind: 'ready', items: mergeById(refreshed.items, result.subject.archived ? [] : [result.subject]), nextCursor: refreshed.nextCursor });
       }
       setAdding(false);
       setNotice({ kind: 'added', subject: result.subject });
       return { kind: 'done' };
     }
+    if (result.kind === 'invalid' || result.kind === 'reused' || result.kind === 'definitive') {
+      clearPendingSubjectCreate(userId, householdId);
+      setPendingCreate(undefined);
+      setCreateUncertain(false);
+      if (result.kind === 'reused') {
+        setNotice({ kind: 'reused' });
+        return { kind: 'handled' };
+      }
+      if (result.kind === 'invalid') return result;
+      return { kind: 'failed' };
+    }
     if (started !== generation.current) return { kind: 'handled' };
-    if (result.kind === 'invalid') return result;
-    return { kind: 'failed' };
+    setCreateUncertain(true);
+    setNotice(null);
+    return { kind: 'handled' };
   }
 
   async function save(values: SubjectValues): Promise<SubmitOutcome> {
@@ -370,7 +411,7 @@ export function SubjectsScreen({
           {notice ? (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-sand px-4 py-1 text-ink">
               <p className="py-2">
-                {notice.kind === 'gone' || notice.kind === 'changed'
+                {notice.kind === 'gone' || notice.kind === 'changed' || notice.kind === 'uncertain' || notice.kind === 'reused'
                   ? t(`subjects.notice.${notice.kind}`)
                   : t(`subjects.notice.${notice.kind}`, { name: notice.subject.name })}
               </p>
@@ -429,9 +470,12 @@ export function SubjectsScreen({
             {adding ? (
               <SubjectForm
                 label={t('subjects.add.formLabel')}
-                initial={{ name: '', type: 'person' }}
+                initial={createUncertain ? pendingCreate?.body ?? { name: '', type: 'person' } : { name: '', type: 'person' }}
                 submitLabel={t('subjects.add.submit')}
                 pendingLabel={t('subjects.add.submitting')}
+                locked={createUncertain && !!pendingCreate}
+                retryLabel={t('subjects.create.checkAgain')}
+                notice={createUncertain ? t('subjects.notice.uncertain') : undefined}
                 onSubmit={add}
                 onCancel={cancelAdding}
               />

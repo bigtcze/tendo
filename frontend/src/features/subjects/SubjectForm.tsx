@@ -54,6 +54,8 @@ export function SubjectForm({
   pendingLabel,
   notice,
   yourEntry,
+  locked = false,
+  retryLabel,
   onSubmit,
   onCancel,
 }: {
@@ -64,6 +66,8 @@ export function SubjectForm({
   notice?: string;
   /** What the user had typed when their save was refused, so it is not silently lost. */
   yourEntry?: string;
+  locked?: boolean;
+  retryLabel?: string;
   onSubmit: (values: SubjectValues) => Promise<SubmitOutcome>;
   onCancel: () => void;
 }) {
@@ -75,7 +79,9 @@ export function SubjectForm({
   const [name, setName] = useState(initial.name);
   const [type, setType] = useState<SubjectType>(initial.type);
   const [pending, setPending] = useState(false);
+  const [pendingAttempt, setPendingAttempt] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
+  const [showNotice, setShowNotice] = useState(Boolean(notice));
   const submitting = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
   const target = error ? errorTarget(error) : null;
@@ -84,9 +90,10 @@ export function SubjectForm({
   useEffect(() => {
     if (noticeRef.current) noticeRef.current.focus();
     else document.getElementById(nameId)?.focus();
-  }, [nameId]);
+  }, [nameId, notice]);
 
   function fail(next: FormError) {
+    setShowNotice(false);
     setError(next);
     const field = errorTarget(next);
     // Focus right away: the input exists already and the alert text follows on the next render.
@@ -103,6 +110,7 @@ export function SubjectForm({
     }
     submitting.current = true;
     setPending(true);
+    setPendingAttempt(locked);
     setError(null);
     let outcome: SubmitOutcome;
     try {
@@ -114,6 +122,9 @@ export function SubjectForm({
     setPending(false);
     if (outcome.kind === 'invalid') fail(outcome);
     else if (outcome.kind === 'failed') fail({ kind: 'failed' });
+    else if (outcome.kind === 'done') setShowNotice(false);
+    else setShowNotice(true);
+    setPendingAttempt(false);
   }
 
   return (
@@ -124,7 +135,7 @@ export function SubjectForm({
       noValidate
       className="space-y-5 rounded-2xl border border-line bg-white/70 p-4 sm:p-6"
     >
-      {notice ? (
+      {notice && showNotice ? (
         <div ref={noticeRef} tabIndex={-1} role="status" className="space-y-1 rounded-xl bg-sand px-4 py-3 text-ink outline-none">
           <p>{notice}</p>
           {yourEntry ? <p className="break-words text-sm text-muted">{yourEntry}</p> : null}
@@ -139,7 +150,8 @@ export function SubjectForm({
           autoComplete="off"
           required
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => { setShowNotice(false); setName(e.target.value); }}
+          disabled={locked}
           aria-invalid={target === 'name'}
           aria-describedby={target === 'name' ? errorId : undefined}
         />
@@ -159,7 +171,8 @@ export function SubjectForm({
                 name={`${uid}-type`}
                 value={option}
                 checked={type === option}
-                onChange={() => setType(option)}
+                onChange={() => { setShowNotice(false); setType(option); }}
+                disabled={locked}
                 className="peer absolute inset-0 size-full cursor-pointer opacity-0"
               />
               <span
@@ -179,9 +192,15 @@ export function SubjectForm({
         {error ? t(errorKey(error)) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={pending}>
-          {pending ? pendingLabel : submitLabel}
-        </Button>
+        {locked ? (
+          <Button type="submit" disabled={pending}>
+            {pending && pendingAttempt ? pendingLabel : retryLabel ?? submitLabel}
+          </Button>
+        ) : (
+          <Button type="submit" disabled={pending}>
+            {pending ? pendingLabel : submitLabel}
+          </Button>
+        )}
         <Button type="button" variant="quiet" onClick={onCancel} disabled={pending}>
           {t('subjects.cancel')}
         </Button>

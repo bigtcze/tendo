@@ -7,6 +7,7 @@ import { fetchSession, fetchSetupRequired, type Session } from '../features/auth
 import { HomeScreen } from '../features/home/HomeScreen';
 import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
+import { clearPendingSubjectCreates } from '../features/subjects/pendingSubjectCreate';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
@@ -49,6 +50,7 @@ async function boot(): Promise<BootState> {
   if (setup === 'required') return { kind: 'setupRequired' };
   if (setup === 'error') return { kind: 'error' };
   clearPendingCompletions();
+  clearPendingSubjectCreates();
   return { kind: 'signedOut' };
 }
 
@@ -147,6 +149,7 @@ export function App() {
 
   const inviteSignedOut = useCallback(() => {
     clearPendingCompletions();
+    clearPendingSubjectCreates();
     transitioned.current = true;
     const inviteVisit = window.history.state?.inviteVisit;
     window.history.replaceState(typeof inviteVisit === 'string' ? { inviteVisit } : null, '', INVITE_PATH);
@@ -164,6 +167,7 @@ export function App() {
   }, []);
   const signedOut = useCallback(() => {
     clearPendingCompletions();
+    clearPendingSubjectCreates();
     setOidcOutcome(null);
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
@@ -235,7 +239,7 @@ export function App() {
         ) : route.kind === 'account' ? (
           <AccountScreen login={state.session.login} outcome={oidcOutcome} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'people' && householdId ? (
-          <SubjectsScreen householdId={householdId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+          <SubjectsScreen userId={state.session.userId} householdId={householdId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'members' && householdId ? (
           <MembersScreen householdId={householdId} userId={state.session.userId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'item' && householdId ? (
