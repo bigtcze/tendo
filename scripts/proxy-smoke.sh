@@ -272,12 +272,12 @@ expect_status 401 /api/v1/session
 
 "${compose[@]}" stop proxy >/dev/null
 "${compose[@]}" rm -sf proxy >/dev/null
-docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 curlimages/curl:8.12.1 --silent --show-error --max-time 5 -o /dev/null http://172.29.247.20:8080/health/live
+docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 curlimages/curl:8.22.0 --silent --show-error --max-time 5 -o /dev/null http://172.29.247.20:8080/health/live
 test_trusted_headers() {
   local proto=$1 host=$2 origin=$3 expected=$4
   local -a origin_args=()
   [[ -z "$origin" ]] || origin_args=(-H "Origin: $origin")
-  actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.12.1 \
+  actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.22.0 \
     --silent --show-error --max-time 5 -o /tmp/smoke/trusted-body -w '%{http_code}' \
     -H "X-Forwarded-Proto: $proto" -H "X-Forwarded-Host: $host" "${origin_args[@]}" \
     "http://172.29.247.20:8080/api/not-a-route")
@@ -296,7 +296,7 @@ test_trusted_headers https attacker.test https://attacker.test 421
 test_trusted_headers https tendo.test https://attacker.test 403
 test_trusted_headers https tendo.test '' 404
 test_trusted_headers 'https,https' tendo.test https://tendo.test 400
-actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.12.1 --silent --show-error --max-time 5 -o /tmp/smoke/malformed-forwarded-body -w '%{http_code}' \
+actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.10 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.22.0 --silent --show-error --max-time 5 -o /tmp/smoke/malformed-forwarded-body -w '%{http_code}' \
   -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: tendo.test' -H 'X-Forwarded-For: not-an-ip, also-not-an-ip' \
   "http://172.29.247.20:8080/api/not-a-route")
 [[ "$actual" == 400 ]] || { printf 'Proxy-stripped malformed X-Forwarded-For expected HTTP 400, got %s\n' "$actual" >&2; exit 1; }
@@ -306,7 +306,7 @@ body = json.load(open(sys.argv[1], encoding="utf-8"))
 assert body == {"type": "about:blank", "title": "Bad Request", "status": 400}, body
 PY
 
-actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.30 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.12.1 --silent --show-error --max-time 5 -o /tmp/smoke/untrusted-body -w '%{http_code}' \
+actual=$(docker run --rm --network "${project}_proxy-net" --ip 172.29.247.30 -v "$temp_dir:/tmp/smoke" --user 0:0 curlimages/curl:8.22.0 --silent --show-error --max-time 5 -o /tmp/smoke/untrusted-body -w '%{http_code}' \
   -H 'Forwarded: for=192.0.2.1;proto=https;host=tendo.test' -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: tendo.test' \
   "http://172.29.247.20:8080/api/not-a-route")
 [[ "$actual" == 421 ]] || { printf 'Untrusted peer expected HTTP 421, got %s\n' "$actual" >&2; exit 1; }
