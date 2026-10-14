@@ -52,7 +52,7 @@ run_stage() {
   fi
 }
 
-run_stage repository-context 'for f in AGENTS.md docs/specs/GUARDRAILS.md docs/specs/CHARTER.md docs/specs/PRODUCT.md docs/specs/ARCHITECTURE.md docs/specs/TESTING.md docs/specs/DEFINITION_OF_DONE.md docs/specs/UX.md docs/specs/API.md docs/specs/DOCUMENTATION.md docs/specs/ROADMAP.md docs/development/workflow.md; do [[ -f "$f" ]] || { printf "required repository context missing: %s\\n" "$f" >&2; exit 1; }; done'
+run_stage bootstrap 'for f in AGENTS.md .autonomous/GUARDRAILS.md .autonomous/CHARTER.md .autonomous/PRODUCT.md .autonomous/ROADMAP.md .autonomous/UX.md .autonomous/ARCHITECTURE.md .autonomous/API.md .autonomous/TESTING.md .autonomous/DOCUMENTATION.md .autonomous/DEFINITION_OF_DONE.md .autonomous/FLOW.md .autonomous/STATE.md .autonomous/LEARNINGS.md .autonomous/CYCLE_PROMPT.md; do [[ -f "$f" ]] || { printf "required repository context missing: %s\\n" "$f" >&2; exit 1; }; done' 'bash -n scripts/autonomous-loop.sh'
 run_stage go-format 'files=$(gofmt -l $(find backend -name "*.go" -type f))' 'if [[ -n "$files" ]]; then printf "Go files need formatting:\\n%s\\n" "$files" >&2; exit 1; fi'
 run_stage go-vet 'cd backend' 'go vet ./...'
 run_stage go-unit-race 'cd backend' 'all_packages=$(go list ./...)' 'packages=$(printf "%s\\n" "$all_packages" | grep -v -e "/internal/identity/postgres$" -e "/internal/household/postgres$" -e "/internal/subject/postgres$" -e "/internal/item/postgres$")' '[[ -n "$packages" ]]' 'go test -race $packages'

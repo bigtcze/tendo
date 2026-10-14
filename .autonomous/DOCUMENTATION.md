@@ -6,7 +6,7 @@ readme_role=short_product_entry_and_quick_start
 tone=human_concise_specific
 
 ## README
-README is for a person deciding/installing Tendo, not for development agents.
+README is for a person deciding/installing Tendo, not for the autonomous agent.
 
 Target structure once V1 is usable:
 1. product name + one-sentence purpose
@@ -21,7 +21,7 @@ Target structure once V1 is usable:
 
 Rules:
 - keep README short; detailed configuration belongs under `docs/`.
-- no architecture dump, internal package list, development-agent details, roadmap essay, or generated changelog in README.
+- no architecture dump, internal package list, autonomous-agent details, roadmap essay, or generated changelog in README.
 - no marketing filler: avoid "powerful", "seamless", "revolutionary", "robust", "next-generation", "effortlessly".
 - short paragraphs, concrete headings, exact commands.
 - never claim unimplemented features.

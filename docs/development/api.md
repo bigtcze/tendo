@@ -1,6 +1,6 @@
 # API conventions
 
-The contract is `api/openapi.yaml` (OpenAPI 3.1). It is edited together with the code that implements it. The locked policy is `docs/specs/API.md`; this page describes what is implemented.
+The contract is `api/openapi.yaml` (OpenAPI 3.1). It is edited together with the code that implements it. The locked policy is `.autonomous/API.md`; this page describes what is implemented.
 
 ## Basics
 

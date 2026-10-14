@@ -30,6 +30,7 @@ REQUIRED_COMMANDS = (
     "npx --no-install playwright install --with-deps chromium",
     'bash "scripts/${SMOKE}.sh"',
     "bash scripts/e2e-smoke.sh",
+    "bash -n scripts/autonomous-loop.sh",
 )
 SMOKES = (
     "runtime-smoke",
@@ -158,8 +159,6 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertEqual(errors, [], "\n".join(errors))
         jobs = [job_id for job_id, _ in jobs_and_needs(self.text)]
         self.assertCountEqual(jobs, ["backend", "api", "frontend", "postgres", "e2e", "deployment", "required"])
-        self.assertIn("test -f docs/specs/DEFINITION_OF_DONE.md", self.text)
-        self.assertIn("test -f docs/development/workflow.md", self.text)
         self.assertIn("services:", self.text)
         self.assertIn("image: postgres:18.6-bookworm", self.text)
         self.assertIn("sqlc_1.31.1_linux_amd64.tar.gz", self.text)
