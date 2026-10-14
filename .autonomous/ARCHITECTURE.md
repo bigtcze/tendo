@@ -165,7 +165,7 @@ docs/
   admin/
   development/
   adr/
-  specs/
+.autonomous/
 scripts/
 
 ## ADR policy

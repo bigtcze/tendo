@@ -11,10 +11,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTEXT_FILES = (
-    "AGENTS.md", "docs/specs/GUARDRAILS.md", "docs/specs/CHARTER.md", "docs/specs/PRODUCT.md",
-    "docs/specs/ARCHITECTURE.md", "docs/specs/TESTING.md", "docs/specs/DEFINITION_OF_DONE.md",
-    "docs/specs/UX.md", "docs/specs/API.md", "docs/specs/DOCUMENTATION.md", "docs/specs/ROADMAP.md",
-    "docs/development/workflow.md",
+    "AGENTS.md", ".autonomous/GUARDRAILS.md", ".autonomous/CHARTER.md", ".autonomous/PRODUCT.md",
+    ".autonomous/ROADMAP.md", ".autonomous/UX.md", ".autonomous/ARCHITECTURE.md", ".autonomous/API.md",
+    ".autonomous/TESTING.md", ".autonomous/DOCUMENTATION.md", ".autonomous/DEFINITION_OF_DONE.md",
+    ".autonomous/FLOW.md", ".autonomous/STATE.md", ".autonomous/LEARNINGS.md", ".autonomous/CYCLE_PROMPT.md",
 )
 HARNESS = (
     "scripts/test_postgres_test_service.py",
@@ -29,11 +29,11 @@ class VerifyLocalFailurePropagation(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="tendo-verify-control-")
         self.root = Path(self.tmp.name) / "repo"
+        (self.root / "scripts").mkdir(parents=True)
+        (self.root / ".autonomous").mkdir()
         for filename in CONTEXT_FILES:
-            path = self.root / filename
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("control fixture\n")
-        (self.root / "scripts").mkdir(parents=True, exist_ok=True)
+            (self.root / filename).write_text("control fixture\n")
+        (self.root / "scripts/autonomous-loop.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
         shutil.copy2(ROOT / "scripts/verify-local.sh", self.root / "scripts/verify-local.sh")
         for filename in ("setup-integration.sh", "check-sqlc.sh", "e2e-smoke.sh"):
             path = self.root / "scripts" / filename
@@ -131,13 +131,19 @@ exit 0
         self.assertIn(f"downstream stages: NOT RUN (fail-fast at {stage})", result.stdout)
         return self.log.read_text()
 
-    def test_repository_context_fails_when_required_spec_is_missing(self):
-        (self.root / "docs/specs/DEFINITION_OF_DONE.md").unlink()
+    def test_bootstrap_fails_when_required_spec_is_missing(self):
+        (self.root / ".autonomous/DEFINITION_OF_DONE.md").unlink()
         result = self.run_gate("")
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("repository-context:FAIL:", result.stdout)
-        self.assertIn("required repository context missing: docs/specs/DEFINITION_OF_DONE.md", result.stdout)
-        self.assertIn("downstream stages: NOT RUN (fail-fast at repository-context)", result.stdout)
+        self.assertIn("bootstrap:FAIL:", result.stdout)
+        self.assertIn(
+            "required repository context missing: .autonomous/DEFINITION_OF_DONE.md",
+            result.stdout,
+        )
+        self.assertIn(
+            "downstream stages: NOT RUN (fail-fast at bootstrap)",
+            result.stdout,
+        )
 
     def test_go_list_vet_test_failures_propagate(self):
         self.assertNotIn("script:setup-integration", self.assert_failed_stage("go-list", "go-unit-race"))
