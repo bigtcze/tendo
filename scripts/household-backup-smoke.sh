@@ -147,9 +147,10 @@ def populate():
     owner, session = login('owner_backup', owner_password)
     hid = session['defaultHouseholdId']
     base = f'/api/v1/households/{hid}'
-    _, person = ok(201, 'POST', f'{base}/subjects', {'name': 'Žofie', 'type': 'person'}, owner)
-    _, car = ok(201, 'POST', f'{base}/subjects', {'name': 'Octavia', 'type': 'vehicle'}, owner)
-    _, old = ok(201, 'POST', f'{base}/subjects', {'name': 'Old shed', 'type': 'home'}, owner)
+    person_key='backup-subject-person'
+    _, person = ok(201, 'POST', f'{base}/subjects', {'name': 'Žofie', 'type': 'person'}, owner, {'Idempotency-Key': person_key})
+    _, car = ok(201, 'POST', f'{base}/subjects', {'name': 'Octavia', 'type': 'vehicle'}, owner, {'Idempotency-Key': 'backup-subject-car'})
+    _, old = ok(201, 'POST', f'{base}/subjects', {'name': 'Old shed', 'type': 'home'}, owner, {'Idempotency-Key': 'backup-subject-old'})
     ok(200, 'PATCH', f'{base}/subjects/{old["id"]}', {'archived': True}, owner, {'If-Match': '"1"'})
     _, invitation = ok(201, 'POST', f'{base}/invitations', {}, owner, {'Idempotency-Key': 'backup-member'})
     ok(201, 'POST', '/api/v1/auth/invitations/accept', {'token': invitation['token'], 'login': 'member_backup', 'password': member_password})
@@ -182,7 +183,7 @@ def populate():
     ok(200, 'PATCH', f'{base}/items/{items["archived"]}', {'archived': True}, owner, {'If-Match': '"1"'})
     _, pending = ok(201, 'POST', f'{base}/invitations', {}, owner, {'Idempotency-Key': 'backup-pending'})
     state = {'ownerSession': owner, 'ownerPassword': owner_password, 'memberPassword': member_password, 'householdId': hid,
-             'personId': person['id'], 'items': items, 'fluidReceipt': fluid_receipt, 'pendingToken': pending['token']}
+             'personId': person['id'], 'subjectKey': person_key, 'items': items, 'fluidReceipt': fluid_receipt, 'pendingToken': pending['token']}
     state['before'] = capture(state)
     attention = {i['attention'] for p in state['before']['items done=false archived=false'] for i in p['body']['items']}
     assert 'needs_attention' in attention, attention
@@ -206,6 +207,15 @@ def exercise():
     base = f'/api/v1/households/{state["householdId"]}'
     fluid = state['items']['fluid']
     before = state['before']['item fluid']
+    # The subject creation idempotency record survives restore without creating a row.
+    subjects_before = all_pages(f'{base}/subjects?archived=false&limit=100', owner)
+    sh_before, _ = ok(200, 'GET', f'{base}/subjects/{state["personId"]}', cookie=owner)
+    rh, subject_replay = ok(201, 'POST', f'{base}/subjects', {'name': 'Žofie', 'type': 'person'}, owner, {'Idempotency-Key': state['subjectKey']})
+    assert rh['Location'] == f'{base}/subjects/{state["personId"]}' and rh['ETag'] == sh_before['ETag'], dict(rh)
+    sh_after, _ = ok(200, 'GET', f'{base}/subjects/{state["personId"]}', cookie=owner)
+    assert sh_after['ETag'] == sh_before['ETag'], ('replay changed subject version', sh_before['ETag'], sh_after['ETag'])
+    subjects_after = all_pages(f'{base}/subjects?archived=false&limit=100', owner)
+    assert subject_replay['id'] == state['personId'] and subjects_after == subjects_before, (subject_replay, subjects_before, subjects_after)
     # The completion idempotency record survives restore: the same key replays the stored receipt.
     _, replay = ok(201, 'POST', f'{base}/items/{fluid}/completions', {'completedOn': '2025-01-05'}, owner, {'If-Match': before['etag'], 'Idempotency-Key': 'restore-replay-key'})
     assert replay == state['fluidReceipt'], (replay, state['fluidReceipt'])
@@ -215,7 +225,7 @@ def exercise():
     assert undone['undoneAt'] is not None, undone
     _, item = ok(200, 'GET', f'{base}/items/{fluid}', cookie=owner)
     assert item['attentionOn'] == '2025-01-01' and item['lastCompletedOn'] is None, item
-    _, subject = ok(201, 'POST', f'{base}/subjects', {'name': 'Garden', 'type': 'home'}, owner)
+    _, subject = ok(201, 'POST', f'{base}/subjects', {'name': 'Garden', 'type': 'home'}, owner, {'Idempotency-Key': 'post-restore-garden'})
     _, created = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge', 'subjectId': subject['id']}, owner)
     assert created['attention'] == 'needs_attention', created
     _, members = ok(200, 'GET', f'{base}/members', cookie=owner)

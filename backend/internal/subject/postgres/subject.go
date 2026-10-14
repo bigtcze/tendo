@@ -43,21 +43,41 @@ func toSubject(r row) subject.Subject {
 	return subject.Subject{ID: r.ID, HouseholdID: r.HouseholdID, Type: subject.Type(r.Type), Name: r.Name, Archived: r.Archived, CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), Version: r.Version}
 }
 
-func (r *Repository) Create(ctx context.Context, householdID, name string, t subject.Type) (subject.Subject, error) {
-	hid, ok := parseUUID(householdID)
-	if !ok {
-		return subject.Subject{}, subject.ErrNotFound
+func (r *Repository) CreateIdempotent(ctx context.Context, householdID, actorID, key, name string, t subject.Type, fingerprint []byte) (subject.Subject, bool, error) {
+	hid, ok1 := parseUUID(householdID)
+	actor, ok2 := parseUUID(actorID)
+	if !ok1 || !ok2 {
+		return subject.Subject{}, false, subject.ErrNotFound
 	}
-	created, err := r.queries.CreateSubject(ctx, dbgen.CreateSubjectParams{HouseholdID: hid, Type: string(t), Name: name})
+	created, err := r.queries.CreateSubject(ctx, dbgen.CreateSubjectParams{HouseholdID: hid, Type: string(t), Name: name, CreatedByUserID: actor, CreationKey: pgtype.Text{String: key, Valid: true}, CreationRequestFingerprint: fingerprint})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-		// The household was deleted concurrently.
-		return subject.Subject{}, subject.ErrNotFound
+		// The household or actor was deleted concurrently.
+		return subject.Subject{}, false, subject.ErrNotFound
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return subject.Subject{}, false, nil
 	}
 	if err != nil {
-		return subject.Subject{}, errPersistence
+		return subject.Subject{}, false, errPersistence
 	}
-	return toSubject(row(created)), nil
+	return toSubject(row(created)), true, nil
+}
+
+func (r *Repository) FindCreation(ctx context.Context, householdID, actorID, key string) (subject.Subject, []byte, error) {
+	hid, ok1 := parseUUID(householdID)
+	actor, ok2 := parseUUID(actorID)
+	if !ok1 || !ok2 {
+		return subject.Subject{}, nil, subject.ErrNotFound
+	}
+	found, err := r.queries.FindSubjectCreation(ctx, dbgen.FindSubjectCreationParams{HouseholdID: hid, CreatedByUserID: actor, CreationKey: pgtype.Text{String: key, Valid: true}})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return subject.Subject{}, nil, subject.ErrNotFound
+	}
+	if err != nil {
+		return subject.Subject{}, nil, errPersistence
+	}
+	return toSubject(row{ID: found.ID, HouseholdID: found.HouseholdID, Type: found.Type, Name: found.Name, Archived: found.Archived, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version}), found.CreationRequestFingerprint, nil
 }
 
 func (r *Repository) Get(ctx context.Context, householdID, subjectID string) (subject.Subject, error) {

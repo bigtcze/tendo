@@ -14,7 +14,7 @@ Select **Add**, type a name (1 to 100 characters, plain text), and choose what i
 - Pet
 - Other
 
-Select **Add** again to save. The new entry appears in the list.
+Select **Add** again to save. The new entry appears in the list. If Tendo can’t confirm the save, select **Check again** to safely retry.
 
 A person does not need an account. Adding "Anička" creates an entry in your household, not a login, so a child can be listed without signing in anywhere.
 

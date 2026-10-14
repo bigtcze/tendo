@@ -174,19 +174,25 @@ def sreq(method,url,template,body=None,headers=None,record=True):
  return status,hs,result
 sbase=f'/api/v1/households/{household}/subjects'
 mut={**cookie_header,'Origin':origin}
+subject_key='setup-subject-person'
 accounts_before=psql('SELECT count(*) FROM user_accounts')
-status,h,person=sreq('POST',sbase,COLL,{'name':'  Babička Líba 👵  ','type':'person'},mut)
+status,h,person=sreq('POST',sbase,COLL,{'name':'  Babička Líba 👵  ','type':'person'},{**mut,'Idempotency-Key':subject_key})
 assert status==201 and set(person)=={'id','type','name','archived','createdAt','updatedAt'} and person['name']=='Babička Líba 👵' and person['type']=='person' and person['archived'] is False,('create person',status,person)
 assert h['Location']==f"{sbase}/{person['id']}" and h['ETag']=='"1"' and h['Cache-Control']=='no-store',dict(h)
 assert psql('SELECT count(*) FROM user_accounts')==accounts_before,'person subject must not create an account'
+subject_count=psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")
+status,rh,replay=sreq('POST',sbase,COLL,{'name':'Babička Líba 👵','type':'person'},{**mut,'Idempotency-Key':subject_key})
+assert status==201 and replay['id']==person['id'] and rh['ETag']==h['ETag'] and rh['Location']==h['Location'] and psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")==subject_count,('subject idempotent replay',status,replay)
+status,_,missing=sreq('POST',sbase,COLL,{'name':'missing-key','type':'home'},mut);assert status==400 and missing['code']=='idempotency_key_required',('missing key',status,missing)
+status,_,reused=sreq('POST',sbase,COLL,{'name':'Different','type':'person'},{**mut,'Idempotency-Key':subject_key});assert status==422 and reused['code']=='idempotency_key_reused' and 'field' not in reused,('reused key',status,reused)
 assert psql(f"SELECT name||'|'||type||'|'||version||'|'||archived FROM subjects WHERE id='{person['id']}' AND household_id='{household}'")=='Babička Líba 👵|person|1|false','stored subject'
-status,h,car=sreq('POST',sbase,COLL,{'name':'Octavia','type':'vehicle'},mut)
+status,h,car=sreq('POST',sbase,COLL,{'name':'Octavia','type':'vehicle'},{**mut,'Idempotency-Key':'setup-subject-car'})
 assert status==201 and car['type']=='vehicle' and h['ETag']=='"1"',('create vehicle',status,car)
-status,_,b=sreq('POST',sbase,COLL,{'name':'   ','type':'vehicle'},mut)
+status,_,b=sreq('POST',sbase,COLL,{'name':'   ','type':'vehicle'},{**mut,'Idempotency-Key':'setup-invalid-name'})
 assert status==422 and b['field']=='name' and b['code']=='invalid_length',('blank name',status,b)
-status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'robot'},mut)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'robot'},{**mut,'Idempotency-Key':'setup-invalid-type'})
 assert status==422 and b['field']=='type' and b['code']=='invalid_type',('bad type',status,b)
-status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'pet','extra':1},mut)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'pet','extra':1},{**mut,'Idempotency-Key':'setup-malformed-body'})
 assert status==400 and b['code']=='invalid_request',('unknown key',status,b)
 status,h,lst=sreq('GET',sbase,COLL,headers=cookie_header)
 assert status==200 and [i['id'] for i in lst['items']]==[person['id'],car['id']] and lst['nextCursor'] is None,('list',status,lst)
@@ -220,6 +226,9 @@ status,_,lst=sreq('GET',sbase+'?archived=true',COLL,headers=cookie_header)
 assert [i['id'] for i in lst['items']]==[car['id']] and lst['nextCursor'] is None,('archived list',lst)
 status,_,got=sreq('GET',spath,ITEM,headers=cookie_header);assert status==200 and got['archived'] is True,('archived get',status,got)
 assert psql(f"SELECT archived||'|'||version FROM subjects WHERE id='{car['id']}'")=='true|3','archive not persisted'
+status,rh,car_replay=sreq('POST',sbase,COLL,{'name':'Octavia','type':'vehicle'},{**mut,'Idempotency-Key':'setup-subject-car'})
+assert status==201 and car_replay==got and rh['ETag']=='"3"' and rh['Location']==f"{sbase}/{car['id']}",('replay after rename and archive returns current state',status,car_replay,dict(rh))
+assert psql(f"SELECT name||'|'||archived||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|true|3' and psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")==str(int(subject_count)+1),'replay after edit wrote'
 status,h,back=sreq('PATCH',spath,ITEM,{'archived':False},{**mut,'If-Match':'"3"'});assert status==200 and back['archived'] is False and h['ETag']=='"4"',('unarchive',status,back)
 foreign=psql(f"INSERT INTO subjects(household_id,type,name) VALUES ('{other_id}','home','Foreign') RETURNING id").splitlines()[0]
 status,_,n1=sreq('GET',sbase+'/'+random_id,ITEM,headers=cookie_header);assert status==404 and n1['code']=='not_found',('unknown subject',status,n1)
@@ -227,15 +236,15 @@ status,_,n2=sreq('GET',sbase+'/not-a-uuid',ITEM,headers=cookie_header);assert st
 status,h,n3=sreq('GET',sbase+'/'+foreign,ITEM,headers=cookie_header);assert status==404 and n3==n1 and 'ETag' not in h,('foreign subject via own household',status,n3)
 status,_,n4=sreq('GET',f'/api/v1/households/{other_id}/subjects/{foreign}',ITEM,headers=cookie_header);assert status==404 and n4==n1,('non-member household subject',status,n4)
 status,_,n5=sreq('GET',f'/api/v1/households/{other_id}/subjects',COLL,headers=cookie_header);assert status==404 and n5==n1,('non-member household list',status,n5)
-status,_,n6=sreq('POST',f'/api/v1/households/{other_id}/subjects',COLL,{'name':'x','type':'home'},mut);assert status==404 and n6==n1,('non-member create',status,n6)
+status,_,n6=sreq('POST',f'/api/v1/households/{other_id}/subjects',COLL,{'name':'x','type':'home'},{**mut,'Idempotency-Key':'nonmember-subject'});assert status==404 and n6==n1,('non-member create',status,n6)
 status,_,n7=sreq('PATCH',sbase+'/'+foreign,ITEM,{'name':'Hijack'},{**mut,'If-Match':'"1"'});assert status==404 and n7==n1,('foreign subject patch',status,n7)
 status,_,n8=sreq('PATCH',f'/api/v1/households/{other_id}/subjects/{foreign}',ITEM,{'name':'Hijack'},{**mut,'If-Match':'"1"'});assert status==404 and n8==n1,('non-member household subject patch',status,n8)
 assert psql(f"SELECT name||'|'||version FROM subjects WHERE id='{foreign}'")=='Foreign|1','foreign subject changed'
 assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{other_id}'")=='1','non-member create persisted'
 status,_,b=sreq('GET',sbase,COLL);assert status==401 and b['code']=='unauthenticated',('anonymous list',status,b)
-status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{'Origin':origin});assert status==401,('anonymous create',status,b)
-status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign Origin POST',status,b)
-status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},cookie_header);assert status==403,('missing Origin POST',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{'Origin':origin,'Idempotency-Key':'setup-anonymous'});assert status==401,('anonymous create',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'Origin':'http://foreign.example','Idempotency-Key':'setup-foreign-origin'});assert status==403,('foreign Origin POST',status,b)
+status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'Idempotency-Key':'setup-missing-origin'});assert status==403,('missing Origin POST',status,b)
 status,_,b=sreq('PATCH',spath,ITEM,{'name':'x'},{**cookie_header,'Origin':'http://foreign.example','If-Match':'"4"'});assert status==403,('foreign Origin PATCH',status,b)
 assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")=='2' and psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|4','rejected requests changed subjects'
 # Item API smoke: persistence, derived attention, ETags, archive, and boundaries.

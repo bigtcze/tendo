@@ -12,15 +12,19 @@ import (
 )
 
 const createSubject = `-- name: CreateSubject :one
-INSERT INTO subjects (household_id, type, name)
-VALUES ($1, $2, $3)
+INSERT INTO subjects (household_id, type, name, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
 RETURNING id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version
 `
 
 type CreateSubjectParams struct {
-	HouseholdID pgtype.UUID
-	Type        string
-	Name        string
+	HouseholdID                pgtype.UUID
+	Type                       string
+	Name                       string
+	CreatedByUserID            pgtype.UUID
+	CreationKey                pgtype.Text
+	CreationRequestFingerprint []byte
 }
 
 type CreateSubjectRow struct {
@@ -35,7 +39,14 @@ type CreateSubjectRow struct {
 }
 
 func (q *Queries) CreateSubject(ctx context.Context, arg CreateSubjectParams) (CreateSubjectRow, error) {
-	row := q.db.QueryRow(ctx, createSubject, arg.HouseholdID, arg.Type, arg.Name)
+	row := q.db.QueryRow(ctx, createSubject,
+		arg.HouseholdID,
+		arg.Type,
+		arg.Name,
+		arg.CreatedByUserID,
+		arg.CreationKey,
+		arg.CreationRequestFingerprint,
+	)
 	var i CreateSubjectRow
 	err := row.Scan(
 		&i.ID,
@@ -46,6 +57,47 @@ func (q *Queries) CreateSubject(ctx context.Context, arg CreateSubjectParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+	)
+	return i, err
+}
+
+const findSubjectCreation = `-- name: FindSubjectCreation :one
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, creation_request_fingerprint
+FROM subjects
+WHERE household_id = $1 AND created_by_user_id = $2 AND creation_key = $3
+`
+
+type FindSubjectCreationParams struct {
+	HouseholdID     pgtype.UUID
+	CreatedByUserID pgtype.UUID
+	CreationKey     pgtype.Text
+}
+
+type FindSubjectCreationRow struct {
+	ID                         string
+	HouseholdID                string
+	Type                       string
+	Name                       string
+	Archived                   bool
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+	Version                    int64
+	CreationRequestFingerprint []byte
+}
+
+func (q *Queries) FindSubjectCreation(ctx context.Context, arg FindSubjectCreationParams) (FindSubjectCreationRow, error) {
+	row := q.db.QueryRow(ctx, findSubjectCreation, arg.HouseholdID, arg.CreatedByUserID, arg.CreationKey)
+	var i FindSubjectCreationRow
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.Type,
+		&i.Name,
+		&i.Archived,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.CreationRequestFingerprint,
 	)
 	return i, err
 }

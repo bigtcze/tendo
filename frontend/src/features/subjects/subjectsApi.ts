@@ -60,19 +60,27 @@ export async function listSubjects(
   return { kind: 'error' };
 }
 
-export type CreateResult = { kind: 'ok'; subject: Subject } | Invalid | Failure;
+export type CreateResult = { kind: 'ok'; subject: Subject } | Invalid | { kind: 'reused' } | { kind: 'definitive' } | Failure;
 
 export async function createSubject(
   householdId: string,
   body: { name: string; type: SubjectType },
+  idempotencyKey: string,
 ): Promise<CreateResult> {
   try {
-    const { data, error, response } = await api.POST(listPath, { params: { path: { householdId } }, body });
+    const { data, error, response } = await api.POST(listPath, {
+      params: { path: { householdId }, header: { 'Idempotency-Key': idempotencyKey } },
+      body,
+    });
     if (data && response.status === 201) return { kind: 'ok', subject: data };
     if (response.status === 401) return { kind: 'unauthenticated' };
-    if (response.status === 422) return invalidFrom(error);
+    if (response.status === 422) {
+      if ((error as { code?: unknown } | undefined)?.code === 'idempotency_key_reused') return { kind: 'reused' };
+      return invalidFrom(error);
+    }
+    if (response.status >= 400 && response.status < 500) return { kind: 'definitive' };
   } catch {
-    // fall through
+    // Keep the stored attempt: the server may have committed before the connection failed.
   }
   return { kind: 'error' };
 }

@@ -48,11 +48,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false)`},
-		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=11`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (11,false)`},
-		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false)`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=12`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (12,false)`},
+		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false)`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=11`, reset: `UPDATE tendo_schema_migrations SET version=11 WHERE version=99`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=12`, reset: `UPDATE tendo_schema_migrations SET version=12 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {

@@ -402,6 +402,48 @@ func (e RecurrenceMode) Valid() bool {
 	}
 }
 
+// Defines values for SubjectCreateProblemCode.
+const (
+	SubjectCreateProblemCodeIdempotencyKeyReused SubjectCreateProblemCode = "idempotency_key_reused"
+	SubjectCreateProblemCodeInvalidCharacters    SubjectCreateProblemCode = "invalid_characters"
+	SubjectCreateProblemCodeInvalidLength        SubjectCreateProblemCode = "invalid_length"
+	SubjectCreateProblemCodeInvalidType          SubjectCreateProblemCode = "invalid_type"
+)
+
+// Valid indicates whether the value is a known member of the SubjectCreateProblemCode enum.
+func (e SubjectCreateProblemCode) Valid() bool {
+	switch e {
+	case SubjectCreateProblemCodeIdempotencyKeyReused:
+		return true
+	case SubjectCreateProblemCodeInvalidCharacters:
+		return true
+	case SubjectCreateProblemCodeInvalidLength:
+		return true
+	case SubjectCreateProblemCodeInvalidType:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SubjectCreateProblemField.
+const (
+	SubjectCreateProblemFieldName SubjectCreateProblemField = "name"
+	SubjectCreateProblemFieldType SubjectCreateProblemField = "type"
+)
+
+// Valid indicates whether the value is a known member of the SubjectCreateProblemField enum.
+func (e SubjectCreateProblemField) Valid() bool {
+	switch e {
+	case SubjectCreateProblemFieldName:
+		return true
+	case SubjectCreateProblemFieldType:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SubjectType.
 const (
 	Custom  SubjectType = "custom"
@@ -452,16 +494,16 @@ func (e SubjectValidationProblemCode) Valid() bool {
 
 // Defines values for SubjectValidationProblemField.
 const (
-	Name SubjectValidationProblemField = "name"
-	Type SubjectValidationProblemField = "type"
+	SubjectValidationProblemFieldName SubjectValidationProblemField = "name"
+	SubjectValidationProblemFieldType SubjectValidationProblemField = "type"
 )
 
 // Valid indicates whether the value is a known member of the SubjectValidationProblemField enum.
 func (e SubjectValidationProblemField) Valid() bool {
 	switch e {
-	case Name:
+	case SubjectValidationProblemFieldName:
 		return true
-	case Type:
+	case SubjectValidationProblemFieldType:
 		return true
 	default:
 		return false
@@ -914,6 +956,24 @@ type Subject struct {
 	UpdatedAt time.Time   `json:"updatedAt"`
 }
 
+// SubjectCreateProblem Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field.
+type SubjectCreateProblem struct {
+	Code                 SubjectCreateProblemCode   `json:"code"`
+	Detail               *string                    `json:"detail,omitempty"`
+	Field                *SubjectCreateProblemField `json:"field,omitempty"`
+	Instance             *string                    `json:"instance,omitempty"`
+	Status               int                        `json:"status"`
+	Title                string                     `json:"title"`
+	Type                 string                     `json:"type"`
+	AdditionalProperties map[string]interface{}     `json:"-"`
+}
+
+// SubjectCreateProblemCode defines model for SubjectCreateProblem.Code.
+type SubjectCreateProblemCode string
+
+// SubjectCreateProblemField defines model for SubjectCreateProblem.Field.
+type SubjectCreateProblemField string
+
 // SubjectList defines model for SubjectList.
 type SubjectList struct {
 	Items []Subject `json:"items"`
@@ -1215,6 +1275,9 @@ type ListSubjectsParams struct {
 type CreateSubjectParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IdempotencyKey Case-sensitive visible ASCII key, 1–128 bytes. Reuse the same key only for retries of the same create intent.
+	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
 // GetSubjectParams defines parameters for GetSubject.
@@ -2020,6 +2083,156 @@ func (a QueryProblem) MarshalJSON() ([]byte, error) {
 		object["parameter"], err = json.Marshal(a.Parameter)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'parameter': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for SubjectCreateProblem. Returns the specified
+// element and whether it was found
+func (a SubjectCreateProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for SubjectCreateProblem
+func (a *SubjectCreateProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for SubjectCreateProblem to handle AdditionalProperties
+func (a *SubjectCreateProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for SubjectCreateProblem to handle AdditionalProperties
+func (a SubjectCreateProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	if a.Field != nil {
+		object["field"], err = json.Marshal(a.Field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'field': %w", err)
+		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
 		}
 	}
 

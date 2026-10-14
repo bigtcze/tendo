@@ -750,13 +750,19 @@ paths:
     post:
       operationId: createSubject
       summary: Create a subject
-      description: Creates a household-scoped subject. Any household member may create subjects. A person subject never requires a login account. The name is stored trimmed. Requires the canonical Origin header.
+      description: 'Creates a household-scoped subject. Any household member may create subjects. A person subject never requires a login account. The name is stored trimmed. Requires the canonical Origin header and one visible-ASCII Idempotency-Key (1–128 bytes). Identical retries return 201 with the subject current representation, ETag, and original Location; a changed request with the same key returns 422 idempotency_key_reused.'
       tags: [Subjects]
       security:
         - SessionCookie: []
       parameters:
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/HouseholdId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Case-sensitive visible ASCII key, 1–128 bytes. Reuse the same key only for retries of the same create intent.
+          schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]{1,128}$' }
+          example: subject-create-0198a2f0
       requestBody:
         required: true
         content:
@@ -765,7 +771,7 @@ paths:
             example: { name: Octavia, type: vehicle }
       responses:
         '201':
-          description: Subject created.
+          description: Subject created or an identical retry replaying the current representation.
           headers:
             Location: { description: Canonical URL of the created subject., schema: { type: string, pattern: '^/api/v1/households/[0-9a-fA-F-]{36}/subjects/[0-9a-fA-F-]{36}$' }, example: /api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61/subjects/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70 }
             ETag: { description: Strong entity tag derived from the subject version., schema: { type: string, pattern: '^"[1-9][0-9]*"$' }, example: '"1"' }
@@ -775,14 +781,14 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Subject' }
               example: { id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Octavia, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
-        '400': { description: 'Malformed JSON, unknown or duplicate keys, null values, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '400': { description: 'Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values, wrong value types, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, examples: { missing_key: { value: { type: 'about:blank', title: Bad Request, status: 400, code: idempotency_key_required } }, invalid_key: { value: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_idempotency_key } }, invalid_request: { value: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
         '413': { description: 'Request body exceeds 4 KiB.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Request Entity Too Large, status: 413, code: content_too_large } } } }
         '415': { description: 'Unsupported request media type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
-        '422': { description: 'Field validation failed. field is name or type; code is invalid_characters, invalid_length, or invalid_type.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/SubjectValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: name } } } }
+        '422': { description: 'Field validation failed or Idempotency-Key was reused for a different intent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/SubjectCreateProblem' }, examples: { validation: { value: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: name } }, key_reused: { value: { type: 'about:blank', title: Unprocessable Entity, status: 422, code: idempotency_key_reused } } } } } }
         '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
     get:
       operationId: listSubjects
@@ -1570,6 +1576,18 @@ components:
           properties:
             field: { type: string, enum: [name, type] }
             code: { type: string, enum: [invalid_characters, invalid_length, invalid_type] }
+    SubjectCreateProblem:
+      description: Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field.
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [code]
+          properties:
+            field: { type: string, enum: [name, type] }
+            code: { type: string, enum: [invalid_characters, invalid_length, invalid_type, idempotency_key_reused] }
+          if: { properties: { code: { const: idempotency_key_reused } }, required: [code] }
+          then: { not: { required: [field] } }
+          else: { required: [field] }
     WorkflowState:
       type: string
       enum: [open, in_progress, waiting, paused]
