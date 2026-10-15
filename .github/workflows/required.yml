@@ -69,7 +69,7 @@ jobs:
         working-directory: backend
         run: go build ./...
       - name: Verify local gate failure propagation, CI workflow structure, and toolchain wrapper
-        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py
+        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py
       - name: Provision toolchain.json pins through the developer wrapper
         shell: bash
         env:
@@ -304,7 +304,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        smoke: [runtime-smoke, setup-smoke, oidc-smoke, proxy-smoke, backup-restore-smoke, household-backup-smoke]
+        smoke: [runtime-smoke, setup-smoke, oidc-smoke, proxy-smoke, backup-restore-smoke, household-backup-smoke, quickstart-smoke]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
