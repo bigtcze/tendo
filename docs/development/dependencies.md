@@ -22,7 +22,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | Module | Version | Type |
 | --- | --- | --- |
 | `github.com/coreos/go-oidc/v3` | v3.21.0 | direct |
-| `github.com/go-chi/chi/v5` | v5.3.2 | direct |
+| `github.com/go-chi/chi/v5` | v5.4.0 | direct |
 | `github.com/jackc/pgx/v5` | v5.11.0 | direct |
 | `golang.org/x/crypto` | v0.58.0 | direct |
 | `golang.org/x/oauth2` | v0.37.0 | direct |
