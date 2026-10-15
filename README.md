@@ -2,6 +2,8 @@
 
 Tendo is a self-hosted shared list for the things a household needs to remember, without forcing everything into a calendar.
 
+![Tendo home screen showing what needs attention, what is in progress, and what is coming up](docs/images/home.png)
+
 ## What Tendo does
 
 - Keeps one-off tasks visible until someone actually does them. Nothing disappears just because a date passed.

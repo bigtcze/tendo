@@ -279,6 +279,52 @@ def run_playwright(root, env, children, *args):
     children.run(cmd, env, "Playwright", root / "frontend", 600)
 
 
+def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path, screenshot_path: Path):
+    env = {key: inherited[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in inherited}
+    for key in ("PLAYWRIGHT_BROWSERS_PATH", "CI"):
+        if key in inherited:
+            env[key] = inherited[key]
+    env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(Path.home() / ".cache/ms-playwright"))
+    env.update({
+        "TENDO_TEST_CLOCK_ACK": "isolated-e2e-only",
+        "TENDO_TEST_CLOCK_NOW": "2026-05-14T08:00:00Z",
+        "TENDO_PUBLIC_URL": "http://localhost",
+        "TENDO_TRUSTED_PROXY_CIDRS": "",
+        "TENDO_DB_TIMEOUT": "2",
+        "TENDO_SHUTDOWN_TIMEOUT": "10",
+        "TENDO_RESTART_POLICY": "no",
+        "E2E_LOG_FILE": str(artifact_dir / "process.log"),
+    })
+    migration_env = env.copy()
+    migration_env["DATABASE_URL"] = inherited["TEST_DATABASE_ADMIN_URL"]
+    children.run([str(app_path), "migrate"], migration_env, "production migration", root / "backend", 150)
+
+    host_port = port()
+    app_origin = f"http://localhost:{host_port}"
+    setup_token = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+    env.update({
+        "DATABASE_URL": inherited["TEST_DATABASE_URL"],
+        "TENDO_PUBLIC_URL": app_origin,
+        "TENDO_LISTEN_ADDR": f"127.0.0.1:{host_port}",
+        "TENDO_SETUP_TOKEN": setup_token,
+        "TENDO_OIDC_ISSUER": "",
+        "TENDO_OIDC_CLIENT_ID": "",
+        "TENDO_OIDC_CLIENT_SECRET": "",
+        "TENDO_OIDC_CLIENT_SECRET_FILE": "",
+    })
+    app = children.start([str(app_path)], env, "Tendo app",)
+    wait_http(f"http://127.0.0.1:{host_port}/health/ready", app, children)
+    base = env.copy()
+    base.update({
+        "E2E_BASE_URL": app_origin,
+        "E2E_SETUP_TOKEN": setup_token,
+        "E2E_OWNER_PASSWORD": base64.b64encode(secrets.token_bytes(24)).decode("ascii"),
+        "E2E_SCREENSHOT_PATH": str(screenshot_path.resolve()),
+        "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
+    })
+    run_playwright(root, base, children, "e2e/readme-screenshot.spec.ts")
+
+
 def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path):
     env = {key: inherited[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in inherited}
     for key in ("PLAYWRIGHT_BROWSERS_PATH", "CI"):
@@ -374,6 +420,7 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--app", type=Path, required=True)
     parser.add_argument("--provider", type=Path, required=True)
+    parser.add_argument("--screenshot", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
     children = Children()
@@ -389,9 +436,13 @@ def main():
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
-        run_suite(root, args.app.resolve(), args.provider.resolve(), os.environ.copy(), children, artifact_dir)
-        print(f"E2E artifacts retained at {artifact_dir}")
-        print("Native production-binary E2E passed.")
+        if args.screenshot:
+            run_screenshot(root, args.app.resolve(), os.environ.copy(), children, artifact_dir, args.screenshot)
+            print(f"README screenshot saved at {args.screenshot.resolve()}")
+        else:
+            run_suite(root, args.app.resolve(), args.provider.resolve(), os.environ.copy(), children, artifact_dir)
+            print(f"E2E artifacts retained at {artifact_dir}")
+            print("Native production-binary E2E passed.")
     except BaseException as exc:
         result_error = exc
         raise

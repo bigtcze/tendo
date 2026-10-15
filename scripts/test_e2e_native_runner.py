@@ -172,6 +172,26 @@ class ChildProcessTests(unittest.TestCase):
                 children.close.assert_called_once()
 
 
+    def test_screenshot_argument_selects_opt_in_runner_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            app = root / "app"
+            provider = root / "provider"
+            app.write_text("fake")
+            provider.write_text("fake")
+            screenshot = root / "home.png"
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children") as children_cls,
+                  mock.patch.object(runner, "run_screenshot") as capture,
+                  mock.patch.object(runner, "run_suite") as suite,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--screenshot", str(screenshot)])):
+                runner.main()
+            capture.assert_called_once()
+            self.assertEqual(capture.call_args.args[1], app.resolve())
+            self.assertEqual(capture.call_args.args[-1], screenshot)
+            suite.assert_not_called()
+            children_cls.return_value.close.assert_called_once()
+
     def test_foreign_seed_check_accepts_only_exact_unchanged_snapshot(self):
         ids = ("01890000-0000-7000-8000-000000000001", "01890000-0000-7000-8000-000000000002", "01890000-0000-7000-8000-000000000003")
         with mock.patch.object(runner, "psql_admin", return_value=runner.FOREIGN_SEED_EXPECTED) as query:
