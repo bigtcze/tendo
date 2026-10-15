@@ -39,9 +39,11 @@ secret_inventory="$temp_dir/oidc-secret-values"
 : >"$secret_inventory"
 chmod 600 "$secret_inventory"
 record_secret() {
+  [[ -n "$1" ]] || return 0
   (umask 077; printf '%s\n' "$1" >>"$secret_inventory")
   chmod 600 "$secret_inventory"
 }
+record_secret "$TENDO_OIDC_CLIENT_SECRET"
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
@@ -54,7 +56,7 @@ cleanup() {
   trap - EXIT
   if (( result != 0 )); then
     if "${compose[@]}" logs --no-color >"$temp_dir/logs" 2>&1; then
-      python3 - "$temp_dir/logs" <<'PY'
+      if python3 - "$temp_dir/logs" "$temp_dir/redacted-logs" <<'PY'
 import os, re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 for name in ("POSTGRES_PASSWORD", "TENDO_DATABASE_PASSWORD", "TENDO_SETUP_TOKEN", "TENDO_OIDC_CLIENT_SECRET"):
@@ -70,8 +72,18 @@ try:
 except FileNotFoundError:
     pass
 text = re.sub(r"(?i)(POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD|TENDO_SETUP_TOKEN|TENDO_OIDC_CLIENT_SECRET)(=|%3[dD])[^\s&]+", r"\1\2[REDACTED]", text)
-print(text, end="", file=sys.stderr)
+with open(sys.argv[2], "w", encoding="utf-8") as redacted:
+    redacted.write(text)
 PY
+      then
+        if ! cat "$temp_dir/redacted-logs" >&2; then
+          printf 'Failure log redaction failed; suppressing logs\n' >&2
+        fi
+      else
+        printf 'Failure log redaction failed; suppressing logs\n' >&2
+      fi
+    else
+      printf 'Could not capture failure logs; suppressing logs\n' >&2
     fi
   fi
   if ! "${compose[@]}" down --volumes --remove-orphans --rmi local; then
@@ -308,21 +320,28 @@ base="https://tendo.test:$TENDO_HOST_PORT"
 setup_status=$(curl "${curl_args[@]}" --output "$temp_dir/setup-body" --write-out '%{http_code}' -X PUT -H "Origin: https://tendo.test" -H "X-Tendo-Setup-Token: $TENDO_SETUP_TOKEN" -H 'Content-Type: application/json' --data '{"login":"proxy_owner","password":"correct horse battery","householdName":"Proxy home","timezone":"UTC"}' "$base/api/v1/auth/setup")
 [[ "$setup_status" == 201 ]] || { printf 'Setup through proxy expected HTTP 201, got %s\n' "$setup_status" >&2; exit 1; }
 login_status=$(curl "${curl_args[@]}" -D "$temp_dir/login-headers" --output "$temp_dir/login-body" --write-out '%{http_code}' -X POST -H "Origin: https://tendo.test" -H 'Content-Type: application/json' --data '{"login":"proxy_owner","password":"correct horse battery"}' "$base/api/v1/session")
-[[ "$login_status" == 201 ]] || { printf 'Login through proxy expected HTTP 201, got %s\n' "$login_status" >&2; exit 1; }
-python3 - "$temp_dir/login-headers" "$temp_dir/login-body" "$temp_dir/session-cookie" <<'PY'
+python3 - "$login_status" "$temp_dir/login-headers" "$temp_dir/login-body" "$temp_dir/session-cookie" "$secret_inventory" <<'PY'
 import json, re, sys
-headers = open(sys.argv[1], encoding="utf-8").read()
+status = int(sys.argv[1])
+headers = open(sys.argv[2], encoding="utf-8").read()
 cookies = re.findall(r"^set-cookie: ([^\r\n]*)\r?$", headers, re.M | re.I)
+with open(sys.argv[5], "a", encoding="utf-8") as inventory:
+    for cookie in cookies:
+        pair = cookie.split(";", 1)[0]
+        if "=" in pair and pair.split("=", 1)[1]:
+            inventory.write(pair.split("=", 1)[1] + "\n")
+            inventory.flush()
+assert status == 201, f"local login returned HTTP {status}"
 assert len(cookies) == 1, f"expected one Set-Cookie header, got {len(cookies)}"
 parts = [p.strip() for p in cookies[0].split(";")]
 name, _, token = parts[0].partition("=")
 attrs = [p.lower() for p in parts[1:]]
 assert name == "__Host-tendo_session" and re.fullmatch(r"[A-Za-z0-9_-]{43}", token), f"unexpected cookie name/token format: {name}"
-assert "secure" in attrs and "httponly" in attrs and "samesite=lax" in attrs and "path=/" in attrs, f"unexpected cookie attributes: {attrs}"
-assert not any(a.startswith("domain=") for a in attrs), f"unexpected cookie attributes: {attrs}"
-body = json.load(open(sys.argv[2], encoding="utf-8"))
-assert body["login"] == "proxy_owner" and "defaultHouseholdId" in body and token not in json.dumps(body), body
-open(sys.argv[3], "w", encoding="utf-8").write(f"{name}={token}")
+assert "secure" in attrs and "httponly" in attrs and "samesite=lax" in attrs and "path=/" in attrs, f"unexpected cookie attribute names: {[a.split('=',1)[0] for a in attrs]}"
+assert not any(a.startswith("domain=") for a in attrs), f"unexpected cookie attribute names: {[a.split('=',1)[0] for a in attrs]}"
+body = json.load(open(sys.argv[3], encoding="utf-8"))
+assert body.get("login") == "proxy_owner" and "defaultHouseholdId" in body and token not in json.dumps(body), f"local login returned unexpected response fields: {sorted(body) if isinstance(body, dict) else type(body).__name__}"
+open(sys.argv[4], "w", encoding="utf-8").write(f"{name}={token}")
 PY
 session_cookie=$(<"$temp_dir/session-cookie")
 expect_status 200 /api/v1/session -H "Cookie: $session_cookie"
@@ -343,24 +362,49 @@ class VerifiedConnection(http.client.HTTPSConnection):
         sock = self._create_connection(('127.0.0.1', self.port), self.timeout, self.source_address)
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
+def record_query_secrets(value):
+    try:
+        values = urllib.parse.parse_qs(urllib.parse.urlsplit(value).query)
+    except ValueError:
+        return
+    for key in ('state', 'nonce', 'code_challenge', 'code'):
+        for secret in values.get(key, []):
+            record_secret(secret)
+
+def record_cookie_values(response_headers):
+    for set_cookie in response_headers.get_all('Set-Cookie') or []:
+        pair = set_cookie.split(';',1)[0]
+        if '=' in pair:
+            record_secret(pair.split('=',1)[1])
+
 def request(host, port, method, path, headers=None, body=None):
     conn = VerifiedConnection(host, int(port), context=context, timeout=12)
     encoded = json.dumps(body).encode() if body is not None else None
     h = dict(headers or {})
     if body is not None: h['Content-Type'] = 'application/json'
     conn.request(method, path, body=encoded, headers=h)
-    r = conn.getresponse(); response_headers = r.headers; raw = r.read(); conn.close()
+    r = conn.getresponse(); response_headers = r.headers
+    record_cookie_values(response_headers)
+    location = response_headers.get('Location', '')
+    if location:
+        record_query_secrets(location)
+    raw = r.read(); conn.close()
     parsed = json.loads(raw) if raw and response_headers.get_content_type() == 'application/json' else raw
+    if isinstance(parsed, dict):
+        authorization_url = parsed.get('authorizationUrl', '')
+        if authorization_url:
+            record_query_secrets(authorization_url)
     return r.status, response_headers, parsed
 
 def cookies(headers): return headers.get_all('Set-Cookie') or []
 def named_cookie(headers, name):
     found = [v for v in cookies(headers) if v.split(';',1)[0].startswith(name+'=')]
+    pairs = [v.split(';',1)[0] for v in found]
+    for pair in pairs:
+        if '=' in pair:
+            record_secret(pair.split('=',1)[1])
     assert len(found) == 1, f"expected one {name} cookie, got {[v.split(';',1)[0].split('=',1)[0] for v in cookies(headers)]}"
-    pair = found[0].split(';',1)[0]
-    with open(os.environ['OIDC_SECRET_VALUES'],'a',encoding='utf-8') as f:
-        f.write(pair.split('=',1)[1]+'\n'); f.flush()
-    return pair
+    return pairs[0]
 def cookie_attrs(cookie):
     return [x.strip().lower() for x in cookie.split(';')[1:]]
 def secure_session(headers):
@@ -381,11 +425,6 @@ def start(purpose, session=None, password=None, forged=False):
     url = urllib.parse.urlsplit(data['authorizationUrl'])
     assert url.scheme == 'https' and url.netloc == 'oidc.test:8443', f"unexpected authorization endpoint: {url.scheme}://{url.netloc}"
     query = urllib.parse.parse_qs(url.query, strict_parsing=True)
-    for secret in [query.get('state',[''])[0], query.get('nonce',[''])[0], query.get('code_challenge',[''])[0]]:
-        if secret:
-            os.chmod(os.environ['OIDC_SECRET_VALUES'],0o600)
-            with open(os.environ['OIDC_SECRET_VALUES'],'a',encoding='utf-8') as f:
-                f.write(secret+'\n'); f.flush()
     assert query['redirect_uri'] == ['https://tendo.test/api/v1/auth/oidc/callback'], "authorization redirect_uri was not canonical"
     flow = named_cookie(h, '__Host-tendo_oidc')
     fc = next(v for v in cookies(h) if v.startswith(flow+';'))
@@ -396,21 +435,14 @@ def start(purpose, session=None, password=None, forged=False):
 
 def authorize(query, sub='owner-subject'):
     q = dict(query); q['sub'] = [sub]
-    for secret in [query.get('state',[''])[0], query.get('nonce',[''])[0], query.get('code_challenge',[''])[0]]:
-        if secret:
-            record_secret(secret)
     path = '/authorize?' + urllib.parse.urlencode(q, doseq=True)
     status,h,_ = request('oidc.test',os.environ['OIDC_PROVIDER_PORT'],'GET',path)
     location = h.get('Location','')
     parsed = urllib.parse.urlsplit(location)
     assert status == 302 and parsed.scheme == 'https' and parsed.netloc == 'tendo.test' and parsed.path == '/api/v1/auth/oidc/callback', f"provider authorize returned HTTP {status} with callback target {parsed.scheme}://{parsed.netloc}{parsed.path}"
-    for secret in urllib.parse.parse_qs(parsed.query).get('code',[]):
-        record_secret(secret)
     return parsed
 
 def callback(parsed, flow, session=None, flow_cookie_name='__Host-tendo_oidc'):
-    if 'code' in urllib.parse.parse_qs(parsed.query):
-        record_secret(urllib.parse.parse_qs(parsed.query)['code'][0])
     hs={'Cookie':flow_cookie_name+'='+flow.split('=',1)[1]+('; '+session if session else '')}
     return request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET',parsed.path+'?'+parsed.query,hs)
 
@@ -418,7 +450,6 @@ def record_secret(value):
     os.chmod(os.environ['OIDC_SECRET_VALUES'],0o600)
     with open(os.environ['OIDC_SECRET_VALUES'],'a',encoding='utf-8') as f:
         f.write(value+'\n'); f.flush()
-record_secret(os.environ['OIDC_SESSION_COOKIE'].split('=',1)[1])
 s,h,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/auth/oidc')
 assert s == 200 and b == {'enabled':True,'displayName':'Proxy Smoke Provider'}, f"OIDC discovery returned HTTP {s}"
 old = os.environ['OIDC_SESSION_COOKIE']
@@ -429,8 +460,6 @@ assert s == 303 and h.get('Location') == '/account#oidc=connected' and h.get('Ca
 cleared = [v for v in cookies(h) if v.split(';',1)[0].startswith('__Host-tendo_oidc=') and 'Max-Age=0' in v]
 assert len(cleared) == 1, f"expected one cleared __Host-tendo_oidc cookie, got {[v.split(';',1)[0].split('=',1)[0] for v in cookies(h)]}"
 new = secure_session(h)
-record = new.split('=',1)[1]
-record_secret(record)
 s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':old})
 assert s == 401, f"old session returned HTTP {s}"
 s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':new})
@@ -442,14 +471,11 @@ assert s == 204, f"logout returned HTTP {s}"
 q,flow = start('login'); parsed = authorize(q); s,h,b = callback(parsed,flow)
 assert s == 303 and h.get('Location') == '/', f"login callback returned HTTP {s} with Location {urllib.parse.urlsplit(h.get('Location','')).path}"
 login_cookie = secure_session(h)
-record = login_cookie.split('=',1)[1]
-record_secret(record)
 s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':login_cookie})
 assert s == 200 and b['login']=='proxy_owner',f"session check returned HTTP {s}"
 q,flow = start('login'); parsed = authorize(q); s,h,b = callback(parsed,flow,flow_cookie_name='tendo_oidc')
 assert s == 303 and h.get('Location') == '/login#oidcError=invalid_flow', f"invalid cookie callback returned HTTP {s} with Location {urllib.parse.urlsplit(h.get('Location','')).path}"
 assert not any(v.split(';',1)[0].startswith('__Host-tendo_session=') for v in cookies(h)), f"unexpected session cookie names: {[v.split(';',1)[0].split('=',1)[0] for v in cookies(h)]}"
-record_secret(flow.split('=',1)[1])
 print('HTTPS proxy OIDC link/login/cookie checks passed')
 PY
 "${compose[@]}" logs --no-color proxy app >"$temp_dir/oidc-logs"
