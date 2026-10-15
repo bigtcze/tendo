@@ -23,10 +23,17 @@ func main() {
 	redirect := flag.String("redirect-uri", env("REDIRECT_URI", ""), "registered redirect URI")
 	subjects := flag.String("subjects", env("SUBJECTS", "subject-1"), "comma-separated subjects")
 	flag.Parse()
+	tlsEnabled := *tlsCert != "" || *tlsKey != ""
+	if (*tlsCert == "") != (*tlsKey == "") {
+		if *healthcheck {
+			os.Exit(1)
+		}
+		log.Fatal("both TLS certificate and key must be set")
+	}
 	if *healthcheck {
 		scheme := "http"
 		client := http.DefaultClient
-		if *tlsCert != "" && *tlsKey != "" {
+		if tlsEnabled {
 			scheme = "https"
 			u, err := url.Parse(*issuer)
 			if err != nil || u.Hostname() == "" {
@@ -71,7 +78,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.Handle("/", p.Server.Config.Handler)
-	if *tlsCert != "" && *tlsKey != "" {
+	if tlsEnabled {
 		log.Fatal(http.ListenAndServeTLS(*listen, *tlsCert, *tlsKey, mux))
 	}
 	log.Fatal(http.ListenAndServe(*listen, mux))
