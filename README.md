@@ -6,7 +6,7 @@ Tendo is a self-hosted shared list for the things a household needs to remember,
 
 - Keeps one-off tasks visible until someone actually does them. Nothing disappears just because a date passed.
 - Repeats a task when you turn on **Repeat**: on a fixed schedule, or counted from the day you last did it.
-- Groups items by the people and things they belong to: family members, your home, vehicles, pets, or anything else.
+- Connects each item to the person or thing it is for: a family member, your home, a vehicle, a pet, or anything else.
 - Shows what needs attention now, what is coming up, and what you are already handling or waiting on.
 - Keeps a history of completions, and lets you undo a completion you marked by mistake.
 - Lets an owner invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
@@ -15,7 +15,7 @@ The interface is available in English and Czech and works on phones, tablets, an
 
 ## Quick start
 
-You need Docker Engine with the Docker Compose plugin, Git, and OpenSSL.
+These commands are for Linux with GNU sed. You need Docker Engine with the Docker Compose plugin, Git, and OpenSSL.
 
 ```sh
 git clone https://github.com/bigtcze/tendo.git
@@ -40,7 +40,7 @@ Show your one-time setup code:
 grep '^TENDO_SETUP_TOKEN=' .env | cut -d= -f2-
 ```
 
-Open `http://localhost:8080` and enter the setup code, a name for your household, a login and password, and your time zone. Tendo creates your household and signs you in. Then switch setup off:
+Open `http://localhost:8080` and enter the setup code, a name for your household, a login and password, and your time zone. Tendo creates your household and signs you in. If automatic sign-in fails, sign in with the account you just created. Then switch setup off:
 
 ```sh
 sed -i 's/^TENDO_SETUP_TOKEN=.*/TENDO_SETUP_TOKEN=/' .env

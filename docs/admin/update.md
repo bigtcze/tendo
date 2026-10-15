@@ -27,16 +27,16 @@ Run every command from the directory that holds Tendo's `compose.yaml` and `.env
 4. Check that Tendo is ready and sign in:
 
    ```sh
-   curl http://localhost:8080/health/ready
+   curl --fail --show-error http://localhost:8080/health/ready
    ```
 
-   Use your own `TENDO_PUBLIC_URL` port if you changed `TENDO_HOST_PORT`.
+   If you changed `TENDO_HOST_PORT`, replace `8080` in this command with that value. This checks the app's local HTTP port, not the reverse proxy's public HTTPS port. If the app is still starting, wait a few seconds and run it again.
 
 5. Compare `.env.example` with your `.env` and add any new settings you want. The [configuration reference](configuration.md) describes each one and its default.
 
 ## Go back to an earlier version
 
-A newer database cannot be used by an older Tendo. If you go back, the app stops with `database schema validation failed`, and the migration stops with `database schema is newer than this application`.
+An older Tendo cannot use a database whose schema version is newer than it supports. If an update advanced the schema, the older app stops with `database schema validation failed`, and its migration stops with `database schema is newer than this application`.
 
 To go back, check out the earlier version and [restore the backup you took before updating](backup-restore.md#restore-onto-a-fresh-installation) into a fresh installation. Changes made after that backup are lost.
 

@@ -6,8 +6,8 @@ This guide installs Tendo with Docker Compose on one server. Compose runs two lo
 
 You need:
 
-- a Linux server or computer with Docker Engine and the Docker Compose plugin (`docker compose version` should work);
-- Git and OpenSSL;
+- a Linux server or computer with GNU sed, Docker Engine, and the Docker Compose plugin (`docker compose version` should work);
+- Git, OpenSSL, and curl;
 - a free local port, `8080` by default.
 
 Tendo does not need any outside account or service. It sends no email and no telemetry.
@@ -50,13 +50,13 @@ The defaults serve Tendo at `http://localhost:8080`, only on this machine. To re
 docker compose up -d --build --wait
 ```
 
-The first build takes a few minutes. The command returns when PostgreSQL and the app are healthy and the database is prepared. Check it:
+The first build takes a few minutes. Compose waits for PostgreSQL to become healthy and the migration to finish, then starts the app. Check that the app is ready:
 
 ```sh
-curl http://localhost:8080/health/ready
+curl --fail --show-error http://localhost:8080/health/ready
 ```
 
-It prints `{"status":"ok"}`. If it does not, see [troubleshooting](troubleshooting.md).
+It prints `{"status":"ok"}`. If the app is still starting, wait a few seconds and run it again. If it does not, see [troubleshooting](troubleshooting.md).
 
 ## 4. Create your household
 
@@ -73,7 +73,7 @@ Open `http://localhost:8080` (or your `TENDO_PUBLIC_URL`). Tendo asks for:
 3. a login (lowercase letters, numbers, `.`, `_`, `-`; at least 3 characters) and a password of at least 15 characters;
 4. your time zone. Tendo suggests the one your browser reports; change it if it is wrong.
 
-Select **Create household**. Tendo creates your account and household, signs you in, and opens the home screen. Setup works only once: afterwards Tendo shows the sign-in screen.
+Select **Create household**. Tendo creates your account and household, then signs you in and opens the home screen. If the sign-in screen appears instead, sign in with the account you just created. Setup runs only once on the same database; after that, signed-out visits show the sign-in screen.
 
 ## 5. Switch setup off
 
