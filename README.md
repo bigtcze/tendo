@@ -1,79 +1,84 @@
 # Tendo
 
-**Remember less. Nothing disappears until it is actually done.**
+Tendo is a self-hosted shared list for the things a household needs to remember, without forcing everything into a calendar.
 
-Tendo is a self-hosted family backlog for the things a household needs to remember without forcing everything into a calendar.
+## What Tendo does
 
-Examples:
-- remember a one-off household task with no strict deadline;
-- repeat a task on a fixed cadence;
-- optionally make a repeat "fluid", so the next interval starts when the task is actually completed;
-- keep an item visible while it is being handled or while you are waiting for someone else;
-- track obligations around family members, home, vehicles, pets, or anything custom.
+- Keeps one-off tasks visible until someone actually does them. Nothing disappears just because a date passed.
+- Repeats a task when you turn on **Repeat**: on a fixed schedule, or counted from the day you last did it.
+- Groups items by the people and things they belong to: family members, your home, vehicles, pets, or anything else.
+- Shows what needs attention now, what is coming up, and what you are already handling or waiting on.
+- Keeps a history of completions, and lets you undo a completion you marked by mistake.
+- Lets an owner invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
 
-> **Project status:** Tendo is in active development. It supports household items, recurring obligations, and owner-issued invitation links. See [items](docs/user/items.md) and [household members and invitations](docs/user/household-members.md) for current usage; this is not a claim that V1 is complete or production-ready.
+The interface is available in English and Czech and works on phones, tablets, and computers in a web browser.
 
-## Development runtime
+## Quick start
 
-Copy `.env.example` to `.env`, set independent hexadecimal database passwords, and run `docker compose up -d --build`. Compose starts PostgreSQL, runs the mandatory one-shot migration service, then starts the app with restricted database credentials. Keep PostgreSQL private; the app binds to loopback by default.
-
-## First household
-
-Setup is protected by a one-time setup code, so a stranger who reaches your Tendo first cannot claim it. Generate the code and add it to `.env` without printing it:
+You need Docker Engine with the Docker Compose plugin, Git, and OpenSSL.
 
 ```sh
+git clone https://github.com/bigtcze/tendo.git
+cd tendo
 umask 077
-export TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
-python3 - <<'PY'
-import os
-from pathlib import Path
-
-path = Path('.env')
-lines = path.read_text().splitlines() if path.exists() else []
-lines = [line for line in lines if not line.startswith('TENDO_SETUP_TOKEN=')]
-lines.append('TENDO_SETUP_TOKEN=' + os.environ.pop('TENDO_SETUP_TOKEN'))
-path.write_text('\n'.join(lines) + '\n')
-path.chmod(0o600)
-PY
+cp .env.example .env
+sed -i \
+  -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
+  -e "s/^TENDO_DATABASE_PASSWORD=.*/TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)/" \
+  -e "s|^TENDO_SETUP_TOKEN=.*|TENDO_SETUP_TOKEN=$(openssl rand -base64 32)|" \
+  .env
+docker compose up -d --build --wait
 ```
 
-Apply the changed environment by recreating the app (Compose does not import `.env` variables into your shell):
+Tendo now runs at `http://localhost:8080`, reachable only from this machine. Keep `.env` private; it holds your database passwords. The [installation guide](docs/admin/install.md) explains each step.
 
-```sh
-docker compose up -d --build --force-recreate app
-```
+## First sign-in
 
-Show the code in a private terminal when you are ready to paste it into the browser. Do not share the output or include it in logs:
+Show your one-time setup code:
 
 ```sh
 grep '^TENDO_SETUP_TOKEN=' .env | cut -d= -f2-
 ```
 
-Open `TENDO_PUBLIC_URL` (by default `http://localhost:8080`). Tendo asks for:
+Open `http://localhost:8080` and enter the setup code, a name for your household, a login and password, and your time zone. Tendo creates your household and signs you in. Then switch setup off:
 
-1. the setup code;
-2. a name for your household, for example "The Novák family";
-3. a login and a password (at least 15 characters);
-4. your time zone. Tendo suggests the one your browser reports; change it if it is wrong.
+```sh
+sed -i 's/^TENDO_SETUP_TOKEN=.*/TENDO_SETUP_TOKEN=/' .env
+docker compose up -d --force-recreate --wait app
+```
 
-Select **Create household**. Tendo creates your account and household, signs you in, and opens the empty home screen. If automatic sign-in fails, sign in with the account you just created. After you sign out, Tendo shows the sign-in form instead of setup.
+## Use it from other devices
 
-Setup works only once. When it is done, clear `TENDO_SETUP_TOKEN` in `.env` and run `docker compose up -d --force-recreate app` again. Use an HTTPS `TENDO_PUBLIC_URL` for any non-local deployment; see [configuration](docs/admin/configuration.md).
+Tendo serves plain HTTP. To use it from phones or other computers, put it behind a reverse proxy that provides HTTPS, and set `TENDO_PUBLIC_URL` to your HTTPS address. Tested examples for Caddy, Nginx, and Traefik are in [reverse proxy](docs/admin/reverse-proxy.md). Never expose PostgreSQL.
 
-For configuration, health checks, and stop/start details, see [runtime development](docs/development/runtime.md) and the [configuration reference](docs/admin/configuration.md). See [reverse proxy deployment](docs/admin/reverse-proxy.md) before internet exposure and [back up and restore](docs/admin/backup-restore.md) to protect your household data.
+## Update and back up
+
+- [Update Tendo](docs/admin/update.md) — back up first, then pull and rebuild.
+- [Back up and restore](docs/admin/backup-restore.md)
 
 ## Documentation
 
+For households:
+
+- [Items, Repeat, and history](docs/user/items.md)
 - [People and things](docs/user/people-and-things.md)
-- [Household invitations and members](docs/user/household-members.md)
+- [Household members and invitations](docs/user/household-members.md)
 - [Your account and sign-in](docs/user/account.md)
-- [Runtime development](docs/development/runtime.md)
-- [Frontend development](docs/development/frontend.md)
-- [Complete development testing and pre-PR verification](docs/development/testing.md)
-- [Dependency and toolchain inventory](docs/development/dependencies.md)
+
+For whoever runs Tendo:
+
+- [Install](docs/admin/install.md)
 - [Configuration reference](docs/admin/configuration.md)
-- [Schedule-domain notes](docs/development/schedule-domain.md)
+- [Reverse proxy](docs/admin/reverse-proxy.md)
+- [Sign-in with OIDC, such as Pocket ID](docs/admin/oidc.md)
+- [Troubleshooting](docs/admin/troubleshooting.md)
 
-## Development
+For contributors:
 
-Create one-off items or set them to repeat on a fixed cadence or from the date you complete them. Items can have an optional attention date, status, notes, and responsible household member; completing an item preserves its history and can be undone. Owners can invite members with private links—Tendo does not send email. Sign-in works with a local password, with optional OIDC when configured. See [items](docs/user/items.md), [household members and invitations](docs/user/household-members.md), and [your account and sign-in](docs/user/account.md).
+- [Development and tests](docs/development/testing.md), [runtime](docs/development/runtime.md), [frontend](docs/development/frontend.md), [API](docs/development/api.md), and [release process](docs/development/release.md)
+
+Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
+
+## Project status and license
+
+Tendo is in active development and has no tagged release yet; the first version is not finished. See [LICENSE](LICENSE) for the license.
