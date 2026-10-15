@@ -65,7 +65,7 @@ bash scripts/check-sqlc.sh
 (cd api && npm ci && npm audit --audit-level=moderate && npm run check)
 (cd frontend && npm ci && npm audit --audit-level=moderate && npm run check)
 python3 -m unittest scripts/test_verify_local.py
-python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py
+python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py
 python3 scripts/test_postgres_live.py
 python3 -m unittest scripts/test_generation_drift.py
 python3 scripts/test_e2e_interrupt.py
@@ -86,7 +86,7 @@ The required workflow retains one stable branch-protection aggregate check named
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.2/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all seven smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
+| `backend` | Go 1.27.2/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all seven smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior), `scripts/test_quickstart_docs.py` (shell extraction, section fences, ordered README consistency); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
 | `api` | Go 1.27.2, Node 24.21.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 24.21.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.31.1 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |

@@ -11,21 +11,48 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/tendo-quickstart.XXXXXX")
 chmod 700 "$tmp"
 clone="$tmp/tendo"
 result=0
+secret_values=()
+secret_file="$tmp/secret-inventory"
+cookie_file="$tmp/session-cookies"
+: > "$secret_file"
+: > "$cookie_file"
+chmod 600 "$secret_file" "$cookie_file"
 redacted_compose_logs() {
-  local env_file="$clone/.env" logs
-  logs=$(docker compose logs --no-color 2>&1) || true
-  if [[ -f $env_file ]]; then
-    while IFS='=' read -r key value; do
-      case "$key" in POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD|TENDO_SETUP_TOKEN) [[ -n $value ]] && logs=${logs//"$value"/[REDACTED]} ;; esac
-    done < "$env_file"
+  local raw="$tmp/compose-logs" redacted="$tmp/compose-logs-redacted"
+  : > "$raw"
+  chmod 600 "$raw" || { printf 'Compose logs withheld: capture or redaction failed\n' >&2; return; }
+  if ! (cd "$clone" && docker compose logs --no-color >"$raw" 2>&1); then
+    printf 'Compose logs withheld: capture or redaction failed\n' >&2
+    return
   fi
-  printf '%s\n' "$logs" >&2
+  if ! chmod 600 "$raw"; then
+    printf 'Compose logs withheld: capture or redaction failed\n' >&2
+    return
+  fi
+  if ! python3 - "$raw" "$redacted" "$secret_file" "$cookie_file" <<'PY'
+import os, re, sys
+text=open(sys.argv[1],encoding='utf-8',errors='replace').read()
+for path in sys.argv[3:]:
+    with open(path,encoding='utf-8') as inventory:
+        for secret in inventory:
+            secret=secret.rstrip('\n')
+            if secret: text=text.replace(secret,'[REDACTED]')
+text=re.sub(r'(POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD|TENDO_SETUP_TOKEN)=\S+',r'\1=[REDACTED]',text)
+text=re.sub(r'tendo_session=[^;\s]+','tendo_session=[REDACTED]',text)
+with open(sys.argv[2],'w',encoding='utf-8') as output: output.write(text)
+os.chmod(sys.argv[2],0o600)
+PY
+  then
+    printf 'Compose logs withheld: capture or redaction failed\n' >&2
+    return
+  fi
+  cat "$redacted" >&2
 }
 cleanup() {
   result=$?
   trap - EXIT
   if (( result != 0 )) && [[ -d $clone ]]; then
-    (cd "$clone" && redacted_compose_logs) || printf 'Could not collect redacted Compose logs\n' >&2
+    (redacted_compose_logs) || printf 'Compose logs withheld: capture or redaction failed\n' >&2
   fi
   if [[ -d $clone ]]; then
     if ! (cd "$clone" && docker compose down --volumes --remove-orphans --rmi local); then
@@ -41,43 +68,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 - "$root" "$tmp/blocks.json" <<'PY'
-import json, pathlib, re, sys
-root=pathlib.Path(sys.argv[1])
-def sections(path, headings, expected):
-    text=(root/path).read_text(encoding='utf-8')
-    lines=text.splitlines()
-    found={}
-    for heading in headings:
-        try: start=next(i for i,line in enumerate(lines) if line.strip()==heading)
-        except StopIteration: raise SystemExit(f'{path}: required heading missing: {heading}')
-        end=next((i for i in range(start+1,len(lines)) if re.match(r'^#{1,2} ',lines[i])),len(lines))
-        section='\n'.join(lines[start+1:end])
-        blocks=re.findall(r'```sh\s*\n(.*?)\n```',section,re.S)
-        if len(blocks)!=expected[heading]: raise SystemExit(f'{path}: {heading}: expected {expected[heading]} sh block(s), found {len(blocks)}')
-        found[heading]=blocks
-    return found
-install_headings=['## 1. Get Tendo','## 2. Create your settings file','## 3. Start Tendo','## 4. Create your household','## 5. Switch setup off']
-install=sections('docs/admin/install.md',install_headings,dict(zip(install_headings,[1,2,2,1,1])))
-readme_headings=['## Quick start','## First sign-in']
-readme=sections('README.md',readme_headings,{readme_headings[0]:1,readme_headings[1]:2})
-def commands(block):
-    joined=re.sub(r'\\\s*\n\s*',' ',block)
-    return [line.strip() for line in joined.splitlines() if line.strip()]
-install_commands={cmd for blocks in install.values() for block in blocks for cmd in commands(block)}
-for heading,blocks in readme.items():
-    for block in blocks:
-        for command in commands(block):
-            if command not in install_commands:
-                raise SystemExit(f'README.md {heading}: command is absent from docs/admin/install.md sh blocks: {command}')
-get=install[install_headings[0]][0]
-old='git clone https://github.com/bigtcze/tendo.git'
-if get.splitlines().count(old)!=1: raise SystemExit('docs/admin/install.md Get Tendo: expected exactly one exact GitHub clone command line')
-install[install_headings[0]][0]=get.replace(old, f'git clone --quiet --no-hardlinks --depth 1 file://{root} tendo', 1)
-blocks=[install[h][i] for h,n in zip(install_headings,[1,2,2,1,1]) for i in range(n)]
-blocks.append(install[install_headings[2]][1])
-pathlib.Path(sys.argv[2]).write_text(json.dumps(blocks),encoding='utf-8')
-PY
+python3 "$root/scripts/quickstart_docs.py" "$root" > "$tmp/blocks.json"
 mapfile -d '' -t blocks < <(python3 - "$tmp/blocks.json" <<'PY'
 import json,sys
 for block in json.load(open(sys.argv[1],encoding='utf-8')): sys.stdout.write(block+'\0')
@@ -92,8 +83,14 @@ finally: s.close()
 PY
 then :; else printf 'Quick-start smoke cannot use documented port 8080: 127.0.0.1:8080 is already in use\n' >&2; exit 1; fi
 
-(cd "$tmp" && bash -euo pipefail -c "${blocks[0]}")
+clone_pwd=$(cd "$tmp" && bash -euo pipefail -c "${blocks[0]}"$'\n'"pwd -P")
+clone_pwd=${clone_pwd##*$'\n'}
+expected_clone_pwd=$(cd "$clone" && pwd -P)
+[[ $clone_pwd == "$expected_clone_pwd" ]] || { printf 'Get Tendo block must leave the shell in the clone (missing cd tendo?)\n' >&2; exit 1; }
 [[ -d $clone ]] || { printf 'Get Tendo block did not create %s\n' "$clone" >&2; exit 1; }
+expected_head=$(git -C "$root" rev-parse HEAD)
+clone_head=$(git -C "$clone" rev-parse HEAD)
+[[ $clone_head == "$expected_head" ]] || { printf 'Fresh clone HEAD does not match tested checkout HEAD\n' >&2; exit 1; }
 (cd "$clone" && bash -euo pipefail -c "${blocks[1]}" && bash -euo pipefail -c "${blocks[2]}")
 python3 - "$clone/.env" "$clone" <<'PY'
 import base64,os,re,subprocess,sys
@@ -112,20 +109,32 @@ except Exception: decoded=b''
 if len(token)!=44 or len(decoded)!=32 or base64.b64encode(decoded).decode()!=token: raise SystemExit('setup token must be canonical base64 encoding of 32 bytes (44 characters)')
 if subprocess.run(['git','-C',sys.argv[2],'status','--porcelain'],capture_output=True,text=True,check=True).stdout: raise SystemExit('fresh clone has a non-empty git status; expected .env to be ignored')
 PY
-
-(cd "$clone" && bash -euo pipefail -c "${blocks[3]}")
-ready_output=
-for ((elapsed=0; elapsed<=60; elapsed++)); do
-  if ready_output=$(cd "$clone" && bash -euo pipefail -c "${blocks[4]}" 2>/dev/null); then
-    [[ $ready_output == '{"status":"ok"}' ]] && break
-  fi
-  if (( elapsed == 60 )); then printf 'Health check did not return exactly {"status":"ok"} within 60 seconds\n' >&2; exit 1; fi
-  sleep 1
+secret_values=()
+for key in POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_SETUP_TOKEN; do
+  value=$(python3 - "$clone/.env" "$key" <<'PY'
+import sys
+for line in open(sys.argv[1],encoding='utf-8'):
+    k,sep,v=line.rstrip('\n').partition('=')
+    if sep and k==sys.argv[2]: print(v); break
+PY
+  )
+  secret_values+=("$value")
+  printf '%s\n' "$value" >> "$secret_file"
 done
-[[ $ready_output == '{"status":"ok"}' ]] || { printf 'Health check returned an unexpected response\n' >&2; exit 1; }
-token=$(cd "$clone" && bash -euo pipefail -c "${blocks[5]}")
+poll_ready() {
+  local block=$1 deadline=$((SECONDS + 90)) output
+  while (( SECONDS < deadline )); do
+    if output=$(cd "$clone" && timeout 5 bash -euo pipefail -c "$block" 2>/dev/null) && [[ $output == '{"status":"ok"}' ]]; then return 0; fi
+    sleep 1
+  done
+  printf 'Health check did not return exactly {"status":"ok"} within 90 seconds\n' >&2
+  return 1
+}
+(cd "$clone" && bash -euo pipefail -c "${blocks[3]}")
+poll_ready "${blocks[6]}"
+token=$(cd "$clone" && bash -euo pipefail -c "${blocks[4]}")
 [[ -n $token ]] || { printf 'Setup-code command returned an empty token\n' >&2; exit 1; }
-TOKEN="$token" CLONE_ENV="$clone/.env" python3 - <<'PY'
+TOKEN="$token" CLONE_ENV="$clone/.env" COOKIE_FILE="$cookie_file" python3 - <<'PY'
 import json,os,urllib.error,urllib.request
 origin='http://localhost:8080'; token=os.environ['TOKEN']
 values={}
@@ -151,6 +160,7 @@ status,headers,raw=req('POST','/api/v1/session',{'login':body['login'],'password
 if status!=201:raise SystemExit(f'Login API expected 201, got {status}')
 cookie=headers.get('Set-Cookie','').split(';',1)[0]
 if not cookie:raise SystemExit('Login response did not set the session cookie')
+with open(os.environ['COOKIE_FILE'],'a',encoding='utf-8') as inventory: inventory.write(cookie.split('=',1)[1]+'\n')
 session=json.loads(raw); hid=session.get('defaultHouseholdId')
 if not hid:raise SystemExit('Login response did not include defaultHouseholdId')
 status,_,raw=req('GET','/api/v1/households/'+hid,headers={'Cookie':cookie})
@@ -159,17 +169,12 @@ if status!=200 or house.get('name')!=body['householdName'] or house.get('timezon
 status,headers,raw=req('GET','/',headers={'Cookie':cookie})
 if status!=200 or 'text/html' not in headers.get('Content-Type',''):raise SystemExit(f'Embedded UI GET expected 200 text/html, got {status}')
 PY
-(cd "$clone" && bash -euo pipefail -c "${blocks[6]}" && bash -euo pipefail -c "${blocks[7]}")
-ready_output=
-for ((elapsed=0; elapsed<=60; elapsed++)); do
-  if ready_output=$(curl --fail --show-error --silent http://localhost:8080/health/ready 2>/dev/null) && [[ $ready_output == '{"status":"ok"}' ]]; then break; fi
-  if (( elapsed == 60 )); then printf 'App did not become ready after setup was switched off\n' >&2; exit 1; fi
-  sleep 1
-done
+(cd "$clone" && bash -euo pipefail -c "${blocks[5]}")
+poll_ready "${blocks[6]}"
 app_id=$(cd "$clone" && docker compose ps -q app)
 [[ -n $app_id ]] || { printf 'docker compose ps -q app returned no app container\n' >&2; exit 1; }
 docker inspect "$app_id" | python3 -c 'import json,sys; e=json.load(sys.stdin)[0]["Config"]["Env"]; assert "TENDO_SETUP_TOKEN=" in e, "app container environment must contain an empty TENDO_SETUP_TOKEN"'
-TOKEN="$token" python3 - <<'PY'
+TOKEN="$token" COOKIE_FILE="$cookie_file" python3 - <<'PY'
 import json,os,urllib.error,urllib.request
 origin='http://localhost:8080';token=os.environ['TOKEN']
 def req(method,path,body=None,headers=None):
@@ -183,7 +188,12 @@ status,_,raw=req('GET','/api/v1/auth/setup')
 if status!=200 or json.loads(raw)!={'required':False}:raise SystemExit('Setup status should remain complete after disabling setup')
 status,headers,_=req('POST','/api/v1/session',{'login':'quickstart_owner','password':'quickstart smoke secure password'},{'Origin':origin})
 if status!=201:raise SystemExit(f'Login after setup disable expected 201, got {status}')
+cookie=headers.get('Set-Cookie','').split(';',1)[0]
+if cookie:
+ with open(os.environ['COOKIE_FILE'],'a',encoding='utf-8') as inventory: inventory.write(cookie.split('=',1)[1]+'\n')
 status,_,raw=req('PUT','/api/v1/auth/setup',{'login':'another_owner','password':'quickstart smoke secure password','householdName':'Not allowed','timezone':'Europe/Prague'},{'Origin':origin,'X-Tendo-Setup-Token':token})
 if status!=503:raise SystemExit(f'Disabled setup PUT expected exact status 503, got {status}')
+problem=json.loads(raw)
+if problem.get('code')!='setup_unavailable':raise SystemExit('Disabled setup PUT expected problem code setup_unavailable')
 PY
 printf 'Quick-start smoke passed: documented install and README commands, first-owner API setup, login, household persistence, embedded UI, and disabled setup.\n'
