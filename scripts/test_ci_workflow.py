@@ -39,6 +39,7 @@ SMOKES = (
     "proxy-smoke",
     "backup-restore-smoke",
     "household-backup-smoke",
+    "quickstart-smoke",
 )
 
 

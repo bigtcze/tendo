@@ -82,19 +82,19 @@ It fails fast and reports stage status/duration, primary failure, and downstream
 
 ## CI job map
 
-The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, native E2E and six deployment-smoke jobs run independently. The aggregate uses `if: always()` and passes only if every dependency result is exactly `success`; failure, cancellation and skipped all fail the gate.
+The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, native E2E and seven deployment-smoke jobs run independently. The aggregate uses `if: always()` and passes only if every dependency result is exactly `success`; failure, cancellation and skipped all fail the gate.
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.2/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all six smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
+| `backend` | Go 1.27.2/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all seven smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
 | `api` | Go 1.27.2, Node 24.21.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 24.21.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.31.1 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |
 | `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 24.21.0, frontend `npm ci`, Playwright 1.64.0 Chromium install, full native production-build E2E |
-| `deployment` matrix, `fail-fast: false` | Six entries: runtime, setup, OIDC, proxy, backup/restore, household backup. Each checks out and installs Go/Node/API dependencies before running its unchanged Docker smoke. Each matrix job builds its own images; image transfer is YAGNI absent measured evidence for artifact handoff. Proxy and household-backup retain their 12/15 minute bounds using per-matrix-step `timeout` values. |
-| `required` aggregate | `if: always()`, `needs` every other job, prints results and jq-requires exactly six successes. |
+| `deployment` matrix, `fail-fast: false` | Seven entries: runtime, setup, OIDC, proxy, backup/restore, household backup, and quick start. Each checks out and installs Go/Node/API dependencies before running its Docker smoke. The quick-start smoke extracts and executes the install commands from the documentation. Each matrix job builds its own images; image transfer is YAGNI absent measured evidence for artifact handoff. Proxy and household-backup retain their 12/15 minute bounds using per-matrix-step `timeout` values. |
+| `required` aggregate | `if: always()`, `needs` every other job, prints results and jq-requires exactly six job successes (the deployment matrix is one job). |
 
-The native browser suite is not a replacement for deployment smokes. Production runtime, setup/API, OIDC API, all reverse proxies, backup/restore and household backup remain mandatory CI jobs.
+The native browser suite is not a replacement for deployment smokes. Production runtime, setup/API, OIDC API, all reverse proxies, backup/restore, household backup, and the copy-paste quick start remain mandatory CI jobs.
 
 ## Assertion coverage map
 
@@ -111,6 +111,7 @@ The native browser suite is not a replacement for deployment smokes. Production 
 | Proxy | Caddy/Nginx/Traefik TLS, SNI/Host, trusted forwarding, forged-header rejection, Origin, health/SPA headers, OIDC callback/link/login and `__Host-` cookies through HTTPS, outage recovery, secret-free logs |
 | Backup | archive round trip, Unicode/null rows, ownership/FK/CHECK/runtime permissions, existing target/truncation safety |
 | Household backup | API-populated restore with fresh credentials; counts/ledger/API bodies/ETags/session/password/idempotency/undo/new writes/invitations/restrictions |
+| Quick start | Exact install-guide shell blocks and README command consistency; private fresh clone, settings permissions/secrets, Compose startup, HTTP first-owner setup/login/household/UI, then token-disabled restart |
 | Browser | 28 serial production journeys; onboarding, CRUD, authorization, OIDC, viewports/keyboard/localization/security; persisted item across app-only midnight restart |
 
 The E2E runner seeds an unowned foreign household as migrator; browser and API assertions verify cross-household denial, and a post-suite database check confirms the seed is unchanged. Home/create/detail layouts are checked at 360, 768 and 1280px widths.

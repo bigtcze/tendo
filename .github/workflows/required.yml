@@ -304,7 +304,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        smoke: [runtime-smoke, setup-smoke, oidc-smoke, proxy-smoke, backup-restore-smoke, household-backup-smoke]
+        smoke: [runtime-smoke, setup-smoke, oidc-smoke, proxy-smoke, backup-restore-smoke, household-backup-smoke, quickstart-smoke]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0

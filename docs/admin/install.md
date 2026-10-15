@@ -93,4 +93,4 @@ docker compose up -d --force-recreate --wait app
 
 ## How this is tested
 
-Required CI starts this same `compose.yaml` with generated secrets in `scripts/runtime-smoke.sh` and `scripts/setup-smoke.sh`; the browser end-to-end tests create the first household through the setup screen.
+Required CI runs the exact commands on this page, extracted from these code blocks, in `scripts/quickstart-smoke.sh` (replacing only the public GitHub clone command with a clone of the checkout being tested). It also performs the setup step over the same HTTP API used by the browser. Other deployment checks start this same `compose.yaml` with generated secrets in `scripts/runtime-smoke.sh` and `scripts/setup-smoke.sh`; browser end-to-end tests create the first household through the setup screen.
