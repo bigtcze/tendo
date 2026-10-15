@@ -19,7 +19,7 @@ esac
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-proxy-smoke.XXXXXX")
 chmod 755 "$temp_dir"
 export COMPOSE_PROJECT_NAME=$project
-export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
+export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_OIDC_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
@@ -29,6 +29,8 @@ TENDO_OIDC_CLIENT_SECRET=
 TENDO_OIDC_CLIENT_SECRET_FILE=
 TENDO_OIDC_DISPLAY_NAME=
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+TENDO_OIDC_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+TENDO_OIDC_CLIENT_SECRET=tendo-proxy-oidc-secret
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
@@ -44,14 +46,14 @@ cleanup() {
       python3 - "$temp_dir/logs" <<'PY'
 import os, re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-for name in ("POSTGRES_PASSWORD", "TENDO_DATABASE_PASSWORD"):
+for name in ("POSTGRES_PASSWORD", "TENDO_DATABASE_PASSWORD", "TENDO_OIDC_CLIENT_SECRET"):
     text = text.replace(os.environ[name], "[REDACTED]")
-text = re.sub(r"(?i)(POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD)(=|%3[dD])[^\s&]+", r"\1\2[REDACTED]", text)
+text = re.sub(r"(?i)(POSTGRES_PASSWORD|TENDO_DATABASE_PASSWORD|TENDO_OIDC_CLIENT_SECRET)(=|%3[dD])[^\s&]+", r"\1\2[REDACTED]", text)
 print(text, end="", file=sys.stderr)
 PY
     fi
   fi
-  if ! "${compose[@]}" down --volumes --remove-orphans; then
+  if ! "${compose[@]}" down --volumes --remove-orphans --rmi local; then
     printf 'Compose cleanup failed for project %s\n' "$project" >&2
     (( result != 0 )) || result=1
   fi
@@ -63,21 +65,60 @@ PY
 }
 trap cleanup EXIT
 
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout "$temp_dir/ca.key" -out "$temp_dir/ca.crt" -subj '/CN=Tendo proxy smoke CA' >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout "$temp_dir/ca.key" -out "$temp_dir/ca.crt" -subj '/CN=Tendo proxy smoke CA' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
 chmod 644 "$temp_dir/ca.crt"
 openssl req -newkey rsa:2048 -nodes -keyout "$temp_dir/tendo.test.key" -out "$temp_dir/tendo.test.csr" -subj '/CN=tendo.test' >/dev/null 2>&1
 printf 'subjectAltName=DNS:tendo.test\nextendedKeyUsage=serverAuth\n' >"$temp_dir/ext.cnf"
 openssl x509 -req -in "$temp_dir/tendo.test.csr" -CA "$temp_dir/ca.crt" -CAkey "$temp_dir/ca.key" -CAcreateserial -out "$temp_dir/tendo.test.crt" -days 1 -extfile "$temp_dir/ext.cnf" >/dev/null 2>&1
 cp "$temp_dir/ca.crt" "$temp_dir/smoke-ca.crt"
+openssl req -newkey rsa:2048 -nodes -keyout "$temp_dir/oidc.test.key" -out "$temp_dir/oidc.test.csr" -subj '/CN=oidc.test' >/dev/null 2>&1
+printf 'subjectAltName=DNS:oidc.test\nextendedKeyUsage=serverAuth\n' >"$temp_dir/oidc-ext.cnf"
+openssl x509 -req -in "$temp_dir/oidc.test.csr" -CA "$temp_dir/ca.crt" -CAkey "$temp_dir/ca.key" -CAcreateserial -out "$temp_dir/oidc.test.crt" -days 1 -extfile "$temp_dir/oidc-ext.cnf" >/dev/null 2>&1
+chmod 644 "$temp_dir/oidc.test.key" "$temp_dir/oidc.test.crt"
 cat >"$temp_dir/compose.yaml" <<EOF
 services:
+  oidc-provider:
+    build:
+      context: $root/backend
+      dockerfile: test/oidc-provider/Dockerfile
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8443
+      ISSUER_URL: https://oidc.test:8443
+      CLIENT_ID: tendo-proxy-smoke
+      CLIENT_SECRET: $TENDO_OIDC_CLIENT_SECRET
+      REDIRECT_URI: https://tendo.test/api/v1/auth/oidc/callback
+      SUBJECTS: owner-subject,unknown-subject
+      TLS_CERT_FILE: /certs/oidc.test.crt
+      TLS_KEY_FILE: /certs/oidc.test.key
+      SSL_CERT_FILE: /certs/ca.crt
+    command: ["-listen", "0.0.0.0:8443", "-issuer", "https://oidc.test:8443", "-client-id", "tendo-proxy-smoke", "-client-secret", "$TENDO_OIDC_CLIENT_SECRET", "-redirect-uri", "https://tendo.test/api/v1/auth/oidc/callback", "-subjects", "owner-subject,unknown-subject", "-tls-cert", "/certs/oidc.test.crt", "-tls-key", "/certs/oidc.test.key"]
+    ports:
+      - "127.0.0.1:$TENDO_OIDC_HOST_PORT:8443"
+    volumes:
+      - $temp_dir:/certs:ro
+    networks:
+      proxy-net:
+        ipv4_address: 172.29.247.40
+        aliases: [oidc.test]
+    healthcheck:
+      test: ["CMD", "/oidc-provider", "-listen", ":8443", "-issuer", "https://oidc.test:8443", "-tls-cert", "/certs/oidc.test.crt", "-tls-key", "/certs/oidc.test.key", "-healthcheck"]
+      interval: 2s
+      timeout: 2s
+      retries: 3
   migrate:
     networks:
       - proxy-net
   app:
     environment:
       TENDO_PUBLIC_URL: https://tendo.test
+      TENDO_OIDC_ISSUER: https://oidc.test:8443
+      TENDO_OIDC_CLIENT_ID: tendo-proxy-smoke
+      TENDO_OIDC_CLIENT_SECRET: $TENDO_OIDC_CLIENT_SECRET
+      TENDO_OIDC_DISPLAY_NAME: Proxy Smoke Provider
+      SSL_CERT_FILE: /certs/ca.crt
       TENDO_TRUSTED_PROXY_CIDRS: 172.29.247.10/32
+    volumes:
+      - $temp_dir:/certs:ro
     ports: !reset []
     networks:
       proxy-net:
@@ -109,7 +150,7 @@ EOF
 
 "${compose[@]}" up -d --build --wait --wait-timeout 150 postgres
 "${migrate[@]}" run --rm migrate
-"${compose[@]}" up -d --build --wait --wait-timeout 150 app proxy
+"${compose[@]}" up -d --build --wait --wait-timeout 150 oidc-provider app proxy
 curl_args=(--silent --show-error --noproxy '*' --max-time 5 --cacert "$temp_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" -H 'Host: tendo.test')
 expect_status() {
   local expected=$1 path=$2; shift 2
@@ -269,6 +310,112 @@ assert json.load(open(sys.argv[1], encoding="utf-8"))["login"] == "proxy_owner"
 PY
 expect_status 401 /api/v1/session -H "Cookie: tendo_session=${session_cookie#*=}"
 expect_status 401 /api/v1/session
+
+OIDC_SMOKE_CA="$temp_dir/ca.crt" OIDC_PROXY_PORT="$TENDO_HOST_PORT" OIDC_PROVIDER_PORT="$TENDO_OIDC_HOST_PORT" OIDC_SESSION_COOKIE="$session_cookie" OIDC_CLIENT_SECRET="$TENDO_OIDC_CLIENT_SECRET" OIDC_SECRET_VALUES="$temp_dir/oidc-secret-values" python3 - <<'PY'
+import http.client, json, os, ssl, urllib.parse
+
+ca = os.environ['OIDC_SMOKE_CA']
+context = ssl.create_default_context(cafile=ca)
+class VerifiedConnection(http.client.HTTPSConnection):
+    def connect(self):
+        sock = self._create_connection(('127.0.0.1', self.port), self.timeout, self.source_address)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+def request(host, port, method, path, headers=None, body=None):
+    conn = VerifiedConnection(host, int(port), context=context, timeout=12)
+    encoded = json.dumps(body).encode() if body is not None else None
+    h = dict(headers or {})
+    if body is not None: h['Content-Type'] = 'application/json'
+    conn.request(method, path, body=encoded, headers=h)
+    r = conn.getresponse(); response_headers = r.headers; raw = r.read(); conn.close()
+    parsed = json.loads(raw) if raw and response_headers.get_content_type() == 'application/json' else raw
+    return r.status, response_headers, parsed
+
+def cookies(headers): return headers.get_all('Set-Cookie') or []
+def named_cookie(headers, name):
+    found = [v for v in cookies(headers) if v.split(';',1)[0].startswith(name+'=')]
+    assert len(found) == 1, (name, cookies(headers))
+    return found[0].split(';',1)[0]
+def secure_session(headers):
+    value = named_cookie(headers, '__Host-tendo_session')
+    cookie = next(v for v in cookies(headers) if v.startswith(value+';'))
+    attrs = [x.strip().lower() for x in cookie.split(';')[1:]]
+    assert 'secure' in attrs and 'httponly' in attrs and 'path=/' in attrs and 'samesite=lax' in attrs and not any(x.startswith('domain=') for x in attrs), cookie
+    return value
+
+def start(purpose, session=None, password=None, forged=False):
+    b = {'purpose': purpose}
+    if password is not None: b['currentPassword'] = password
+    hs = {'Origin':'https://tendo.test'}
+    if session: hs['Cookie'] = session
+    if forged: hs.update({'X-Forwarded-Host':'attacker.test','X-Forwarded-Proto':'http','Forwarded':'host=attacker.test;proto=http'})
+    status, h, data = request('tendo.test', os.environ['OIDC_PROXY_PORT'], 'POST', '/api/v1/auth/oidc/start', hs, b)
+    assert status == 200, ('start',status,data)
+    url = urllib.parse.urlsplit(data['authorizationUrl'])
+    assert url.scheme == 'https' and url.netloc == 'oidc.test:8443', data
+    query = urllib.parse.parse_qs(url.query, strict_parsing=True)
+    assert query['redirect_uri'] == ['https://tendo.test/api/v1/auth/oidc/callback'], query
+    flow = named_cookie(h, '__Host-tendo_oidc')
+    fc = next(v for v in cookies(h) if v.startswith(flow+';'))
+    attrs = [x.strip().lower() for x in fc.split(';')[1:]]
+    assert 'secure' in attrs and 'httponly' in attrs and 'path=/' in attrs and any(x.startswith('samesite=') for x in attrs) and not any(x.startswith('domain=') for x in attrs), fc
+    secrets.extend([flow.split('=',1)[1], query['state'][0], query.get('nonce',[''])[0], query.get('code_challenge',[''])[0]])
+    return query, flow
+
+def authorize(query, sub='owner-subject'):
+    q = dict(query); q['sub'] = [sub]
+    path = '/authorize?' + urllib.parse.urlencode(q, doseq=True)
+    status,h,_ = request('oidc.test',os.environ['OIDC_PROVIDER_PORT'],'GET',path)
+    location = h.get('Location','')
+    assert status == 302 and location.startswith('https://tendo.test/api/v1/auth/oidc/callback?'), (status,location)
+    parsed = urllib.parse.urlsplit(location)
+    secrets.extend(urllib.parse.parse_qs(parsed.query).get('code',[]))
+    return parsed
+
+def callback(parsed, flow, session=None, flow_cookie_name='__Host-tendo_oidc'):
+    hs={'Cookie':flow_cookie_name+'='+flow.split('=',1)[1]+('; '+session if session else '')}
+    return request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET',parsed.path+'?'+parsed.query,hs)
+
+secrets = [os.environ['OIDC_CLIENT_SECRET'], os.environ['OIDC_SESSION_COOKIE'].split('=',1)[1]]
+s,h,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/auth/oidc')
+assert s == 200 and b == {'enabled':True,'displayName':'Proxy Smoke Provider'}, (s,b)
+old = os.environ['OIDC_SESSION_COOKIE']
+q,flow = start('link',old,'correct horse battery',True)
+parsed = authorize(q)
+s,h,b = callback(parsed,flow,old)
+assert s == 303 and h.get('Location') == '/account#oidc=connected' and h.get('Cache-Control') == 'no-store', (s,h.get('Location'),dict(h))
+assert any(v.startswith('__Host-tendo_oidc=') and 'Max-Age=0' in v for v in cookies(h)),cookies(h)
+new = secure_session(h)
+secrets.append(new.split('=',1)[1])
+s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':old})
+assert s == 401, ('old session',s,b)
+s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':new})
+assert s == 200 and b['login']=='proxy_owner',(s,b)
+s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/auth/oidc/identity',{'Cookie':new})
+assert s == 200 and b == {'linked':True},(s,b)
+s,_,_ = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'DELETE','/api/v1/session',{'Origin':'https://tendo.test','Cookie':new})
+assert s == 204, ('logout',s)
+q,flow = start('login'); parsed = authorize(q); s,h,b = callback(parsed,flow)
+assert s == 303 and h.get('Location') == '/', (s,h.get('Location'))
+login_cookie = secure_session(h)
+secrets.append(login_cookie.split('=',1)[1])
+s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':login_cookie})
+assert s == 200 and b['login']=='proxy_owner',(s,b)
+q,flow = start('login'); parsed = authorize(q); s,h,b = callback(parsed,flow,flow_cookie_name='tendo_oidc')
+assert s == 303 and h.get('Location') == '/login#oidcError=invalid_flow', (s,h.get('Location'))
+assert not any(v.startswith('__Host-tendo_session=') for v in cookies(h)),cookies(h)
+secrets.append(flow.split('=',1)[1])
+with open(os.environ['OIDC_SECRET_VALUES'],'w',encoding='utf-8') as f:
+    f.write('\n'.join(x for x in secrets if x)+'\n')
+print('HTTPS proxy OIDC link/login/cookie checks passed')
+PY
+while IFS= read -r oidc_secret; do
+  [[ -z "$oidc_secret" ]] && continue
+  if "${compose[@]}" logs --no-color proxy app | grep -F "$oidc_secret" >/dev/null; then
+    printf 'OIDC code, state, cookie, or client secret appeared in proxy/app logs\n' >&2
+    exit 1
+  fi
+done <"$temp_dir/oidc-secret-values"
 
 "${compose[@]}" stop proxy >/dev/null
 "${compose[@]}" rm -sf proxy >/dev/null

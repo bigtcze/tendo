@@ -108,7 +108,7 @@ The native browser suite is not a replacement for deployment smokes. Production 
 | Runtime | production-image UI embedding, migration startup, health/outage recovery, request IDs/problems, non-root/read-only, no published DB, bounded shutdown |
 | Setup | real response and DB graph; setup/origin/validation/rate limits; session digest/cookies; household isolation; subject/item CRUD/ETags/recurrence/completion/idempotency/undo/responsible; invitations/contracts |
 | OIDC | real link/login, callback/replay/password gate/session replacement, unknown identity unchanged DB, denial/origin/log privacy/contracts |
-| Proxy | Caddy/Nginx/Traefik TLS, SNI/Host, trusted forwarding, forged-header rejection, Origin, health/SPA headers, cookies, outage recovery, secret-free logs |
+| Proxy | Caddy/Nginx/Traefik TLS, SNI/Host, trusted forwarding, forged-header rejection, Origin, health/SPA headers, OIDC callback/link/login and `__Host-` cookies through HTTPS, outage recovery, secret-free logs |
 | Backup | archive round trip, Unicode/null rows, ownership/FK/CHECK/runtime permissions, existing target/truncation safety |
 | Household backup | API-populated restore with fresh credentials; counts/ledger/API bodies/ETags/session/password/idempotency/undo/new writes/invitations/restrictions |
 | Browser | 27 serial production journeys; onboarding, CRUD, authorization, OIDC, viewports/keyboard/localization/security; persisted item across app-only midnight restart |
