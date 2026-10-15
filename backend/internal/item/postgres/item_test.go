@@ -183,6 +183,13 @@ func TestMigrationUpgradeFromV6PreservesData(t *testing.T) {
 	}
 }
 
+func sameDate(a, b *schedule.Date) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
 var testCreateSeq atomic.Int64
 
 // createForTest inserts through the production idempotent path with a fresh
@@ -197,6 +204,105 @@ func createForTest(ctx context.Context, r *Repository, householdID, actorID stri
 		return item.Item{}, errors.New("unexpected creation key conflict")
 	}
 	return got, err
+}
+
+type itemFindBarrierRepository struct {
+	item.Repository
+	mu       sync.Mutex
+	arrived  int
+	target   int
+	release  chan struct{}
+	released bool
+}
+
+func newItemFindBarrierRepository(repo item.Repository, target int) *itemFindBarrierRepository {
+	return &itemFindBarrierRepository{Repository: repo, target: target, release: make(chan struct{})}
+}
+
+func (r *itemFindBarrierRepository) FindCreation(ctx context.Context, householdID, actorID, key string) (item.Item, []byte, error) {
+	got, fingerprint, err := r.Repository.FindCreation(ctx, householdID, actorID, key)
+	if errors.Is(err, item.ErrNotFound) {
+		r.mu.Lock()
+		if r.released {
+			r.mu.Unlock()
+			return got, fingerprint, err
+		}
+		r.arrived++
+		if r.arrived == r.target {
+			r.released = true
+			close(r.release)
+		}
+		r.mu.Unlock()
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return item.Item{}, nil, ctx.Err()
+		}
+	}
+	return got, fingerprint, err
+}
+
+func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T) {
+	_, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin := pool(t, ctx, adminURL)
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
+	cfg, err := pgxpool.ParseConfig(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.Database = dbName
+	upAdmin, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upAdmin.Close()
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = upAdmin.Exec(ctx, `ALTER TABLE items DROP CONSTRAINT items_household_creator_creation_key_unique, DROP CONSTRAINT items_creation_fingerprint_length, DROP CONSTRAINT items_creation_key_valid, DROP CONSTRAINT items_creation_metadata_all_or_none; ALTER TABLE items DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version=13`); err != nil {
+		t.Fatal(err)
+	}
+	var hid, uid, sid, iid string
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('upgrade v12 item','UTC') RETURNING id::text`).Scan(&hid); err != nil {
+		t.Fatal(err)
+	}
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('upgrade_v12_item_actor') RETURNING id::text`).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = upAdmin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, uid, hid); err != nil {
+		t.Fatal(err)
+	}
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','legacy') RETURNING id::text`, hid).Scan(&sid); err != nil {
+		t.Fatal(err)
+	}
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,title,version) VALUES($1::uuid,$2::uuid,'legacy v12',7) RETURNING id::text`, hid, sid).Scan(&iid); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.ValidateSchema(ctx, upAdmin); err == nil {
+		t.Fatal("version 12 schema accepted")
+	}
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var creator, key pgtype.Text
+	var fingerprint []byte
+	var max int64
+	var dirty bool
+	if err = upAdmin.QueryRow(ctx, `SELECT created_by_user_id::text,creation_key,creation_request_fingerprint FROM items WHERE id=$1::uuid`, iid).Scan(&creator, &key, &fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if creator.Valid || key.Valid || fingerprint != nil {
+		t.Fatalf("legacy metadata=%+v %+v %x", creator, key, fingerprint)
+	}
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 13 || dirty {
+		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
+	}
+	got, err := NewRepository(upAdmin).Get(ctx, hid, iid)
+	if err != nil || got.Version != 7 || got.Title != "legacy v12" {
+		t.Fatalf("legacy item=%+v err=%v", got, err)
+	}
 }
 
 const itemIDFloor = "00000000-0000-0000-0000-000000000000"
@@ -301,6 +407,225 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}
 		return n
 	}
+	t.Run("idempotent repository creation and key scope", func(t *testing.T) {
+		key := "pg-item-repository-idempotency"
+		fingerprint := []byte(strings.Repeat("a", 32))
+		draft := item.Draft{ActorID: completionUser, CreationKey: key, CreationFingerprint: fingerprint, SubjectID: sA.ID, Title: "repository idem first"}
+		before := count(hA)
+		first, inserted, err := repo.CreateIdempotent(ctx, hA, draft)
+		if err != nil || !inserted {
+			t.Fatalf("first=%+v inserted=%v err=%v", first, inserted, err)
+		}
+		different := draft
+		different.Title = "ignored different body"
+		different.CreationFingerprint = []byte(strings.Repeat("b", 32))
+		second, inserted, err := repo.CreateIdempotent(ctx, hA, different)
+		if err != nil || inserted {
+			t.Fatalf("second=%+v inserted=%v err=%v", second, inserted, err)
+		}
+		if count(hA) != before+1 {
+			t.Fatalf("count=%d before=%d", count(hA), before)
+		}
+		changedTitle := "changed after create"
+		current, err := repo.Update(ctx, hA, first.ID, first.Version, item.Change{Title: &changedTitle})
+		if err != nil {
+			t.Fatal(err)
+		}
+		found, storedFingerprint, err := repo.FindCreation(ctx, hA, completionUser, key)
+		if err != nil || found.ID != first.ID || found.Title != changedTitle || found.Version != 2 || current.Version != 2 || string(storedFingerprint) != string(fingerprint) {
+			t.Fatalf("found=%+v fp=%x err=%v", found, storedFingerprint, err)
+		}
+		otherActor := assignedUser(hA, "item_idem_other_actor", "member")
+		actorDraft := draft
+		actorDraft.ActorID = otherActor
+		independent, inserted, err := repo.CreateIdempotent(ctx, hA, actorDraft)
+		if err != nil || !inserted || independent.ID == first.ID {
+			t.Fatalf("other actor=%+v inserted=%v err=%v", independent, inserted, err)
+		}
+		houseDraft := draft
+		houseDraft.SubjectID = sB.ID
+		independent, inserted, err = repo.CreateIdempotent(ctx, hB, houseDraft)
+		if err != nil || !inserted || independent.ID == first.ID {
+			t.Fatalf("other household=%+v inserted=%v err=%v", independent, inserted, err)
+		}
+	})
+
+	t.Run("same-key create concurrency reaches insert conflict", func(t *testing.T) {
+		const workers = 8
+		t.Run("identical bodies", func(t *testing.T) {
+			key := "pg-item-race-identical"
+			barrier := newItemFindBarrierRepository(repo, workers)
+			racing := item.NewService(barrier, houses, subjects, members, func() time.Time { return clock })
+			start := make(chan struct{})
+			type result struct {
+				i   item.Item
+				err error
+			}
+			results := make(chan result, workers)
+			for n := 0; n < workers; n++ {
+				go func() {
+					<-start
+					created, e := racing.Create(ctx, completionUser, hA, key, item.NewItem{SubjectID: sA.ID, Title: "race identical"})
+					results <- result{created, e}
+				}()
+			}
+			close(start)
+			var id string
+			success := 0
+			for n := 0; n < workers; n++ {
+				r := <-results
+				if r.err != nil {
+					t.Fatalf("create: %v", r.err)
+				}
+				if id == "" {
+					id = r.i.ID
+				}
+				if r.i.ID != id {
+					t.Fatalf("IDs %s != %s", r.i.ID, id)
+				}
+				success++
+			}
+			var rows int
+			if err := admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid AND created_by_user_id=$2::uuid AND creation_key=$3`, hA, completionUser, key).Scan(&rows); err != nil || success != workers || rows != 1 {
+				t.Fatalf("success=%d rows=%d err=%v", success, rows, err)
+			}
+		})
+		t.Run("different bodies", func(t *testing.T) {
+			key := "pg-item-race-different"
+			barrier := newItemFindBarrierRepository(repo, workers)
+			racing := item.NewService(barrier, houses, subjects, members, func() time.Time { return clock })
+			start := make(chan struct{})
+			results := make(chan error, workers)
+			for n := 0; n < workers; n++ {
+				title := fmt.Sprintf("race intent %d", n)
+				go func() {
+					<-start
+					_, e := racing.Create(ctx, completionUser, hA, key, item.NewItem{SubjectID: sA.ID, Title: title})
+					results <- e
+				}()
+			}
+			close(start)
+			success, reused := 0, 0
+			for n := 0; n < workers; n++ {
+				switch e := <-results; e {
+				case nil:
+					success++
+				case item.ErrIdempotencyKeyReused:
+					reused++
+				default:
+					t.Fatalf("unexpected create result: %v", e)
+				}
+			}
+			var rows int
+			if err := admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid AND created_by_user_id=$2::uuid AND creation_key=$3`, hA, completionUser, key).Scan(&rows); err != nil || success != 1 || reused != workers-1 || rows != 1 {
+				t.Fatalf("success=%d reused=%d rows=%d err=%v", success, reused, rows, err)
+			}
+		})
+	})
+
+	t.Run("historical initialization create concurrency writes one receipt", func(t *testing.T) {
+		const workers = 8
+		key := "pg-item-race-historical"
+		dateText := "2025-10-31"
+		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+		barrier := newItemFindBarrierRepository(repo, workers)
+		racing := item.NewService(barrier, houses, subjects, members, func() time.Time { return clock })
+		start := make(chan struct{})
+		type result struct {
+			i   item.Item
+			err error
+		}
+		results := make(chan result, workers)
+		for n := 0; n < workers; n++ {
+			go func() {
+				<-start
+				created, e := racing.Create(ctx, completionUser, hA, key, item.NewItem{SubjectID: sA.ID, Title: "race historical", HistoricalCompletedOn: &dateText, Recurrence: policy})
+				results <- result{created, e}
+			}()
+		}
+		close(start)
+		id := ""
+		for n := 0; n < workers; n++ {
+			r := <-results
+			if r.err != nil {
+				t.Fatalf("create: %v", r.err)
+			}
+			if id == "" {
+				id = r.i.ID
+			}
+			if id != r.i.ID || r.i.Version != 2 {
+				t.Fatalf("result=%+v want id=%s version 2", r.i, id)
+			}
+		}
+		var rows, receipts int
+		var version int64
+		if err := admin.QueryRow(ctx, `SELECT count(*),(SELECT count(*) FROM item_completions WHERE item_id=$1::uuid),max(version) FROM items WHERE id=$1::uuid`, id).Scan(&rows, &receipts, &version); err != nil || rows != 1 || receipts != 1 || version != 2 {
+			t.Fatalf("rows=%d receipts=%d version=%d err=%v", rows, receipts, version, err)
+		}
+	})
+
+	t.Run("historical init replay after receipt undo does not recreate receipt", func(t *testing.T) {
+		key := "pg-item-init-undo-replay"
+		dateText := "2025-10-31"
+		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+		body := item.NewItem{SubjectID: sA.ID, Title: "undo init replay", HistoricalCompletedOn: &dateText, Recurrence: policy}
+		created, err := service.Create(ctx, completionUser, hA, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		history, err := repo.ListCompletions(ctx, hA, created.ID, itemIDFloor, 10)
+		if err != nil || len(history) != 1 {
+			t.Fatalf("history=%+v err=%v", history, err)
+		}
+		if _, err = service.UndoCompletion(ctx, completionUser, hA, created.ID, history[0].ID, created.Version); err != nil {
+			t.Fatal(err)
+		}
+		afterUndo, err := repo.Get(ctx, hA, created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		replayed, err := service.Create(ctx, completionUser, hA, key, body)
+		if err != nil || replayed.ID != created.ID || replayed.Version != afterUndo.Version || !sameDate(replayed.AttentionOn, afterUndo.AttentionOn) {
+			t.Fatalf("replay=%+v after undo=%+v err=%v", replayed, afterUndo, err)
+		}
+		history, err = repo.ListCompletions(ctx, hA, created.ID, itemIDFloor, 10)
+		if err != nil || len(history) != 1 || history[0].UndoneAt == nil {
+			t.Fatalf("receipt history=%+v err=%v", history, err)
+		}
+	})
+
+	t.Run("creation metadata constraints and runtime immutability", func(t *testing.T) {
+		baseDraft := item.Draft{ActorID: completionUser, CreationKey: "pg-constraint-key", CreationFingerprint: []byte(strings.Repeat("c", 32)), SubjectID: sA.ID, Title: "constraint item"}
+		created, inserted, err := repo.CreateIdempotent(ctx, hA, baseDraft)
+		if err != nil || !inserted {
+			t.Fatalf("create=%+v err=%v", created, err)
+		}
+		assertConstraint := func(name, sql string, args ...any) {
+			t.Helper()
+			_, e := admin.Exec(ctx, sql, args...)
+			var pg *pgconn.PgError
+			if !errors.As(e, &pg) || pg.Code != "23514" || pg.ConstraintName != name {
+				t.Fatalf("constraint=%s err=%v pg=%+v", name, e, pg)
+			}
+		}
+		assertConstraint("items_creation_metadata_all_or_none", `INSERT INTO items(household_id,subject_id,title,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,'bad',$3::uuid,NULL,NULL)`, hA, sA.ID, completionUser)
+		assertConstraint("items_creation_key_valid", `INSERT INTO items(household_id,subject_id,title,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,'bad',$3::uuid,'bad key',decode(repeat('ab',32),'hex'))`, hA, sA.ID, completionUser)
+		assertConstraint("items_creation_key_valid", `INSERT INTO items(household_id,subject_id,title,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,'bad',$3::uuid,$4,decode(repeat('ab',32),'hex'))`, hA, sA.ID, completionUser, strings.Repeat("x", 129))
+		assertConstraint("items_creation_fingerprint_length", `INSERT INTO items(household_id,subject_id,title,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,'bad',$3::uuid,'bad-fingerprint',decode(repeat('ab',31),'hex'))`, hA, sA.ID, completionUser)
+		_, e := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,title,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,'dup',$3::uuid,$4,decode(repeat('ab',32),'hex'))`, hA, sA.ID, completionUser, baseDraft.CreationKey)
+		var pg *pgconn.PgError
+		if !errors.As(e, &pg) || pg.Code != "23505" || pg.ConstraintName != "items_household_creator_creation_key_unique" {
+			t.Fatalf("unique constraint err=%v pg=%+v", e, pg)
+		}
+		for _, column := range []string{"creation_key", "created_by_user_id", "creation_request_fingerprint"} {
+			_, e = app.Exec(ctx, "UPDATE items SET "+column+" = "+map[string]string{"creation_key": "'x'", "created_by_user_id": "'" + completionUser + "'::uuid", "creation_request_fingerprint": "decode(repeat('ab',32),'hex')"}[column]+" WHERE id=$1::uuid", created.ID)
+			var pg *pgconn.PgError
+			if !errors.As(e, &pg) || pg.Code != "42501" {
+				t.Fatalf("runtime UPDATE %s err=%v pg=%+v", column, e, pg)
+			}
+		}
+	})
+
 	t.Run("responsible assignment list and FK precheck race", func(t *testing.T) {
 		memberA := assignedUser(hA, "responsible_list_member", "member")
 		memberB := assignedUser(hB, "responsible_list_foreign", "member")
