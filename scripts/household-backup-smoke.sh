@@ -159,9 +159,12 @@ def populate():
     member_id = next(m['userId'] for m in members['items'] if m['login'] == 'member_backup')
 
     items = {}
+    item_keys = {}
     def create(name, body):
-        _, b = ok(201, 'POST', f'{base}/items', body, owner)
+        key = f'backup-item-{name}'
+        _, b = ok(201, 'POST', f'{base}/items', body, owner, {'Idempotency-Key': key})
         items[name] = b['id']
+        item_keys[name] = key
         return b
     def complete(name, version, key, completed_on):
         _, b = ok(201, 'POST', f'{base}/items/{items[name]}/completions', {'completedOn': completed_on}, owner, {'If-Match': f'"{version}"', 'Idempotency-Key': key})
@@ -183,7 +186,7 @@ def populate():
     ok(200, 'PATCH', f'{base}/items/{items["archived"]}', {'archived': True}, owner, {'If-Match': '"1"'})
     _, pending = ok(201, 'POST', f'{base}/invitations', {}, owner, {'Idempotency-Key': 'backup-pending'})
     state = {'ownerSession': owner, 'ownerPassword': owner_password, 'memberPassword': member_password, 'householdId': hid,
-             'personId': person['id'], 'subjectKey': person_key, 'items': items, 'fluidReceipt': fluid_receipt, 'pendingToken': pending['token']}
+             'personId': person['id'], 'subjectKey': person_key, 'items': items, 'itemKeys': item_keys, 'fluidReceipt': fluid_receipt, 'pendingToken': pending['token']}
     state['before'] = capture(state)
     attention = {i['attention'] for p in state['before']['items done=false archived=false'] for i in p['body']['items']}
     assert 'needs_attention' in attention, attention
@@ -216,6 +219,14 @@ def exercise():
     assert sh_after['ETag'] == sh_before['ETag'], ('replay changed subject version', sh_before['ETag'], sh_after['ETag'])
     subjects_after = all_pages(f'{base}/subjects?archived=false&limit=100', owner)
     assert subject_replay['id'] == state['personId'] and subjects_after == subjects_before, (subject_replay, subjects_before, subjects_after)
+    # The item creation idempotency records survive restore without creating rows or completions.
+    items_before = all_pages(f'{base}/items?done=false&archived=false&limit=100', owner)
+    _, item_replay = ok(201, 'POST', f'{base}/items', {'title': 'Replace water filter', 'subjectId': state['personId'], 'historicalCompletedOn': '2024-01-31', 'recurrence': {'intervalValue': 1, 'intervalUnit': 'month', 'mode': 'fixed'}}, owner, {'Idempotency-Key': state['itemKeys']['fixed_historical']})
+    assert item_replay['id'] == state['items']['fixed_historical'], item_replay
+    items_after = all_pages(f'{base}/items?done=false&archived=false&limit=100', owner)
+    assert items_after == items_before, ('item replay changed rows', items_before, items_after)
+    historical_history = all_pages(f'{base}/items/{item_replay["id"]}/completions?limit=100', owner)
+    assert sum(len(page['body']['items']) for page in historical_history) == 1, ('historical replay duplicated completion', historical_history)
     # The completion idempotency record survives restore: the same key replays the stored receipt.
     _, replay = ok(201, 'POST', f'{base}/items/{fluid}/completions', {'completedOn': '2025-01-05'}, owner, {'If-Match': before['etag'], 'Idempotency-Key': 'restore-replay-key'})
     assert replay == state['fluidReceipt'], (replay, state['fluidReceipt'])
@@ -226,8 +237,13 @@ def exercise():
     _, item = ok(200, 'GET', f'{base}/items/{fluid}', cookie=owner)
     assert item['attentionOn'] == '2025-01-01' and item['lastCompletedOn'] is None, item
     _, subject = ok(201, 'POST', f'{base}/subjects', {'name': 'Garden', 'type': 'home'}, owner, {'Idempotency-Key': 'post-restore-garden'})
-    _, created = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge', 'subjectId': subject['id']}, owner)
+    _, created = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge', 'subjectId': subject['id']}, owner, {'Idempotency-Key': 'post-restore-item-hedge'})
     assert created['attention'] == 'needs_attention', created
+    item_count_before_replay = len(all_pages(f'{base}/items?done=false&archived=false&limit=100', owner)[0]['body']['items'])
+    _, created_replay = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge', 'subjectId': subject['id']}, owner, {'Idempotency-Key': 'post-restore-item-hedge'})
+    assert created_replay['id'] == created['id'], created_replay
+    item_count_after_replay = len(all_pages(f'{base}/items?done=false&archived=false&limit=100', owner)[0]['body']['items'])
+    assert item_count_after_replay == item_count_before_replay, (item_count_before_replay, item_count_after_replay)
     _, members = ok(200, 'GET', f'{base}/members', cookie=owner)
     ok(201, 'POST', '/api/v1/auth/invitations/accept', {'token': state['pendingToken'], 'login': 'late_member', 'password': os.urandom(18).hex()})
     _, grown = ok(200, 'GET', f'{base}/members', cookie=owner)

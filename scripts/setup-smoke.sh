@@ -262,14 +262,21 @@ def ireq(method,url,template,body=None,headers=None,record=True):
  if record:item_fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
  return status,hs,result
 ibase=f'/api/v1/households/{household}/items'
-status,h,immediate=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění 🚗  ','subjectId':person['id'],'notes':'Poznámka 家族'},mut)
+status,h,immediate=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění 🚗  ','subjectId':person['id'],'notes':'Poznámka 家族'},{**mut,'Idempotency-Key':'setup-item-immediate'})
 assert status==201 and immediate['title']=='Připomenout pojištění 🚗' and immediate['attention']=='needs_attention' and h['ETag']=='"1"',('create immediate item',status,immediate)
+item_count=psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")
+status,rh,item_replay=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění 🚗  ','subjectId':person['id'],'notes':'Poznámka 家族'},{**mut,'Idempotency-Key':'setup-item-immediate'})
+assert status==201 and item_replay['id']==immediate['id'] and rh['ETag']==h['ETag'] and rh['Location']==h['Location'] and psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")==item_count,('item idempotent replay',status,item_replay)
+status,_,missing_item_key=ireq('POST',ibase,ICOLL,{'title':'missing-key','subjectId':person['id']},mut)
+assert status==400 and missing_item_key['code']=='idempotency_key_required',('missing item key',status,missing_item_key)
+status,_,reused_item_key=ireq('POST',ibase,ICOLL,{'title':'Different body','subjectId':person['id']},{**mut,'Idempotency-Key':'setup-item-immediate'})
+assert status==422 and reused_item_key['code']=='idempotency_key_reused' and 'field' not in reused_item_key,('reused item key',status,reused_item_key)
 assert psql(f"SELECT title||'|'||notes||'|'||workflow_state||'|'||archived||'|'||version FROM items WHERE id='{immediate['id']}' AND household_id='{household}'")== 'Připomenout pojištění 🚗|Poznámka 家族|open|false|1','persisted item row'
-status,h,future=ireq('POST',ibase,ICOLL,{'title':'Future item','subjectId':person['id'],'attentionOn':'2099-12-31'},mut)
+status,h,future=ireq('POST',ibase,ICOLL,{'title':'Future item','subjectId':person['id'],'attentionOn':'2099-12-31'},{**mut,'Idempotency-Key':'setup-item-future'})
 assert status==201 and future['attention']=='upcoming' and future['recurrence'] is None,('future attention',status,future)
-status,h,fixed=ireq('POST',ibase,ICOLL,{'title':'Fixed yearly','subjectId':person['id'],'attentionOn':'2030-01-15','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},mut)
+status,h,fixed=ireq('POST',ibase,ICOLL,{'title':'Fixed yearly','subjectId':person['id'],'attentionOn':'2030-01-15','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},{**mut,'Idempotency-Key':'setup-item-fixed'})
 assert status==201 and fixed['recurrence']=={'intervalValue':1,'intervalUnit':'year','mode':'fixed'},('fixed recurrence',status,fixed)
-status,h,fluid=ireq('POST',ibase,ICOLL,{'title':'Fluid monthly','subjectId':person['id'],'attentionOn':'2030-02-20','recurrence':{'intervalValue':1,'intervalUnit':'month','mode':'after_completion'}},mut)
+status,h,fluid=ireq('POST',ibase,ICOLL,{'title':'Fluid monthly','subjectId':person['id'],'attentionOn':'2030-02-20','recurrence':{'intervalValue':1,'intervalUnit':'month','mode':'after_completion'}},{**mut,'Idempotency-Key':'setup-item-fluid'})
 assert status==201 and fluid['recurrence']=={'intervalValue':1,'intervalUnit':'month','mode':'after_completion'},('fluid recurrence',status,fluid)
 for rec_item, expected in ((fixed, '1|year|fixed'),(fluid,'1|month|after_completion')):
  row=psql(f"SELECT recurrence_interval_value||'|'||recurrence_interval_unit||'|'||recurrence_mode||'|'||attention_on::text FROM items WHERE id='{rec_item['id']}'")
@@ -297,20 +304,23 @@ active_by_id={x['id']:x for x in active_items['items']}
 assert active_by_id[fixed['id']]['recurrence']==fixed['recurrence'] and active_by_id[fixed['id']]['attentionOn']==fixed['attentionOn'],('fixed list recurrence/attention',active_by_id[fixed['id']])
 assert active_by_id[fluid['id']]['recurrence']==fluid['recurrence'] and active_by_id[fluid['id']]['attentionOn']==fluid['attentionOn'],('fluid list recurrence/attention',active_by_id[fluid['id']])
 status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
-status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},mut);assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
+status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},{**mut,'Idempotency-Key':'setup-item-foreign-subject'});assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
 # Historical create, history and a validation problem are captured against the OpenAPI schemas.
 historical_policy={'intervalValue':1,'intervalUnit':'month','mode':'fixed'}
-status,h,historical=ireq('POST',ibase,ICOLL,{'title':'Smoke historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31','recurrence':historical_policy},mut)
+historical_body={'title':'Smoke historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31','recurrence':historical_policy}
+historical_key='setup-item-historical'
+status,h,historical=ireq('POST',ibase,ICOLL,historical_body,{**mut,'Idempotency-Key':historical_key})
 assert status==201 and h['ETag']=='"2"' and historical['attentionOn']=='2025-11-30' and historical['lastCompletedOn']=='2025-10-31',('historical item create',status,h,historical)
-historical_completions=f'{ibase}/{historical["id"]}/completions'
-status,h,historical_history=ireq('GET',historical_completions,'/api/v1/households/{householdId}/items/{itemId}/completions',headers=cookie_header)
+status,rh,historical_replay=ireq('POST',ibase,ICOLL,historical_body,{**mut,'Idempotency-Key':historical_key})
+assert status==201 and historical_replay['id']==historical['id'] and rh['ETag']==h['ETag'] and rh['Location']==h['Location'],('historical item replay',status,historical_replay)
+status,h,historical_history=ireq('GET',f'{ibase}/{historical["id"]}/completions','/api/v1/households/{householdId}/items/{itemId}/completions',headers=cookie_header)
 assert status==200 and len(historical_history['items'])==1 and historical_history['items'][0]['completedOn']=='2025-10-31' and historical_history['items'][0]['cycleAttentionOn'] is None and historical_history['items'][0]['nextAttentionOn']=='2025-11-30',('historical receipt history',status,historical_history)
-status,h,historical_invalid=ireq('POST',ibase,ICOLL,{'title':'Smoke invalid historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31'},mut)
+status,h,historical_invalid=ireq('POST',ibase,ICOLL,{'title':'Smoke invalid historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31'},{**mut,'Idempotency-Key':'setup-item-invalid-historical'})
 assert status==422 and historical_invalid['field']=='historicalCompletedOn' and historical_invalid['code']=='requires_recurrence',('historical validation',status,historical_invalid)
 
 # Completion vertical slice: fixed/fluid cadence, one-off lifecycle and receipt idempotency.
 cpath=lambda x:ibase+'/'+x+'/completions'
-fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},mut)[2]
+fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},{**mut,'Idempotency-Key':'setup-item-completion-fixed'})[2]
 status,_,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
 assert status==201 and receipt['completedOn']=='2026-10-06' and receipt['nextAttentionOn']=='2027-09-01',('fixed completion',status,receipt)
 assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2027-09-01|2|false','fixed completion persistence'
@@ -325,10 +335,10 @@ status,_,undo_replay=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'
 status,_,active_one=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'\"3\"','Idempotency-Key':'active-one'});assert status==201,('first active retry completion',status,active_one)
 status,_,active_two=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'\"4\"','Idempotency-Key':'active-two'});assert status==201,('second active completion',status,active_two)
 status,_,not_latest=ireq('PATCH',cpath(fixed_late['id'])+'/'+active_one['id'],CUNDO,{'undone':True},{**mut,'If-Match':'\"5\"'});assert status==409 and not_latest['code']=='completion_not_latest',('not-latest undo',status,not_latest)
-fluid=ireq('POST',ibase,ICOLL,{'title':'Completion fluid late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':12,'intervalUnit':'month','mode':'after_completion'}},mut)[2]
+fluid=ireq('POST',ibase,ICOLL,{'title':'Completion fluid late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':12,'intervalUnit':'month','mode':'after_completion'}},{**mut,'Idempotency-Key':'setup-item-completion-fluid'})[2]
 status,_,fluid_receipt=ireq('POST',cpath(fluid['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fluid-late'})
 assert status==201 and fluid_receipt['nextAttentionOn']=='2027-10-06' and psql(f"SELECT attention_on::text FROM items WHERE id='{fluid['id']}'")== '2027-10-06',('fluid completion',status,fluid_receipt)
-oneoff=ireq('POST',ibase,ICOLL,{'title':'Completion one off','subjectId':person['id']},mut)[2];complete_headers={**mut,'If-Match':'"1"','Idempotency-Key':'oneoff-key'}
+oneoff=ireq('POST',ibase,ICOLL,{'title':'Completion one off','subjectId':person['id']},{**mut,'Idempotency-Key':'setup-item-completion-oneoff'})[2];complete_headers={**mut,'If-Match':'"1"','Idempotency-Key':'oneoff-key'}
 status,ch,one_receipt=ireq('POST',cpath(oneoff['id']),CITEM,{},complete_headers);assert status==201 and 'ETag' not in ch and one_receipt['itemId']==oneoff['id'],('one-off receipt',status,one_receipt)
 stored_version=psql(f"SELECT version::text FROM items WHERE id='{oneoff['id']}'");status,_,replay=ireq('POST',cpath(oneoff['id']),CITEM,{},complete_headers);assert status==201 and replay==one_receipt and psql(f"SELECT version::text FROM items WHERE id='{oneoff['id']}'")==stored_version,('idempotent replay',status,replay)
 status,_,b=ireq('POST',cpath(oneoff['id']),CITEM,{'completedOn':one_receipt['completedOn']},{**complete_headers,'If-Match':'"2"'});assert status==422 and b['code']=='idempotency_key_reused',('key reused',status,b)
@@ -344,7 +354,7 @@ status,_,history=ireq('GET',cpath(oneoff['id']),CITEM,headers=cookie_header);ass
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items/{oneoff["id"]}/completions',CITEM,headers=cookie_header);assert status==404 and b['code']=='not_found',('foreign item completion list',status,b)
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)
 status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)
-status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example'});assert status==403,('foreign origin items',status,b)
+status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example','Idempotency-Key':'setup-item-foreign-origin'});assert status==403,('foreign origin items',status,b)
 assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '8' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
 # Invitation API production-image smoke. The owner cookie remains valid through this block.
 INV='/api/v1/households/{householdId}/invitations'
@@ -410,7 +420,7 @@ assert psql(f"SELECT m.role||'|'||(u.default_household_id=m.household_id)::text 
 member_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='member_smoke')
 owner_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
 responsible_item={'title':'Responsible member smoke','subjectId':person['id'],'responsibleUserId':member_user_id}
-st,rih,responsible=ireq('POST',ibase,ICOLL,responsible_item,mut)
+st,rih,responsible=ireq('POST',ibase,ICOLL,responsible_item,{**mut,'Idempotency-Key':'setup-item-responsible'})
 assert st==201 and responsible['responsibleUserId']==member_user_id and rih['ETag']=='"1"',('assigned item create',st,responsible)
 assert psql(f"SELECT responsible_user_id::text||'|'||version FROM items WHERE id='{responsible['id']}' AND household_id='{household}'")==member_user_id+'|1','assigned create DB column'
 responsible_path=ibase+'/'+responsible['id']

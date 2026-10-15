@@ -4498,7 +4498,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Item created or identical retry replaying the current representation. ETag is "1" without historical initialization and "2" when an initial completion receipt was recorded. */
+            /** @description Item created or identical retry replaying the current representation. Initial creation has version 1 without historical initialization or version 2 when an initial completion receipt was recorded; a replay returns the current representation and ETag, which may reflect a later version. */
             201: {
                 headers: {
                     /**
@@ -4674,7 +4674,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed or Idempotency-Key reused for a different intent. Create validation order after authentication and household membership (replay lookup occurs before domain validation): title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, subject reference, then responsibleUserId membership. Historical create errors are invalid_date, requires_recurrence, conflicting_fields, or future_date on historicalCompletedOn; overflow is date_overflow on recurrence. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference, invalid_interval, invalid_interval_unit, and invalid_mode. */
+            /** @description Field validation failed or Idempotency-Key reused for a different intent. Create validation order after authentication and household membership (replay lookup occurs before domain validation): title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, subject reference, then responsibleUserId membership. Historical create errors are invalid_date, requires_recurrence, conflicting_fields, or future_date on historicalCompletedOn; overflow is date_overflow on recurrence. Other codes: invalid_length, invalid_characters, invalid_date, invalid_reference, invalid_interval, invalid_interval_unit, and invalid_mode. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

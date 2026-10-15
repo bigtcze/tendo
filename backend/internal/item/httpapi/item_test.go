@@ -184,6 +184,30 @@ func TestCreateIdempotencyHeaderValidation(t *testing.T) {
 	}
 }
 
+func TestCreateIdempotencyOmittedOptionalFieldsReplayAsNull(t *testing.T) {
+	f := newFixture(true)
+	key := "optional-null-equivalence"
+	baseline := f.repo.Count()
+	first := f.createWithKeys(`{"title":"Optional","subjectId":"`+sid+`"}`, key)
+	if first.Code != 201 {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body)
+	}
+	replay := f.createWithKeys(`{"title":"Optional","subjectId":"`+sid+`","notes":null,"attentionOn":null,"responsibleUserId":null,"recurrence":null}`, key)
+	if replay.Code != 201 {
+		t.Fatalf("replay status=%d body=%s", replay.Code, replay.Body)
+	}
+	var a, b map[string]any
+	if err := json.Unmarshal(first.Body.Bytes(), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(replay.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if a["id"] != b["id"] || f.repo.Count() != baseline+1 {
+		t.Fatalf("omitted/null did not replay: first=%v replay=%v rows=%d", a, b, f.repo.Count())
+	}
+}
+
 func TestCreateIdempotencyReplayAndReuseResponses(t *testing.T) {
 	f := newFixture(true)
 	body := `{"title":"Idempotent","subjectId":"` + sid + `"}`

@@ -169,6 +169,17 @@ func TestParseDate(t *testing.T) {
 	}
 }
 
+type creationLookupCounter struct {
+	item.Repository
+	repo    *itemtest.Repo
+	lookups int
+}
+
+func (r *creationLookupCounter) FindCreation(ctx context.Context, householdID, actorID, key string) (item.Item, []byte, error) {
+	r.lookups++
+	return r.repo.FindCreation(ctx, householdID, actorID, key)
+}
+
 func TestCreateIdempotencyService(t *testing.T) {
 	baseDate := "2026-02-01"
 	recurrenceFixed := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
@@ -199,8 +210,15 @@ func TestCreateIdempotencyService(t *testing.T) {
 			original, changed item.NewItem
 		}{
 			{"title", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "B"}},
+			{"subjectId", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: archivedID, Title: "A"}},
+			{"attentionOn", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "A", AttentionOn: ptr("2030-01-01")}},
+			{"notes content", item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("notes one")}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("notes two")}},
+			{"notes whitespace is exact", item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("notes")}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr(" notes ")}},
 			{"recurrence mode", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFluid}},
+			{"recurrence interval value", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}}},
+			{"recurrence interval unit", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitWeek}, Mode: schedule.ModeFixed}}},
 			{"historical date", item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: ptr("2026-02-02"), Recurrence: recurrenceFixed}},
+			{"historical date present versus omitted", item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}},
 			{"notes null versus empty", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("")}},
 			{"responsible member", item.NewItem{SubjectID: subjectID, Title: "A", ResponsibleUserID: ptr(userID)}, item.NewItem{SubjectID: subjectID, Title: "A", ResponsibleUserID: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62")}},
 		}
@@ -208,11 +226,17 @@ func TestCreateIdempotencyService(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				e := newEnv("UTC")
 				key := "reuse"
-				if _, err := e.svc.Create(context.Background(), userID, householdID, key, tc.original); err != nil {
+				first, err := e.svc.Create(context.Background(), userID, householdID, key, tc.original)
+				if err != nil {
 					t.Fatal(err)
 				}
+				beforeCount, beforeReceipts := e.repo.Count(), e.repo.CompletionCount()
 				if _, err := e.svc.Create(context.Background(), userID, householdID, key, tc.changed); !errors.Is(err, item.ErrIdempotencyKeyReused) {
 					t.Fatalf("err=%v", err)
+				}
+				current, ok := e.repo.Row(first.ID)
+				if !ok || current.Version != first.Version || e.repo.Count() != beforeCount || e.repo.CompletionCount() != beforeReceipts {
+					t.Fatalf("rejected reuse changed state: current=%+v first=%+v rows=%d/%d receipts=%d/%d", current, first, e.repo.Count(), beforeCount, e.repo.CompletionCount(), beforeReceipts)
 				}
 			})
 		}
@@ -226,6 +250,9 @@ func TestCreateIdempotencyService(t *testing.T) {
 			{"trimmed title", item.NewItem{SubjectID: subjectID, Title: "  Boiler "}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
 			{"disabled recurrence", item.NewItem{SubjectID: subjectID, Title: "Boiler", Recurrence: &schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 3, Unit: schedule.UnitWeek}, Mode: schedule.ModeFixed}}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
 			{"UUID case", item.NewItem{SubjectID: strings.ToUpper(subjectID), Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+			{"assignee UUID case", item.NewItem{SubjectID: subjectID, Title: "Boiler", ResponsibleUserID: ptr(strings.ToUpper(userID))}, item.NewItem{SubjectID: subjectID, Title: "Boiler", ResponsibleUserID: ptr(userID)}},
+			{"omitted optional fields versus null", item.NewItem{SubjectID: subjectID, Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler", ResponsibleUserID: nil, Notes: nil, AttentionOn: nil, Recurrence: nil}},
+			{"explicit-null notes and attention versus omitted", item.NewItem{SubjectID: subjectID, Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler", Notes: nil, AttentionOn: nil}},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -255,6 +282,34 @@ func TestCreateIdempotencyService(t *testing.T) {
 		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
 		if err != nil || replay.ID != first.ID {
 			t.Fatalf("replay=%+v err=%v", replay, err)
+		}
+	})
+
+	t.Run("membership is rechecked before replay lookup", func(t *testing.T) {
+		e := newEnv("UTC")
+		authorized := true
+		houses := func(_ context.Context, uid, hid string) (string, error) {
+			if uid != userID || hid != householdID || !authorized {
+				return "", item.ErrNotFound
+			}
+			return "UTC", nil
+		}
+		repository := &creationLookupCounter{Repository: e.repo, repo: e.repo}
+		svc := item.NewService(repository, houses, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
+		key := "membership-replay"
+		body := item.NewItem{SubjectID: subjectID, Title: "member protected"}
+		created, err := svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lookups := repository.lookups
+		authorized = false
+		if _, err = svc.Create(context.Background(), userID, householdID, key, body); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("revoked replay err=%v", err)
+		}
+		current, ok := e.repo.Row(created.ID)
+		if !ok || current.Version != created.Version || e.repo.Count() != 1 || repository.lookups != lookups {
+			t.Fatalf("replay lookup/state changed: current=%+v lookups=%d/%d count=%d", current, repository.lookups, lookups, e.repo.Count())
 		}
 	})
 

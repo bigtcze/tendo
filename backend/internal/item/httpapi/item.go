@@ -85,7 +85,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
 		return
 	}
-	if len(keys) != 1 || !validCreationKey(keys[0]) {
+	if len(keys) != 1 || !item.ValidateIdempotencyKey(keys[0]) {
 		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
 		return
 	}
@@ -228,18 +228,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 }
 
 // nullable converts a decoded string-or-null value.
-func validCreationKey(key string) bool {
-	if len(key) < 1 || len(key) > 128 {
-		return false
-	}
-	for i := range key {
-		if key[i] < '!' || key[i] > '~' {
-			return false
-		}
-	}
-	return true
-}
-
 func nullable(v any) item.Nullable[string] {
 	if v == nil {
 		return item.Null[string]()
