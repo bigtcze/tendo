@@ -56,7 +56,15 @@ describe('item creation', () => {
 
   it('retries an uncertain item create with its stored key and exact body while inputs are frozen', async () => {
     let posts = 0;
-    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, item({ title: JSON.parse(request.body).title })) });
+    let persistedBeforeRequest: { key: string; body: string } | undefined;
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => {
+      if (posts++ === 0) {
+        const stored = sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`);
+        if (stored) { const parsed = JSON.parse(stored); persistedBeforeRequest = { key: parsed.key, body: JSON.stringify(parsed.body) }; }
+        return Promise.reject(new Error('offline'));
+      }
+      return json(201, item({ title: JSON.parse(request.body).title }));
+    } });
     app();
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Retry item');
@@ -64,6 +72,7 @@ describe('item creation', () => {
     expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
     const first = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
     expect(first.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
+    expect(persistedBeforeRequest).toEqual({ key: first.headers.get('Idempotency-Key'), body: first.body });
     expect(within(form).getByLabelText('What needs doing?')).toBeDisabled();
     await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
     await screen.findByText('“Retry item” was added.');
@@ -92,7 +101,9 @@ describe('item creation', () => {
 
   it('restores a pending create after App remount and retries the stored body', async () => {
     let posts = 0;
-    const server = { ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request: RecordedRequest) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, item({ title: JSON.parse(request.body).title })) };
+    const archivedSubject = { ...subject, archived: true };
+    let archived = false;
+    const server = { ...routes, [itemList]: page([]), [subjectList]: (request: RecordedRequest) => json(200, { items: request.query.get('archived') === 'true' ? (archived ? [archivedSubject] : []) : (archived ? [] : [subject]), nextCursor: null }), [memberList]: memberPage(), [`POST ${base}/items`]: (request: RecordedRequest) => { if (++posts === 1) { archived = true; return Promise.reject(new Error('offline')); } return json(201, item({ title: JSON.parse(request.body).title })); } };
     const first = installFakeServer(server);
     app();
     const form = await openForm();
@@ -106,6 +117,8 @@ describe('item creation', () => {
     const restored = await screen.findByRole('form', { name: 'Add an item' });
     expect(within(restored).getByLabelText('What needs doing?')).toHaveValue('Reload item');
     expect(within(restored).getByLabelText('What needs doing?')).toBeDisabled();
+    expect(await within(restored).findByRole('button', { name: 'Check again' })).toBeVisible();
+    await waitFor(() => expect(within(restored).getByText('We couldn’t confirm this was saved.')).toHaveFocus());
     await userEvent.click(within(restored).getByRole('button', { name: 'Check again' }));
     await screen.findByText('“Reload item” was added.');
     const resent = requestsOf(reloaded.requests, 'POST', `${base}/items`)[0]!;
@@ -214,6 +227,39 @@ describe('item creation', () => {
     expect(subjectRequests.map((request) => request.query.get('cursor'))).toContain('subject-cursor');
   });
 
+  it('retains and retries an item create attempt after 503 with the same key and body', async () => {
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => ++posts === 1 ? json(503) : json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Retry after 503');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await within(form).findByText('We couldn’t confirm this was saved.');
+    const first = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).not.toBeNull();
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('“Retry after 503” was added.');
+    const retry = requestsOf(fake.requests, 'POST', `${base}/items`)[1]!;
+    expect(retry.headers.get('Idempotency-Key')).toBe(first.headers.get('Idempotency-Key'));
+    expect(retry.body).toBe(first.body);
+  });
+
+  it('clears a definitive create rejection and uses a fresh key on the next deliberate submit', async () => {
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => ++posts === 1 ? json(400) : json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Definitive rejection');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await within(form).findByRole('alert');
+    const first = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Definitive rejection” was added.');
+    const second = requestsOf(fake.requests, 'POST', `${base}/items`)[1]!;
+    expect(second.headers.get('Idempotency-Key')).not.toBe(first.headers.get('Idempotency-Key'));
+  });
+
   it('clears an idempotency-key reuse response and offers no retry', async () => {
     const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { status: 422, code: 'idempotency_key_reused' }) });
     app();
@@ -221,6 +267,7 @@ describe('item creation', () => {
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Reused key');
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
     expect(await screen.findByText('This wasn’t saved. Please add it again.')).toBeVisible();
+    await waitFor(() => expect(screen.getByText('This wasn’t saved. Please add it again.').closest('[tabindex="-1"]')).toHaveFocus());
     expect(screen.queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
     expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);

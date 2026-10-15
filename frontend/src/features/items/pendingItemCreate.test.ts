@@ -16,6 +16,13 @@ describe('pending item create storage', () => {
     expect(getPendingItemCreate('invalid', 'scope')).toBeUndefined();
   });
 
+  it('restores an attempt from sessionStorage with a fresh module memory map', async () => {
+    sessionStorage.setItem('tendo.pendingItemCreate.v1:user-a:household-a', JSON.stringify(attempt));
+    vi.resetModules();
+    const storageModule = await import('./pendingItemCreate');
+    expect(storageModule.getPendingItemCreate('user-a', 'household-a')).toEqual(attempt);
+  });
+
   it('keeps a memory fallback when sessionStorage writes throw', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
     setPendingItemCreate('user-a', 'household-a', attempt);

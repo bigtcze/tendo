@@ -35,6 +35,7 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
   const { t, locale } = useI18n();
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const historicalCompletedOnRef = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
@@ -55,7 +56,10 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
   const [showNotice, setShowNotice] = useState(Boolean(notice));
   const errorId = `${id}-error`;
   const field = error && 'field' in error ? error.field : error?.kind === 'empty' ? 'title' : null;
-  useEffect(() => { titleRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (notice && noticeRef.current) noticeRef.current.focus();
+    else titleRef.current?.focus();
+  }, [notice]);
 
   function fail(next: FormError) {
     setShowNotice(false);
@@ -121,7 +125,7 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
       <Button type="button" variant="quiet" size="small" disabled={pending || locked || (mode === 'edit' && busy)} aria-expanded={notesOpen} onClick={() => setNotesOpen((open) => !open)}>{t(notesOpen ? 'items.notes.hide' : 'items.notes.show')}</Button>
       {notesOpen ? <div className="mt-2 space-y-2"><Label htmlFor={`${id}-notes`}>{t('items.notes')}</Label><textarea disabled={pending || locked || (mode === 'edit' && busy)} ref={notesRef} id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={4000} aria-invalid={field === 'notes'} aria-describedby={field === 'notes' ? errorId : undefined} className="min-h-24 w-full rounded-xl border border-line bg-white p-3" /></div> : null}
     </div>
-    {notice && showNotice ? <p role="status" className="rounded-xl bg-sand px-3 py-2 text-sm text-muted">{notice}</p> : null}
+    {notice && showNotice ? <div ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div> : null}
     <div id={errorId} role="alert" className="text-danger">{errorMessage(error, t)}</div>
     <div className="flex flex-wrap gap-2"><Button type="submit" disabled={pending || busy}>{pending ? (submittingLabel ?? t(mode === 'edit' ? 'itemDetail.saving' : 'items.add.submitting')) : locked ? (retryLabel ?? t('items.add.submit')) : t(mode === 'edit' ? 'itemDetail.save' : 'items.add.submit')}</Button><Button type="button" variant="quiet" onClick={onCancel} disabled={pending || (mode === 'edit' && busy)}>{t('items.cancel')}</Button></div>
   </form>;

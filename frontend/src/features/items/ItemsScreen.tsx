@@ -90,6 +90,10 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const retryHadFocus = useRef(false);
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
   const names = new Map(subjects.map((subject) => [subject.id, subject.name]));
+  const recoverySubjects = pendingCreate ? [
+    ...subjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
+    subjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, archived: true, createdAt: '', updatedAt: '' },
+  ] : subjects.filter((subject) => !subject.archived);
 
   const refresh = useCallback(async () => {
     const started = ++generation.current;
@@ -187,12 +191,12 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   }, [householdId, onSignedOut, subjectRetry]);
 
   useEffect(() => {
-    if (notice && (focusedRow.current || retryHadFocus.current)) {
+    if (createNotice === 'reused' || (notice && (focusedRow.current || retryHadFocus.current))) {
       noticeRef.current?.focus();
       focusedRow.current = false;
       retryHadFocus.current = false;
     }
-  }, [notice]);
+  }, [createNotice, notice]);
   useEffect(() => {
     if (!adding && returnFocus.current) { addRef.current?.focus(); returnFocus.current = false; }
   }, [adding]);
@@ -350,8 +354,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     {subjectState === 'error' && !subjectLoadingArchived ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { subjectLoadBusy.current = true; setSubjectState('loading'); setSubjectRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
     {!loading && !error && items.length === 0 && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
     {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={() => { void openAddForm(); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
-    {adding && subjectState === 'ready' && subjects.some((subject) => !subject.archived) ? <ItemForm busy={busy} members={members} subjects={subjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : undefined} locked={createUncertain && !!pendingCreate} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
-    {adding && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
+    {adding && ((createUncertain && pendingCreate) || (subjectState === 'ready' && subjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate ? recoverySubjects : subjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : undefined} locked={createUncertain && !!pendingCreate} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
+    {adding && !(createUncertain && pendingCreate) && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
     {!loading ? groups.map((group) => {
       const grouped = items.filter(group.matches);
       if (!grouped.length) return null;
