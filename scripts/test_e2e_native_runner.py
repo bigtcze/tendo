@@ -15,6 +15,40 @@ runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
 
+class AdminPsqlTests(unittest.TestCase):
+    def test_admin_credentials_are_environment_only_and_url_options_are_parsed(self):
+        inherited = {
+            "PATH": "/bin", "HOME": "/home/e2e", "TEST_DATABASE_ADMIN_URL":
+                "postgresql://migrator:p%40ss%3Aword@db.example:5544/testdb?sslmode=verify-full&sslrootcert=%2Fcerts%2Froot.pem",
+            "PSQL": "/custom/psql",
+        }
+        completed = subprocess.CompletedProcess([], 0, "ok\n", "")
+        with mock.patch.object(runner.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(runner.psql_admin(inherited, "SELECT 1"), "ok")
+        args = run.call_args.args[0]
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(args[0], "/custom/psql")
+        self.assertNotIn(inherited["TEST_DATABASE_ADMIN_URL"], args)
+        self.assertNotIn("p@ss:word", args)
+        self.assertEqual(args, ["/custom/psql", "-X", "-At", "-v", "ON_ERROR_STOP=1", "-c", "SELECT 1"])
+        self.assertEqual({key: env[key] for key in ("PATH", "HOME", "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE", "PGSSLROOTCERT")}, {
+            "PATH": "/bin", "HOME": "/home/e2e", "PGHOST": "db.example", "PGPORT": "5544",
+            "PGUSER": "migrator", "PGPASSWORD": "p@ss:word", "PGDATABASE": "testdb",
+            "PGSSLMODE": "verify-full", "PGSSLROOTCERT": "/certs/root.pem",
+        })
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
+    def test_admin_psql_failure_does_not_echo_password(self):
+        password = "secret-without-leak"
+        inherited = {"TEST_DATABASE_ADMIN_URL": f"postgresql://migrator:{password}@localhost/testdb"}
+        completed = subprocess.CompletedProcess([], 2, "", f"connection failed for {password}")
+        with mock.patch.object(runner.subprocess, "run", return_value=completed) as run:
+            with self.assertRaises(RuntimeError) as raised:
+                runner.psql_admin(inherited, "SELECT 1")
+        self.assertNotIn(password, str(raised.exception))
+        self.assertNotIn(password, run.call_args.args[0])
+
+
 class ChildProcessTests(unittest.TestCase):
     def test_cleanup_terminates_only_owned_process_group_and_reaps_ignoring_child(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,6 +171,18 @@ class ChildProcessTests(unittest.TestCase):
                     runner.main()
                 children.close.assert_called_once()
 
+
+    def test_foreign_seed_check_accepts_only_exact_unchanged_snapshot(self):
+        ids = ("01890000-0000-7000-8000-000000000001", "01890000-0000-7000-8000-000000000002", "01890000-0000-7000-8000-000000000003")
+        with mock.patch.object(runner, "psql_admin", return_value=runner.FOREIGN_SEED_EXPECTED) as query:
+            runner.assert_foreign_seed_unchanged({}, *ids)
+        self.assertIn(ids[0], query.call_args.args[1])
+        changed = runner.FOREIGN_SEED_EXPECTED.replace("Foreign gutter check|1|", "Hijack|2|")
+        with mock.patch.object(runner, "psql_admin", return_value=changed):
+            with self.assertRaisesRegex(RuntimeError, "Hijack"):
+                runner.assert_foreign_seed_unchanged({}, *ids)
+        with self.assertRaisesRegex(RuntimeError, "UUIDs"):
+            runner.assert_foreign_seed_unchanged({}, "x'; DROP TABLE items; --", ids[1], ids[2])
 
 if __name__ == "__main__":
     unittest.main()
