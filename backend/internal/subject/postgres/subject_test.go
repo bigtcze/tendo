@@ -658,11 +658,11 @@ func TestMigrationUpgradeFromVersionElevenPreservesSubjectRows(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy') RETURNING id::text`, hid).Scan(&legacyID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version=12`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upApp); err == nil {
-		t.Fatal("version 11 schema accepted by version 12 application")
+		t.Fatal("version 11 schema accepted by version 13 application")
 	}
 	var legacyName string
 	if err = upAdmin.QueryRow(ctx, `SELECT name FROM subjects WHERE id=$1::uuid`, legacyID).Scan(&legacyName); err != nil || legacyName != "Legacy" {
@@ -707,7 +707,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 3 schema, then add pre-existing data.
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DELETE FROM tendo_schema_migrations WHERE version IN (4,5,6,7,8,9,10,11,12)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (4,5,6,7,8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid string
@@ -718,7 +718,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 3 database accepted by version 12 application")
+		t.Fatal("version 3 database accepted by version 13 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)
@@ -745,7 +745,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 12 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 13 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

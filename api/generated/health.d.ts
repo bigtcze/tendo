@@ -308,7 +308,7 @@ export interface paths {
         put?: never;
         /**
          * Create an item
-         * @description Creates a household-scoped backlog item with workflowState open. Any household member may create items. subjectId must name an active subject of the same household. The title is stored trimmed; notes are stored exactly as given. attentionOn is optional; without it the item needs attention immediately unless historicalCompletedOn supplies the first attention date. A past attentionOn is allowed. Recurrence does not establish an initial attention date except through explicit historical initialization. historicalCompletedOn initializes the first recurring cycle and conflicts with a non-null attentionOn. Validation order after authentication/household checks is title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, subject reference, then responsibleUserId membership. Requires the canonical Origin header.
+         * @description Creates a household-scoped backlog item with workflowState open. Requires one visible-ASCII Idempotency-Key (1–128 bytes); identical retries return the current representation, ETag, and original Location, while changed intent returns 422 idempotency_key_reused. Any household member may create items. subjectId must name an active subject of the same household. The title is stored trimmed; notes are stored exactly as given. attentionOn is optional; without it the item needs attention immediately unless historicalCompletedOn supplies the first attention date. A past attentionOn is allowed. Recurrence does not establish an initial attention date except through explicit historical initialization. historicalCompletedOn initializes the first recurring cycle and conflicts with a non-null attentionOn. Validation order after authentication/household checks is title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, subject reference, then responsibleUserId membership. Requires the canonical Origin header.
          */
         post: operations["createItem"];
         delete?: never;
@@ -633,6 +633,13 @@ export interface components {
             field?: "name" | "type";
             /** @enum {string} */
             code: "invalid_characters" | "invalid_length" | "invalid_type" | "idempotency_key_reused";
+        };
+        /** @description Item creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
+        ItemCreateProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field?: "title" | "notes" | "recurrence" | "attentionOn" | "historicalCompletedOn" | "subjectId" | "responsibleUserId";
+            /** @enum {string} */
+            code: "invalid_length" | "invalid_characters" | "invalid_date" | "requires_recurrence" | "conflicting_fields" | "future_date" | "date_overflow" | "invalid_reference" | "invalid_interval" | "invalid_interval_unit" | "invalid_mode" | "idempotency_key_reused";
         };
         /** @enum {string} */
         WorkflowState: "open" | "in_progress" | "waiting" | "paused";
@@ -4452,12 +4459,17 @@ export interface operations {
     createItem: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 /**
                  * @description Optional caller-supplied correlation ID.
                  * @example smoke-test_01
                  */
                 "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Case-sensitive visible ASCII key, 1–128 bytes. Reuse only for retries of the same create intent.
+                 * @example item-create-0198a2f0
+                 */
+                "Idempotency-Key": string;
             };
             path: {
                 /**
@@ -4486,7 +4498,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Item created. ETag is "1" without historical initialization and "2" when an initial completion receipt was recorded. */
+            /** @description Item created or identical retry replaying the current representation. ETag is "1" without historical initialization and "2" when an initial completion receipt was recorded. */
             201: {
                 headers: {
                     /**
@@ -4529,7 +4541,7 @@ export interface operations {
                     "application/json": components["schemas"]["Item"];
                 };
             };
-            /** @description Malformed JSON, unknown or duplicate keys, null for a field that does not accept null, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
+            /** @description Missing Idempotency-Key returns idempotency_key_required; empty, repeated, or invalid key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null for a field that does not accept null, or wrong value types. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -4662,7 +4674,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. Create validation order after authentication and household checks: title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, subject reference, then responsibleUserId membership. Historical create errors are invalid_date, requires_recurrence, conflicting_fields, or future_date on historicalCompletedOn; overflow is date_overflow on recurrence. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference, invalid_interval, invalid_interval_unit, and invalid_mode. */
+            /** @description Field validation failed or Idempotency-Key reused for a different intent. Create validation order after authentication and household membership (replay lookup occurs before domain validation): title, notes, recurrence, attentionOn, historicalCompletedOn date syntax/calendar, recurrence requirement, attentionOn conflict, future date, computed date overflow, subject reference, then responsibleUserId membership. Historical create errors are invalid_date, requires_recurrence, conflicting_fields, or future_date on historicalCompletedOn; overflow is date_overflow on recurrence. Other codes: invalid_length, invalid_characters, invalid_date, invalid_workflow_state, invalid_reference, invalid_interval, invalid_interval_unit, and invalid_mode. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -4670,16 +4682,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "type": "about:blank",
-                     *       "title": "Validation Failed",
-                     *       "status": 422,
-                     *       "code": "invalid_length",
-                     *       "field": "title"
-                     *     }
-                     */
-                    "application/problem+json": components["schemas"]["ItemValidationProblem"];
+                    "application/problem+json": components["schemas"]["ItemCreateProblem"];
                 };
             };
             /** @description Persistence unavailable. */

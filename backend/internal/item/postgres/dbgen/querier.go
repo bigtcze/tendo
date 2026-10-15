@@ -10,6 +10,7 @@ import (
 
 type Querier interface {
 	CreateItem(ctx context.Context, arg CreateItemParams) (CreateItemRow, error)
+	FindItemCreation(ctx context.Context, arg FindItemCreationParams) (FindItemCreationRow, error)
 	GetCompletionByKey(ctx context.Context, arg GetCompletionByKeyParams) (GetCompletionByKeyRow, error)
 	GetCompletionForUndo(ctx context.Context, arg GetCompletionForUndoParams) (GetCompletionForUndoRow, error)
 	GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, error)

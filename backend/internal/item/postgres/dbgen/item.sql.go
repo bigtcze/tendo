@@ -12,21 +12,25 @@ import (
 )
 
 const createItem = `-- name: CreateItem :one
-INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode)
-VALUES ($1, $2, $3::uuid, $4, $5::text, $6::date, $7::integer, $8::text, $9::text)
+INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES ($1, $2, $3::uuid, $4, $5::text, $6::date, $7::integer, $8::text, $9::text, $10, $11, $12)
+ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
 RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type CreateItemParams struct {
-	HouseholdID             pgtype.UUID
-	SubjectID               pgtype.UUID
-	ResponsibleUserID       pgtype.UUID
-	Title                   string
-	Notes                   pgtype.Text
-	AttentionOn             pgtype.Date
-	RecurrenceIntervalValue pgtype.Int4
-	RecurrenceIntervalUnit  pgtype.Text
-	RecurrenceMode          pgtype.Text
+	HouseholdID                pgtype.UUID
+	SubjectID                  pgtype.UUID
+	ResponsibleUserID          pgtype.UUID
+	Title                      string
+	Notes                      pgtype.Text
+	AttentionOn                pgtype.Date
+	RecurrenceIntervalValue    pgtype.Int4
+	RecurrenceIntervalUnit     pgtype.Text
+	RecurrenceMode             pgtype.Text
+	CreatedByUserID            pgtype.UUID
+	CreationKey                pgtype.Text
+	CreationRequestFingerprint []byte
 }
 
 type CreateItemRow struct {
@@ -60,6 +64,9 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		arg.RecurrenceIntervalValue,
 		arg.RecurrenceIntervalUnit,
 		arg.RecurrenceMode,
+		arg.CreatedByUserID,
+		arg.CreationKey,
+		arg.CreationRequestFingerprint,
 	)
 	var i CreateItemRow
 	err := row.Scan(
@@ -80,6 +87,65 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+	)
+	return i, err
+}
+
+const findItemCreation = `-- name: FindItemCreation :one
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version, creation_request_fingerprint
+FROM items
+WHERE items.household_id = $1 AND items.created_by_user_id = $2 AND items.creation_key = $3
+`
+
+type FindItemCreationParams struct {
+	HouseholdID     pgtype.UUID
+	CreatedByUserID pgtype.UUID
+	CreationKey     pgtype.Text
+}
+
+type FindItemCreationRow struct {
+	ID                         string
+	HouseholdID                string
+	SubjectID                  string
+	ResponsibleUserID          pgtype.UUID
+	Title                      string
+	Notes                      pgtype.Text
+	AttentionOn                pgtype.Date
+	RecurrenceIntervalValue    pgtype.Int4
+	RecurrenceIntervalUnit     pgtype.Text
+	RecurrenceMode             pgtype.Text
+	WorkflowState              string
+	Archived                   bool
+	Done                       bool
+	LastCompletedOn            pgtype.Date
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+	Version                    int64
+	CreationRequestFingerprint []byte
+}
+
+func (q *Queries) FindItemCreation(ctx context.Context, arg FindItemCreationParams) (FindItemCreationRow, error) {
+	row := q.db.QueryRow(ctx, findItemCreation, arg.HouseholdID, arg.CreatedByUserID, arg.CreationKey)
+	var i FindItemCreationRow
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.SubjectID,
+		&i.ResponsibleUserID,
+		&i.Title,
+		&i.Notes,
+		&i.AttentionOn,
+		&i.RecurrenceIntervalValue,
+		&i.RecurrenceIntervalUnit,
+		&i.RecurrenceMode,
+		&i.WorkflowState,
+		&i.Archived,
+		&i.Done,
+		&i.LastCompletedOn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.CreationRequestFingerprint,
 	)
 	return i, err
 }
@@ -141,20 +207,24 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 }
 
 const insertInitializedItem = `-- name: InsertInitializedItem :one
-INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version)
-VALUES ($1, $2, $3::uuid, $4, $5::text, NULL, $6::integer, $7::text, $8::text, 1)
+INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES ($1, $2, $3::uuid, $4, $5::text, NULL, $6::integer, $7::text, $8::text, 1, $9, $10, $11)
+ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
 RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, NULL::date AS last_completed_on, created_at, updated_at, version
 `
 
 type InsertInitializedItemParams struct {
-	HouseholdID             pgtype.UUID
-	SubjectID               pgtype.UUID
-	ResponsibleUserID       pgtype.UUID
-	Title                   string
-	Notes                   pgtype.Text
-	RecurrenceIntervalValue pgtype.Int4
-	RecurrenceIntervalUnit  pgtype.Text
-	RecurrenceMode          pgtype.Text
+	HouseholdID                pgtype.UUID
+	SubjectID                  pgtype.UUID
+	ResponsibleUserID          pgtype.UUID
+	Title                      string
+	Notes                      pgtype.Text
+	RecurrenceIntervalValue    pgtype.Int4
+	RecurrenceIntervalUnit     pgtype.Text
+	RecurrenceMode             pgtype.Text
+	CreatedByUserID            pgtype.UUID
+	CreationKey                pgtype.Text
+	CreationRequestFingerprint []byte
 }
 
 type InsertInitializedItemRow struct {
@@ -187,6 +257,9 @@ func (q *Queries) InsertInitializedItem(ctx context.Context, arg InsertInitializ
 		arg.RecurrenceIntervalValue,
 		arg.RecurrenceIntervalUnit,
 		arg.RecurrenceMode,
+		arg.CreatedByUserID,
+		arg.CreationKey,
+		arg.CreationRequestFingerprint,
 	)
 	var i InsertInitializedItemRow
 	err := row.Scan(

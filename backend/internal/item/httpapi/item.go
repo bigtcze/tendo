@@ -43,7 +43,7 @@ var (
 )
 
 type service interface {
-	Create(ctx context.Context, userID, householdID string, n item.NewItem) (item.Item, error)
+	Create(ctx context.Context, userID, householdID, key string, n item.NewItem) (item.Item, error)
 	Get(ctx context.Context, userID, householdID, itemID string) (item.Item, error)
 	List(ctx context.Context, userID, householdID string, q item.ListQuery) (item.Page, error)
 	Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p item.Patch) (item.Item, error)
@@ -80,6 +80,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.ProblemResponse(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
+	keys := r.Header.Values("Idempotency-Key")
+	if len(keys) == 0 {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
+		return
+	}
+	if len(keys) != 1 || !validCreationKey(keys[0]) {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
+		return
+	}
 	values, ok := httpx.ReadObject(w, r, createFields, bodyLimit)
 	if !ok {
 		return
@@ -110,7 +119,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		n.Recurrence = policy
 	}
 	householdID := chi.URLParam(r, "householdId")
-	created, err := h.service.Create(r.Context(), userID, householdID, n)
+	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], n)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -219,6 +228,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 }
 
 // nullable converts a decoded string-or-null value.
+func validCreationKey(key string) bool {
+	if len(key) < 1 || len(key) > 128 {
+		return false
+	}
+	for i := range key {
+		if key[i] < '!' || key[i] > '~' {
+			return false
+		}
+	}
+	return true
+}
+
 func nullable(v any) item.Nullable[string] {
 	if v == nil {
 		return item.Null[string]()
@@ -251,6 +272,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	var validation *item.ValidationError
 	var query *item.InvalidQueryError
 	switch {
+	case errors.Is(err, item.ErrIdempotencyKeyReused):
+		httpx.ProblemResponse(w, http.StatusUnprocessableEntity, "idempotency_key_reused")
 	case errors.Is(err, item.ErrNotFound):
 		httpx.ProblemResponse(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, item.ErrEmptyPatch):

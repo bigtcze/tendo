@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -103,6 +105,10 @@ func (f *fixture) do(method, path, body string, headers map[string]string) *http
 	} else {
 		req = httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if strings.HasSuffix(path, "/items") && method == http.MethodPost {
+		sum := sha256.Sum256([]byte(body))
+		req.Header.Set("Idempotency-Key", hex.EncodeToString(sum[:16]))
 	}
 	for key, value := range headers {
 		req.Header.Set(key, value)

@@ -248,11 +248,11 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 1 schema: no sessions table, no households.version column, no subjects table, and no version 2/3/4 metadata rows.
-	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (2,3,4,5,6,7,8,9,10,11,12)`); err != nil {
+	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; DROP TABLE user_sessions; ALTER TABLE households DROP COLUMN version; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (2,3,4,5,6,7,8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
-		t.Fatal("version 1 database accepted by version 12 application")
+		t.Fatal("version 1 database accepted by version 13 application")
 	}
 	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)
@@ -262,7 +262,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 12 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 13 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string
@@ -321,11 +321,11 @@ func TestMigrationUpgradeFromVersionTwoAddsHouseholdVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 2 schema.
-	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE households DROP COLUMN version; DELETE FROM tendo_schema_migrations WHERE version IN (3,4,5,6,7,8,9,10,11,12)`); err != nil {
+	if _, err := upgradeAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE households DROP COLUMN version; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (3,4,5,6,7,8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upgradeAdmin); err == nil {
-		t.Fatal("version 2 database accepted by version 12 application")
+		t.Fatal("version 2 database accepted by version 13 application")
 	}
 	if err := database.Migrate(ctx, upgradeAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)

@@ -3,6 +3,7 @@ package item_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,7 @@ type env struct {
 	housErr    error
 	subjectErr error
 	subjectHit []string
+	createSeq  int
 }
 
 func newEnv(zone string) *env {
@@ -66,6 +68,8 @@ func newEnv(zone string) *env {
 	return e
 }
 
+func (e *env) nextKey() string { e.createSeq++; return "test-key-" + strconv.Itoa(e.createSeq) }
+
 func ptr[T any](v T) *T { return &v }
 
 func validation(t *testing.T, err error, field, code string) {
@@ -81,7 +85,7 @@ func (e *env) create(t *testing.T, n item.NewItem) item.Item {
 	if n.SubjectID == "" {
 		n.SubjectID = subjectID
 	}
-	created, err := e.svc.Create(context.Background(), userID, householdID, n)
+	created, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), n)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -227,7 +231,7 @@ func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
 		t.Fatalf("off: %+v %v", off, err)
 	}
 	falsePolicy := schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
-	canonical, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "disabled maps to off", Recurrence: &falsePolicy})
+	canonical, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "disabled maps to off", Recurrence: &falsePolicy})
 	if err != nil || canonical.Recurrence != nil {
 		t.Fatalf("disabled policy not canonicalized: %+v %v", canonical, err)
 	}
@@ -235,7 +239,7 @@ func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
 	if err != nil || canonical.Recurrence != nil || canonical.Version != 9 {
 		t.Fatalf("disabled patch not canonicalized: %+v %v", canonical, err)
 	}
-	if _, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "one off"}); err != nil {
+	if _, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "one off"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -296,7 +300,7 @@ func TestHistoricalDateUsesHouseholdLocalToday(t *testing.T) {
 		wantErr    bool
 	}{{"Europe/Prague", "2026-03-02", false}, {"America/New_York", "2026-03-02", true}, {"America/New_York", "2026-03-01", false}} {
 		e := newEnv(tc.zone)
-		got, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x", HistoricalCompletedOn: ptr(tc.date), Recurrence: &policy})
+		got, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x", HistoricalCompletedOn: ptr(tc.date), Recurrence: &policy})
 		if tc.wantErr {
 			validation(t, err, "historicalCompletedOn", "future_date")
 			if e.repo.Count() != 0 {
@@ -341,7 +345,7 @@ func TestHistoricalInitializationValidation(t *testing.T) {
 				tc.in.SubjectID = subjectID
 			}
 			tc.in.Title = "x"
-			_, err := e.svc.Create(context.Background(), userID, householdID, tc.in)
+			_, err := e.svc.Create(context.Background(), userID, householdID, "test-key-"+tc.name, tc.in)
 			validation(t, err, tc.field, tc.code)
 			if e.repo.Count() != 0 {
 				t.Fatal("invalid historical initialization persisted")
@@ -363,7 +367,7 @@ func TestInvalidRecurrenceDoesNotPersist(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv("UTC")
-			_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "invalid", Recurrence: &tc.policy})
+			_, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "invalid", Recurrence: &tc.policy})
 			validation(t, err, "recurrence", tc.code)
 			if e.repo.Count() != 0 {
 				t.Fatal("invalid policy persisted")
@@ -392,22 +396,22 @@ func TestCreateRejectsInvalidInputWithoutPersisting(t *testing.T) {
 		{"foreign subject", item.NewItem{SubjectID: foreignID, Title: "x"}, "subjectId", "invalid_reference"},
 		{"archived subject", item.NewItem{SubjectID: archivedID, Title: "x"}, "subjectId", "invalid_reference"},
 	} {
-		_, err := e.svc.Create(ctx, userID, householdID, tc.in)
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), tc.in)
 		validation(t, err, tc.field, tc.code)
 	}
-	if e.repo.Count() != 0 || e.repo.Calls != 0 {
+	if e.repo.Count() != 0 || e.repo.Calls != 11 {
 		t.Fatalf("invalid input reached storage: rows=%d calls=%d", e.repo.Count(), e.repo.Calls)
 	}
 }
 
 func TestValidationOrderIsFieldsBeforeSubjectLookup(t *testing.T) {
 	e := newEnv("UTC")
-	_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: archivedID, Title: " "})
+	_, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: archivedID, Title: " "})
 	validation(t, err, "title", "invalid_length")
 	if len(e.subjectHit) != 0 {
 		t.Fatalf("subject looked up despite invalid fields: %v", e.subjectHit)
 	}
-	_, err = e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: "nope", Title: "ok"})
+	_, err = e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: "nope", Title: "ok"})
 	validation(t, err, "subjectId", "invalid_reference")
 	if len(e.subjectHit) != 0 {
 		t.Fatalf("malformed subject id must not reach the adapter: %v", e.subjectHit)
@@ -633,7 +637,7 @@ func TestMalformedIdentifiersAndNonMembersAreNotFound(t *testing.T) {
 	ctx := context.Background()
 	patch := item.Patch{Archived: ptr(true)}
 	for _, bad := range []string{"", "nope", "0198a2f07c1e7a539b0e5d3f2c1a4b70", "{0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70}"} {
-		if _, err := e.svc.Create(ctx, userID, bad, item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrNotFound) {
+		if _, err := e.svc.Create(ctx, userID, bad, "bad-household-key", item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("create %q: %v", bad, err)
 		}
 		if _, err := e.svc.List(ctx, userID, bad, item.ListQuery{}); !errors.Is(err, item.ErrNotFound) {
@@ -657,7 +661,7 @@ func TestMalformedIdentifiersAndNonMembersAreNotFound(t *testing.T) {
 		t.Fatalf("non-member update: %v", err)
 	}
 	// Non-member validation does not leak: membership precedes validation.
-	if _, err := e.svc.Create(ctx, userID, other, item.NewItem{SubjectID: "nope", Title: " "}); !errors.Is(err, item.ErrNotFound) {
+	if _, err := e.svc.Create(ctx, userID, other, "other-household-key", item.NewItem{SubjectID: "nope", Title: " "}); !errors.Is(err, item.ErrNotFound) {
 		t.Fatalf("non-member create: %v", err)
 	}
 	if e.repo.Calls != calls {
@@ -682,7 +686,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 				t.Fatalf("%s: %v", name, err)
 			}
 		}
-		_, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 		check("create", err)
 		_, err = e.svc.Get(ctx, userID, householdID, created.ID)
 		check("get", err)
@@ -696,7 +700,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 	})
 	t.Run("invalid timezone", func(t *testing.T) {
 		e := newEnv("Not/AZone")
-		_, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 		if !errors.Is(err, item.ErrUnavailable) {
 			t.Fatalf("err=%v", err)
 		}
@@ -705,7 +709,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 		e := newEnv("UTC")
 		created := e.create(t, item.NewItem{Title: "x"})
 		e.subjectErr = secret
-		_, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 		if !errors.Is(err, item.ErrUnavailable) {
 			t.Fatalf("create: %v", err)
 		}
@@ -721,7 +725,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 	t.Run("repository", func(t *testing.T) {
 		e := newEnv("UTC")
 		e.repo.Err = secret
-		if _, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrUnavailable) {
+		if _, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrUnavailable) {
 			t.Fatalf("create: %v", err)
 		}
 		if _, err := e.svc.Get(ctx, userID, householdID, subjectID); !errors.Is(err, item.ErrUnavailable) {
@@ -740,7 +744,7 @@ func TestRepositoryInvalidReferenceBecomesSubjectValidationError(t *testing.T) {
 	e := newEnv("UTC")
 	created := e.create(t, item.NewItem{Title: "x"})
 	e.repo.Err = item.ErrInvalidReference
-	_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+	_, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 	validation(t, err, "subjectId", "invalid_reference")
 	_, err = e.svc.Update(context.Background(), userID, householdID, created.ID, 1, item.Patch{SubjectID: ptr(subjectID)})
 	validation(t, err, "subjectId", "invalid_reference")

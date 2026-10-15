@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -99,7 +101,7 @@ func TestMigrationUpgradeFromV9ToV10PreservesData(t *testing.T) {
 	if _, err = upAdmin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) VALUES($1::uuid,$2::uuid,'2026-10-07',$3::uuid,'waiting',6,'v9-receipt',decode(repeat('ab',32),'hex'))`, hid, iid, owner); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; REVOKE UPDATE (responsible_user_id) ON items FROM tendo; ALTER TABLE items DROP CONSTRAINT items_responsible_membership_fk; DROP INDEX items_responsible_membership_idx; ALTER TABLE items DROP COLUMN responsible_user_id; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (10,11,12)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; REVOKE UPDATE (responsible_user_id) ON items FROM tendo; ALTER TABLE items DROP CONSTRAINT items_responsible_membership_fk; DROP INDEX items_responsible_membership_idx; ALTER TABLE items DROP COLUMN responsible_user_id; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upAdmin); err == nil {
@@ -159,7 +161,7 @@ func TestMigrationUpgradeFromV6PreservesData(t *testing.T) {
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (7,8,9,10,11,12)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (7,8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, iid string
@@ -179,6 +181,22 @@ func TestMigrationUpgradeFromV6PreservesData(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `SELECT done FROM items WHERE id=$1::uuid`, iid).Scan(&done); err != nil || done {
 		t.Fatalf("done=%v err=%v", done, err)
 	}
+}
+
+var testCreateSeq atomic.Int64
+
+// createForTest inserts through the production idempotent path with a fresh
+// per-call key, failing if the insert unexpectedly resolved to an existing row.
+func createForTest(ctx context.Context, r *Repository, householdID, actorID string, d item.Draft) (item.Item, error) {
+	d.ActorID = actorID
+	d.CreationKey = fmt.Sprintf("repository-test-%d", testCreateSeq.Add(1))
+	digest := sha256.Sum256([]byte(d.CreationKey))
+	d.CreationFingerprint = digest[:]
+	got, inserted, err := r.CreateIdempotent(ctx, householdID, d)
+	if err == nil && !inserted {
+		return item.Item{}, errors.New("unexpected creation key conflict")
+	}
+	return got, err
 }
 
 const itemIDFloor = "00000000-0000-0000-0000-000000000000"
@@ -269,7 +287,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 	}
 	create := func(hid, sid, title string, notes *string, attention *schedule.Date) item.Item {
 		t.Helper()
-		got, err := repo.Create(ctx, hid, item.Draft{SubjectID: sid, Title: title, Notes: notes, AttentionOn: attention})
+		got, err := createForTest(ctx, repo, hid, completionUser, item.Draft{SubjectID: sid, Title: title, Notes: notes, AttentionOn: attention})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -287,7 +305,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		memberA := assignedUser(hA, "responsible_list_member", "member")
 		memberB := assignedUser(hB, "responsible_list_foreign", "member")
 		before := count(hA)
-		assigned, err := service.Create(ctx, completionUser, hA, item.NewItem{SubjectID: sA.ID, ResponsibleUserID: &memberA, Title: "list responsible item"})
+		assigned, err := service.Create(ctx, completionUser, hA, "responsible-list-create", item.NewItem{SubjectID: sA.ID, ResponsibleUserID: &memberA, Title: "list responsible item"})
 		if err != nil || assigned.ResponsibleUserID == nil || *assigned.ResponsibleUserID != memberA {
 			t.Fatalf("assigned=%+v err=%v", assigned, err)
 		}
@@ -306,7 +324,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}
 		var validation *item.ValidationError
 		raceCreateService := item.NewService(repo, houses, subjects, func(context.Context, string, string) error { return nil }, func() time.Time { return clock })
-		raceCreated, err := raceCreateService.Create(ctx, completionUser, hA, item.NewItem{SubjectID: sA.ID, ResponsibleUserID: &memberB, Title: "create precheck race"})
+		raceCreated, err := raceCreateService.Create(ctx, completionUser, hA, "create-precheck-race", item.NewItem{SubjectID: sA.ID, ResponsibleUserID: &memberB, Title: "create precheck race"})
 		if !errors.As(err, &validation) || validation.Field != "responsibleUserId" || validation.Code != "invalid_reference" || raceCreated.ID != "" {
 			t.Fatalf("race create=%+v err=%v", raceCreated, err)
 		}
@@ -346,7 +364,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 	t.Run("completion preserves assignment, undo preserves intervening reassignment", func(t *testing.T) {
 		responsibleA := assignedUser(hA, "completion_responsible_a", "member")
 		responsibleB := assignedUser(hA, "completion_responsible_b", "owner")
-		created, err := service.Create(ctx, completionUser, hA, item.NewItem{SubjectID: sA.ID, ResponsibleUserID: &responsibleA, Title: "completion responsibility"})
+		created, err := service.Create(ctx, completionUser, hA, "responsibility-create-key", item.NewItem{SubjectID: sA.ID, ResponsibleUserID: &responsibleA, Title: "completion responsibility"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -375,7 +393,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		next, _ := schedule.NewDate(2026, time.February, 28)
 		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
 		draft := item.Draft{SubjectID: sA.ID, Title: "historically initialized", Recurrence: policy, AttentionOn: &next, InitializationReceipt: &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: item.CompletionFingerprint(completionUser, func() *string { value := "2026-01-31"; return &value }())}}
-		got, err := repo.Create(ctx, hA, draft)
+		got, err := createForTest(ctx, repo, hA, completionUser, draft)
 		if err != nil || got.Version != 2 || got.AttentionOn == nil || *got.AttentionOn != next || got.LastCompletedOn == nil || *got.LastCompletedOn != completed {
 			t.Fatalf("item=%+v err=%v", got, err)
 		}
@@ -427,7 +445,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 				completed, _ := schedule.NewDate(2025, time.October, 31)
 				initialNext, _ := schedule.NewDate(2025, time.November, 30)
 				policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: mode}
-				created, err := service.Create(ctx, completionUser, hA, item.NewItem{SubjectID: sA.ID, Title: "service historical " + string(mode), HistoricalCompletedOn: &completedText, Recurrence: &policy})
+				created, err := service.Create(ctx, completionUser, hA, "service-historical-"+string(mode), item.NewItem{SubjectID: sA.ID, Title: "service historical " + string(mode), HistoricalCompletedOn: &completedText, Recurrence: &policy})
 				if err != nil || created.Version != 2 || created.AttentionOn == nil || *created.AttentionOn != initialNext || created.LastCompletedOn == nil || *created.LastCompletedOn != completed {
 					t.Fatalf("created=%+v err=%v", created, err)
 				}
@@ -759,7 +777,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		fingerprint := [32]byte{23}
 		receipt := &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: fingerprint}
 		completeAfterInsertHook = func() error { return errors.New("forced rollback") }
-		i, err := repo.Create(ctx, hA, item.Draft{SubjectID: sA.ID, Title: "rollback initialize", Recurrence: policy, AttentionOn: &next, InitializationReceipt: receipt})
+		i, err := createForTest(ctx, repo, hA, completionUser, item.Draft{SubjectID: sA.ID, Title: "rollback initialize", Recurrence: policy, AttentionOn: &next, InitializationReceipt: receipt})
 		completeAfterInsertHook = nil
 		if err == nil {
 			t.Fatalf("create succeeded unexpectedly: %+v", i)
@@ -975,7 +993,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("foreign completion post err=%v", err)
 		}
-		if _, err := repo.Create(ctx, hA, item.Draft{SubjectID: sB.ID, Title: "bad"}); !errors.Is(err, item.ErrInvalidReference) {
+		if _, err := createForTest(ctx, repo, hA, completionUser, item.Draft{SubjectID: sB.ID, Title: "bad"}); !errors.Is(err, item.ErrInvalidReference) {
 			t.Fatalf("foreign subject err=%v", err)
 		}
 		var foreignCount int
@@ -1097,7 +1115,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			next, _ := schedule.NewDate(2026, time.March, 2)
 			policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
 			fingerprint := item.CompletionFingerprint(completionUser, func() *string { value := "2026-03-01"; return &value }())
-			initial, err := repo.Create(ctx, hA, item.Draft{SubjectID: sA.ID, Title: "undo initialization", Recurrence: policy, AttentionOn: &next, InitializationReceipt: &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: fingerprint}})
+			initial, err := createForTest(ctx, repo, hA, completionUser, item.Draft{SubjectID: sA.ID, Title: "undo initialization", Recurrence: policy, AttentionOn: &next, InitializationReceipt: &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: fingerprint}})
 			if err != nil || initial.Version != 2 {
 				t.Fatalf("item=%+v err=%v", initial, err)
 			}
@@ -1431,7 +1449,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cascadeItem, err := repo.Create(ctx, h, item.Draft{SubjectID: s.ID, ResponsibleUserID: &cascadeMember, Title: "cascade assigned item"})
+		cascadeItem, err := createForTest(ctx, repo, h, completionUser, item.Draft{SubjectID: s.ID, ResponsibleUserID: &cascadeMember, Title: "cascade assigned item"})
 		if err != nil || cascadeItem.ResponsibleUserID == nil {
 			t.Fatalf("cascade fixture item=%+v err=%v", cascadeItem, err)
 		}
@@ -1477,7 +1495,7 @@ func TestMigrationUpgradeFromV7PreservesUndoableReceipt(t *testing.T) {
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; REVOKE UPDATE (undone_at, undone_by_user_id) ON item_completions FROM tendo; ALTER TABLE item_completions DROP CONSTRAINT item_completions_undo_actor_pair_check; ALTER TABLE item_completions DROP COLUMN undone_by_user_id; ALTER TABLE item_completions DROP COLUMN undone_at; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (8,9,10,11,12)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; REVOKE UPDATE (undone_at, undone_by_user_id) ON item_completions FROM tendo; ALTER TABLE item_completions DROP CONSTRAINT item_completions_undo_actor_pair_check; ALTER TABLE item_completions DROP COLUMN undone_by_user_id; ALTER TABLE item_completions DROP COLUMN undone_at; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, actor, iid, cid string
@@ -1500,7 +1518,7 @@ func TestMigrationUpgradeFromV7PreservesUndoableReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 7 database accepted by version 12 application")
+		t.Fatal("version 7 database accepted by version 13 application")
 	}
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -1557,7 +1575,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_subject_id_fkey; ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (6,7,8,9,10,11,12)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_subject_id_fkey; ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (6,7,8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, iid string
@@ -1571,7 +1589,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 5 database accepted by version 12 application")
+		t.Fatal("version 5 database accepted by version 13 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -1584,7 +1602,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatalf("legacy item=%+v err=%v", got, err)
 	}
 	var max int64
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 12 {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 13 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 }
@@ -1618,7 +1636,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (5,6,7,8,9,10,11,12)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (5,6,7,8,9,10,11,12,13)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid string
@@ -1629,7 +1647,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 4 database accepted by version 12 application")
+		t.Fatal("version 4 database accepted by version 13 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -1641,13 +1659,17 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	if err := upApp.QueryRow(ctx, `SELECT name FROM subjects WHERE id=$1::uuid`, sid).Scan(&name); err != nil || name != "Legacy person" {
 		t.Fatalf("legacy data=%q err=%v", name, err)
 	}
-	created, err := NewRepository(upApp).Create(ctx, hid, item.Draft{SubjectID: sid, Title: "After upgrade"})
+	var upgradeActor string
+	if err := upAdmin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES ('upgrade_actor') RETURNING id::text`).Scan(&upgradeActor); err != nil {
+		t.Fatal(err)
+	}
+	created, err := createForTest(ctx, NewRepository(upApp), hid, upgradeActor, item.Draft{SubjectID: sid, Title: "After upgrade"})
 	if err != nil || created.Version != 1 {
 		t.Fatalf("created=%+v err=%v", created, err)
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 12 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 13 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

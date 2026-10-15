@@ -2,7 +2,7 @@
 
 Status: accepted
 
-Scope: implemented for subjects (migration 12). Items adopt the same decision in a follow-up change (migration 13); until then item creation does not take a key.
+Scope: implemented for subjects (migration 12) and items (migration 13).
 
 ## Context
 
