@@ -7,6 +7,7 @@ import { fetchSession, fetchSetupRequired, type Session } from '../features/auth
 import { HomeScreen } from '../features/home/HomeScreen';
 import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
+import { clearPendingItemCreates } from '../features/items/pendingItemCreate';
 import { clearPendingSubjectCreates } from '../features/subjects/pendingSubjectCreate';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { MembersScreen } from '../features/members/MembersScreen';
@@ -51,6 +52,7 @@ async function boot(): Promise<BootState> {
   if (setup === 'error') return { kind: 'error' };
   clearPendingCompletions();
   clearPendingSubjectCreates();
+  clearPendingItemCreates();
   return { kind: 'signedOut' };
 }
 
@@ -150,6 +152,7 @@ export function App() {
   const inviteSignedOut = useCallback(() => {
     clearPendingCompletions();
     clearPendingSubjectCreates();
+    clearPendingItemCreates();
     transitioned.current = true;
     const inviteVisit = window.history.state?.inviteVisit;
     window.history.replaceState(typeof inviteVisit === 'string' ? { inviteVisit } : null, '', INVITE_PATH);
@@ -168,6 +171,7 @@ export function App() {
   const signedOut = useCallback(() => {
     clearPendingCompletions();
     clearPendingSubjectCreates();
+    clearPendingItemCreates();
     setOidcOutcome(null);
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');

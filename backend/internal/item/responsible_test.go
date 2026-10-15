@@ -32,7 +32,7 @@ func TestResponsibleMemberValidationAndPatchSemantics(t *testing.T) {
 		func() time.Time { return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC) })
 
 	upper := "0198A2F0-7C1E-7A53-9B0E-5D3F2C1A4B62"
-	created, err := svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "Assigned", ResponsibleUserID: &upper})
+	created, err := svc.Create(context.Background(), userID, householdID, "test-key", item.NewItem{SubjectID: subjectID, Title: "Assigned", ResponsibleUserID: &upper})
 	if err != nil || created.ResponsibleUserID == nil || *created.ResponsibleUserID != candidateID {
 		t.Fatalf("create canonicalized assignment=%+v err=%v", created.ResponsibleUserID, err)
 	}
@@ -52,11 +52,11 @@ func TestResponsibleMemberValidationAndPatchSemantics(t *testing.T) {
 	}
 
 	for _, bad := range []string{" bad", "not-a-uuid", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"} {
-		_, err := svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "Bad", ResponsibleUserID: &bad})
+		_, err := svc.Create(context.Background(), userID, householdID, "test-key-"+bad, item.NewItem{SubjectID: subjectID, Title: "Bad", ResponsibleUserID: &bad})
 		validation(t, err, "responsibleUserId", "invalid_reference")
 	}
 	bad := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64"
-	_, err = svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "Outage", ResponsibleUserID: &bad})
+	_, err = svc.Create(context.Background(), userID, householdID, "outage-key", item.NewItem{SubjectID: subjectID, Title: "Outage", ResponsibleUserID: &bad})
 	if !errors.Is(err, item.ErrUnavailable) {
 		t.Fatalf("member lookup outage=%v", err)
 	}
@@ -73,7 +73,7 @@ func TestInvalidSubjectWinsBeforeResponsibleMemberLookup(t *testing.T) {
 		func(context.Context, string, string) error { called = true; return errors.New("must not run") },
 		func() time.Time { return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC) })
 	responsible := candidateID
-	_, err := svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: missingID, Title: "Invalid subject", ResponsibleUserID: &responsible})
+	_, err := svc.Create(context.Background(), userID, householdID, "test-key", item.NewItem{SubjectID: missingID, Title: "Invalid subject", ResponsibleUserID: &responsible})
 	validation(t, err, "subjectId", "invalid_reference")
 	if called {
 		t.Fatal("responsible lookup ran before subject validation")

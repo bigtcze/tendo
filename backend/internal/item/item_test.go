@@ -3,6 +3,7 @@ package item_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,13 +27,15 @@ const (
 var fixedNow = time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC)
 
 type env struct {
-	repo       *itemtest.Repo
-	svc        *item.Service
-	zone       string
-	now        time.Time
-	housErr    error
-	subjectErr error
-	subjectHit []string
+	repo            *itemtest.Repo
+	svc             *item.Service
+	zone            string
+	now             time.Time
+	housErr         error
+	subjectErr      error
+	subjectHit      []string
+	createSeq       int
+	subjectArchived bool
 }
 
 func newEnv(zone string) *env {
@@ -56,7 +59,7 @@ func newEnv(zone string) *env {
 		}
 		switch sid {
 		case subjectID:
-			return false, nil
+			return e.subjectArchived, nil
 		case archivedID:
 			return true, nil
 		}
@@ -65,6 +68,8 @@ func newEnv(zone string) *env {
 	e.svc = item.NewService(e.repo, houses, subjects, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
 	return e
 }
+
+func (e *env) nextKey() string { e.createSeq++; return "test-key-" + strconv.Itoa(e.createSeq) }
 
 func ptr[T any](v T) *T { return &v }
 
@@ -81,7 +86,7 @@ func (e *env) create(t *testing.T, n item.NewItem) item.Item {
 	if n.SubjectID == "" {
 		n.SubjectID = subjectID
 	}
-	created, err := e.svc.Create(context.Background(), userID, householdID, n)
+	created, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), n)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -164,6 +169,197 @@ func TestParseDate(t *testing.T) {
 	}
 }
 
+type creationLookupCounter struct {
+	item.Repository
+	repo    *itemtest.Repo
+	lookups int
+}
+
+func (r *creationLookupCounter) FindCreation(ctx context.Context, householdID, actorID, key string) (item.Item, []byte, error) {
+	r.lookups++
+	return r.repo.FindCreation(ctx, householdID, actorID, key)
+}
+
+func TestCreateIdempotencyService(t *testing.T) {
+	baseDate := "2026-02-01"
+	recurrenceFixed := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	recurrenceFluid := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+
+	t.Run("replay after edit returns current item without adding a row", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "replay-edit"
+		body := item.NewItem{SubjectID: subjectID, Title: "Original"}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edited, err := e.svc.Update(context.Background(), userID, householdID, first.ID, first.Version, item.Patch{Title: ptr("Edited")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := e.repo.Count()
+		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil || replay.ID != first.ID || replay.Title != "Edited" || replay.Version != edited.Version || e.repo.Count() != count {
+			t.Fatalf("replay=%+v edit=%+v count=%d/%d err=%v", replay, edited, e.repo.Count(), count, err)
+		}
+	})
+
+	t.Run("changed intent is rejected", func(t *testing.T) {
+		cases := []struct {
+			name              string
+			original, changed item.NewItem
+		}{
+			{"title", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "B"}},
+			{"subjectId", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: archivedID, Title: "A"}},
+			{"attentionOn", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "A", AttentionOn: ptr("2030-01-01")}},
+			{"notes content", item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("notes one")}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("notes two")}},
+			{"notes whitespace is exact", item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("notes")}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr(" notes ")}},
+			{"recurrence mode", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFluid}},
+			{"recurrence interval value", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}}},
+			{"recurrence interval unit", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitWeek}, Mode: schedule.ModeFixed}}},
+			{"historical date", item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: ptr("2026-02-02"), Recurrence: recurrenceFixed}},
+			{"historical date present versus omitted", item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}},
+			{"notes null versus empty", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("")}},
+			{"responsible member", item.NewItem{SubjectID: subjectID, Title: "A", ResponsibleUserID: ptr(userID)}, item.NewItem{SubjectID: subjectID, Title: "A", ResponsibleUserID: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62")}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				e := newEnv("UTC")
+				key := "reuse"
+				first, err := e.svc.Create(context.Background(), userID, householdID, key, tc.original)
+				if err != nil {
+					t.Fatal(err)
+				}
+				beforeCount, beforeReceipts := e.repo.Count(), e.repo.CompletionCount()
+				if _, err := e.svc.Create(context.Background(), userID, householdID, key, tc.changed); !errors.Is(err, item.ErrIdempotencyKeyReused) {
+					t.Fatalf("err=%v", err)
+				}
+				current, ok := e.repo.Row(first.ID)
+				if !ok || current.Version != first.Version || e.repo.Count() != beforeCount || e.repo.CompletionCount() != beforeReceipts {
+					t.Fatalf("rejected reuse changed state: current=%+v first=%+v rows=%d/%d receipts=%d/%d", current, first, e.repo.Count(), beforeCount, e.repo.CompletionCount(), beforeReceipts)
+				}
+			})
+		}
+	})
+
+	t.Run("canonical creation intent replays", func(t *testing.T) {
+		cases := []struct {
+			name string
+			a, b item.NewItem
+		}{
+			{"trimmed title", item.NewItem{SubjectID: subjectID, Title: "  Boiler "}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+			{"disabled recurrence", item.NewItem{SubjectID: subjectID, Title: "Boiler", Recurrence: &schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 3, Unit: schedule.UnitWeek}, Mode: schedule.ModeFixed}}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+			{"UUID case", item.NewItem{SubjectID: strings.ToUpper(subjectID), Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+			{"assignee UUID case", item.NewItem{SubjectID: subjectID, Title: "Boiler", ResponsibleUserID: ptr(strings.ToUpper(userID))}, item.NewItem{SubjectID: subjectID, Title: "Boiler", ResponsibleUserID: ptr(userID)}},
+			{"omitted optional fields versus null", item.NewItem{SubjectID: subjectID, Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler", ResponsibleUserID: nil, Notes: nil, AttentionOn: nil, Recurrence: nil}},
+			{"explicit-null notes and attention versus omitted", item.NewItem{SubjectID: subjectID, Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler", Notes: nil, AttentionOn: nil}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				e := newEnv("UTC")
+				key := "canonical"
+				first, err := e.svc.Create(context.Background(), userID, householdID, key, tc.a)
+				if err != nil {
+					t.Fatal(err)
+				}
+				replay, err := e.svc.Create(context.Background(), userID, householdID, key, tc.b)
+				if err != nil || replay.ID != first.ID {
+					t.Fatalf("first=%+v replay=%+v err=%v", first, replay, err)
+				}
+			})
+		}
+	})
+
+	t.Run("replay precedes subject validation", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "archive-replay"
+		body := item.NewItem{SubjectID: subjectID, Title: "Archived later"}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.subjectArchived = true
+		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil || replay.ID != first.ID {
+			t.Fatalf("replay=%+v err=%v", replay, err)
+		}
+	})
+
+	t.Run("membership is rechecked before replay lookup", func(t *testing.T) {
+		e := newEnv("UTC")
+		authorized := true
+		houses := func(_ context.Context, uid, hid string) (string, error) {
+			if uid != userID || hid != householdID || !authorized {
+				return "", item.ErrNotFound
+			}
+			return "UTC", nil
+		}
+		repository := &creationLookupCounter{Repository: e.repo, repo: e.repo}
+		svc := item.NewService(repository, houses, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
+		key := "membership-replay"
+		body := item.NewItem{SubjectID: subjectID, Title: "member protected"}
+		created, err := svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lookups := repository.lookups
+		authorized = false
+		if _, err = svc.Create(context.Background(), userID, householdID, key, body); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("revoked replay err=%v", err)
+		}
+		current, ok := e.repo.Row(created.ID)
+		if !ok || current.Version != created.Version || e.repo.Count() != 1 || repository.lookups != lookups {
+			t.Fatalf("replay lookup/state changed: current=%+v lookups=%d/%d count=%d", current, repository.lookups, lookups, e.repo.Count())
+		}
+	})
+
+	t.Run("rejected create does not reserve key", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "rejected"
+		if _, err := e.svc.Create(context.Background(), userID, householdID, key, item.NewItem{SubjectID: subjectID, Title: " "}); err == nil {
+			t.Fatal("invalid title accepted")
+		}
+		created, err := e.svc.Create(context.Background(), userID, householdID, key, item.NewItem{SubjectID: subjectID, Title: "Valid"})
+		if err != nil || created.ID == "" || e.repo.Count() != 1 {
+			t.Fatalf("created=%+v count=%d err=%v", created, e.repo.Count(), err)
+		}
+	})
+
+	t.Run("key scope includes actor and household", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "scope"
+		body := item.NewItem{SubjectID: subjectID, Title: "Scoped"}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherActor := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+		actorService := item.NewService(e.repo, func(_ context.Context, uid, hid string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
+		second, err := actorService.Create(context.Background(), otherActor, householdID, key, body)
+		if err != nil || second.ID == first.ID {
+			t.Fatalf("same-household actor scope first=%s second=%s err=%v", first.ID, second.ID, err)
+		}
+		third, err := actorService.Create(context.Background(), otherActor, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63", key, body)
+		if err != nil || third.ID == second.ID {
+			t.Fatalf("household scope second=%s third=%s err=%v", second.ID, third.ID, err)
+		}
+	})
+
+	t.Run("historical initialization replay keeps one receipt", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "historical-replay"
+		body := item.NewItem{SubjectID: subjectID, Title: "Historical", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil || replay.ID != first.ID || e.repo.CompletionCount() != 1 {
+			t.Fatalf("first=%+v replay=%+v receipts=%d err=%v", first, replay, e.repo.CompletionCount(), err)
+		}
+	})
+}
+
 func TestCreateStoresValidatedStateAndStartsOpen(t *testing.T) {
 	e := newEnv("UTC")
 	created := e.create(t, item.NewItem{Title: "  File taxes  ", Notes: ptr("  keep\nspacing "), AttentionOn: ptr("2026-04-15")})
@@ -227,7 +423,7 @@ func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
 		t.Fatalf("off: %+v %v", off, err)
 	}
 	falsePolicy := schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
-	canonical, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "disabled maps to off", Recurrence: &falsePolicy})
+	canonical, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "disabled maps to off", Recurrence: &falsePolicy})
 	if err != nil || canonical.Recurrence != nil {
 		t.Fatalf("disabled policy not canonicalized: %+v %v", canonical, err)
 	}
@@ -235,7 +431,7 @@ func TestRecurrenceCreatePatchAndAttentionIndependence(t *testing.T) {
 	if err != nil || canonical.Recurrence != nil || canonical.Version != 9 {
 		t.Fatalf("disabled patch not canonicalized: %+v %v", canonical, err)
 	}
-	if _, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "one off"}); err != nil {
+	if _, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "one off"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -296,7 +492,7 @@ func TestHistoricalDateUsesHouseholdLocalToday(t *testing.T) {
 		wantErr    bool
 	}{{"Europe/Prague", "2026-03-02", false}, {"America/New_York", "2026-03-02", true}, {"America/New_York", "2026-03-01", false}} {
 		e := newEnv(tc.zone)
-		got, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x", HistoricalCompletedOn: ptr(tc.date), Recurrence: &policy})
+		got, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x", HistoricalCompletedOn: ptr(tc.date), Recurrence: &policy})
 		if tc.wantErr {
 			validation(t, err, "historicalCompletedOn", "future_date")
 			if e.repo.Count() != 0 {
@@ -341,7 +537,7 @@ func TestHistoricalInitializationValidation(t *testing.T) {
 				tc.in.SubjectID = subjectID
 			}
 			tc.in.Title = "x"
-			_, err := e.svc.Create(context.Background(), userID, householdID, tc.in)
+			_, err := e.svc.Create(context.Background(), userID, householdID, "test-key-"+tc.name, tc.in)
 			validation(t, err, tc.field, tc.code)
 			if e.repo.Count() != 0 {
 				t.Fatal("invalid historical initialization persisted")
@@ -363,7 +559,7 @@ func TestInvalidRecurrenceDoesNotPersist(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv("UTC")
-			_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "invalid", Recurrence: &tc.policy})
+			_, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "invalid", Recurrence: &tc.policy})
 			validation(t, err, "recurrence", tc.code)
 			if e.repo.Count() != 0 {
 				t.Fatal("invalid policy persisted")
@@ -392,22 +588,22 @@ func TestCreateRejectsInvalidInputWithoutPersisting(t *testing.T) {
 		{"foreign subject", item.NewItem{SubjectID: foreignID, Title: "x"}, "subjectId", "invalid_reference"},
 		{"archived subject", item.NewItem{SubjectID: archivedID, Title: "x"}, "subjectId", "invalid_reference"},
 	} {
-		_, err := e.svc.Create(ctx, userID, householdID, tc.in)
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), tc.in)
 		validation(t, err, tc.field, tc.code)
 	}
-	if e.repo.Count() != 0 || e.repo.Calls != 0 {
+	if e.repo.Count() != 0 || e.repo.Calls != 11 {
 		t.Fatalf("invalid input reached storage: rows=%d calls=%d", e.repo.Count(), e.repo.Calls)
 	}
 }
 
 func TestValidationOrderIsFieldsBeforeSubjectLookup(t *testing.T) {
 	e := newEnv("UTC")
-	_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: archivedID, Title: " "})
+	_, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: archivedID, Title: " "})
 	validation(t, err, "title", "invalid_length")
 	if len(e.subjectHit) != 0 {
 		t.Fatalf("subject looked up despite invalid fields: %v", e.subjectHit)
 	}
-	_, err = e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: "nope", Title: "ok"})
+	_, err = e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: "nope", Title: "ok"})
 	validation(t, err, "subjectId", "invalid_reference")
 	if len(e.subjectHit) != 0 {
 		t.Fatalf("malformed subject id must not reach the adapter: %v", e.subjectHit)
@@ -633,7 +829,7 @@ func TestMalformedIdentifiersAndNonMembersAreNotFound(t *testing.T) {
 	ctx := context.Background()
 	patch := item.Patch{Archived: ptr(true)}
 	for _, bad := range []string{"", "nope", "0198a2f07c1e7a539b0e5d3f2c1a4b70", "{0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70}"} {
-		if _, err := e.svc.Create(ctx, userID, bad, item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrNotFound) {
+		if _, err := e.svc.Create(ctx, userID, bad, "bad-household-key", item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("create %q: %v", bad, err)
 		}
 		if _, err := e.svc.List(ctx, userID, bad, item.ListQuery{}); !errors.Is(err, item.ErrNotFound) {
@@ -657,7 +853,7 @@ func TestMalformedIdentifiersAndNonMembersAreNotFound(t *testing.T) {
 		t.Fatalf("non-member update: %v", err)
 	}
 	// Non-member validation does not leak: membership precedes validation.
-	if _, err := e.svc.Create(ctx, userID, other, item.NewItem{SubjectID: "nope", Title: " "}); !errors.Is(err, item.ErrNotFound) {
+	if _, err := e.svc.Create(ctx, userID, other, "other-household-key", item.NewItem{SubjectID: "nope", Title: " "}); !errors.Is(err, item.ErrNotFound) {
 		t.Fatalf("non-member create: %v", err)
 	}
 	if e.repo.Calls != calls {
@@ -682,7 +878,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 				t.Fatalf("%s: %v", name, err)
 			}
 		}
-		_, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 		check("create", err)
 		_, err = e.svc.Get(ctx, userID, householdID, created.ID)
 		check("get", err)
@@ -696,7 +892,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 	})
 	t.Run("invalid timezone", func(t *testing.T) {
 		e := newEnv("Not/AZone")
-		_, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 		if !errors.Is(err, item.ErrUnavailable) {
 			t.Fatalf("err=%v", err)
 		}
@@ -705,7 +901,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 		e := newEnv("UTC")
 		created := e.create(t, item.NewItem{Title: "x"})
 		e.subjectErr = secret
-		_, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+		_, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 		if !errors.Is(err, item.ErrUnavailable) {
 			t.Fatalf("create: %v", err)
 		}
@@ -721,7 +917,7 @@ func TestAdapterInfrastructureFailureIsUnavailableNotNotFound(t *testing.T) {
 	t.Run("repository", func(t *testing.T) {
 		e := newEnv("UTC")
 		e.repo.Err = secret
-		if _, err := e.svc.Create(ctx, userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrUnavailable) {
+		if _, err := e.svc.Create(ctx, userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"}); !errors.Is(err, item.ErrUnavailable) {
 			t.Fatalf("create: %v", err)
 		}
 		if _, err := e.svc.Get(ctx, userID, householdID, subjectID); !errors.Is(err, item.ErrUnavailable) {
@@ -740,7 +936,7 @@ func TestRepositoryInvalidReferenceBecomesSubjectValidationError(t *testing.T) {
 	e := newEnv("UTC")
 	created := e.create(t, item.NewItem{Title: "x"})
 	e.repo.Err = item.ErrInvalidReference
-	_, err := e.svc.Create(context.Background(), userID, householdID, item.NewItem{SubjectID: subjectID, Title: "x"})
+	_, err := e.svc.Create(context.Background(), userID, householdID, e.nextKey(), item.NewItem{SubjectID: subjectID, Title: "x"})
 	validation(t, err, "subjectId", "invalid_reference")
 	_, err = e.svc.Update(context.Background(), userID, householdID, created.ID, 1, item.Patch{SubjectID: ptr(subjectID)})
 	validation(t, err, "subjectId", "invalid_reference")

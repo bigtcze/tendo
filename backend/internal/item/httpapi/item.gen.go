@@ -153,6 +153,87 @@ func (e ItemAttention) Valid() bool {
 	}
 }
 
+// Defines values for ItemCreateProblemCode.
+const (
+	ItemCreateProblemCodeConflictingFields    ItemCreateProblemCode = "conflicting_fields"
+	ItemCreateProblemCodeDateOverflow         ItemCreateProblemCode = "date_overflow"
+	ItemCreateProblemCodeFutureDate           ItemCreateProblemCode = "future_date"
+	ItemCreateProblemCodeIdempotencyKeyReused ItemCreateProblemCode = "idempotency_key_reused"
+	ItemCreateProblemCodeInvalidCharacters    ItemCreateProblemCode = "invalid_characters"
+	ItemCreateProblemCodeInvalidDate          ItemCreateProblemCode = "invalid_date"
+	ItemCreateProblemCodeInvalidInterval      ItemCreateProblemCode = "invalid_interval"
+	ItemCreateProblemCodeInvalidIntervalUnit  ItemCreateProblemCode = "invalid_interval_unit"
+	ItemCreateProblemCodeInvalidLength        ItemCreateProblemCode = "invalid_length"
+	ItemCreateProblemCodeInvalidMode          ItemCreateProblemCode = "invalid_mode"
+	ItemCreateProblemCodeInvalidReference     ItemCreateProblemCode = "invalid_reference"
+	ItemCreateProblemCodeRequiresRecurrence   ItemCreateProblemCode = "requires_recurrence"
+)
+
+// Valid indicates whether the value is a known member of the ItemCreateProblemCode enum.
+func (e ItemCreateProblemCode) Valid() bool {
+	switch e {
+	case ItemCreateProblemCodeConflictingFields:
+		return true
+	case ItemCreateProblemCodeDateOverflow:
+		return true
+	case ItemCreateProblemCodeFutureDate:
+		return true
+	case ItemCreateProblemCodeIdempotencyKeyReused:
+		return true
+	case ItemCreateProblemCodeInvalidCharacters:
+		return true
+	case ItemCreateProblemCodeInvalidDate:
+		return true
+	case ItemCreateProblemCodeInvalidInterval:
+		return true
+	case ItemCreateProblemCodeInvalidIntervalUnit:
+		return true
+	case ItemCreateProblemCodeInvalidLength:
+		return true
+	case ItemCreateProblemCodeInvalidMode:
+		return true
+	case ItemCreateProblemCodeInvalidReference:
+		return true
+	case ItemCreateProblemCodeRequiresRecurrence:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ItemCreateProblemField.
+const (
+	ItemCreateProblemFieldAttentionOn           ItemCreateProblemField = "attentionOn"
+	ItemCreateProblemFieldHistoricalCompletedOn ItemCreateProblemField = "historicalCompletedOn"
+	ItemCreateProblemFieldNotes                 ItemCreateProblemField = "notes"
+	ItemCreateProblemFieldRecurrence            ItemCreateProblemField = "recurrence"
+	ItemCreateProblemFieldResponsibleUserId     ItemCreateProblemField = "responsibleUserId"
+	ItemCreateProblemFieldSubjectId             ItemCreateProblemField = "subjectId"
+	ItemCreateProblemFieldTitle                 ItemCreateProblemField = "title"
+)
+
+// Valid indicates whether the value is a known member of the ItemCreateProblemField enum.
+func (e ItemCreateProblemField) Valid() bool {
+	switch e {
+	case ItemCreateProblemFieldAttentionOn:
+		return true
+	case ItemCreateProblemFieldHistoricalCompletedOn:
+		return true
+	case ItemCreateProblemFieldNotes:
+		return true
+	case ItemCreateProblemFieldRecurrence:
+		return true
+	case ItemCreateProblemFieldResponsibleUserId:
+		return true
+	case ItemCreateProblemFieldSubjectId:
+		return true
+	case ItemCreateProblemFieldTitle:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ItemValidationProblemCode.
 const (
 	ItemValidationProblemCodeConflictingFields    ItemValidationProblemCode = "conflicting_fields"
@@ -772,6 +853,24 @@ type Item struct {
 // ItemAttention Derived server-side from attentionOn and today's date in the household timezone; never set by clients. needs_attention when attentionOn is null or not after today, otherwise upcoming.
 type ItemAttention string
 
+// ItemCreateProblem Item creation 422. Field validation problems carry field; idempotency_key_reused omits field.
+type ItemCreateProblem struct {
+	Code                 ItemCreateProblemCode   `json:"code"`
+	Detail               *string                 `json:"detail,omitempty"`
+	Field                *ItemCreateProblemField `json:"field,omitempty"`
+	Instance             *string                 `json:"instance,omitempty"`
+	Status               int                     `json:"status"`
+	Title                string                  `json:"title"`
+	Type                 string                  `json:"type"`
+	AdditionalProperties map[string]interface{}  `json:"-"`
+}
+
+// ItemCreateProblemCode defines model for ItemCreateProblem.Code.
+type ItemCreateProblemCode string
+
+// ItemCreateProblemField defines model for ItemCreateProblem.Field.
+type ItemCreateProblemField string
+
 // ItemList defines model for ItemList.
 type ItemList struct {
 	Items []Item `json:"items"`
@@ -1194,6 +1293,9 @@ type ListItemsParams struct {
 type CreateItemParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IdempotencyKey Case-sensitive visible ASCII key, 1–128 bytes. Reuse only for retries of the same create intent.
+	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
 // GetItemParams defines parameters for GetItem.
@@ -1640,6 +1742,156 @@ func (a InvitationValidationProblem) MarshalJSON() ([]byte, error) {
 	object["field"], err = json.Marshal(a.Field)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for ItemCreateProblem. Returns the specified
+// element and whether it was found
+func (a ItemCreateProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for ItemCreateProblem
+func (a *ItemCreateProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for ItemCreateProblem to handle AdditionalProperties
+func (a *ItemCreateProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for ItemCreateProblem to handle AdditionalProperties
+func (a ItemCreateProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	if a.Field != nil {
+		object["field"], err = json.Marshal(a.Field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'field': %w", err)
+		}
 	}
 
 	if a.Instance != nil {

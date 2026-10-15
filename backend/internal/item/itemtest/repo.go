@@ -23,10 +23,12 @@ type Repo struct {
 	Clock       time.Time
 	seq         int
 	completions []item.Completion
+	creations   map[string][]byte
+	creationIDs map[string]string
 }
 
 func New() *Repo {
-	return &Repo{rows: map[string]item.Item{}, Clock: time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC)}
+	return &Repo{rows: map[string]item.Item{}, creations: map[string][]byte{}, creationIDs: map[string]string{}, Clock: time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC)}
 }
 
 // Seed stores a row as-is.
@@ -174,12 +176,16 @@ func (r *Repo) ListCompletions(_ context.Context, householdID, itemID, after str
 	return out, nil
 }
 
-func (r *Repo) Create(_ context.Context, householdID string, d item.Draft) (item.Item, error) {
+func (r *Repo) CreateIdempotent(_ context.Context, householdID string, d item.Draft) (item.Item, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Calls++
 	if r.Err != nil {
-		return item.Item{}, r.Err
+		return item.Item{}, false, r.Err
+	}
+	key := householdID + ":" + d.ActorID + ":" + d.CreationKey
+	if _, ok := r.creationIDs[key]; ok {
+		return item.Item{}, false, nil
 	}
 	r.seq++
 	id := "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
@@ -197,7 +203,21 @@ func (r *Repo) Create(_ context.Context, householdID string, d item.Draft) (item
 		r.completions = append(r.completions, receipt)
 	}
 	r.rows[id] = i
-	return i, nil
+	r.creationIDs[key] = id
+	r.creations[key] = append([]byte(nil), d.CreationFingerprint...)
+	return i, true, nil
+}
+
+func (r *Repo) FindCreation(_ context.Context, householdID, actorID, key string) (item.Item, []byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Calls++
+	creation := householdID + ":" + actorID + ":" + key
+	id, ok := r.creationIDs[creation]
+	if !ok {
+		return item.Item{}, nil, item.ErrNotFound
+	}
+	return r.rows[id], append([]byte(nil), r.creations[creation]...), nil
 }
 
 func (r *Repo) Get(_ context.Context, householdID, itemID string) (item.Item, error) {

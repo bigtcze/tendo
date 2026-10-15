@@ -1,12 +1,19 @@
 -- name: CreateItem :one
-INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode)
-VALUES (sqlc.arg('household_id'), sqlc.arg('subject_id'), sqlc.narg('responsible_user_id')::uuid, sqlc.arg('title'), sqlc.narg('notes')::text, sqlc.narg('attention_on')::date, sqlc.narg('recurrence_interval_value')::integer, sqlc.narg('recurrence_interval_unit')::text, sqlc.narg('recurrence_mode')::text)
+INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES (sqlc.arg('household_id'), sqlc.arg('subject_id'), sqlc.narg('responsible_user_id')::uuid, sqlc.arg('title'), sqlc.narg('notes')::text, sqlc.narg('attention_on')::date, sqlc.narg('recurrence_interval_value')::integer, sqlc.narg('recurrence_interval_unit')::text, sqlc.narg('recurrence_mode')::text, sqlc.arg('created_by_user_id'), sqlc.arg('creation_key'), sqlc.arg('creation_request_fingerprint'))
+ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
 RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version;
 
 -- name: InsertInitializedItem :one
-INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version)
-VALUES (sqlc.arg('household_id'), sqlc.arg('subject_id'), sqlc.narg('responsible_user_id')::uuid, sqlc.arg('title'), sqlc.narg('notes')::text, NULL, sqlc.narg('recurrence_interval_value')::integer, sqlc.narg('recurrence_interval_unit')::text, sqlc.narg('recurrence_mode')::text, 1)
+INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES (sqlc.arg('household_id'), sqlc.arg('subject_id'), sqlc.narg('responsible_user_id')::uuid, sqlc.arg('title'), sqlc.narg('notes')::text, NULL, sqlc.narg('recurrence_interval_value')::integer, sqlc.narg('recurrence_interval_unit')::text, sqlc.narg('recurrence_mode')::text, 1, sqlc.arg('created_by_user_id'), sqlc.arg('creation_key'), sqlc.arg('creation_request_fingerprint'))
+ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
 RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, NULL::date AS last_completed_on, created_at, updated_at, version;
+
+-- name: FindItemCreation :one
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version, creation_request_fingerprint
+FROM items
+WHERE items.household_id = sqlc.arg('household_id') AND items.created_by_user_id = sqlc.arg('created_by_user_id') AND items.creation_key = sqlc.arg('creation_key');
 
 -- name: GetItem :one
 SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version

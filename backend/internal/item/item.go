@@ -5,9 +5,13 @@
 package item
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -145,6 +149,9 @@ func (p Patch) empty() bool {
 
 // Draft is a validated new item handed to the repository.
 type Draft struct {
+	ActorID               string
+	CreationKey           string
+	CreationFingerprint   []byte
 	SubjectID             string
 	ResponsibleUserID     *string
 	Title                 string
@@ -188,7 +195,8 @@ type Page struct {
 // ascending id order, at most limit. Repositories never populate Item.Attention.
 // Any other error is an infrastructure failure.
 type Repository interface {
-	Create(ctx context.Context, householdID string, d Draft) (Item, error)
+	CreateIdempotent(ctx context.Context, householdID string, d Draft) (Item, bool, error)
+	FindCreation(ctx context.Context, householdID, actorID, key string) (Item, []byte, error)
 	Get(ctx context.Context, householdID, itemID string) (Item, error)
 	List(ctx context.Context, householdID string, archived, done bool, afterID string, limit int) ([]Item, error)
 	Complete(ctx context.Context, householdID, itemID, key string, fingerprint [32]byte, decide CompletionDecider) (Completion, bool, error)
@@ -310,10 +318,19 @@ func (s *Service) checkSubject(ctx context.Context, userID, householdID, subject
 	return subjectID, nil
 }
 
-func (s *Service) Create(ctx context.Context, userID, householdID string, n NewItem) (Item, error) {
+func (s *Service) Create(ctx context.Context, userID, householdID, key string, n NewItem) (Item, error) {
 	householdID, today, err := s.check(ctx, userID, householdID)
 	if err != nil {
 		return Item{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	actorID := strings.ToLower(userID)
+	fingerprint := creationFingerprint(actorID, n)
+	if existing, stored, findErr := s.repository.FindCreation(ctx, householdID, actorID, key); findErr == nil {
+		return replayCreation(existing, stored, fingerprint, today)
+	} else if !errors.Is(findErr, ErrNotFound) {
+		return Item{}, mapRepoErr(findErr)
 	}
 	title, err := ValidateTitle(n.Title)
 	if err != nil {
@@ -356,8 +373,6 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 			return Item{}, &ValidationError{"historicalCompletedOn", "future_date"}
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
 	var receipt *Completion
 	if historicalDate != nil {
 		next, nextErr := schedule.NextCycle(nil, *historicalDate, *n.Recurrence)
@@ -379,11 +394,18 @@ func (s *Service) Create(ctx context.Context, userID, householdID string, n NewI
 	if err != nil {
 		return Item{}, err
 	}
-	created, err := s.repository.Create(ctx, householdID, Draft{SubjectID: subjectID, ResponsibleUserID: responsibleID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence, InitializationReceipt: receipt})
+	created, inserted, err := s.repository.CreateIdempotent(ctx, householdID, Draft{ActorID: actorID, CreationKey: key, CreationFingerprint: fingerprint, SubjectID: subjectID, ResponsibleUserID: responsibleID, Title: title, Notes: n.Notes, AttentionOn: attentionOn, Recurrence: n.Recurrence, InitializationReceipt: receipt})
 	if err != nil {
 		return Item{}, mapRepoErr(err)
 	}
-	return derive(created, today)
+	if inserted {
+		return derive(created, today)
+	}
+	existing, stored, err := s.repository.FindCreation(ctx, householdID, actorID, key)
+	if err != nil {
+		return Item{}, mapRepoErr(err)
+	}
+	return replayCreation(existing, stored, fingerprint, today)
 }
 
 func (s *Service) Get(ctx context.Context, userID, householdID, itemID string) (Item, error) {
@@ -525,6 +547,50 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		return Item{}, mapRepoErr(err)
 	}
 	return derive(updated, today)
+}
+
+func replayCreation(existing Item, stored, submitted []byte, today schedule.Date) (Item, error) {
+	if !bytes.Equal(stored, submitted) {
+		return Item{}, ErrIdempotencyKeyReused
+	}
+	return derive(existing, today)
+}
+
+func creationFingerprint(actor string, n NewItem) []byte {
+	var encoded []byte
+	field := func(value *string) {
+		if value == nil {
+			encoded = append(encoded, 0)
+			return
+		}
+		encoded = append(encoded, 1)
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], uint32(len(*value)))
+		encoded = append(encoded, size[:]...)
+		encoded = append(encoded, (*value)...)
+	}
+	for _, value := range []string{"tendo.item.create.v1", strings.ToLower(actor), strings.TrimSpace(n.Title), strings.ToLower(n.SubjectID)} {
+		v := value
+		field(&v)
+	}
+	if n.ResponsibleUserID == nil {
+		field(nil)
+	} else {
+		normalized := strings.ToLower(*n.ResponsibleUserID)
+		field(&normalized)
+	}
+	field(n.AttentionOn)
+	field(n.Notes)
+	recurrence := canonicalRecurrence(n.Recurrence)
+	if recurrence == nil {
+		field(nil)
+	} else {
+		fieldString := strings.Join([]string{strconv.Itoa(recurrence.Interval.Value), string(recurrence.Interval.Unit), string(recurrence.Mode)}, "\x00")
+		field(&fieldString)
+	}
+	field(n.HistoricalCompletedOn)
+	digest := sha256.Sum256(encoded)
+	return digest[:]
 }
 
 func canonicalRecurrence(policy *schedule.Policy) *schedule.Policy {

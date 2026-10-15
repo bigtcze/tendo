@@ -73,18 +73,20 @@ export async function listActiveSubjects(householdId: string, archived = false, 
   return { kind: 'error' };
 }
 
-export type CreateResult = { kind: 'ok'; item: Item } | Invalid | Failure;
-export async function createItem(householdId: string, body: components['schemas']['CreateItemRequest']): Promise<CreateResult> {
+export type CreateResult = { kind: 'ok'; item: Item } | Invalid | { kind: 'reused' } | { kind: 'definitive' } | Failure;
+export async function createItem(householdId: string, body: components['schemas']['CreateItemRequest'], idempotencyKey: string): Promise<CreateResult> {
   try {
-    const { data, error, response } = await api.POST(listPath, { params: { path: { householdId } }, body });
+    const { data, error, response } = await api.POST(listPath, { params: { path: { householdId }, header: { 'Idempotency-Key': idempotencyKey } }, body });
     if (data && response.status === 201) return { kind: 'ok', item: data };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 422) {
+      if ((error as Problem | undefined)?.code === 'idempotency_key_reused') return { kind: 'reused' };
       const problem = (error ?? {}) as Problem;
       const allowed: ItemField[] = ['title', 'subjectId', 'attentionOn', 'recurrence', 'notes', 'historicalCompletedOn', 'responsibleUserId'];
       return { kind: 'invalid', field: allowed.includes(problem.field as ItemField) ? problem.field as ItemField : 'title', code: problem.code ?? 'unknown' };
     }
-  } catch { /* network failure */ }
+    if (response.status >= 400 && response.status < 500) return { kind: 'definitive' };
+  } catch { /* keep stored attempt after network failure */ }
   return { kind: 'error' };
 }
 
