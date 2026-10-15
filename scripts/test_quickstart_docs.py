@@ -54,6 +54,20 @@ class QuickstartDocsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected heading between required sections"):
             extract_blocks(added, README, str(ROOT))
 
+    def test_readme_continuation_with_trailing_space_fails(self):
+        with self.assertRaisesRegex(ValueError, "Quick start commands must exactly match"):
+            extract_blocks(INSTALL, mutated_readme("sed -i \\\n", "sed -i \\ \n"), str(ROOT))
+
+    def test_tilde_shell_fence_inside_install_section_fails(self):
+        added = INSTALL.replace("## 3. Start Tendo\n", "## 3. Start Tendo\n\n~~~sh\nnonexistent-command\n~~~\n", 1)
+        with self.assertRaises(ValueError):
+            extract_blocks(added, README, str(ROOT))
+
+    def test_four_backtick_shell_fence_inside_install_section_fails(self):
+        added = INSTALL.replace("## 3. Start Tendo\n", "## 3. Start Tendo\n\n````sh\nnonexistent-command\n````\n", 1)
+        with self.assertRaises(ValueError):
+            extract_blocks(added, README, str(ROOT))
+
     def test_get_tendo_directory_transition_is_verified_by_smoke_not_extraction(self):
         """The smoke appends pwd -P and checks it equals the clone path after block 1."""
         self.assertIn('"${blocks[0]}"$\'\\n\'"pwd -P"', (ROOT / "scripts/quickstart-smoke.sh").read_text())

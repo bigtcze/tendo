@@ -20,20 +20,23 @@ INSTALL_COUNTS = (1, 2, 2, 1, 1)
 
 
 def _fences(text: str) -> list[tuple[str, str, int, int]]:
-    """Return fenced blocks as (info, body, start, end), rejecting unclosed fences."""
+    """Return CommonMark-style fenced blocks (backtick or tilde, length >= 3) as (info, body, start, end)."""
     lines = text.splitlines()
     result = []
     i = 0
     while i < len(lines):
-        match = re.match(r"^\s*```([^`]*)\s*$", lines[i])
-        if not match:
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", lines[i])
+        if not match or (match.group(1)[0] == "`" and "`" in match.group(2)):
             i += 1
             continue
         start = i
-        info = match.group(1).strip().split(maxsplit=1)[0].lower() if match.group(1).strip() else ""
+        fence = match.group(1)
+        info_text = match.group(2).strip()
+        info = info_text.split(maxsplit=1)[0].lower() if info_text else ""
+        closing = re.compile(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*$")
         i += 1
         body_start = i
-        while i < len(lines) and not re.match(r"^\s*```\s*$", lines[i]):
+        while i < len(lines) and not closing.match(lines[i]):
             i += 1
         if i == len(lines):
             raise ValueError(f"unclosed fenced code block at line {start + 1}")
@@ -68,7 +71,7 @@ def _section_ranges(text: str, headings: tuple[str, ...], label: str) -> tuple[l
 
 
 def _commands(block: str) -> list[str]:
-    joined = re.sub(r"\\\s*\n\s*", " ", block)
+    joined = re.sub(r"\\\n\s*", " ", block)
     return [line.strip() for line in joined.splitlines() if line.strip()]
 
 
