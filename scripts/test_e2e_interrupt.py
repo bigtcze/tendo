@@ -14,7 +14,15 @@ ROOT = Path(__file__).resolve().parent.parent
 APP = r'''#!/usr/bin/env python3
 import os,signal,subprocess,sys
 from http.server import BaseHTTPRequestHandler,HTTPServer
-if len(sys.argv)>1 and sys.argv[1]=="migrate": raise SystemExit(0)
+if len(sys.argv)>1 and sys.argv[1]=="migrate":
+ # Minimal stand-in schema so the runner's foreign-household seed succeeds; credentials go via PG* env only.
+ import urllib.parse
+ u=urllib.parse.urlsplit(os.environ["DATABASE_URL"])
+ env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
+ env.update(PGHOST=u.hostname,PGPORT=str(u.port or 5432),PGUSER=urllib.parse.unquote(u.username),PGPASSWORD=urllib.parse.unquote(u.password or ""),PGDATABASE=urllib.parse.unquote(u.path.lstrip("/")))
+ for k,v in urllib.parse.parse_qsl(u.query):env["PG"+k.upper()]=v
+ sql="CREATE TABLE households(id uuid PRIMARY KEY DEFAULT uuidv7(),name text,timezone text);CREATE TABLE subjects(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,type text,name text);CREATE TABLE items(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,subject_id uuid,title text);"
+ raise SystemExit(subprocess.run([PSQL_BIN,"-X","-q","-v","ON_ERROR_STOP=1","-c",sql],env=env).returncode)
 marker=os.environ["INTERRUPT_MARKERS"]
 with open(marker+"/app.pid","w") as f:f.write(str(os.getpid()))
 w=subprocess.Popen([sys.executable,"-c","import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(120)"])
@@ -59,7 +67,7 @@ class E2EWrapperInterruptTests(unittest.TestCase):
    pw=repo/"frontend/node_modules/.bin/playwright"; pw.write_text("#!/usr/bin/env bash\nexit 0\n"); pw.chmod(0o755)
    bindir=tmp/"bin";bindir.mkdir()
    go=bindir/"go";go.write_text("#!/usr/bin/env python3\nimport os,sys\na=sys.argv[1:];out=a[a.index('-o')+1];src=os.environ['E2E_FAKE_APP'] if 'oidc-provider' not in a[-1] else os.environ['E2E_FAKE_PROVIDER'];open(out,'w').write(open(src).read());os.chmod(out,0o755)\n");go.chmod(0o755)
-   app=tmp/"fake-app.py";app.write_text(APP);app.chmod(0o755)
+   app=tmp/"fake-app.py";app.write_text(APP.replace("PSQL_BIN",repr(os.environ.get("PSQL","psql"))));app.chmod(0o755)
    provider=tmp/"fake-provider.py";provider.write_text(PROVIDER);provider.chmod(0o755)
    markers=tmp/"markers";markers.mkdir()
    env=os.environ.copy();env.update({"PATH":str(bindir)+os.pathsep+env["PATH"],"E2E_FAKE_APP":str(app),"E2E_FAKE_PROVIDER":str(provider),"INTERRUPT_MARKERS":str(markers),"TENDO_TEST_POSTGRES_ADMIN_URL":admin})

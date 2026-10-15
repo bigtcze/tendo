@@ -12,24 +12,30 @@ const baseURL = required('E2E_BASE_URL');
 const setupToken = required('E2E_SETUP_TOKEN');
 const ownerPassword = required('E2E_OWNER_PASSWORD');
 const e2eClockNow = required('E2E_CLOCK_NOW');
+const foreignHouseholdId = required('E2E_FOREIGN_HOUSEHOLD_ID');
+const foreignSubjectId = required('E2E_FOREIGN_SUBJECT_ID');
+const foreignItemId = required('E2E_FOREIGN_ITEM_ID');
 const expectedCompletionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date(e2eClockNow));
 const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
 
 const problems: string[] = [];
 const failedResponses = new Set<string>();
-// The only browser-initiated HTTP errors the journey may cause: the anonymous session probe, the
-// wrong-setup-code onboarding submit, and the wrong-password login, plus the one deliberate stale subject save (412, added by that test). page.request calls are not reported.
+// Browser-initiated expected failures: anonymous session/setup/login attempts, deliberate stale save,
+// and the foreign detail deep-link lookup. page.request calls are not reported.
 const allowedFailedResponses = ['GET /api/v1/session 401', 'PUT /api/v1/auth/setup 401', 'POST /api/v1/session 401'];
 const expectedFailedPaths = new Set(['/api/v1/session', '/api/v1/auth/setup']);
+const expectedForeignDetailPath = new RegExp(`^/api/v1/households/[0-9a-f-]{36}/items/${foreignItemId}$`);
 const wrongSetupCode = 'A'.repeat(43) + '=';
 
 function watch(page: Page) {
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return;
     // Chromium logs a generic console error for each failed fetch; the response check below
-    // asserts exactly which failures happened, so only those for the session and setup endpoints are skipped.
-    if (expectedFailedPaths.has(new URL(message.location().url || 'about:blank').pathname)) return;
+    // asserts exactly which failures happened, so only the session/setup endpoints and the foreign item deep link are skipped.
+    const path = new URL(message.location().url || 'about:blank').pathname;
+    if (expectedFailedPaths.has(path)) return;
+    if (expectedForeignDetailPath.test(path) && /status of 404/.test(message.text())) return;
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
@@ -164,6 +170,7 @@ test.describe('Tendo production journey', () => {
   test('g. layout fits mobile and desktop viewports without horizontal overflow', async () => {
     for (const viewport of [
       { width: 360, height: 740 },
+      { width: 768, height: 1024 },
       { width: 1280, height: 800 },
     ]) {
       await page.setViewportSize(viewport);
@@ -456,13 +463,19 @@ test.describe('Tendo production journey', () => {
 
   test('n1. a one-off item with Repeat off completes, leaves the active list, keeps history, and undo brings it back', async () => {
     await page.goto('/');
-    await page.setViewportSize({ width: 360, height: 740 });
     try {
-      await page.getByRole('button', { name: en['items.add'], exact: true }).click();
-      await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      expect(overflow, '360px horizontal overflow with the item form open').toBeLessThanOrEqual(0);
-      await page.getByRole('button', { name: en['subjects.cancel'] }).click();
+      for (const viewport of [
+        { width: 360, height: 740 },
+        { width: 768, height: 1024 },
+        { width: 1280, height: 800 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+        await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        expect(overflow, `${viewport.width}px horizontal overflow with the item form open`).toBeLessThanOrEqual(0);
+        await page.getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
+      }
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
     }
@@ -620,7 +633,7 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('button', { name: en['subjects.restore'] }).click();
     await expect.poll(async () => (await detailItem()).archived).toBe(false);
 
-    for (const viewport of [{ width: 360, height: 740 }, { width: 1280, height: 800 }]) {
+    for (const viewport of [{ width: 360, height: 740 }, { width: 768, height: 1024 }, { width: 1280, height: 800 }]) {
       await page.setViewportSize(viewport);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow, `${viewport.width}px horizontal overflow on item detail`).toBeLessThanOrEqual(0);
@@ -972,6 +985,73 @@ test.describe('Tendo production journey', () => {
     expect(sessionToken).not.toBe('');
   });
 
+  test('n10. foreign household and resource access is indistinguishable from missing data', async () => {
+    await page.goto('/');
+    const deepLink = await page.goto(`/items/${foreignItemId}`);
+    expect(deepLink?.status()).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: en['itemDetail.gone'], exact: true })).toBeVisible();
+    await expect(page.getByText(en['itemDetail.goneBody'], { exact: true })).toBeVisible();
+    const browserText = await page.locator('body').innerText();
+    expect(browserText).not.toContain('Foreign gutter check');
+    expect(browserText).not.toContain('Foreign cottage');
+
+    await page.goto('/');
+    const activeItems = (await (await page.request.get(`/api/v1/households/${householdId}/items`)).json()).items as Array<{ title: string }>;
+    expect(activeItems.length).toBeGreaterThan(0);
+    await expect(page.getByRole('listitem').filter({ hasText: activeItems[0].title }).first()).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('Foreign gutter check');
+    await expect(page.locator('body')).not.toContainText('Foreign cottage');
+    await page.goto('/people');
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    await expect(row('Anička')).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('Foreign gutter check');
+    await expect(page.locator('body')).not.toContainText('Foreign cottage');
+
+    const missingId = '01890000-0000-7000-8000-000000000000';
+    const missing = await page.request.get(`/api/v1/households/${missingId}`);
+    expect(missing.status()).toBe(404);
+    expect(missing.headers()['content-type']).toBe('application/problem+json');
+    const baseline = await missing.json() as Record<string, unknown>;
+    expect(baseline).toEqual({ type: 'about:blank', title: 'Not Found', status: 404, code: 'not_found' });
+    const mutationHeaders = { Origin: baseURL, 'If-Match': '"1"' };
+    const attempts = [
+      await page.request.get(`/api/v1/households/${foreignHouseholdId}`),
+      await page.request.get(`/api/v1/households/${foreignHouseholdId}/subjects`),
+      await page.request.get(`/api/v1/households/${foreignHouseholdId}/items`),
+      await page.request.get(`/api/v1/households/${foreignHouseholdId}/members`),
+      await page.request.get(`/api/v1/households/${foreignHouseholdId}/items/${foreignItemId}`),
+      await page.request.get(`/api/v1/households/${foreignHouseholdId}/items/${foreignItemId}/completions`),
+      await page.request.get(`/api/v1/households/${householdId}/items/${foreignItemId}`),
+      await page.request.get(`/api/v1/households/${householdId}/subjects/${foreignSubjectId}`),
+      await page.request.patch(`/api/v1/households/${householdId}/items/${foreignItemId}`, { headers: mutationHeaders, data: { title: 'Hijack' } }),
+      await page.request.patch(`/api/v1/households/${foreignHouseholdId}/items/${foreignItemId}`, { headers: mutationHeaders, data: { title: 'Hijack' } }),
+      await page.request.post(`/api/v1/households/${foreignHouseholdId}/items/${foreignItemId}/completions`, { headers: { ...mutationHeaders, 'Idempotency-Key': 'e2e-foreign-completion' }, data: {} }),
+      await page.request.post(`/api/v1/households/${foreignHouseholdId}/subjects`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-foreign-subject' }, data: { name: 'Hijack subject', type: 'home' } }),
+      await page.request.patch(`/api/v1/households/${foreignHouseholdId}/subjects/${foreignSubjectId}`, { headers: mutationHeaders, data: { archived: true } }),
+    ];
+    for (const response of attempts) {
+      expect(response.status(), response.url()).toBe(404);
+      expect(response.headers()['etag'], response.url()).toBeUndefined();
+      expect(response.headers()['content-type'], response.url()).toBe('application/problem+json');
+      expect(await response.json(), response.url()).toEqual(baseline);
+    }
+
+    const listPaths = [
+      `/api/v1/households/${householdId}/items?archived=false`,
+      `/api/v1/households/${householdId}/items?archived=true`,
+      `/api/v1/households/${householdId}/items?done=true`,
+      `/api/v1/households/${householdId}/subjects?archived=false`,
+      `/api/v1/households/${householdId}/subjects?archived=true`,
+    ];
+    for (const path of listPaths) {
+      const response = await page.request.get(path);
+      expect(response.status(), path).toBe(200);
+      const body = JSON.stringify(await response.json());
+      expect(body).not.toContain(foreignItemId);
+      expect(body).not.toContain(foreignSubjectId);
+    }
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
@@ -1026,7 +1106,8 @@ test.describe('Tendo production journey', () => {
     const assetResponse = await page.request.get(asset);
     expect(assetResponse.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
     const subjectConflict = `PATCH /api/v1/households/${householdId}/subjects/${vehicleId} 412`;
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, subjectConflict].sort());
+    const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
+    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, subjectConflict, foreignDetailNotFound].sort());
     expect(problems).toEqual([]);
   });
 });
