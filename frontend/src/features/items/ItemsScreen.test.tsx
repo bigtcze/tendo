@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Item, Subject } from './itemsApi';
+import { clearPendingItemCreates } from './pendingItemCreate';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const itemList = `GET ${base}/items`;
@@ -33,8 +34,8 @@ async function openForm() {
   await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
   return screen.findByRole('form', { name: 'Add an item' });
 }
-beforeEach(() => vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']));
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); });
+beforeEach(() => { clearPendingItemCreates(); sessionStorage.clear(); vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); });
+afterEach(() => { cleanup(); clearPendingItemCreates(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); });
 
 describe('item creation', () => {
   it('defaults Repeat off and sends an exact one-off body', async () => {
@@ -49,7 +50,67 @@ describe('item creation', () => {
     await screen.findByText('“Renew passport” was added.');
     const post = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
     expect(JSON.parse(post.body)).toEqual({ title: 'Renew passport', subjectId: 's-1', recurrence: null });
+    expect(post.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
     expect(Object.hasOwn(JSON.parse(post.body), 'responsibleUserId')).toBe(false);
+  });
+
+  it('retries an uncertain item create with its stored key and exact body while inputs are frozen', async () => {
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Retry item');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
+    const first = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    expect(first.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
+    expect(within(form).getByLabelText('What needs doing?')).toBeDisabled();
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('“Retry item” was added.');
+    const postsSent = requestsOf(fake.requests, 'POST', `${base}/items`);
+    expect(postsSent).toHaveLength(2);
+    expect(postsSent[1]!.headers.get('Idempotency-Key')).toBe(first.headers.get('Idempotency-Key'));
+    expect(postsSent[1]!.body).toBe(first.body);
+  });
+
+  it('uses a fresh key for a deliberate create after success', async () => {
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ id: `i-${++posts}`, title: JSON.parse(request.body).title })) });
+    app();
+    let form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'First');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“First” was added.');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Second');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Second” was added.');
+    const postsSent = requestsOf(fake.requests, 'POST', `${base}/items`);
+    expect(postsSent[1]!.headers.get('Idempotency-Key')).not.toBe(postsSent[0]!.headers.get('Idempotency-Key'));
+  });
+
+  it('restores a pending create after App remount and retries the stored body', async () => {
+    let posts = 0;
+    const server = { ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request: RecordedRequest) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, item({ title: JSON.parse(request.body).title })) };
+    const first = installFakeServer(server);
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Reload item');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await within(form).findByText('We couldn’t confirm this was saved.');
+    const firstPost = requestsOf(first.requests, 'POST', `${base}/items`)[0]!;
+    cleanup();
+    const reloaded = installFakeServer(server);
+    app();
+    const restored = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(restored).getByLabelText('What needs doing?')).toHaveValue('Reload item');
+    expect(within(restored).getByLabelText('What needs doing?')).toBeDisabled();
+    await userEvent.click(within(restored).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('“Reload item” was added.');
+    const resent = requestsOf(reloaded.requests, 'POST', `${base}/items`)[0]!;
+    expect(resent.headers.get('Idempotency-Key')).toBe(firstPost.headers.get('Idempotency-Key'));
+    expect(resent.body).toBe(firstPost.body);
   });
 
   it('ignores older member pages resolved out of order', async () => {
@@ -151,6 +212,18 @@ describe('item creation', () => {
     expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'Check the roof', subjectId: 's-2', recurrence: null });
     const subjectRequests = requestsOf(fake.requests, 'GET', `${base}/subjects`);
     expect(subjectRequests.map((request) => request.query.get('cursor'))).toContain('subject-cursor');
+  });
+
+  it('clears an idempotency-key reuse response and offers no retry', async () => {
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { status: 422, code: 'idempotency_key_reused' }) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Reused key');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    expect(await screen.findByText('This wasn’t saved. Please add it again.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
+    expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);
   });
 
   it('maps a 422 title error to a focused accessible field', async () => {
@@ -502,6 +575,30 @@ describe('Home items', () => {
     expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
   });
 
+  it('clears a pending item create on sign out', async () => {
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: () => Promise.reject(new Error('offline')), 'DELETE /api/v1/session': json(204), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Signout pending');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByRole('button', { name: 'Check again' });
+    expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).not.toBeNull();
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await screen.findByRole('heading', { name: 'Sign in to Tendo' });
+    expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
+    expect(requestsOf(fake.requests, 'DELETE', '/api/v1/session')).toHaveLength(1);
+  });
+
+  it('clears an item create attempt when the server returns 401', async () => {
+    installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Expired session');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByRole('heading', { name: 'Sign in to Tendo' });
+    expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
+  });
+
   it('returns to sign-in on 401 while completing', async () => {
     installFakeServer({ ...routes, [itemList]: page([item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
@@ -557,6 +654,26 @@ describe('Home items', () => {
     expect(notes.getAttribute('aria-describedby')).toBe(within(form).getByRole('alert').id);
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);
     expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'A note', subjectId: 's-1', notes: 'details', recurrence: null });
+  });
+
+  it('resends the stored historical completion date verbatim after an uncertain create', async () => {
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, [itemList]: page([]), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, item({ title: JSON.parse(request.body).title })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Historical retry');
+    await userEvent.click(within(form).getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Add a previous completion' }));
+    await userEvent.type(within(form).getByLabelText('Last completed on'), '2025-06-12');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await within(form).findByText('We couldn’t confirm this was saved.');
+    const first = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    expect(JSON.parse(first.body).historicalCompletedOn).toBe('2025-06-12');
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('“Historical retry” was added.');
+    const postsSent = requestsOf(fake.requests, 'POST', `${base}/items`);
+    expect(postsSent[1]!.body).toBe(first.body);
+    expect(postsSent[1]!.headers.get('Idempotency-Key')).toBe(first.headers.get('Idempotency-Key'));
   });
 
   it('reveals historical completion only for repeating add forms and sends only the entered date', async () => {
