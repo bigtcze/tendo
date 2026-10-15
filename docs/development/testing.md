@@ -96,6 +96,16 @@ The required workflow retains one stable branch-protection aggregate check named
 
 The native browser suite is not a replacement for deployment smokes. Production runtime, setup/API, OIDC API, all reverse proxies, backup/restore, household backup, and the copy-paste quick start remain mandatory CI jobs.
 
+### Refresh the README screenshot
+
+With the dedicated PostgreSQL service and pinned tools available, run:
+
+```sh
+TENDO_README_SCREENSHOT=$PWD/docs/images/home.png bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+```
+
+The opt-in capture builds and runs the production app against real PostgreSQL, uses the fixed test clock `2026-05-14T08:00:00Z`, and creates realistic household data through the public API. It is separate from the required E2E journeys and is not part of CI.
+
 ## Assertion coverage map
 
 | Layer | Assertions retained |

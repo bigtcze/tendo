@@ -7,7 +7,9 @@ if (!baseURL) throw new Error('E2E_BASE_URL is required; run scripts/e2e-smoke.s
 export default defineConfig({
   testDir: 'e2e',
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? 'test-results/artifacts',
-  testIgnore: process.env.E2E_CLOCK_PHASE ? [] : ['e2e/attention-clock.spec.ts'],
+  testIgnore: process.env.E2E_SCREENSHOT_PATH
+    ? ['e2e/journey.spec.ts', 'e2e/attention-clock.spec.ts']
+    : process.env.E2E_CLOCK_PHASE ? [] : ['e2e/attention-clock.spec.ts', 'e2e/readme-screenshot.spec.ts'],
   fullyParallel: false,
   workers: 1,
   retries: 0,

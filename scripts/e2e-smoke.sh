@@ -67,8 +67,14 @@ forward_signal() {
 }
 trap 'forward_signal INT' INT
 trap 'forward_signal TERM' TERM
+runner_args=(--root "$root" --app "$tmp/tendo" --provider "$tmp/oidc-provider")
+if [[ -n "${TENDO_README_SCREENSHOT:-}" ]]; then
+  screenshot_path=$(realpath -m -- "$TENDO_README_SCREENSHOT")
+  mkdir -p "$(dirname "$screenshot_path")"
+  runner_args+=(--screenshot "$screenshot_path")
+fi
 set +e
-python3 "$root/scripts/postgres-test-service.py" python3 "$root/scripts/e2e-native-runner.py" --root "$root" --app "$tmp/tendo" --provider "$tmp/oidc-provider" &
+python3 "$root/scripts/postgres-test-service.py" python3 "$root/scripts/e2e-native-runner.py" "${runner_args[@]}" &
 wrapper_child=$!
 wait "$wrapper_child"
 result=$?
