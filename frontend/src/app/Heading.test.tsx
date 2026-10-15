@@ -10,15 +10,9 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-// Render work longer than React's 5 ms scheduler frame makes React yield before deferred (passive) effects.
-function SlowSibling() {
-  const end = performance.now() + 25;
-  while (performance.now() < end) { /* busy wait */ }
-  return null;
-}
-
 async function activeElementWhenHeadingAppears(transitioned: boolean) {
-  // Outside act(), like a real browser and like Testing Library's findBy* polling.
+  // Outside act(), like a real browser: React defers passive effects past the commit, and the
+  // MutationObserver records focus at the moment the heading is inserted, before those effects run.
   actGlobal.IS_REACT_ACT_ENVIRONMENT = false;
   const container = document.createElement('div');
   document.body.append(container);
@@ -34,7 +28,6 @@ async function activeElementWhenHeadingAppears(transitioned: boolean) {
   });
   root.render(
     <ScreenTransitionContext value={{ current: transitioned }}>
-      <SlowSibling />
       <Heading>Screen</Heading>
     </ScreenTransitionContext>,
   );
