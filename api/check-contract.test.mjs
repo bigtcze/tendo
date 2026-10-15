@@ -166,6 +166,30 @@ test('item create schema accepts omission and a historical date but rejects null
   assert.equal(validatePatch({ responsibleUserId: 7 }), false)
 })
 
+test('item create-key 422 fixtures enforce ItemCreateProblem conditionals', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-api-item-create-key-'))
+  const fixturePath = join(directory, 'responses.json')
+  const collection = '/api/v1/households/{householdId}/items'
+  const base = { 'x-request-id': 'contract-check', 'cache-control': 'no-store', 'content-type': 'application/problem+json' }
+  const reused = { path: collection, method: 'post', status: 422, headers: base, body: { type: 'about:blank', title: 'Unprocessable Entity', status: 422, code: 'idempotency_key_reused' } }
+  const invalid = { path: collection, method: 'post', status: 422, headers: base, body: { type: 'about:blank', title: 'Validation Failed', status: 422, code: 'invalid_length', field: 'title' } }
+  const run = async fixture => {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''; child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close'); return { code, stderr }
+  }
+  try {
+    for (const fixture of [reused, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    for (const [name, fixture, mutate] of [
+      ['reused key with field', reused, f => { f.body.field = 'title' }],
+      ['field validation without field', invalid, f => { delete f.body.field }],
+      ['unknown item field', invalid, f => { f.body.field = 'archived' }],
+      ['reused key missing code', reused, f => { delete f.body.code }],
+    ]) await t.test(name, async () => { const copy=structuredClone(fixture); mutate(copy); const result=await run(copy); assert.notEqual(result.code,0); assert.match(result.stderr,/body invalid/) })
+  } finally { await rm(directory,{recursive:true,force:true}) }
+})
+
 test('historically initialized item-create response is checked against OpenAPI', async () => {
   const fixturePath = await mkdtemp(join(tmpdir(), 'tendo-api-item-')).then(directory => join(directory, 'responses.json'))
   const household = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'

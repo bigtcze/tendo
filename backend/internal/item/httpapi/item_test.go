@@ -144,6 +144,88 @@ func stored(t *testing.T, f *fixture) item.Item {
 	return i
 }
 
+func (f *fixture) createWithKeys(body string, keys ...string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, base, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for _, key := range keys {
+		req.Header.Add("Idempotency-Key", key)
+	}
+	w := httptest.NewRecorder()
+	f.handler.ServeHTTP(w, req)
+	return w
+}
+
+func TestCreateIdempotencyHeaderValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		keys []string
+		code string
+	}{
+		{"missing", nil, "idempotency_key_required"}, {"empty", []string{""}, "invalid_idempotency_key"}, {"repeated", []string{"one", "two"}, "invalid_idempotency_key"}, {"non ascii", []string{"café"}, "invalid_idempotency_key"}, {"too long", []string{strings.Repeat("x", 129)}, "invalid_idempotency_key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(true)
+			w := f.createWithKeys("{", tc.keys...)
+			if w.Code != 400 || !strings.Contains(w.Body.String(), `"code":"`+tc.code+`"`) {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+		})
+	}
+	f := newFixture(true)
+	w := f.createWithKeys(`{"title":"Valid","subjectId":"`+sid+`"}`, strings.Repeat("x", 128))
+	if w.Code != 201 {
+		t.Fatalf("128-byte key status=%d body=%s", w.Code, w.Body)
+	}
+	f = newFixture(true)
+	w = f.createWithKeys("{")
+	if w.Code != 400 || !strings.Contains(w.Body.String(), `"code":"idempotency_key_required"`) {
+		t.Fatalf("key must precede body decoding: status=%d body=%s", w.Code, w.Body)
+	}
+}
+
+func TestCreateIdempotencyReplayAndReuseResponses(t *testing.T) {
+	f := newFixture(true)
+	body := `{"title":"Idempotent","subjectId":"` + sid + `"}`
+	first := f.do(http.MethodPost, base, body, nil)
+	if first.Code != 201 {
+		t.Fatalf("first=%d %s", first.Code, first.Body)
+	}
+	var firstBody map[string]any
+	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
+		t.Fatal(err)
+	}
+	createdID := firstBody["id"].(string)
+	patched := f.do(http.MethodPatch, base+"/"+createdID, `{"title":"Edited"}`, map[string]string{"If-Match": "\"1\""})
+	if patched.Code != 200 {
+		t.Fatalf("patch=%d %s", patched.Code, patched.Body)
+	}
+	replay := f.do(http.MethodPost, base, body, nil)
+	if replay.Code != 201 || replay.Header().Get("Location") != first.Header().Get("Location") || replay.Header().Get("ETag") != `"2"` {
+		t.Fatalf("replay status=%d headers=%v body=%s", replay.Code, replay.Header(), replay.Body)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(replay.Body.Bytes(), &got); err != nil || got["title"] != "Edited" {
+		t.Fatalf("replay body=%v err=%v", got, err)
+	}
+	// Use the deterministic fixture key explicitly, as the helper derives it from the body by default.
+	var reused *httptest.ResponseRecorder
+	sum := sha256.Sum256([]byte(body))
+	key := hex.EncodeToString(sum[:16])
+	reused = f.createWithKeys(`{"title":"Different","subjectId":"`+sid+`"}`, key)
+	want := problem(422, "idempotency_key_reused")
+	bodyEqual(t, reused.Body.String(), want)
+	var problemBody map[string]any
+	_ = json.Unmarshal(reused.Body.Bytes(), &problemBody)
+	if reused.Code != 422 || reused.Header().Get("Content-Type") != "application/problem+json" {
+		t.Fatalf("reuse status=%d headers=%v body=%s", reused.Code, reused.Header(), reused.Body)
+	}
+	if _, ok := problemBody["field"]; ok {
+		t.Fatalf("unexpected field in reuse problem: %v", problemBody)
+	}
+	_ = first
+}
+
 func TestListDoneQueryValidation(t *testing.T) {
 	f := newFixture(true)
 	w := f.do("GET", base+"?done=bad", "", nil)

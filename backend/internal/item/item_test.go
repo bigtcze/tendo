@@ -27,14 +27,15 @@ const (
 var fixedNow = time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC)
 
 type env struct {
-	repo       *itemtest.Repo
-	svc        *item.Service
-	zone       string
-	now        time.Time
-	housErr    error
-	subjectErr error
-	subjectHit []string
-	createSeq  int
+	repo            *itemtest.Repo
+	svc             *item.Service
+	zone            string
+	now             time.Time
+	housErr         error
+	subjectErr      error
+	subjectHit      []string
+	createSeq       int
+	subjectArchived bool
 }
 
 func newEnv(zone string) *env {
@@ -58,7 +59,7 @@ func newEnv(zone string) *env {
 		}
 		switch sid {
 		case subjectID:
-			return false, nil
+			return e.subjectArchived, nil
 		case archivedID:
 			return true, nil
 		}
@@ -166,6 +167,142 @@ func TestParseDate(t *testing.T) {
 		_, err := item.ParseDate(in)
 		validation(t, err, "attentionOn", "invalid_date")
 	}
+}
+
+func TestCreateIdempotencyService(t *testing.T) {
+	baseDate := "2026-02-01"
+	recurrenceFixed := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	recurrenceFluid := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+
+	t.Run("replay after edit returns current item without adding a row", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "replay-edit"
+		body := item.NewItem{SubjectID: subjectID, Title: "Original"}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edited, err := e.svc.Update(context.Background(), userID, householdID, first.ID, first.Version, item.Patch{Title: ptr("Edited")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := e.repo.Count()
+		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil || replay.ID != first.ID || replay.Title != "Edited" || replay.Version != edited.Version || e.repo.Count() != count {
+			t.Fatalf("replay=%+v edit=%+v count=%d/%d err=%v", replay, edited, e.repo.Count(), count, err)
+		}
+	})
+
+	t.Run("changed intent is rejected", func(t *testing.T) {
+		cases := []struct {
+			name              string
+			original, changed item.NewItem
+		}{
+			{"title", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "B"}},
+			{"recurrence mode", item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", Recurrence: recurrenceFluid}},
+			{"historical date", item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}, item.NewItem{SubjectID: subjectID, Title: "A", HistoricalCompletedOn: ptr("2026-02-02"), Recurrence: recurrenceFixed}},
+			{"notes null versus empty", item.NewItem{SubjectID: subjectID, Title: "A"}, item.NewItem{SubjectID: subjectID, Title: "A", Notes: ptr("")}},
+			{"responsible member", item.NewItem{SubjectID: subjectID, Title: "A", ResponsibleUserID: ptr(userID)}, item.NewItem{SubjectID: subjectID, Title: "A", ResponsibleUserID: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62")}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				e := newEnv("UTC")
+				key := "reuse"
+				if _, err := e.svc.Create(context.Background(), userID, householdID, key, tc.original); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.svc.Create(context.Background(), userID, householdID, key, tc.changed); !errors.Is(err, item.ErrIdempotencyKeyReused) {
+					t.Fatalf("err=%v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("canonical creation intent replays", func(t *testing.T) {
+		cases := []struct {
+			name string
+			a, b item.NewItem
+		}{
+			{"trimmed title", item.NewItem{SubjectID: subjectID, Title: "  Boiler "}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+			{"disabled recurrence", item.NewItem{SubjectID: subjectID, Title: "Boiler", Recurrence: &schedule.Policy{Enabled: false, Interval: schedule.Interval{Value: 3, Unit: schedule.UnitWeek}, Mode: schedule.ModeFixed}}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+			{"UUID case", item.NewItem{SubjectID: strings.ToUpper(subjectID), Title: "Boiler"}, item.NewItem{SubjectID: subjectID, Title: "Boiler"}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				e := newEnv("UTC")
+				key := "canonical"
+				first, err := e.svc.Create(context.Background(), userID, householdID, key, tc.a)
+				if err != nil {
+					t.Fatal(err)
+				}
+				replay, err := e.svc.Create(context.Background(), userID, householdID, key, tc.b)
+				if err != nil || replay.ID != first.ID {
+					t.Fatalf("first=%+v replay=%+v err=%v", first, replay, err)
+				}
+			})
+		}
+	})
+
+	t.Run("replay precedes subject validation", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "archive-replay"
+		body := item.NewItem{SubjectID: subjectID, Title: "Archived later"}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.subjectArchived = true
+		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil || replay.ID != first.ID {
+			t.Fatalf("replay=%+v err=%v", replay, err)
+		}
+	})
+
+	t.Run("rejected create does not reserve key", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "rejected"
+		if _, err := e.svc.Create(context.Background(), userID, householdID, key, item.NewItem{SubjectID: subjectID, Title: " "}); err == nil {
+			t.Fatal("invalid title accepted")
+		}
+		created, err := e.svc.Create(context.Background(), userID, householdID, key, item.NewItem{SubjectID: subjectID, Title: "Valid"})
+		if err != nil || created.ID == "" || e.repo.Count() != 1 {
+			t.Fatalf("created=%+v count=%d err=%v", created, e.repo.Count(), err)
+		}
+	})
+
+	t.Run("key scope includes actor and household", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "scope"
+		body := item.NewItem{SubjectID: subjectID, Title: "Scoped"}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherActor := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+		actorService := item.NewService(e.repo, func(_ context.Context, uid, hid string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
+		second, err := actorService.Create(context.Background(), otherActor, householdID, key, body)
+		if err != nil || second.ID == first.ID {
+			t.Fatalf("same-household actor scope first=%s second=%s err=%v", first.ID, second.ID, err)
+		}
+		third, err := actorService.Create(context.Background(), otherActor, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63", key, body)
+		if err != nil || third.ID == second.ID {
+			t.Fatalf("household scope second=%s third=%s err=%v", second.ID, third.ID, err)
+		}
+	})
+
+	t.Run("historical initialization replay keeps one receipt", func(t *testing.T) {
+		e := newEnv("UTC")
+		key := "historical-replay"
+		body := item.NewItem{SubjectID: subjectID, Title: "Historical", HistoricalCompletedOn: &baseDate, Recurrence: recurrenceFixed}
+		first, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		replay, err := e.svc.Create(context.Background(), userID, householdID, key, body)
+		if err != nil || replay.ID != first.ID || e.repo.CompletionCount() != 1 {
+			t.Fatalf("first=%+v replay=%+v receipts=%d err=%v", first, replay, e.repo.CompletionCount(), err)
+		}
+	})
 }
 
 func TestCreateStoresValidatedStateAndStartsOpen(t *testing.T) {
