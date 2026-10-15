@@ -1,6 +1,6 @@
 # Development runtime
 
-The Compose stack is for development and CI only. It runs:
+This page covers the Compose stack from a contributor's point of view. To install Tendo for a household, follow the [installation guide](../admin/install.md). The stack runs:
 
 - PostgreSQL and health endpoints
 - first-owner setup, protected by an operator-generated setup code, used by the browser onboarding screen

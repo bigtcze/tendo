@@ -22,4 +22,4 @@ The canonical package is `backend/internal/schedule` (`internal/schedule` from t
 
 Examples (monthly interval): fixed anchor 2026-01-01 completed 2026-03-15 advances to 2026-04-01; fluid completion on 2026-03-15 advances to 2026-04-15. The sequential clamping choice deliberately preserves each consecutive interval step rather than reapplying the original day-of-month after a clamp.
 
-These functions remain pure calculations and do not persist schedule state or implement lifecycle, completion history, or completion transactions. The items API persists recurrence policy separately from the current attention date; completions are not yet implemented. See [the V1 plan](../../README.md) for project status.
+These functions remain pure calculations and do not persist schedule state or implement lifecycle, completion history, or completion transactions. The items API persists recurrence policy separately from the current attention date; the completion transaction that uses these calculations is described in [ADR 0005](../adr/0005-completion-receipts.md).

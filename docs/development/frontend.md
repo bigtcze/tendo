@@ -18,7 +18,7 @@ Start the backend from the repository root with `TENDO_PUBLIC_URL=http://localho
 docker compose up -d --build
 ```
 
-Set `TENDO_SETUP_TOKEN` as described in the README if you want to try onboarding, then start the dev server:
+Set `TENDO_SETUP_TOKEN` as described in [install](../admin/install.md) if you want to try onboarding, then start the dev server:
 
 ```sh
 cd frontend
