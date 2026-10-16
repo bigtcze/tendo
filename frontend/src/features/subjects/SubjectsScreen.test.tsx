@@ -29,12 +29,16 @@ const problem = (status: number, extra: Record<string, unknown> = {}) =>
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const listKey = `GET ${base}/subjects`;
 const createKey = `POST ${base}/subjects`;
+const membersKey = `GET ${base}/members`;
+const memberId = '0198a2f0-0000-7000-8000-000000000099';
+const membersResponse = () => json(200, { items: [{ userId: memberId, login: 'member_one', role: 'member' }], nextCursor: null });
 const itemKey = (id: string, method = 'GET') => `${method} ${base}/subjects/${id}`;
 
 const subject = (id: string, name: string, type: Subject['type'] = 'person', archived = false): Subject => ({
   id,
   name,
   type,
+  linkedUserId: null,
   archived,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
@@ -66,6 +70,12 @@ afterEach(() => {
 async function openPeople() {
   await userEvent.click(await screen.findByRole('link', { name: 'People and things' }));
   return screen.findByRole('heading', { level: 1, name: 'People and things' });
+}
+
+async function openAddForm() {
+  await openPeople();
+  await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
+  return screen.getByRole('form', { name: 'Add a person or thing' });
 }
 
 const sent = (requests: RecordedRequest[], method: string) => requests.filter((r) => r.method === method);
@@ -198,25 +208,21 @@ describe('list', () => {
 });
 
 describe('add', () => {
-  async function openForm() {
-    await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    return screen.getByRole('form', { name: 'Add a person or thing' });
-  }
-
   it('creates a person with the exact body and shows it in the list', async () => {
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([]),
+      [membersKey]: membersResponse(),
       [createKey]: json(201, subject('s-9', 'Zuzka'), { ETag: '"1"' }),
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     expect(within(form).getByRole('radio', { name: 'Person' })).toBeChecked();
     for (const label of ['Person', 'Home', 'Vehicle', 'Pet', 'Other']) {
       expect(within(form).getByRole('radio', { name: label })).toBeVisible();
     }
     expect(within(form).getAllByRole('textbox')).toHaveLength(1);
+    await screen.findByRole('combobox', { name: 'Their account in Tendo' });
     await userEvent.type(within(form).getByLabelText('Name'), '  Zuzka ');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
 
@@ -232,14 +238,38 @@ describe('add', () => {
     expect(screen.queryByText('Nothing here yet.')).not.toBeInTheDocument();
   });
 
+  it('creates with an optional linked account and persists that exact pending body', async () => {
+    let posts = 0;
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([]),
+      [membersKey]: membersResponse(),
+      [createKey]: () => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, { ...subject('linked', 'Lena'), linkedUserId: memberId }),
+    });
+    renderApp();
+    const form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Lena');
+    const account = await screen.findByRole('combobox', { name: 'Their account in Tendo' });
+    await userEvent.selectOptions(account, memberId);
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    const first = sent(fake.requests, 'POST')[0]!;
+    expect(JSON.parse(first.body)).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
+    expect(JSON.parse(sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)!).body).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
+    await userEvent.click(await screen.findByRole('button', { name: 'Check again' }));
+    await screen.findByText('Lena was added.');
+    expect(JSON.parse(sent(fake.requests, 'POST')[1]!.body)).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
+    expect(sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
+  });
+
   it('sends the chosen type; "Other" is custom', async () => {
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([]),
-      [createKey]: json(201, subject('s-9', 'Piano', 'custom')),
+      [membersKey]: membersResponse(),
+      [createKey]: json(201, subject('s-9', 'Piano', 'custom')), 
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Piano');
     await userEvent.click(within(form).getByRole('radio', { name: 'Other' }));
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
@@ -250,7 +280,7 @@ describe('add', () => {
   it('asks for an empty name without calling the server', async () => {
     const fake = installFakeServer({ ...signedIn, [listKey]: page([]) });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     const alert = await within(form).findByRole('alert');
     expect(alert).toHaveTextContent('Enter a name.');
@@ -271,7 +301,7 @@ describe('add', () => {
       [createKey]: problem(422, { field: 'name', code }),
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'x');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     const alert = await within(form).findByRole('alert');
@@ -291,7 +321,7 @@ describe('add', () => {
       [createKey]: problem(422, { field: 'type', code: 'invalid_type' }),
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'x');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     const alert = await within(form).findByRole('alert');
@@ -304,7 +334,7 @@ describe('add', () => {
   it('5xx keeps the form and says to try again', async () => {
     installFakeServer({ ...signedIn, [listKey]: page([]), [createKey]: problem(503) });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
@@ -321,7 +351,7 @@ describe('add', () => {
       [createKey]: (req) => ++posts === 1 ? Promise.reject(new Error('offline')) : json(201, subject('s-retry', JSON.parse(req.body).name)),
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Original');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     const first = sent(fake.requests, 'POST')[0]!;
@@ -344,7 +374,7 @@ describe('add', () => {
       [createKey]: (req) => ++calls === 1 ? problem(422, { field: 'name', code: 'invalid_length' }) : json(201, subject('s-fixed', JSON.parse(req.body).name)),
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'x');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     await within(form).findByRole('alert');
@@ -363,7 +393,7 @@ describe('add', () => {
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
@@ -381,7 +411,7 @@ describe('add', () => {
       },
     });
     renderApp();
-    const form = await openForm();
+    const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka{Enter}');
     expect(await within(form).findByRole('button', { name: 'Adding…' })).toBeDisabled();
     await userEvent.type(within(form).getByLabelText('Name'), '{Enter}');
@@ -417,6 +447,58 @@ describe('edit', () => {
     expect(calls.map((r) => r.method)).toEqual(['GET', 'PATCH']);
     expect(calls[1]!.headers.get('If-Match')).toBe('"7"');
     expect(JSON.parse(calls[1]!.body)).toEqual({ name: 'Škoda Octavia' });
+  });
+
+  it('patches a changed linked account, clears it explicitly, and clears automatically when changing type', async () => {
+    const linked = { ...anna, linkedUserId: memberId };
+    let current = linked;
+    let etag = '"1"';
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([linked]),
+      [membersKey]: membersResponse(),
+      [itemKey('s-1')]: () => etagged(current, etag),
+      [itemKey('s-1', 'PATCH')]: (req) => {
+        const changes = JSON.parse(req.body);
+        current = { ...current, ...changes };
+        etag = `"${Number(etag.replaceAll('"', '')) + 1}"`;
+        return json(200, current, { ETag: etag });
+      },
+    });
+    renderApp();
+    await openPeople();
+    await screen.findByText('Account: member_one');
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    let form = await screen.findByRole('form', { name: 'Edit Anna' });
+    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Their account in Tendo' }), '');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(JSON.parse(sent(fake.requests, 'PATCH')[0]!.body)).toEqual({ linkedUserId: null });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    form = await screen.findByRole('form', { name: 'Edit Anna' });
+    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Their account in Tendo' }), memberId);
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    form = await screen.findByRole('form', { name: 'Edit Anna' });
+    await userEvent.click(within(form).getByRole('radio', { name: 'Vehicle' }));
+    expect(within(form).getByText('Changing this to something other than a person will clear the linked account.')).toBeVisible();
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(JSON.parse(sent(fake.requests, 'PATCH')[2]!.body)).toEqual({ type: 'vehicle', linkedUserId: null });
+  });
+
+  it('hides the account chooser after member loading fails but still saves', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([]),
+      [membersKey]: problem(503),
+      [createKey]: json(201, subject('s-9', 'Solo')),
+    });
+    renderApp();
+    const form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Solo');
+    await waitFor(() => expect(within(form).queryByRole('combobox', { name: 'Their account in Tendo' })).not.toBeInTheDocument());
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(JSON.parse(sent(fake.requests, 'POST')[0]!.body)).toEqual({ name: 'Solo', type: 'person' });
   });
 
   it('can change the type', async () => {
@@ -467,6 +549,48 @@ describe('edit', () => {
     const patchesSent = sent(fake.requests, 'PATCH');
     expect(patchesSent.map((r) => r.headers.get('If-Match'))).toEqual(['"7"', '"8"']);
     expect(JSON.parse(patchesSent[1]!.body)).toEqual({ name: 'Octavia RS 2' });
+  });
+
+  it('412 shows the latest linked account rather than overwriting it', async () => {
+    const latest = { ...anna, linkedUserId: memberId };
+    let reads = 0;
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([anna]),
+      [membersKey]: membersResponse(),
+      [itemKey('s-1')]: () => ++reads === 1 ? etagged(anna, '"1"') : etagged(latest, '"2"'),
+      [itemKey('s-1', 'PATCH')]: problem(412),
+    });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    const form = await screen.findByRole('form', { name: 'Edit Anna' });
+    await userEvent.type(within(form).getByLabelText('Name'), ' mine');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    const latestForm = await screen.findByRole('form', { name: 'Edit Anna' });
+    expect(await screen.findByText(/Someone else changed this just now/)).toBeVisible();
+    expect(within(latestForm).getByRole('combobox', { name: 'Their account in Tendo' })).toHaveValue(memberId);
+    expect(JSON.parse(sent(fake.requests, 'PATCH')[0]!.body)).toEqual({ name: 'Anna mine' });
+  });
+
+  it('422 linkedUserId focuses the account select and announces a field error', async () => {
+    installFakeServer({
+      ...signedIn,
+      [listKey]: page([]),
+      [membersKey]: membersResponse(),
+      [createKey]: problem(422, { field: 'linkedUserId', code: 'invalid_reference' }),
+    });
+    renderApp();
+    const form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Lena');
+    const select = await screen.findByRole('combobox', { name: 'Their account in Tendo' });
+    await userEvent.selectOptions(select, memberId);
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    const alert = await within(form).findByRole('alert');
+    await waitFor(() => expect(alert).toHaveTextContent('Choose an account that belongs to this household.'));
+    expect(select).toHaveFocus();
+    expect(select).toHaveAttribute('aria-invalid', 'true');
+    expect(select.getAttribute('aria-describedby')).toBe(alert.id);
   });
 
   it('404 on save says it no longer exists and refreshes the list', async () => {
@@ -657,6 +781,18 @@ describe('archive and restore', () => {
 });
 
 describe('Czech', () => {
+  it('renders the linked account labels in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ ...signedIn, [listKey]: page([]), [membersKey]: membersResponse() });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Lidé a věci' }));
+    await screen.findByRole('heading', { level: 1, name: 'Lidé a věci' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Přidat' }));
+    const select = await screen.findByRole('combobox', { name: 'Jejich účet v Tendu' });
+    expect(select).toHaveValue('');
+    expect(within(screen.getByRole('form')).getByText('Pomáhá jen poznat, o koho jde. Nemění to, co kdo může vidět.')).toBeVisible();
+  });
+
   it('shows the uncertain-create notice in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...signedIn, [listKey]: page([]), [createKey]: problem(503) });

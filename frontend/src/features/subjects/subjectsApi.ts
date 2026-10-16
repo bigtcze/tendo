@@ -19,8 +19,8 @@ type Failure = { kind: 'unauthenticated' } | { kind: 'error' };
 export type InvalidCode = SubjectCode | 'unknown';
 export type Invalid = { kind: 'invalid'; field: SubjectField; code: InvalidCode };
 
-const fields: readonly string[] = ['name', 'type'];
-const codes: readonly string[] = ['invalid_characters', 'invalid_length', 'invalid_type'];
+const fields: readonly string[] = ['name', 'type', 'linkedUserId'];
+const codes: readonly string[] = ['invalid_characters', 'invalid_length', 'invalid_type', 'invalid_reference', 'requires_person'];
 
 function invalidFrom(error: unknown): Invalid {
   const { field, code } = (error ?? {}) as { field?: unknown; code?: unknown };
@@ -64,7 +64,7 @@ export type CreateResult = { kind: 'ok'; subject: Subject } | Invalid | { kind: 
 
 export async function createSubject(
   householdId: string,
-  body: { name: string; type: SubjectType },
+  body: { name: string; type: SubjectType; linkedUserId?: string },
   idempotencyKey: string,
 ): Promise<CreateResult> {
   try {

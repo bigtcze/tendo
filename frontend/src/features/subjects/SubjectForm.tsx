@@ -9,6 +9,7 @@ import { subjectTypes, type Invalid, type SubjectType } from './subjectsApi';
 export interface SubjectValues {
   name: string;
   type: SubjectType;
+  linkedUserId: string | null;
 }
 
 export type SubmitOutcome =
@@ -36,12 +37,13 @@ function errorKey(error: FormError): MessageKey {
   if (error.kind === 'empty') return 'subjects.error.nameEmpty';
   if (error.kind === 'failed') return 'subjects.error.save';
   if (error.field === 'type') return 'subjects.error.type';
+  if (error.field === 'linkedUserId') return error.code === 'requires_person' ? 'subjects.error.linkRequiresPerson' : 'subjects.error.linkInvalid';
   if (error.code === 'invalid_characters') return 'subjects.error.nameCharacters';
   if (error.code === 'invalid_length') return 'subjects.error.nameLength';
   return 'subjects.error.nameInvalid';
 }
 
-function errorTarget(error: FormError): 'name' | 'type' | null {
+function errorTarget(error: FormError): 'name' | 'type' | 'linkedUserId' | null {
   if (error.kind === 'empty') return 'name';
   if (error.kind === 'invalid') return error.field;
   return null;
@@ -50,6 +52,8 @@ function errorTarget(error: FormError): 'name' | 'type' | null {
 export function SubjectForm({
   label,
   initial,
+  members = [],
+  membersLoaded = false,
   submitLabel,
   pendingLabel,
   notice,
@@ -61,6 +65,8 @@ export function SubjectForm({
 }: {
   label: string;
   initial: SubjectValues;
+  members?: { userId: string; login: string }[];
+  membersLoaded?: boolean;
   submitLabel: string;
   pendingLabel: string;
   notice?: string;
@@ -74,10 +80,12 @@ export function SubjectForm({
   const { t } = useI18n();
   const uid = useId();
   const nameId = `${uid}-name`;
+  const linkedId = `${uid}-linked-account`;
   const errorId = `${uid}-error`;
   const formRef = useRef<HTMLFormElement>(null);
   const [name, setName] = useState(initial.name);
   const [type, setType] = useState<SubjectType>(initial.type);
+  const [linkedUserId, setLinkedUserId] = useState<string | null>(initial.linkedUserId);
   const [pending, setPending] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
@@ -99,6 +107,7 @@ export function SubjectForm({
     // Focus right away: the input exists already and the alert text follows on the next render.
     if (field === 'name') document.getElementById(nameId)?.focus();
     if (field === 'type') formRef.current?.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.focus();
+    if (field === 'linkedUserId') document.getElementById(linkedId)?.focus();
   }
 
   async function submit(event: FormEvent) {
@@ -114,7 +123,7 @@ export function SubjectForm({
     setError(null);
     let outcome: SubmitOutcome;
     try {
-      outcome = await onSubmit({ name, type });
+      outcome = await onSubmit({ name, type, linkedUserId: type === 'person' ? linkedUserId : null });
     } catch {
       outcome = { kind: 'failed' };
     }
@@ -188,6 +197,28 @@ export function SubjectForm({
           ))}
         </div>
       </fieldset>
+      {type === 'person' && membersLoaded && (members.length > 0 || linkedUserId !== null) ? (
+        <div className="space-y-2">
+          <Label htmlFor={linkedId} className="text-muted">{t('subjects.link.label')}</Label>
+          <select
+            id={linkedId}
+            value={linkedUserId ?? ''}
+            onChange={(event) => { setShowNotice(false); setLinkedUserId(event.target.value || null); }}
+            disabled={locked}
+            aria-invalid={target === 'linkedUserId'}
+            aria-describedby={target === 'linkedUserId' ? errorId : `${linkedId}-hint`}
+            className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <option value="">{t('subjects.link.none')}</option>
+            {linkedUserId && !members.some((member) => member.userId === linkedUserId) ? (
+              <option value={linkedUserId}>{t('subjects.link.unknown')}</option>
+            ) : null}
+            {members.map((member) => <option key={member.userId} value={member.userId}>{member.login}</option>)}
+          </select>
+          <p id={`${linkedId}-hint`} className="text-sm text-muted">{t('subjects.link.hint')}</p>
+        </div>
+      ) : null}
+      {type !== 'person' && initial.linkedUserId && linkedUserId ? <p className="text-sm text-muted">{t('subjects.link.clearedByType')}</p> : null}
       <div id={errorId} role="alert" className="text-base text-danger">
         {error ? t(errorKey(error)) : null}
       </div>

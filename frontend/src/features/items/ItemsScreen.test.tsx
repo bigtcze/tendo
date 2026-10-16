@@ -19,7 +19,7 @@ const routes = {
   'GET /api/v1/session': json(200, session()),
   [`GET ${base}`]: json(200, household),
 };
-const subject: Subject = { id: 's-1', name: 'Anna', type: 'person', archived: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
+const subject: Subject = { id: 's-1', name: 'Anna', type: 'person', linkedUserId: null, archived: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
 const subjects = json(200, { items: [subject], nextCursor: null });
 const subjectPages = (request: RecordedRequest) => json(200, { items: request.query.get('archived') === 'true' ? [] : [subject], nextCursor: null });
 const page = (items: Item[], nextCursor: string | null = null) => json(200, { items, nextCursor });

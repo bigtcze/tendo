@@ -92,7 +92,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const names = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const recoverySubjects = pendingCreate ? [
     ...subjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
-    subjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, archived: true, createdAt: '', updatedAt: '' },
+    subjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
   ] : subjects.filter((subject) => !subject.archived);
 
   const refresh = useCallback(async () => {
