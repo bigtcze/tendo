@@ -417,22 +417,22 @@ st,_,joined_members,_=xreq('GET',f'/api/v1/households/{household}/members',MEMBE
 assert st==200 and {(m['login'],m['role']) for m in joined_members['items']}=={('owner_smoke','owner'),('member_smoke','member')},('member member list',st,joined_members)
 assert psql(f"SELECT m.role||'|'||(u.default_household_id=m.household_id)::text FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id WHERE u.login='member_smoke' AND m.household_id='{household}'")=='member|true','membership/default household persistence'
 # Linked person-account descriptive association and person-only invariant smoke.
-owner_account_user_id=psql(f"SELECT user_id::text FROM household_memberships WHERE household_id='{household}' AND role='owner'")
-linked_person_body={'name':'Linked person smoke','type':'person','linkedUserId':owner_account_user_id}
+owner_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
+assert owner_user_id==psql(f"SELECT user_id::text FROM household_memberships WHERE household_id='{household}' AND role='owner'"),'members list userId is the stored owner user id'
+linked_person_body={'name':'Linked person smoke','type':'person','linkedUserId':owner_user_id.upper()}
 st,lh,linked_person=sreq('POST',sbase,COLL,linked_person_body,{**mut,'Idempotency-Key':'setup-subject-linked-person'})
 assert st==201 and linked_person['linkedUserId']==owner_user_id,('linked subject create',st,linked_person)
 linked_subject_path=sbase+'/'+linked_person['id']
 st,lh,unlinked_person=sreq('PATCH',linked_subject_path,ITEM,{'linkedUserId':None},{**mut,'If-Match':'"1"'})
 assert st==200 and unlinked_person['linkedUserId'] is None and lh['ETag']=='"2"',('unlink subject',st,unlinked_person)
-st,_,requires_person_create=sreq('POST',sbase,COLL,{'name':'Invalid linked vehicle','type':'vehicle','linkedUserId':owner_account_user_id},{**mut,'Idempotency-Key':'setup-subject-linked-vehicle'})
+st,_,requires_person_create=sreq('POST',sbase,COLL,{'name':'Invalid linked vehicle','type':'vehicle','linkedUserId':owner_user_id},{**mut,'Idempotency-Key':'setup-subject-linked-vehicle'})
 assert st==422 and requires_person_create['field']=='linkedUserId' and requires_person_create['code']=='requires_person',('linked vehicle create rejected',st,requires_person_create)
-st,_,requires_person_patch=sreq('PATCH',linked_subject_path,ITEM,{'linkedUserId':owner_account_user_id},{**mut,'If-Match':'"2"'})
+st,_,requires_person_patch=sreq('PATCH',linked_subject_path,ITEM,{'linkedUserId':owner_user_id},{**mut,'If-Match':'"2"'})
 assert st==200 and requires_person_patch['linkedUserId']==owner_user_id,('relink person',st,requires_person_patch)
 st,_,requires_person_type=sreq('PATCH',linked_subject_path,ITEM,{'type':'vehicle'},{**mut,'If-Match':'"3"'})
 assert st==422 and requires_person_type['field']=='linkedUserId' and requires_person_type['code']=='requires_person',('linked person type change rejected',st,requires_person_type)
 # Responsible-member API persistence and membership-validation smoke.
 member_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='member_smoke')
-owner_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
 responsible_item={'title':'Responsible member smoke','subjectId':person['id'],'responsibleUserId':member_user_id}
 st,rih,responsible=ireq('POST',ibase,ICOLL,responsible_item,{**mut,'Idempotency-Key':'setup-item-responsible'})
 assert st==201 and responsible['responsibleUserId']==member_user_id and rih['ETag']=='"1"',('assigned item create',st,responsible)
