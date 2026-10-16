@@ -193,6 +193,54 @@ class ChildProcessTests(unittest.TestCase):
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
 
+    def test_audit_dir_dispatches_to_screenshot_runner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            app = root / "app"; provider = root / "provider"; audit = root / "audit"
+            app.write_text("fake"); provider.write_text("fake")
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children") as children_cls,
+                  mock.patch.object(runner, "run_screenshot") as capture,
+                  mock.patch.object(runner, "run_suite") as suite,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--audit-dir", str(audit)])):
+                runner.main()
+            capture.assert_called_once()
+            self.assertEqual(capture.call_args.args[-1], audit)
+            suite.assert_not_called()
+            children_cls.return_value.close.assert_called_once()
+
+    def test_screenshot_and_audit_arguments_are_mutually_exclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            with (mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--screenshot", str(root / "home.png"), "--audit-dir", str(root / "audit")]),
+                  self.assertRaises(SystemExit) as raised):
+                runner.main()
+            self.assertEqual(raised.exception.code, 2)
+
+    def test_run_playwright_forwards_default_and_audit_timeouts(self):
+        root = pathlib.Path("/repo")
+        children = mock.Mock()
+        runner.run_playwright(root, {}, children, "e2e/readme-screenshot.spec.ts")
+        self.assertEqual(children.run.call_args.args[-1], 600)
+        runner.run_playwright(root, {}, children, "e2e/ux-audit.spec.ts", timeout=1800)
+        self.assertEqual(children.run.call_args.args[-1], 1800)
+
+    def test_readme_path_runs_with_default_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"; screenshot = root / "home.png"
+            app.write_text("fake"); provider.write_text("fake")
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children") as children_cls,
+                  mock.patch.object(runner, "run_screenshot") as capture,
+                  mock.patch.object(runner, "run_suite"),
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--screenshot", str(screenshot)])):
+                runner.main()
+            children = children_cls.return_value
+            base = capture.call_args.args[2]
+            runner.run_playwright(root, base, children, "e2e/readme-screenshot.spec.ts")
+            self.assertEqual(children.run.call_args.args[-1], 600)
+
     def test_foreign_seed_check_accepts_only_exact_unchanged_snapshot(self):
         ids = ("01890000-0000-7000-8000-000000000001", "01890000-0000-7000-8000-000000000002", "01890000-0000-7000-8000-000000000003")
         with mock.patch.object(runner, "psql_admin", return_value=runner.FOREIGN_SEED_EXPECTED) as query:

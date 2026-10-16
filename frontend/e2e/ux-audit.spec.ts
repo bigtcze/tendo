@@ -71,8 +71,21 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       expect(archive.status(), `archive subject ${subject.name}`).toBe(200);
     }
   }
-  const createdItems: Array<{ id: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
+  const createdItems: Array<{ generatorIndex: number; id: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
   const random = rng(0x5eed1234);
+  async function verifyList(done: boolean, archived: boolean) {
+    const all: Array<{ workflowState: string; done: boolean; archived: boolean }> = [];
+    let cursor: string | undefined;
+    do {
+      const response = await api(page, 'get', `${root}/items?limit=100&done=${done}&archived=${archived}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+      expect(response.status(), `verify full item list done=${done} archived=${archived}`).toBe(200);
+      const data = await response.json() as { items: Array<{ workflowState: string; done: boolean; archived: boolean }>; nextCursor: string | null };
+      all.push(...data.items);
+      cursor = data.nextCursor ?? undefined;
+      metrics.listPageSizes.push(data.items.length);
+    } while (cursor);
+    return all;
+  }
   const stages = [ ['empty', 0], ['1', 1], ['30', 30], ['500', 500], ['1200', 1200] ] as const;
   let created = 0;
   let previousTarget = 0;
@@ -97,17 +110,19 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         const response = await api(page, 'post', `${root}/items`, item, { 'Idempotency-Key': key() });
         expect(response.status(), `create item ${n}: ${await response.text()}`).toBe(201);
         const result = await response.json() as { id: string; recurrence: { mode: string } | null; done: boolean; archived: boolean; workflowState: string };
-        createdItems.push({ id: result.id, recurrence: result.recurrence, done: result.done, archived: result.archived, workflowState: result.workflowState });
+        createdItems.push({ generatorIndex: n, id: result.id, recurrence: result.recurrence, done: result.done, archived: result.archived, workflowState: result.workflowState });
       })());
       if (pending.length >= 8) { await Promise.all(pending.splice(0)); }
     }
     await Promise.all(pending);
+    createdItems.sort((a, b) => a.generatorIndex - b.generatorIndex);
     const postCount = target - previousTarget;
     expect(createdItems.length, `cumulative item POST count at stage ${stage}`).toBe(target);
     (metrics.stageSeeding as Record<string, unknown>)[stage] = { postCount, cumulativeCreated: createdItems.length, durationMs: Date.now() - seedStart };
     const newlyCreated = createdItems.slice(previousTarget, target);
     const oneOffs = newlyCreated.filter(item => item.recurrence === null);
-    for (const [index, item] of newlyCreated.entries()) {
+    for (const item of newlyCreated) {
+      const index = item.generatorIndex;
       if (index % 12 === 0) {
         const current = await api(page, 'get', `${root}/items/${item.id}`);
         expect(current.status(), `read item before workflow update ${item.id}`).toBe(200);
@@ -132,7 +147,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       }
     }
     for (const item of oneOffs.filter((_, index) => index % 10 === 0)) {
-      if (newlyCreated.indexOf(item) % 20 === 4) continue;
+      if (item.generatorIndex % 20 === 4) continue;
       const current = await api(page, 'get', `${root}/items/${item.id}`);
       expect(current.status()).toBe(200);
       const completion = await api(page, 'post', `${root}/items/${item.id}/completions`, {}, { 'Idempotency-Key': key(), 'If-Match': current.headers()['etag']! });
@@ -193,13 +208,14 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await capture(page, join(dir, `audit-account-en-${width}.png`));
       }
       await page.setViewportSize({ width: 640, height: 900 }); await page.goto('/');
-      await capture(page, join(dir, 'home-1200-en-640-zoom200-of-1280.png'));
+      await capture(page, join(dir, 'home-1200-en-640-reflow-proxy.png'));
     }
     const widths = [320, 390, 768, 1440];
     for (const width of widths) for (const locale of (width === 390 || width === 1440 || ((stage === 'empty' || stage === '30') && width === 320) ? ['en', 'cs'] : ['en'])) {
       const context = locale === 'cs' ? await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } }) : null;
       if (context) await context.addCookies(await page.context().cookies());
       const targetPage = context ? await context.newPage() : page;
+      if (targetPage === page) await targetPage.setViewportSize({ width, height: 900 });
       if (targetPage !== page) {
         await targetPage.goto('/');
         await targetPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
@@ -218,10 +234,15 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         }
       };
       targetPage.on('response', responseListener);
-      const started = Date.now(); await targetPage.goto('/'); await targetPage.waitForLoadState('networkidle');
+      const started = Date.now(); await targetPage.goto('/');
       const empty = targetPage.getByText((locale === 'cs' ? cs : en)['home.empty.title']);
       const row = targetPage.locator('li[data-item-id]').first();
-      await Promise.race([row.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined), empty.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined)]);
+      await expect.poll(async () => (await row.isVisible().catch(() => false)) || (await empty.isVisible().catch(() => false)), { timeout: 10_000 }).toBe(true);
+      const timeToContentMs = Date.now() - started;
+      await targetPage.waitForLoadState('networkidle');
+      const actualViewport = targetPage.viewportSize();
+      const innerWidth = await targetPage.evaluate(() => window.innerWidth);
+      expect(innerWidth, `${locale} viewport width`).toBe(width);
       const observed = await targetPage.evaluate(() => {
         const clientWidth = document.documentElement.clientWidth;
         const offenders = [...document.querySelectorAll<HTMLElement>('*')].filter(element => element.getBoundingClientRect().right > clientWidth + 0.5).slice(0, 10).map(element => ({ tag: element.tagName.toLowerCase(), itemId: element.getAttribute('data-item-id'), text: (element.innerText || element.textContent || '').trim().slice(0, 80), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width }));
@@ -231,17 +252,20 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await capture(targetPage, join(dir, `${file}.png`));
       await expect(targetPage.getByRole('heading', { level: 1 }).first()).toBeVisible();
       await targetPage.screenshot({ path: join(dir, `${file}-fold.png`) });
-      metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs: Date.now() - started, ...observed, showMoreVisible: await targetPage.getByRole('button', { name: (locale === 'cs' ? cs : en)['subjects.more'], exact: true }).isVisible().catch(() => false) };
+      metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, showMoreVisible: await targetPage.getByRole('button', { name: (locale === 'cs' ? cs : en)['subjects.more'], exact: true }).isVisible().catch(() => false) };
       metrics.listPageSizes.push(...pageSizes);
       targetPage.off('response', responseListener);
       if (context) await context.close();
     }
     if (stage === '1200') {
+      const actualActiveItems = await verifyList(false, false);
+      const actualActiveTotal = actualActiveItems.length;
       for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: 900 }); await page.goto('/');
         const clickMetrics: Array<Record<string, number>> = [];
         await page.getByRole('heading', { level: 1 }).first().waitFor({ state: 'visible' });
         const showMore = page.getByRole('button', { name: en['subjects.more'], exact: true });
+        if (actualActiveTotal > 100) await expect(showMore).toBeVisible();
         if (await showMore.isVisible().catch(() => false)) await showMore.scrollIntoViewIfNeeded();
         for (let click = 1; click <= 15; click++) {
           const more = page.getByRole('button', { name: en['subjects.more'], exact: true });
@@ -249,28 +273,17 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
           await more.scrollIntoViewIfNeeded();
           const before = Date.now(); await more.click();
           await expect.poll(() => page.locator('li[data-item-id]').count()).toBeGreaterThan(clickMetrics.length === 0 ? 100 : clickMetrics[clickMetrics.length - 1].rows);
+          const timeToRenderMs = Date.now() - before;
+          const state = await page.evaluate(() => ({ dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, height: document.documentElement.scrollHeight }));
+          clickMetrics.push({ click, ...state, timeToRenderMs });
           await page.waitForLoadState('networkidle');
-          const state = await page.evaluate(() => ({ dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, height: document.scrollingElement!.scrollHeight }));
-          clickMetrics.push({ click, ...state, timeToRenderMs: Date.now() - before });
         }
+        expect(await page.locator('li[data-item-id]').count(), `expanded rows at ${width}px`).toBe(actualActiveTotal);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`));
       }
     }
   }
-  const verifyList = async (done: boolean, archived: boolean) => {
-    const all: Array<{ workflowState: string; done: boolean; archived: boolean }> = [];
-    let cursor: string | undefined;
-    do {
-      const response = await api(page, 'get', `${root}/items?limit=100&done=${done}&archived=${archived}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
-      expect(response.status(), `verify full item list done=${done} archived=${archived}`).toBe(200);
-      const data = await response.json() as { items: Array<{ workflowState: string; done: boolean; archived: boolean }>; nextCursor: string | null };
-      all.push(...data.items);
-      cursor = data.nextCursor ?? undefined;
-      metrics.listPageSizes.push(data.items.length);
-    } while (cursor);
-    return all;
-  };
   const activeItems = await verifyList(false, false);
   const doneItems = await verifyList(true, false);
   const archivedItems = await verifyList(false, true);
