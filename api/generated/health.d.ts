@@ -3673,9 +3673,9 @@ export interface operations {
                     /**
                      * @example {
                      *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
-                     *       "type": "vehicle",
+                     *       "type": "person",
                      *       "name": "Octavia",
-                     *       "linkedUserId": null,
+                     *       "linkedUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *       "archived": false,
                      *       "createdAt": "2026-10-07T10:00:00Z",
                      *       "updatedAt": "2026-10-07T10:00:00Z"
@@ -3684,7 +3684,7 @@ export interface operations {
                     "application/json": components["schemas"]["Subject"];
                 };
             };
-            /** @description Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values, wrong value types, or malformed trusted forwarded metadata. */
+            /** @description Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values for non-nullable fields, wrong value types, or malformed trusted forwarded metadata. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -4077,7 +4077,7 @@ export interface operations {
                     "application/json": components["schemas"]["Subject"];
                 };
             };
-            /** @description Malformed JSON, unknown or duplicate keys, null values, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
+            /** @description Malformed JSON, unknown or duplicate keys, null values for non-nullable fields, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

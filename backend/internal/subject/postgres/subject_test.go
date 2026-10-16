@@ -610,10 +610,6 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	})
 
 	t.Run("linked account persistence and constraints", func(t *testing.T) {
-		member, err := repo.Get(ctx, homeA, create(homeA, "linked child", subject.TypePerson).ID)
-		if err != nil {
-			t.Fatal(err)
-		}
 		link := strings.ToUpper(secondActor)
 		linked, inserted, err := repo.CreateIdempotent(ctx, homeA, actorID, "linked-pg-key", "Linked", subject.TypePerson, &link, make([]byte, 32))
 		if err != nil || !inserted || linked.LinkedUserID == nil || *linked.LinkedUserID != strings.ToLower(secondActor) {
@@ -622,25 +618,66 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		if got, err := repo.Get(ctx, homeA, linked.ID); err != nil || got.LinkedUserID == nil || *got.LinkedUserID != strings.ToLower(secondActor) {
 			t.Fatalf("roundtrip=%+v err=%v", got, err)
 		}
-		foreignLink := secondActor
-		_, _, err = repo.CreateIdempotent(ctx, homeB, actorID, "foreign-link", "Foreign", subject.TypePerson, &foreignLink, make([]byte, 32))
-		var validation *subject.ValidationError
-		if !errors.As(err, &validation) || validation.Code != "invalid_reference" {
-			t.Fatalf("foreign household err=%v", err)
-		}
-		vehicle := subject.TypeVehicle
-		_, err = repo.Update(ctx, homeA, linked.ID, linked.Version, subject.Patch{Type: &vehicle})
-		if !errors.As(err, &validation) || validation.Code != "requires_person" {
-			t.Fatalf("person CHECK err=%v", err)
-		}
-		if _, err = repo.Get(ctx, homeA, linked.ID); err != nil {
+		var foreignHouseholdUser string
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES ('subject_foreign_member') RETURNING id::text`).Scan(&foreignHouseholdUser); err != nil {
 			t.Fatal(err)
 		}
-		cleared, err := repo.Update(ctx, homeA, linked.ID, linked.Version, subject.Patch{Type: &vehicle, LinkedUserIDSet: true})
-		if err != nil || cleared.Type != vehicle || cleared.LinkedUserID != nil {
-			t.Fatalf("clear+type=%+v err=%v", cleared, err)
+		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, foreignHouseholdUser, homeB); err != nil {
+			t.Fatal(err)
 		}
-		if _, err = app.Exec(ctx, `UPDATE subjects SET linked_user_id=$1::uuid WHERE id=$2::uuid`, secondActor, member.ID); err != nil {
+		service := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil })
+		newLink := actorID
+		updated, err := service.Update(ctx, actorID, homeA, linked.ID, linked.Version, subject.Patch{LinkedUserID: &newLink, LinkedUserIDSet: true})
+		if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != actorID {
+			t.Fatalf("service link update=%+v err=%v", updated, err)
+		}
+		versionBefore, linkBefore := updated.Version, *updated.LinkedUserID
+		var validation *subject.ValidationError
+		for _, badLink := range []string{foreignHouseholdUser, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"} {
+			_, err = service.Update(ctx, actorID, homeA, linked.ID, versionBefore, subject.Patch{LinkedUserID: &badLink, LinkedUserIDSet: true})
+			if !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "invalid_reference" {
+				t.Fatalf("invalid PATCH link %s error=%v", badLink, err)
+			}
+			unchanged, getErr := repo.Get(ctx, homeA, linked.ID)
+			if getErr != nil || unchanged.Version != versionBefore || unchanged.LinkedUserID == nil || *unchanged.LinkedUserID != linkBefore {
+				t.Fatalf("invalid link mutated row=%+v err=%v", unchanged, getErr)
+			}
+		}
+		name := "Renamed linked"
+		updated, err = service.Update(ctx, actorID, homeA, linked.ID, versionBefore, subject.Patch{Name: &name})
+		if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != linkBefore {
+			t.Fatalf("unrelated patch=%+v err=%v", updated, err)
+		}
+		listed, err := repo.List(ctx, homeA, false, "00000000-0000-0000-0000-000000000000", 100)
+		var listedLink *string
+		for _, subjectRow := range listed {
+			if subjectRow.ID == linked.ID {
+				listedLink = subjectRow.LinkedUserID
+			}
+		}
+		if err != nil || listedLink == nil || *listedLink != linkBefore {
+			t.Fatalf("list link=%v err=%v", listedLink, err)
+		}
+		nonPerson := create(homeA, "Linked home", subject.TypeHome)
+		validMemberLink := secondActor
+		_, err = repo.Update(ctx, homeA, nonPerson.ID, nonPerson.Version, subject.Patch{LinkedUserID: &validMemberLink, LinkedUserIDSet: true})
+		if !errors.As(err, &validation) || validation.Code != "requires_person" {
+			t.Fatalf("link non-person without type error=%v", err)
+		}
+		unchangedNonPerson, err := repo.Get(ctx, homeA, nonPerson.ID)
+		if err != nil || unchangedNonPerson.Version != nonPerson.Version || unchangedNonPerson.LinkedUserID != nil || unchangedNonPerson.Type != subject.TypeHome {
+			t.Fatalf("non-person DB CHECK changed row=%+v err=%v", unchangedNonPerson, err)
+		}
+		newLink = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
+		vehicle := subject.TypeVehicle
+		_, err = service.Update(ctx, actorID, homeA, linked.ID, updated.Version, subject.Patch{LinkedUserID: &newLink, LinkedUserIDSet: true, Type: &vehicle})
+		if !errors.As(err, &validation) || validation.Code != "requires_person" {
+			t.Fatalf("linked non-person PATCH error=%v", err)
+		}
+		if got, err := repo.Get(ctx, homeA, linked.ID); err != nil || got.Version != updated.Version || got.Type != subject.TypePerson || got.LinkedUserID == nil || *got.LinkedUserID != linkBefore {
+			t.Fatalf("CHECK violation mutated row=%+v err=%v", got, err)
+		}
+		if _, err = app.Exec(ctx, `UPDATE subjects SET linked_user_id=$1::uuid WHERE id=$2::uuid`, secondActor, linked.ID); err != nil {
 			t.Fatalf("runtime linked_user_id update: %v", err)
 		}
 	})

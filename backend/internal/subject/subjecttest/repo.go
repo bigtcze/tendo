@@ -3,7 +3,6 @@ package subjecttest
 
 import (
 	"context"
-	"errors"
 	"sort"
 
 	"github.com/bigtcze/tendo/backend/internal/subject"
@@ -42,7 +41,7 @@ func (r *Repo) CreateIdempotent(_ context.Context, hid, actor, key, name string,
 		return subject.Subject{}, false, r.Err
 	}
 	if linkedUserID != nil && t != subject.TypePerson {
-		return subject.Subject{}, false, errors.New("subjects_linked_user_person_only")
+		return subject.Subject{}, false, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}
 	}
 	ck := hid + "/" + actor + "/" + key
 	if _, ok := r.creations[ck]; ok {

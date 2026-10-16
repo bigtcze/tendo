@@ -333,6 +333,8 @@ func (s *Service) Update(ctx context.Context, userID, householdID, subjectID str
 			return Subject{}, &ValidationError{"type", "invalid_type"}
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
 	var normalizedLinked *string
 	if p.LinkedUserIDSet && p.LinkedUserID != nil {
 		checkType := TypePerson
@@ -344,8 +346,6 @@ func (s *Service) Update(ctx context.Context, userID, householdID, subjectID str
 			return Subject{}, err
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
 	if p.LinkedUserIDSet {
 		normalized.LinkedUserIDSet = true
 		normalized.LinkedUserID = normalizedLinked

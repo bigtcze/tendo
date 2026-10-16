@@ -22,8 +22,11 @@ const (
 // contract as the PostgreSQL adapter.
 type memRepo struct {
 	calls        int
+	creationIDs  map[string]string
 	findCalls    int
 	err          error
+	createErr    error
+	updateErr    error
 	rows         []Subject
 	creations    map[string]Subject
 	fingerprints map[string][]byte
@@ -38,20 +41,33 @@ func (m *memRepo) CreateIdempotent(_ context.Context, hid, actor, key, name stri
 	if m.err != nil {
 		return Subject{}, false, m.err
 	}
+	if m.createErr != nil {
+		return Subject{}, false, m.createErr
+	}
 	if linkedUserID != nil && t != TypePerson {
 		return Subject{}, false, &ValidationError{Field: "linkedUserId", Code: "requires_person"}
 	}
 	if m.creations == nil {
 		m.creations = map[string]Subject{}
+		m.creationIDs = map[string]string{}
 		m.fingerprints = map[string][]byte{}
 	}
 	creationKey := hid + "/" + actor + "/" + key
 	if existing, ok := m.creations[creationKey]; ok {
+		if !bytes.Equal(m.fingerprints[creationKey], fingerprint) {
+			return Subject{}, false, nil
+		}
+		for _, current := range m.rows {
+			if current.ID == m.creationIDs[creationKey] {
+				return current, false, nil
+			}
+		}
 		return existing, false, nil
 	}
 	s := Subject{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b%02d", len(m.rows)+70), HouseholdID: hid, Type: t, Name: name, LinkedUserID: linkedUserID, Version: 1, CreatedAt: time.Unix(0, 0).UTC(), UpdatedAt: time.Unix(0, 0).UTC()}
 	m.rows = append(m.rows, s)
 	m.creations[creationKey] = s
+	m.creationIDs[creationKey] = s.ID
 	m.fingerprints[creationKey] = append([]byte(nil), fingerprint...)
 	return s, true, nil
 }
@@ -116,6 +132,9 @@ func (m *memRepo) Update(_ context.Context, hid, sid string, expected int64, p P
 	m.calls++
 	if m.err != nil {
 		return Subject{}, m.err
+	}
+	if m.updateErr != nil {
+		return Subject{}, m.updateErr
 	}
 	for i, r := range m.rows {
 		if r.HouseholdID != hid || r.ID != sid {
@@ -322,6 +341,34 @@ func TestCreateFingerprintReplayAndScope(t *testing.T) {
 	}
 }
 
+func TestMembersLookupReceivesOperationDeadline(t *testing.T) {
+	id := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	calls := 0
+	members := func(ctx context.Context, _, _ string) error {
+		calls++
+		if _, ok := ctx.Deadline(); !ok {
+			t.Error("Members lookup context has no deadline")
+		}
+		return nil
+	}
+	for _, update := range []bool{false, true} {
+		repo := &memRepo{}
+		svc := NewService(repo, allow, members)
+		if update {
+			linked := &id
+			repo.rows = []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Child", LinkedUserID: linked, Version: 1}}
+			if _, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &id, LinkedUserIDSet: true}); err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+		} else if _, err := svc.Create(context.Background(), userID, householdID, "deadline", "Child", TypePerson, &id); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("Members calls=%d, want Create and Update", calls)
+	}
+}
+
 func TestLinkedUserChangeReusesIdempotencyKeyAsDifferentIntent(t *testing.T) {
 	repo := &memRepo{}
 	memberLookup := func(context.Context, string, string) error { return nil }
@@ -333,6 +380,41 @@ func TestLinkedUserChangeReusesIdempotencyKeyAsDifferentIntent(t *testing.T) {
 	}
 	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, &secondLink); !errors.Is(err, ErrIdempotencyKeyReused) {
 		t.Fatalf("different link replay err=%v", err)
+	}
+	uppercase := strings.ToUpper(firstLink)
+	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, &uppercase); err != nil {
+		t.Fatalf("uppercase replay err=%v", err)
+	}
+	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, nil); !errors.Is(err, ErrIdempotencyKeyReused) {
+		t.Fatalf("link-to-null replay err=%v", err)
+	}
+}
+
+func TestLinkedUserReplayAfterEditSkipsMembershipLookup(t *testing.T) {
+	repo := &memRepo{}
+	candidate := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	lookupFails := false
+	members := func(context.Context, string, string) error {
+		if lookupFails {
+			return errors.New("membership service unavailable")
+		}
+		return nil
+	}
+	svc := NewService(repo, allow, members)
+	first, err := svc.Create(context.Background(), userID, householdID, "linked-replay", "Child", TypePerson, &candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vehicle := TypeVehicle
+	current, err := svc.Update(context.Background(), userID, householdID, first.ID, 1, Patch{Type: &vehicle, LinkedUserIDSet: true})
+	if err != nil || current.LinkedUserID != nil {
+		t.Fatalf("unlink and retype=%+v err=%v", current, err)
+	}
+	calls, count := repo.findCalls, len(repo.rows)
+	lookupFails = true
+	replayed, err := svc.Create(context.Background(), userID, householdID, "linked-replay", "Child", TypePerson, &candidate)
+	if err != nil || replayed.Version != 2 || replayed.Type != TypeVehicle || replayed.LinkedUserID != nil || repo.findCalls != calls+1 || len(repo.rows) != count {
+		t.Fatalf("current replay=%+v err=%v calls=%d rows=%d", replayed, err, repo.findCalls, len(repo.rows))
 	}
 }
 
@@ -375,8 +457,10 @@ func TestLinkedUserValidationAndPatchSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("change type and clear link: %v", err)
 	}
-	if _, err = svc.Create(context.Background(), userID, householdID, "outage", "Bad", TypePerson, &candidate); err != nil {
-		t.Fatal(err)
+	outageRepo := &memRepo{}
+	outageSvc := NewService(outageRepo, allow, func(context.Context, string, string) error { return errors.New("membership service unavailable") })
+	if _, err = outageSvc.Create(context.Background(), userID, householdID, "outage", "Bad", TypePerson, &candidate); !errors.Is(err, ErrUnavailable) || len(outageRepo.rows) != 0 {
+		t.Fatalf("outage err=%v rows=%d", err, len(outageRepo.rows))
 	}
 }
 
@@ -384,12 +468,22 @@ func ptr(v string) *string { return &v }
 
 func TestRepositoryValidationErrorPassesThrough(t *testing.T) {
 	cause := &ValidationError{Field: "linkedUserId", Code: "requires_person"}
-	repo := &memRepo{err: cause}
-	svc := NewService(repo, allow, nil)
+	repo := &memRepo{createErr: cause}
+	svc := NewService(repo, allow, func(context.Context, string, string) error { return nil })
 	_, err := svc.Create(context.Background(), userID, householdID, "repo-validation", "person", TypePerson, ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"))
+	assertValidationError(t, err, cause)
+
+	repo = &memRepo{updateErr: cause, rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "person", Version: 1}}}
+	svc = NewService(repo, allow, func(context.Context, string, string) error { return nil })
+	_, err = svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"), LinkedUserIDSet: true})
+	assertValidationError(t, err, cause)
+}
+
+func assertValidationError(t *testing.T, err error, want *ValidationError) {
+	t.Helper()
 	var got *ValidationError
-	if !errors.As(err, &got) || got.Field != cause.Field || got.Code != cause.Code {
-		t.Fatalf("error=%v; want %s/%s", err, cause.Field, cause.Code)
+	if !errors.As(err, &got) || got.Field != want.Field || got.Code != want.Code {
+		t.Fatalf("error=%v; want %s/%s", err, want.Field, want.Code)
 	}
 }
 
