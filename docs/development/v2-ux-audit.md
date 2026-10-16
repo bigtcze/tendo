@@ -32,8 +32,10 @@ single run, indicative only).
 | 1200 | 1440 | 5 | 49 kB | 117 ms | 791 | 100 | no |
 
 "Show more" at 1200 items (390 px): 10 clicks to reach all 1071 active rows; DOM grows from 791 to 8041
-elements and the page from ~12 000 to ~128 000 px; click-to-rows-rendered 99–252 ms. Request count per home
-load is constant (session, household, one item page of 100, active and archived subject pages).
+elements and the page from ~12 000 to ~128 000 px; click-to-rows-rendered 99–252 ms. In the English captures
+with this fixed subject dataset each home load made 5 requests at every stage (session, household, one
+item page of 100, active and archived subject pages); Czech captures recorded 5–8 because the locale switch
+overlaps navigation.
 
 ## Findings (prioritized)
 
