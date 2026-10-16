@@ -1,6 +1,10 @@
 # State
 
-phase=v1_complete
+phase=v2_active
+v2=not_complete
+v2_scope=.autonomous/V2_SCOPE.md
+v2_dod=.autonomous/V2_DEFINITION_OF_DONE.md
+v1_release=v1.0.0
 v1=complete
 completion_marker=present_via_completion_PR_see_.autonomous_PROJECT_COMPLETE
 

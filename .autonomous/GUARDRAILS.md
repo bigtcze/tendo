@@ -16,10 +16,10 @@ agent_must_not_edit=this_file
 - After merge, verify resulting `main`; command success alone is not proof.
 
 ## Scope safety
-- Build V1 only.
-- ROADMAP is direction, not implementation permission.
+- V1 is complete and released; build ONLY the GUI-focused V2 authorized by V2_SCOPE.md. Preserve all V1 functional/security invariants.
+- ROADMAP remains direction, not implementation permission. V2_SCOPE is the sole new scope authority.
 - Prefer the smallest complete solution over speculative framework-building.
-- No AI, document ingestion, Nextcloud, calendar sync, email ingestion, chatbot, native mobile app, analytics dashboard, gamification, household ERP, or general-purpose autonomous agent runtime in V1.
+- No AI, document ingestion, Nextcloud, calendar sync, email ingestion, chatbot, native mobile app, analytics dashboard, gamification, household ERP, or general-purpose autonomous agent runtime in V2.
 - Platform-ready means stable boundaries/contracts, not empty plugin frameworks or unused abstractions.
 
 ## Controller boundary
