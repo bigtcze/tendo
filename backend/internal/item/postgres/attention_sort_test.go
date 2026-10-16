@@ -88,7 +88,14 @@ func newAttentionFixture(t *testing.T) *attentionFixture {
 		}
 		return nil
 	}
-	f.svc = item.NewService(f.repo, houses, nil, members, func() time.Time { return time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC) })
+	subjects := func(_ context.Context, _user, h, sid string) (bool, error) {
+		var archived bool
+		if err := admin.QueryRow(ctx, `SELECT archived FROM subjects WHERE household_id=$1::uuid AND id=$2::uuid`, h, sid).Scan(&archived); err != nil {
+			return false, item.ErrNotFound
+		}
+		return archived, nil
+	}
+	f.svc = item.NewService(f.repo, houses, subjects, members, func() time.Time { return time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC) })
 	return f
 }
 func (f *attentionFixture) add(t *testing.T, sub, attention string, archived, done, recurring bool, state string, responsible *string) string {
@@ -99,6 +106,12 @@ func (f *attentionFixture) add(t *testing.T, sub, attention string, archived, do
 		t.Fatal(err)
 	}
 	return id
+}
+func (f *attentionFixture) setText(t *testing.T, id, title, notes string) {
+	t.Helper()
+	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET title=$2,notes=NULLIF($3,'') WHERE id=$1::uuid`, id, title, notes); err != nil {
+		t.Fatal(err)
+	}
 }
 func (f *attentionFixture) list(t *testing.T, q item.ListQuery) item.Page {
 	t.Helper()

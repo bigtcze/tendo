@@ -181,11 +181,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	search, ok := readScalar("q")
+	if !ok {
+		return
+	}
 	var sortBy item.ListSort
 	if sortText != "" {
 		sortBy = item.ListSort(sortText)
 	}
-	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Sort: sortBy, AttentionDate: attentionDate, Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor, SubjectID: subjectID, ResponsibleUserID: responsibleID, WorkflowState: workflow, Attention: attention, Recurring: recurring})
+	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Sort: sortBy, AttentionDate: attentionDate, Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor, SubjectID: subjectID, ResponsibleUserID: responsibleID, WorkflowState: workflow, Attention: attention, Recurring: recurring, Q: search})
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -250,6 +254,9 @@ func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
 		q.Recurring = &b
 	}
 	if q.AttentionDate, good = readScalar("attentionDate"); !good {
+		return
+	}
+	if q.Q, good = readScalar("q"); !good {
 		return
 	}
 	result, err := h.service.Summary(r.Context(), userID, chi.URLParam(r, "householdId"), q)

@@ -299,11 +299,15 @@ func (r *Repository) List(ctx context.Context, householdID string, opts item.Lis
 		attention = pgtype.Text{String: string(f.Attention), Valid: true}
 	}
 	today := date(&opts.Today)
+	search := pgtype.Text{}
+	if f.Q != "" {
+		search = pgtype.Text{String: f.Q, Valid: true}
+	}
 	var recurring pgtype.Bool
 	if f.Recurring != nil {
 		recurring = pgtype.Bool{Bool: *f.Recurring, Valid: true}
 	}
-	params := dbgen.ListItemsParams{HouseholdID: hid, Archived: f.Archived, Done: f.Done, AfterID: after, SubjectID: subjectID, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring, RowLimit: int32(opts.Limit)}
+	params := dbgen.ListItemsParams{HouseholdID: hid, Archived: f.Archived, Done: f.Done, AfterID: after, SubjectID: subjectID, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring, Q: search, RowLimit: int32(opts.Limit)}
 	items := make([]item.Item, 0, opts.Limit)
 	switch opts.Sort {
 	case item.SortCreated:
@@ -319,7 +323,7 @@ func (r *Repository) List(ctx context.Context, householdID string, opts item.Lis
 			items = append(items, converted)
 		}
 	case item.SortAttention:
-		rows, err := r.queries.ListItemsByAttention(ctx, dbgen.ListItemsByAttentionParams{HouseholdID: params.HouseholdID, Archived: params.Archived, Done: params.Done, AfterID: params.AfterID, AfterAttentionOn: date(opts.AfterAttentionOn), SubjectID: params.SubjectID, FilterResponsible: params.FilterResponsible, ResponsibleUserID: params.ResponsibleUserID, WorkflowState: params.WorkflowState, Attention: params.Attention, Today: params.Today, Recurring: params.Recurring, RowLimit: params.RowLimit})
+		rows, err := r.queries.ListItemsByAttention(ctx, dbgen.ListItemsByAttentionParams{HouseholdID: params.HouseholdID, Archived: params.Archived, Done: params.Done, AfterID: params.AfterID, AfterAttentionOn: date(opts.AfterAttentionOn), SubjectID: params.SubjectID, FilterResponsible: params.FilterResponsible, ResponsibleUserID: params.ResponsibleUserID, WorkflowState: params.WorkflowState, Attention: params.Attention, Today: params.Today, Recurring: params.Recurring, Q: params.Q, RowLimit: params.RowLimit})
 		if err != nil {
 			return nil, errPersistence
 		}

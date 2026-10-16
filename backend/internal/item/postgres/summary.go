@@ -36,11 +36,15 @@ func (r *Repository) Summary(ctx context.Context, householdID string, opts item.
 		attention = pgtype.Text{String: string(f.Attention), Valid: true}
 	}
 	today := date(&opts.Today)
+	search := pgtype.Text{}
+	if f.Q != "" {
+		search = pgtype.Text{String: f.Q, Valid: true}
+	}
 	var recurring pgtype.Bool
 	if f.Recurring != nil {
 		recurring = pgtype.Bool{Bool: *f.Recurring, Valid: true}
 	}
-	counts, err := r.queries.SummarizeItems(ctx, dbgen.SummarizeItemsParams{HouseholdID: hid, SubjectID: subject, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring})
+	counts, err := r.queries.SummarizeItems(ctx, dbgen.SummarizeItemsParams{HouseholdID: hid, SubjectID: subject, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring, Q: search})
 	if err != nil {
 		return item.SummaryCounts{}, errPersistence
 	}

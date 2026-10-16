@@ -34,6 +34,7 @@ WHERE items.household_id = sqlc.arg('household_id')
        OR (sqlc.narg('attention')::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= sqlc.arg('today')::date))
        OR (sqlc.narg('attention')::text = 'upcoming' AND items.attention_on > sqlc.arg('today')::date))
   AND (sqlc.narg('recurring')::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = sqlc.narg('recurring')::boolean)
+   AND (sqlc.narg('q')::text IS NULL OR items.search_text LIKE public.tendo_item_search_pattern(sqlc.narg('q')::text) ESCAPE E'\\')
 ORDER BY items.id ASC
 LIMIT sqlc.arg('row_limit');
 
@@ -58,6 +59,7 @@ WITH classified AS (
          OR (sqlc.narg('attention')::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= sqlc.arg('today')::date))
          OR (sqlc.narg('attention')::text = 'upcoming' AND items.attention_on > sqlc.arg('today')::date))
     AND (sqlc.narg('recurring')::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = sqlc.narg('recurring')::boolean)
+   AND (sqlc.narg('q')::text IS NULL OR items.search_text LIKE public.tendo_item_search_pattern(sqlc.narg('q')::text) ESCAPE E'\\')
 )
 SELECT count(*) AS total,
   count(*) FILTER (WHERE partition = 'needs_attention') AS needs_attention,
@@ -88,6 +90,7 @@ WHERE items.household_id = sqlc.arg('household_id')
        OR (sqlc.narg('attention')::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= sqlc.arg('today')::date))
        OR (sqlc.narg('attention')::text = 'upcoming' AND items.attention_on > sqlc.arg('today')::date))
   AND (sqlc.narg('recurring')::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = sqlc.narg('recurring')::boolean)
+   AND (sqlc.narg('q')::text IS NULL OR items.search_text LIKE public.tendo_item_search_pattern(sqlc.narg('q')::text) ESCAPE E'\\')
 ORDER BY items.attention_on ASC NULLS FIRST, items.id ASC
 LIMIT sqlc.arg('row_limit');
 

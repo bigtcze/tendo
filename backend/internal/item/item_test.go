@@ -1375,6 +1375,46 @@ func TestListSortAndGuardValidationDoesNotCallRepository(t *testing.T) {
 	}
 }
 
+func TestListSearchValidationAndBinding(t *testing.T) {
+	e := newEnv("UTC")
+	for _, tc := range []struct {
+		q     string
+		valid bool
+	}{{strings.Repeat("a", 200), true}, {strings.Repeat("😀", 200), true}, {strings.Repeat("a", 201), false}, {"  title  ", true}, {" \t ", false}, {"a\nb", false}, {"a\u200bb", false}, {string([]byte{0xff}), false}} {
+		got, err := item.ValidateSearch(tc.q)
+		if tc.valid && err != nil {
+			t.Fatalf("valid search %q: %v", tc.q, err)
+		}
+		if !tc.valid && !isQuery(err, "q") {
+			t.Fatalf("invalid search %q: %v", tc.q, err)
+		}
+		if tc.q == "  title  " && got != "title" {
+			t.Fatalf("trimmed=%q", got)
+		}
+	}
+	if _, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Q: "   "}); !isQuery(err, "q") {
+		t.Fatalf("invalid q: %v", err)
+	}
+	if e.repo.Calls != 0 {
+		t.Fatalf("repository called after invalid q: %d", e.repo.Calls)
+	}
+	if _, err := e.svc.Summary(context.Background(), userID, householdID, item.SummaryQuery{Q: "\n\t"}); !isQuery(err, "q") || e.repo.Calls != 0 {
+		t.Fatalf("summary invalid q err=%v calls=%d", err, e.repo.Calls)
+	}
+	e.repo.Seed(item.Item{ID: "00000000-0000-0000-0000-000000000001", HouseholdID: householdID, Title: "title", WorkflowState: item.StateOpen})
+	page, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Q: "  title  "})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("trimmed query not passed to repository: page=%+v err=%v", page, err)
+	}
+	legacy := item.ListFilters{Archived: true, Done: true, SubjectID: subjectID, WorkflowState: item.StateWaiting}
+	beforeQ, _ := json.Marshal([]string{"tendo.items.list.v2", "true", "true", subjectID, "", "waiting", "", "", "created", ""})
+	digest := sha256.Sum256(beforeQ)
+	want := fmt.Sprintf("%x", digest)
+	if got := item.ListFingerprintForTest(legacy, item.SortCreated, ""); got != want {
+		t.Fatalf("absent-q fingerprint=%s want pre-q fingerprint=%s", got, want)
+	}
+}
+
 func TestListStructuredFiltersAndBoundCursor(t *testing.T) {
 	e := newEnv("America/New_York")
 	future := itemtest.Date(2026, time.March, 3)

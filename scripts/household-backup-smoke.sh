@@ -68,7 +68,7 @@ api() {
   HOUSEHOLD_SMOKE_ORIGIN="$origin" HOUSEHOLD_SMOKE_STATE="$temp_dir/state.json" python3 "$temp_dir/api.py" "$1"
 }
 cat >"$temp_dir/api.py" <<'PY'
-import json, os, sys, urllib.error, urllib.request
+import json, os, sys, urllib.error, urllib.parse, urllib.request
 
 origin = os.environ['HOUSEHOLD_SMOKE_ORIGIN']
 state_path = os.environ['HOUSEHOLD_SMOKE_STATE']
@@ -80,6 +80,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 opener = urllib.request.build_opener(NoRedirect)
 
 def req(method, path, body=None, cookie=None, headers=None):
+    path = urllib.parse.quote(path, safe='/:?=&%')
     h = dict(headers or {})
     data = None
     if cookie:
@@ -134,6 +135,14 @@ def capture(state):
             snap[f'items done={done} archived={archived}'] = pages
             item_ids.update(i['id'] for p in pages for i in p['body']['items'])
     assert item_ids == set(state['items'].values()), ('listed items differ from created items', item_ids, state['items'])
+    for query in ('q=%C5%BDofie', 'q=%25_%5C'):
+        pages = all_pages(f'{base}/items?{query}', cookie)
+        summary = ok(200, 'GET', f'{base}/items/summary?{query}', cookie=cookie)[1]
+        found = [item for page in pages for item in page['body']['items']]
+        assert len(found) == 1 and found[0]['id'] == state['items']['search_literal'], (query, found, state['items']['search_literal'])
+        assert summary['total'] == 1, (query, summary)
+        snap[f'search {query}'] = {'pages': pages, 'summary': summary}
+        assert sum(len(page['body']['items']) for page in pages) == summary['total'], (query, pages, summary)
     for name, iid in sorted(state['items'].items()):
         hs, b = ok(200, 'GET', f'{base}/items/{iid}', cookie=cookie)
         snap[f'item {name}'] = {'etag': hs.get('ETag'), 'body': b}
@@ -170,6 +179,7 @@ def populate():
         _, b = ok(201, 'POST', f'{base}/items/{items[name]}/completions', {'completedOn': completed_on}, owner, {'If-Match': f'"{version}"', 'Idempotency-Key': key})
         return b
     # Past dates stay needs_attention and future dates stay upcoming for the whole run.
+    create('search_literal', {'title': 'Find 100%_\\filter, please', 'notes': 'Žofie家族', 'subjectId': person['id']})
     create('oneoff', {'title': 'Book dental check', 'subjectId': person['id'], 'notes': 'Ask about the\nwinter slot.', 'attentionOn': '2025-03-01', 'responsibleUserId': member_id})
     fixed = create('fixed_historical', {'title': 'Replace water filter', 'subjectId': person['id'], 'historicalCompletedOn': '2024-01-31', 'recurrence': {'intervalValue': 1, 'intervalUnit': 'month', 'mode': 'fixed'}})
     assert fixed['attentionOn'] == '2024-02-29' and fixed['attention'] == 'needs_attention', fixed
@@ -237,10 +247,17 @@ def exercise():
     _, item = ok(200, 'GET', f'{base}/items/{fluid}', cookie=owner)
     assert item['attentionOn'] == '2025-01-01' and item['lastCompletedOn'] is None, item
     _, subject = ok(201, 'POST', f'{base}/subjects', {'name': 'Garden', 'type': 'home'}, owner, {'Idempotency-Key': 'post-restore-garden'})
-    _, created = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge', 'subjectId': subject['id']}, owner, {'Idempotency-Key': 'post-restore-item-hedge'})
+    _, created = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge, 100%_\\\\', 'notes': 'Zahrada Šťovík', 'subjectId': subject['id']}, owner, {'Idempotency-Key': 'post-restore-item-hedge'})
     assert created['attention'] == 'needs_attention', created
+    search_query = 'STOVIK'
+    search_list = ok(200, 'GET', f'{base}/items?q={search_query}', cookie=owner)[1]
+    search_summary = ok(200, 'GET', f'{base}/items/summary?q={search_query}', cookie=owner)[1]
+    assert any(row['id'] == created['id'] for row in search_list['items']) and search_summary['total'] == 1, (search_list, search_summary)
+    edited = ok(200, 'PATCH', f'{base}/items/{created["id"]}', {'title': 'Trim hedge literal 100%_\\\\', 'notes': 'rodina'}, owner, {'If-Match': '"1"'})[1]
+    assert ok(200, 'GET', f'{base}/items?q=rodina', cookie=owner)[1]['items'][0]['id'] == created['id'], edited
+    assert ok(200, 'GET', f'{base}/items?q=STOVIK', cookie=owner)[1]['items'] == [], 'old notes search still matches after notes edit'
     item_count_before_replay = len(all_pages(f'{base}/items?done=false&archived=false&limit=100', owner)[0]['body']['items'])
-    _, created_replay = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge', 'subjectId': subject['id']}, owner, {'Idempotency-Key': 'post-restore-item-hedge'})
+    _, created_replay = ok(201, 'POST', f'{base}/items', {'title': 'Trim the hedge, 100%_\\\\', 'notes': 'Zahrada Šťovík', 'subjectId': subject['id']}, owner, {'Idempotency-Key': 'post-restore-item-hedge'})
     assert created_replay['id'] == created['id'], created_replay
     item_count_after_replay = len(all_pages(f'{base}/items?done=false&archived=false&limit=100', owner)[0]['body']['items'])
     assert item_count_after_replay == item_count_before_replay, (item_count_before_replay, item_count_after_replay)
@@ -262,7 +279,7 @@ wait_ready
 api populate
 "${compose_a[@]}" stop app
 snapshot_counts "${compose_a[@]}" >"$temp_dir/counts-before.txt"
-grep -qx 'items=6' "$temp_dir/counts-before.txt"
+grep -qx 'items=7' "$temp_dir/counts-before.txt"
 # Documented backup command (docs/admin/backup-restore.md).
 "${compose_a[@]}" exec -T postgres pg_dump -U postgres -d tendo --format=custom >"$temp_dir/tendo-backup.dump"
 test -s "$temp_dir/tendo-backup.dump"
@@ -288,7 +305,7 @@ api verify
 api exercise
 "${compose_b[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U tendo -d tendo <<'SQL'
 DO $$ BEGIN
-  IF (SELECT count(*) FROM items) <> 7 THEN RAISE EXCEPTION 'runtime role cannot read restored items'; END IF;
+  IF (SELECT count(*) FROM items) <> 8 THEN RAISE EXCEPTION 'runtime role cannot read restored items'; END IF;
   BEGIN
     DELETE FROM items;
     RAISE EXCEPTION 'restored runtime role unexpectedly deleted items';

@@ -59,6 +59,7 @@ type Item struct {
 	CreatedByUserID            pgtype.UUID
 	CreationKey                pgtype.Text
 	CreationRequestFingerprint []byte
+	SearchText                 string
 }
 
 type ItemCompletion struct {

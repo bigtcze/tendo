@@ -425,6 +425,7 @@ const (
 	QueryProblemParameterCursor            QueryProblemParameter = "cursor"
 	QueryProblemParameterDone              QueryProblemParameter = "done"
 	QueryProblemParameterLimit             QueryProblemParameter = "limit"
+	QueryProblemParameterQ                 QueryProblemParameter = "q"
 	QueryProblemParameterRecurring         QueryProblemParameter = "recurring"
 	QueryProblemParameterResponsibleUserId QueryProblemParameter = "responsibleUserId"
 	QueryProblemParameterSort              QueryProblemParameter = "sort"
@@ -446,6 +447,8 @@ func (e QueryProblemParameter) Valid() bool {
 	case QueryProblemParameterDone:
 		return true
 	case QueryProblemParameterLimit:
+		return true
+	case QueryProblemParameterQ:
 		return true
 	case QueryProblemParameterRecurring:
 		return true
@@ -1294,6 +1297,9 @@ type InvitationId = string
 // ItemId defines model for ItemId.
 type ItemId = string
 
+// ItemSearchQ defines model for ItemSearchQ.
+type ItemSearchQ = string
+
 // Limit defines model for Limit.
 type Limit = int
 
@@ -1406,6 +1412,9 @@ type ListItemsParams struct {
 	// AttentionDate Optional canonical YYYY-MM-DD freshness guard; must equal household-local today or returns invalid_query and parameter attentionDate. Never an as-of date.
 	AttentionDate *string `form:"attentionDate,omitempty" json:"attentionDate,omitempty"`
 
+	// Q Optional literal contiguous substring wholly within title or notes. A present-empty or repeated q is a structural 400 parameter q before household membership; whitespace-only, more than 200 Unicode code points after trimming, or forbidden control/format/line/paragraph separator characters is a semantic 400 parameter q after membership checks (a non-member receives uniform 404 first). Commas, percent, underscore, and backslash are literal search text, not list syntax. Matching case-folds and removes accents (Czech diacritics included); a query normalizing to empty matches nothing. Cursors bind to the trimmed exact q text, so changing q, including case or accents, invalidates continuation. Search alone does not make cursors expire at midnight.
+	Q *ItemSearchQ `form:"q,omitempty" json:"q,omitempty"`
+
 	// SubjectId Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value.
 	SubjectId *string `form:"subjectId,omitempty" json:"subjectId,omitempty"`
 
@@ -1442,6 +1451,9 @@ type CreateItemParams struct {
 
 // GetItemsSummaryParams defines parameters for GetItemsSummary.
 type GetItemsSummaryParams struct {
+	// Q Optional literal contiguous substring wholly within title or notes. A present-empty or repeated q is a structural 400 parameter q before household membership; whitespace-only, more than 200 Unicode code points after trimming, or forbidden control/format/line/paragraph separator characters is a semantic 400 parameter q after membership checks (a non-member receives uniform 404 first). Commas, percent, underscore, and backslash are literal search text, not list syntax. Matching case-folds and removes accents (Czech diacritics included); a query normalizing to empty matches nothing. Cursors bind to the trimmed exact q text, so changing q, including case or accents, invalidates continuation. Search alone does not make cursors expire at midnight.
+	Q *ItemSearchQ `form:"q,omitempty" json:"q,omitempty"`
+
 	// SubjectId Only items of this subject (archived subjects allowed). UUID, case-insensitive.
 	SubjectId *string `form:"subjectId,omitempty" json:"subjectId,omitempty"`
 
