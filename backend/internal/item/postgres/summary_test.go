@@ -131,11 +131,11 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 	// Walk the four service-level archived/done partitions through keyset cursors.
 	var walked item.SummaryCounts
 	seen := map[string]bool{}
-	pages := 0
+	pages, continued := 0, 0
 	for _, lifecycle := range []struct{ arch, done bool }{{false, false}, {false, true}, {true, false}, {true, true}} {
 		cursor := ""
 		for {
-			page, e := svc.List(ctx, user, h, item.ListQuery{Archived: lifecycle.arch, Done: lifecycle.done, Limit: 7, Cursor: cursor})
+			page, e := svc.List(ctx, user, h, item.ListQuery{Archived: lifecycle.arch, Done: lifecycle.done, Limit: 2, Cursor: cursor})
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -170,7 +170,11 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 				break
 			}
 			cursor = *page.NextCursor
+			continued++
 		}
+	}
+	if continued == 0 {
+		t.Fatal("service list walk never followed a continuation cursor")
 	}
 	if got := query(item.SummaryQuery{}).SummaryCounts; got != walked {
 		t.Errorf("list-walk=%+v summary=%+v", walked, got)

@@ -210,11 +210,17 @@ func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 	}
 	bodies := []string{semantic.Body.String()}
 	f.member = nil
-	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=OPEN", "", nil).Body.String())
-	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/"+missingIDForHTTP+"/items/summary?workflowState=OPEN", "", nil).Body.String())
-	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/not-a-uuid/items/summary?workflowState=OPEN", "", nil).Body.String())
-	if bodies[0] != bodies[1] || bodies[1] != bodies[2] {
-		t.Fatalf("nonuniform not-found bodies: %q", bodies)
+	for _, path := range []string{other, missingIDForHTTP, "not-a-uuid"} {
+		res := f.do(http.MethodGet, "/api/v1/households/"+path+"/items/summary?workflowState=OPEN", "", nil)
+		if res.Code != 404 {
+			t.Fatalf("household %q status=%d %s", path, res.Code, res.Body)
+		}
+		bodies = append(bodies, res.Body.String())
+	}
+	for i, body := range bodies {
+		if body != bodies[0] {
+			t.Fatalf("nonuniform not-found body %d: %q", i, bodies)
+		}
 	}
 	// The literal summary route returns summary fields, not an Item representation.
 	f.member = nil

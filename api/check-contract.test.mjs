@@ -425,7 +425,7 @@ test('item summary operation contract and captured responses are strict', async 
   const base = '/api/v1/households/{householdId}/items/summary'
   const zero = { evaluatedOn: '2026-10-16', total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 }
   const mixed = { ...zero, total: 28, needsAttention: 3, inProgress: 2, waiting: 4, upcoming: 5, paused: 6, done: 7, archived: 1 }
-  const good = body => ({ path: base, method: 'get', status: 200, headers: { ...headers }, body })
+  const good = body => ({ path: base, method: 'get', status: 200, headers: { ...headers }, body: structuredClone(body) })
   const run = async fixture => {
     await writeFile(fixturePath, JSON.stringify([fixture]))
     const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
