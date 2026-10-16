@@ -53,6 +53,12 @@ func (s *Service) Summary(ctx context.Context, userID, householdID string, q Sum
 	if err != nil {
 		return Summary{}, err
 	}
+	if q.Q != "" {
+		filters.Q, err = ValidateSearch(q.Q)
+		if err != nil {
+			return Summary{}, err
+		}
+	}
 	if q.AttentionDate != "" {
 		d, e := ParseDateForField(q.AttentionDate, "attentionDate")
 		if e != nil || d.Compare(today) != 0 {

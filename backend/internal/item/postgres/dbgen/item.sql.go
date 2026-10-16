@@ -298,8 +298,9 @@ WHERE items.household_id = $1
        OR ($9::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= $10::date))
        OR ($9::text = 'upcoming' AND items.attention_on > $10::date))
   AND ($11::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = $11::boolean)
+   AND ($12::text IS NULL OR items.search_text LIKE public.tendo_item_search_pattern($12::text) ESCAPE E'\\')
 ORDER BY items.id ASC
-LIMIT $12
+LIMIT $13
 `
 
 type ListItemsParams struct {
@@ -314,6 +315,7 @@ type ListItemsParams struct {
 	Attention         pgtype.Text
 	Today             pgtype.Date
 	Recurring         pgtype.Bool
+	Q                 pgtype.Text
 	RowLimit          int32
 }
 
@@ -350,6 +352,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.Attention,
 		arg.Today,
 		arg.Recurring,
+		arg.Q,
 		arg.RowLimit,
 	)
 	if err != nil {
@@ -407,8 +410,9 @@ WHERE items.household_id = $1
        OR ($10::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= $11::date))
        OR ($10::text = 'upcoming' AND items.attention_on > $11::date))
   AND ($12::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = $12::boolean)
+   AND ($13::text IS NULL OR items.search_text LIKE public.tendo_item_search_pattern($13::text) ESCAPE E'\\')
 ORDER BY items.attention_on ASC NULLS FIRST, items.id ASC
-LIMIT $13
+LIMIT $14
 `
 
 type ListItemsByAttentionParams struct {
@@ -424,6 +428,7 @@ type ListItemsByAttentionParams struct {
 	Attention         pgtype.Text
 	Today             pgtype.Date
 	Recurring         pgtype.Bool
+	Q                 pgtype.Text
 	RowLimit          int32
 }
 
@@ -461,6 +466,7 @@ func (q *Queries) ListItemsByAttention(ctx context.Context, arg ListItemsByAtten
 		arg.Attention,
 		arg.Today,
 		arg.Recurring,
+		arg.Q,
 		arg.RowLimit,
 	)
 	if err != nil {
@@ -519,6 +525,7 @@ WITH classified AS (
          OR ($7::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= $1::date))
          OR ($7::text = 'upcoming' AND items.attention_on > $1::date))
     AND ($8::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = $8::boolean)
+   AND ($9::text IS NULL OR items.search_text LIKE public.tendo_item_search_pattern($9::text) ESCAPE E'\\')
 )
 SELECT count(*) AS total,
   count(*) FILTER (WHERE partition = 'needs_attention') AS needs_attention,
@@ -540,6 +547,7 @@ type SummarizeItemsParams struct {
 	WorkflowState     pgtype.Text
 	Attention         pgtype.Text
 	Recurring         pgtype.Bool
+	Q                 pgtype.Text
 }
 
 type SummarizeItemsRow struct {
@@ -563,6 +571,7 @@ func (q *Queries) SummarizeItems(ctx context.Context, arg SummarizeItemsParams) 
 		arg.WorkflowState,
 		arg.Attention,
 		arg.Recurring,
+		arg.Q,
 	)
 	var i SummarizeItemsRow
 	err := row.Scan(

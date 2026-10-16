@@ -48,8 +48,9 @@ const (
 	DefaultLimit = 50
 	MaxLimit     = 100
 
-	MaxTitleRunes = 200
-	MaxNotesRunes = 4000
+	MaxTitleRunes  = 200
+	MaxNotesRunes  = 4000
+	MaxSearchRunes = 200
 
 	operationTimeout = 5 * time.Second
 	cursorPrefix     = "i1:"
@@ -192,6 +193,7 @@ type ListQuery struct {
 	WorkflowState     string
 	Attention         string
 	Recurring         *bool
+	Q                 string
 	// Limit 0 selects DefaultLimit.
 	Limit  int
 	Cursor string
@@ -203,6 +205,7 @@ type CollectionFilters struct {
 	WorkflowState     WorkflowState
 	Attention         schedule.Attention
 	Recurring         *bool
+	Q                 string
 }
 
 type ListFilters struct {
@@ -212,12 +215,14 @@ type ListFilters struct {
 	WorkflowState     WorkflowState
 	Attention         schedule.Attention
 	Recurring         *bool
+	Q                 string
 }
 
 type SummaryQuery struct {
 	SubjectID, ResponsibleUserID, WorkflowState, Attention string
 	Recurring                                              *bool
 	AttentionDate                                          string
+	Q                                                      string
 }
 
 type SummaryOptions struct {
@@ -514,7 +519,14 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if err != nil {
 		return Page{}, err
 	}
-	filters := ListFilters{Archived: q.Archived, Done: q.Done, SubjectID: collectionFilters.SubjectID, ResponsibleUserID: collectionFilters.ResponsibleUserID, WorkflowState: collectionFilters.WorkflowState, Attention: collectionFilters.Attention, Recurring: collectionFilters.Recurring}
+	search := ""
+	if q.Q != "" {
+		search, err = ValidateSearch(q.Q)
+		if err != nil {
+			return Page{}, err
+		}
+	}
+	filters := ListFilters{Archived: q.Archived, Done: q.Done, SubjectID: collectionFilters.SubjectID, ResponsibleUserID: collectionFilters.ResponsibleUserID, WorkflowState: collectionFilters.WorkflowState, Attention: collectionFilters.Attention, Recurring: collectionFilters.Recurring, Q: search}
 	if sortBy != SortCreated && sortBy != SortAttention {
 		return Page{}, &InvalidQueryError{"sort"}
 	}
@@ -532,7 +544,7 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if guard != nil {
 		guardText = guard.String()
 	}
-	extended := q.SubjectID != "" || q.ResponsibleUserID != "" || q.WorkflowState != "" || q.Attention != "" || q.Recurring != nil || sortBy == SortAttention || guard != nil
+	extended := q.SubjectID != "" || q.ResponsibleUserID != "" || q.WorkflowState != "" || q.Attention != "" || q.Recurring != nil || search != "" || sortBy == SortAttention || guard != nil
 	after := nilUUID
 	var afterAttention *schedule.Date
 	if q.Cursor != "" {
@@ -594,7 +606,11 @@ func listFingerprint(f ListFilters, sortBy ListSort, guardDate string) string {
 	if f.Recurring != nil {
 		recurring = strconv.FormatBool(*f.Recurring)
 	}
-	b, _ := json.Marshal([]string{"tendo.items.list.v2", strconv.FormatBool(f.Archived), strconv.FormatBool(f.Done), f.SubjectID, responsible, workflow, attention, recurring, string(sortBy), guardDate})
+	fields := []string{"tendo.items.list.v2", strconv.FormatBool(f.Archived), strconv.FormatBool(f.Done), f.SubjectID, responsible, workflow, attention, recurring, string(sortBy), guardDate}
+	if f.Q != "" {
+		fields = append(fields, "q", f.Q)
+	}
+	b, _ := json.Marshal(fields)
 	d := sha256.Sum256(b)
 	return fmt.Sprintf("%x", d)
 }
@@ -793,6 +809,23 @@ func forbiddenRune(r rune) bool {
 	// Control, format (zero-width, bidi), and line or paragraph separator
 	// characters can hide or reorder text.
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)
+}
+
+// ValidateSearch returns the trimmed search term or an invalid-query error.
+func ValidateSearch(q string) (string, error) {
+	if !utf8.ValidString(q) {
+		return "", &InvalidQueryError{"q"}
+	}
+	q = strings.TrimSpace(q)
+	if q == "" || utf8.RuneCountInString(q) > MaxSearchRunes {
+		return "", &InvalidQueryError{"q"}
+	}
+	for _, r := range q {
+		if forbiddenRune(r) {
+			return "", &InvalidQueryError{"q"}
+		}
+	}
+	return q, nil
 }
 
 // ValidateTitle returns the trimmed title or a ValidationError.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -251,7 +252,17 @@ func matchesCollection(i item.Item, f item.CollectionFilters, today schedule.Dat
 			return false
 		}
 	}
-	return f.Recurring == nil || (i.Recurrence != nil) == *f.Recurring
+	if f.Recurring != nil && (i.Recurrence != nil) != *f.Recurring {
+		return false
+	}
+	notes := ""
+	if i.Notes != nil {
+		notes = *i.Notes
+	}
+	if f.Q != "" && !strings.Contains(strings.ToLower(i.Title+"\n"+notes), strings.ToLower(f.Q)) {
+		return false
+	}
+	return true
 }
 
 func (r *Repo) Summary(_ context.Context, householdID string, opts item.SummaryOptions) (item.SummaryCounts, error) {
@@ -319,7 +330,7 @@ func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions
 				continue
 			}
 		}
-		if !matchesCollection(i, item.CollectionFilters{SubjectID: f.SubjectID, ResponsibleUserID: f.ResponsibleUserID, WorkflowState: f.WorkflowState, Attention: f.Attention, Recurring: f.Recurring}, opts.Today) {
+		if !matchesCollection(i, item.CollectionFilters{SubjectID: f.SubjectID, ResponsibleUserID: f.ResponsibleUserID, WorkflowState: f.WorkflowState, Attention: f.Attention, Recurring: f.Recurring, Q: f.Q}, opts.Today) {
 			continue
 		}
 		all = append(all, i)

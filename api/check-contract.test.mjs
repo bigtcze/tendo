@@ -407,7 +407,7 @@ test('item summary operation contract and captured responses are strict', async 
   assert.ok(operation, 'getItemsSummary operation exists')
   assert.equal(operation.operationId, 'getItemsSummary')
   assert.ok(operation.security.some(requirement => requirement.SessionCookie))
-  assert.deepEqual(operation.parameters.map(parameter => parameter.$ref?.split('/').at(-1) ?? parameter.name), ['RequestId', 'HouseholdId', 'subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring', 'attentionDate'])
+  assert.deepEqual(operation.parameters.map(parameter => parameter.$ref?.split('/').at(-1) ?? parameter.name), ['RequestId', 'HouseholdId', 'ItemSearchQ', 'subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring', 'attentionDate'])
   for (const code of ['200', '400', '401', '403', '404', '421', '503']) assert.ok(operation.responses[code], `missing ${code} response`)
   const schema = contract.components.schemas.ItemSummary
   assert.equal(schema.additionalProperties, false)
@@ -487,7 +487,7 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
   }
   try {
     for (const fixture of [created, reused, list, listNext, got, patched, failed, required, badQuery, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
-    for (const parameter of ['subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring', 'sort', 'attentionDate']) {
+    for (const parameter of ['subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring', 'sort', 'attentionDate', 'q']) {
       const accepted = structuredClone(badQuery); accepted.body.parameter = parameter
       assert.equal((await run(accepted)).code, 0, `accepted query parameter ${parameter}`)
     }

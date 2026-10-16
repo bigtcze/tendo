@@ -132,6 +132,7 @@ fi
 psql -d tendo_corrupt_restore <<'SQL'
 DO $$ BEGIN
   IF to_regnamespace('smoke') IS NOT NULL THEN RAISE EXCEPTION 'failed restore left fixture schema'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname IN ('unaccent','pg_trgm')) OR to_regprocedure('public.tendo_item_search_normalize(text)') IS NOT NULL OR to_regprocedure('public.tendo_item_search_pattern(text)') IS NOT NULL OR to_regclass('public.items_search_text_trgm_idx') IS NOT NULL THEN RAISE EXCEPTION 'failed restore left search objects'; END IF;
 END $$;
 SQL
 printf 'Backup/restore smoke passed, including truncated-archive rejection.\n'

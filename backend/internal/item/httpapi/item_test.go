@@ -160,7 +160,19 @@ func (f *fixture) createWithKeys(body string, keys ...string) *httptest.Response
 
 func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 	f := newFixture(true)
-	w := f.do(http.MethodGet, base+"/summary", "", nil)
+	for _, query := range []string{"q", "q=", "q=one&q=two"} {
+		w := f.do("GET", base+"/summary?"+query, "", nil)
+		if w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"q"`) {
+			t.Fatalf("query=%q status=%d body=%s", query, w.Code, w.Body)
+		}
+	}
+	w := f.do("GET", base+"/summary?q=%20%20%20", "", nil)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"q"`) {
+		t.Fatalf("whitespace search status=%d body=%s", w.Code, w.Body)
+	}
+
+	f = newFixture(true)
+	w = f.do(http.MethodGet, base+"/summary", "", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
@@ -181,6 +193,8 @@ func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 		{"?recurring=false", `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":1,"done":0,"archived":0}`},
 		{"?subjectId=" + sid + "&workflowState=waiting&attention=upcoming&recurring=true&responsibleUserId=" + memberID, `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
 		{"?attentionDate=2026-03-02", `{"evaluatedOn":"2026-03-02","total":3,"needsAttention":1,"inProgress":0,"waiting":1,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+		{"?q=assigned", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?q=comma%2Cterm", `{"evaluatedOn":"2026-03-02","total":0,"needsAttention":0,"inProgress":0,"waiting":0,"upcoming":0,"paused":0,"done":0,"archived":0}`},
 	} {
 		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
 		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
@@ -191,7 +205,7 @@ func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 	}
 	for _, tc := range []struct{ query, param string }{
 		{"?limit=", "limit"}, {"?cursor=x", "cursor"}, {"?archived=false", "archived"}, {"?done=true", "done"}, {"?sort=created", "sort"},
-		{"?sort=created&limit=5", "limit"}, {"?subjectId=", "subjectId"}, {"?subjectId=" + sid + "&subjectId=" + sid, "subjectId"}, {"?responsibleUserId=", "responsibleUserId"}, {"?workflowState=", "workflowState"}, {"?attention=", "attention"}, {"?recurring=", "recurring"}, {"?recurring=true&recurring=true", "recurring"}, {"?attentionDate=", "attentionDate"}, {"?recurring=True", "recurring"}, {"?workflowState=OPEN", "workflowState"},
+		{"?sort=created&limit=5", "limit"}, {"?subjectId=", "subjectId"}, {"?subjectId=" + sid + "&subjectId=" + sid, "subjectId"}, {"?responsibleUserId=", "responsibleUserId"}, {"?workflowState=", "workflowState"}, {"?attention=", "attention"}, {"?recurring=", "recurring"}, {"?recurring=true&recurring=true", "recurring"}, {"?attentionDate=", "attentionDate"}, {"?q", "q"}, {"?q=", "q"}, {"?q=one&q=two", "q"}, {"?q=%20%20", "q"}, {"?recurring=True", "recurring"}, {"?workflowState=OPEN", "workflowState"},
 		{"?subjectId=bad", "subjectId"}, {"?responsibleUserId=bad", "responsibleUserId"}, {"?attentionDate=2026-02-30", "attentionDate"}, {"?attentionDate=2026-03-02&attentionDate=2026-03-02", "attentionDate"}, {"?workflowState=open,paused", "workflowState"}, {"?workflowState=%20open", "workflowState"},
 	} {
 		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
@@ -203,15 +217,15 @@ func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 		t.Fatalf("auth status=%d service calls=%d", w.Code, unauth.svcHit)
 	}
 	f.member = item.ErrNotFound
-	structural := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=", "", nil)
-	semantic := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=OPEN", "", nil)
+	structural := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?q=", "", nil)
+	semantic := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?q=%20", "", nil)
 	if structural.Code != 400 || semantic.Code != 404 {
 		t.Fatalf("structural=%d %s semantic=%d %s", structural.Code, structural.Body, semantic.Code, semantic.Body)
 	}
 	bodies := []string{semantic.Body.String()}
 	f.member = nil
 	for _, path := range []string{other, missingIDForHTTP, "not-a-uuid"} {
-		res := f.do(http.MethodGet, "/api/v1/households/"+path+"/items/summary?workflowState=OPEN", "", nil)
+		res := f.do(http.MethodGet, "/api/v1/households/"+path+"/items/summary?q=%20", "", nil)
 		if res.Code != 404 {
 			t.Fatalf("household %q status=%d %s", path, res.Code, res.Body)
 		}
@@ -332,7 +346,7 @@ func TestListStructuredQueryValidationAndFilteredSuccess(t *testing.T) {
 		{"responsibleUserId=", "responsibleUserId"}, {"responsibleUserId=unassigned&responsibleUserId=unassigned", "responsibleUserId"}, {"responsibleUserId=unassigned,unassigned", "responsibleUserId"}, {"responsibleUserId=NoNe", "responsibleUserId"},
 		{"workflowState=", "workflowState"}, {"workflowState=open&workflowState=open", "workflowState"}, {"workflowState=open,paused", "workflowState"}, {"workflowState=OPEN", "workflowState"},
 		{"attention=", "attention"}, {"attention=upcoming&attention=upcoming", "attention"}, {"attention=upcoming,needs_attention", "attention"}, {"attention=UPCOMING", "attention"},
-		{"recurring=", "recurring"}, {"recurring=true&recurring=true", "recurring"}, {"recurring=true,false", "recurring"}, {"recurring=1", "recurring"},
+		{"recurring=", "recurring"}, {"recurring=true&recurring=true", "recurring"}, {"recurring=true,false", "recurring"}, {"recurring=1", "recurring"}, {"q", "q"}, {"q=", "q"}, {"q=x&q=y", "q"}, {"q=%20%20", "q"},
 	} {
 		t.Run(tc.parameter+"/"+tc.query, func(t *testing.T) {
 			f := newFixture(true)
@@ -377,6 +391,7 @@ func TestListStructuredQueryValidationAndFilteredSuccess(t *testing.T) {
 		{"recurring true", "recurring=true", []string{"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81"}, 0},
 		{"recurring false", "recurring=false", []string{iid, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b83"}, 0},
 		{"paged subject", "subjectId=" + sid + "&limit=1", []string{iid}, 1},
+		{"literal comma q", "q=,", nil, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -443,7 +458,7 @@ func TestListQueryPrecedenceUnknownParametersAndLegacyCursor(t *testing.T) {
 	}
 	f := newFixture(true)
 	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, Title: "second", WorkflowState: item.StateOpen, CreatedAt: at, UpdatedAt: at, Version: 1})
-	w := f.do("GET", base+"?q=x&futureFlag=x&limit=1", "", nil)
+	w := f.do("GET", base+"?futureFlag=x&limit=1", "", nil)
 	if w.Code != 200 {
 		t.Fatalf("unknown params status=%d body=%s", w.Code, w.Body)
 	}

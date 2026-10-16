@@ -302,7 +302,7 @@ export interface paths {
         };
         /**
          * List items
-         * @description Returns items using keyset cursor pagination, sorted by ascending id by default (sort=created), or attentionOn ascending with null first and id tie-break (sort=attention_on). archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. subjectId, responsibleUserId, workflowState, attention, and recurring are single-valued filters combined with AND; unknown or foreign UUID references return an empty result. attentionDate optionally guards that the supplied canonical date is today in the household timezone; it never changes filtering/as-of semantics. Without structured filters, non-default sort, or attentionDate cursors retain exact i1 format; extended requests use i2 bound to household, filters, sort, and attentionDate. Attention-filter and guarded cursors are bound to household-local business date and cannot continue after local midnight. Unknown query parameters are ignored. Derived attention uses the household timezone.
+         * @description Returns items using keyset cursor pagination, sorted by ascending id by default (sort=created), or attentionOn ascending with null first and id tie-break (sort=attention_on). archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. subjectId, responsibleUserId, workflowState, attention, recurring, and q are single-valued filters combined with AND; unknown or foreign UUID references return an empty result. attentionDate optionally guards that the supplied canonical date is today in the household timezone; it never changes filtering/as-of semantics. Without structured filters, non-default sort, attentionDate, or q cursors retain exact i1 format; extended requests use i2 bound to household, filters, sort, attentionDate, and the trimmed exact q text. Changing q including case or accents invalidates continuation. Search alone does not make cursors expire at midnight. Attention-filter and guarded cursors are bound to household-local business date and cannot continue after local midnight. Unknown query parameters are ignored. Derived attention uses the household timezone.
          */
         get: operations["listItems"];
         put?: never;
@@ -370,7 +370,7 @@ export interface paths {
         };
         /**
          * Summarize items
-         * @description Counts the complete filtered household collection, including done and archived rows, in one statement. Filters combine with AND and use the same semantics as item listing; a well-formed but unknown or foreign subjectId or responsibleUserId yields zero counts. Each matching item is counted exactly once by precedence: archived (even if done), then done, then paused, in_progress, waiting by workflowState; only remaining open items are split into needsAttention (no attentionOn or attentionOn on or before household-local today) and upcoming. total equals the sum of the seven counters; an empty result returns zeros. evaluatedOn is the household-local today used for the whole response and may be sent back as attentionDate. Evaluation order: authentication (401); then query structure: presence of limit, cursor, archived, done or sort (in that order) is rejected, then each accepted parameter must be single-valued and nonempty and recurring must be exactly true or false (400 invalid_query naming the parameter); then household membership (uniform 404); then filter values, then attentionDate syntax and equality with household-local today (400 invalid_query). Unknown parameters are ignored. Responses are Cache-Control: no-store and carry no ETag; they are not snapshot-bound to list requests.
+         * @description Counts the complete filtered household collection, including done and archived rows, in one statement. Filters combine with AND and use the same semantics as item listing; a well-formed but unknown or foreign subjectId or responsibleUserId yields zero counts. Each matching item is counted exactly once by precedence: archived (even if done), then done, then paused, in_progress, waiting by workflowState; only remaining open items are split into needsAttention (no attentionOn or attentionOn on or before household-local today) and upcoming. total equals the sum of the seven counters; an empty result returns zeros. evaluatedOn is the household-local today used for the whole response and may be sent back as attentionDate. Evaluation order: authentication (401); then query structure: presence of limit, cursor, archived, done or sort (in that order) is rejected, then each accepted parameter must be single-valued and nonempty and recurring must be exactly true or false (400 invalid_query naming the parameter); then household membership (uniform 404); then filter values, then q validation (trimmed nonempty, at most 200 runes and no forbidden controls), then attentionDate syntax and equality with household-local today (400 invalid_query). Unknown parameters are ignored. Responses are Cache-Control: no-store and carry no ETag; they are not snapshot-bound to list requests.
          */
         get: operations["getItemsSummary"];
         put?: never;
@@ -648,7 +648,7 @@ export interface components {
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            parameter?: "limit" | "cursor" | "archived" | "done" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate";
+            parameter?: "limit" | "cursor" | "archived" | "done" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate" | "q";
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -864,6 +864,8 @@ export interface components {
         Limit: number;
         /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
         Cursor: string;
+        /** @description Optional literal contiguous substring wholly within title or notes. A present-empty or repeated q is a structural 400 parameter q before household membership; whitespace-only, more than 200 Unicode code points after trimming, or forbidden control/format/line/paragraph separator characters is a semantic 400 parameter q after membership checks (a non-member receives uniform 404 first). Commas, percent, underscore, and backslash are literal search text, not list syntax. Matching case-folds and removes accents (Czech diacritics included); a query normalizing to empty matches nothing. Cursors bind to the trimmed exact q text, so changing q, including case or accents, invalidates continuation. Search alone does not make cursors expire at midnight. */
+        ItemSearchQ: string;
         /** @description false (default) lists active items; true lists archived items only, independently of done status. */
         Archived: boolean;
         /** @description false (default) lists unfinished items; true lists completed one-off items. */
@@ -4344,6 +4346,8 @@ export interface operations {
                 sort?: "created" | "attention_on";
                 /** @description Optional canonical YYYY-MM-DD freshness guard; must equal household-local today or returns invalid_query and parameter attentionDate. Never an as-of date. */
                 attentionDate?: string;
+                /** @description Optional literal contiguous substring wholly within title or notes. A present-empty or repeated q is a structural 400 parameter q before household membership; whitespace-only, more than 200 Unicode code points after trimming, or forbidden control/format/line/paragraph separator characters is a semantic 400 parameter q after membership checks (a non-member receives uniform 404 first). Commas, percent, underscore, and backslash are literal search text, not list syntax. Matching case-folds and removes accents (Czech diacritics included); a query normalizing to empty matches nothing. Cursors bind to the trimmed exact q text, so changing q, including case or accents, invalidates continuation. Search alone does not make cursors expire at midnight. */
+                q?: components["parameters"]["ItemSearchQ"];
                 /** @description Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value. */
                 subjectId?: string;
                 /** @description Single UUID or exact lowercase unassigned; ANDed with other filters. Unknown or foreign IDs produce an empty result. Bound into filtered cursors. */
@@ -4407,7 +4411,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemList"];
                 };
             };
-            /** @description A query parameter is invalid: limit is not an integer from 1 to 100; cursor is malformed or mismatched; archived/done/recurring is not lowercase true or false; UUID filters are malformed; workflowState/attention is outside documented values; sort is not created or attention_on; or attentionDate is not a canonical real date equal to household-local today. Query values must be single nonempty scalar values (no repeats or comma lists). The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100; cursor is malformed or mismatched; archived/done/recurring is not lowercase true or false; UUID filters are malformed; workflowState/attention is outside documented values; sort is not created or attention_on; attentionDate is not a canonical real date equal to household-local today; or q is invalid. Values are single nonempty scalars with no repeats; comma lists are not supported except q, where commas are literal search text. q present-empty/repeated errors are structural and precede membership; whitespace-only, forbidden characters, or more than 200 Unicode code points after trimming are semantic and follow membership (non-members receive uniform 404). The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -5540,6 +5544,8 @@ export interface operations {
     getItemsSummary: {
         parameters: {
             query?: {
+                /** @description Optional literal contiguous substring wholly within title or notes. A present-empty or repeated q is a structural 400 parameter q before household membership; whitespace-only, more than 200 Unicode code points after trimming, or forbidden control/format/line/paragraph separator characters is a semantic 400 parameter q after membership checks (a non-member receives uniform 404 first). Commas, percent, underscore, and backslash are literal search text, not list syntax. Matching case-folds and removes accents (Czech diacritics included); a query normalizing to empty matches nothing. Cursors bind to the trimmed exact q text, so changing q, including case or accents, invalidates continuation. Search alone does not make cursors expire at midnight. */
+                q?: components["parameters"]["ItemSearchQ"];
                 /** @description Only items of this subject (archived subjects allowed). UUID, case-insensitive. */
                 subjectId?: string;
                 /** @description Only items assigned to this member userId, or exactly `unassigned` for items without a responsible member. */
@@ -5595,7 +5601,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemSummary"];
                 };
             };
-            /** @description A query parameter is unsupported, repeated, empty or invalid, the attentionDate guard is stale or malformed, or trusted forwarded request metadata is malformed (no parameter member). */
+            /** @description A query parameter is unsupported, repeated, empty or invalid, q is invalid after trimming, the attentionDate guard is stale or malformed, or trusted forwarded request metadata is malformed (no parameter member). */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

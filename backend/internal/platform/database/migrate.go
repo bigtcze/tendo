@@ -17,7 +17,7 @@ import (
 //go:embed *.sql
 var migrations embed.FS
 
-const currentVersion int64 = 15
+const currentVersion int64 = 16
 const advisoryLock int64 = 784193214
 
 type migrationConn interface {
@@ -129,6 +129,9 @@ func validateMetadata(ctx context.Context, conn migrationConn) error {
 	}
 	if maxVersion != currentVersion {
 		return errors.New("database schema version is unsupported")
+	}
+	if err := validateItemSearch(ctx, conn); err != nil {
+		return err
 	}
 	return nil
 }
