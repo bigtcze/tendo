@@ -175,7 +175,16 @@ type Change struct {
 	Archived          *bool
 }
 
+type ListSort string
+
+const (
+	SortCreated   ListSort = "created"
+	SortAttention ListSort = "attention_on"
+)
+
 type ListQuery struct {
+	Sort              ListSort
+	AttentionDate     string
 	Archived          bool
 	Done              bool
 	SubjectID         string
@@ -198,10 +207,12 @@ type ListFilters struct {
 }
 
 type ListOptions struct {
-	Filters ListFilters
-	Today   schedule.Date
-	AfterID string
-	Limit   int
+	Filters          ListFilters
+	Today            schedule.Date
+	Sort             ListSort
+	AfterID          string
+	AfterAttentionOn *schedule.Date
+	Limit            int
 }
 
 type Page struct {
@@ -214,8 +225,12 @@ type Page struct {
 // ErrVersionMismatch when the item exists with another version. Create and
 // Update return ErrInvalidReference when the subject reference is rejected by
 // storage, or ErrInvalidResponsibleReference when the responsible-member
-// reference is rejected. List returns items with id greater than afterID in
-// ascending id order, at most limit. Repositories never populate Item.Attention.
+// reference is rejected. List returns at most limit items after the keyset
+// boundary in the selected sort: SortCreated orders by ascending id after
+// AfterID; SortAttention orders null attentionOn first, then ascending
+// attentionOn and id, after (AfterAttentionOn, AfterID) where a nil
+// AfterAttentionOn denotes a null-date boundary. Repositories never populate
+// Item.Attention.
 // Any other error is an infrastructure failure.
 type Repository interface {
 	CreateIdempotent(ctx context.Context, householdID string, d Draft) (Item, bool, error)
@@ -454,6 +469,11 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if err != nil {
 		return Page{}, err
 	}
+	sortBy := q.Sort
+	if sortBy == "" {
+		sortBy = SortCreated
+	}
+	var guard *schedule.Date
 	limit := q.Limit
 	if limit == 0 {
 		limit = DefaultLimit
@@ -497,11 +517,29 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if q.Recurring != nil {
 		filters.Recurring = q.Recurring
 	}
-	extended := q.SubjectID != "" || q.ResponsibleUserID != "" || q.WorkflowState != "" || q.Attention != "" || q.Recurring != nil
+	if sortBy != SortCreated && sortBy != SortAttention {
+		return Page{}, &InvalidQueryError{"sort"}
+	}
+	if q.AttentionDate != "" {
+		d, pe := ParseDateForField(q.AttentionDate, "attentionDate")
+		if pe != nil {
+			return Page{}, &InvalidQueryError{"attentionDate"}
+		}
+		guard = &d
+	}
+	if guard != nil && guard.Compare(today) != 0 {
+		return Page{}, &InvalidQueryError{"attentionDate"}
+	}
+	guardText := ""
+	if guard != nil {
+		guardText = guard.String()
+	}
+	extended := q.SubjectID != "" || q.ResponsibleUserID != "" || q.WorkflowState != "" || q.Attention != "" || q.Recurring != nil || sortBy == SortAttention || guard != nil
 	after := nilUUID
+	var afterAttention *schedule.Date
 	if q.Cursor != "" {
 		if extended {
-			after, err = decodeBoundCursor(q.Cursor, householdID, filters, today)
+			after, afterAttention, err = decodeBoundCursor(q.Cursor, householdID, filters, today, sortBy, guardText)
 		} else {
 			after, err = DecodeCursor(q.Cursor)
 		}
@@ -511,7 +549,7 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := s.repository.List(ctx, householdID, ListOptions{Filters: filters, Today: today, AfterID: after, Limit: limit + 1})
+	rows, err := s.repository.List(ctx, householdID, ListOptions{Filters: filters, Today: today, Sort: sortBy, AfterID: after, AfterAttentionOn: afterAttention, Limit: limit + 1})
 	if err != nil {
 		return Page{}, ErrUnavailable
 	}
@@ -521,7 +559,7 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 		last := strings.ToLower(rows[limit-1].ID)
 		var next string
 		if extended {
-			next = encodeBoundCursor(householdID, filters, today, last)
+			next = encodeBoundCursor(householdID, filters, today, sortBy, guardText, rows[limit-1])
 		} else {
 			next = EncodeCursor(last)
 		}
@@ -539,7 +577,7 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	return page, nil
 }
 
-func listFingerprint(f ListFilters) string {
+func listFingerprint(f ListFilters, sortBy ListSort, guardDate string) string {
 	responsible := ""
 	if f.ResponsibleUserID.Set {
 		if f.ResponsibleUserID.Value == nil {
@@ -558,34 +596,49 @@ func listFingerprint(f ListFilters) string {
 	if f.Recurring != nil {
 		recurring = strconv.FormatBool(*f.Recurring)
 	}
-	b, _ := json.Marshal([]string{"tendo.items.list.v2", strconv.FormatBool(f.Archived), strconv.FormatBool(f.Done), f.SubjectID, responsible, workflow, attention, recurring, "created", ""})
+	b, _ := json.Marshal([]string{"tendo.items.list.v2", strconv.FormatBool(f.Archived), strconv.FormatBool(f.Done), f.SubjectID, responsible, workflow, attention, recurring, string(sortBy), guardDate})
 	d := sha256.Sum256(b)
 	return fmt.Sprintf("%x", d)
 }
-func encodeBoundCursor(h string, f ListFilters, today schedule.Date, last string) string {
-	date := "-"
-	if f.Attention != "" {
+func encodeBoundCursor(h string, f ListFilters, today schedule.Date, sortBy ListSort, guardText string, last Item) string {
+	date, pos := "-", "-"
+	if f.Attention != "" || guardText != "" {
 		date = today.String()
 	}
-	return base64.RawURLEncoding.EncodeToString([]byte(strings.Join([]string{"i2", h, listFingerprint(f), date, "-", last}, ":")))
+	if sortBy == SortAttention && last.AttentionOn != nil {
+		pos = last.AttentionOn.String()
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(strings.Join([]string{"i2", h, listFingerprint(f, sortBy, guardText), date, pos, strings.ToLower(last.ID)}, ":")))
 }
-func decodeBoundCursor(cursor, household string, f ListFilters, today schedule.Date) (string, error) {
+func decodeBoundCursor(cursor, household string, f ListFilters, today schedule.Date, sortBy ListSort, guardText string) (string, *schedule.Date, error) {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(cursor)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	parts := strings.Split(string(raw), ":")
-	if len(parts) != 6 || parts[0] != "i2" || parts[1] != household || parts[2] != listFingerprint(f) || parts[4] != "-" || !validUUID(parts[5]) || parts[5] != strings.ToLower(parts[5]) {
-		return "", errors.New("invalid bound cursor")
+	if len(parts) != 6 || parts[0] != "i2" || parts[1] != household || parts[2] != listFingerprint(f, sortBy, guardText) || !validUUID(parts[5]) || parts[5] != strings.ToLower(parts[5]) {
+		return "", nil, errors.New("invalid bound cursor")
+	}
+	var afterDate *schedule.Date
+	if sortBy == SortCreated {
+		if parts[4] != "-" {
+			return "", nil, errors.New("created cursor has date")
+		}
+	} else if parts[4] != "-" {
+		d, pe := ParseDate(parts[4])
+		if pe != nil {
+			return "", nil, pe
+		}
+		afterDate = &d
 	}
 	wantDate := "-"
-	if f.Attention != "" {
+	if f.Attention != "" || guardText != "" {
 		wantDate = today.String()
 	}
 	if parts[3] != wantDate {
-		return "", errors.New("stale bound cursor")
+		return "", nil, errors.New("stale bound cursor")
 	}
-	return strings.ToLower(parts[5]), nil
+	return strings.ToLower(parts[5]), afterDate, nil
 }
 
 func (s *Service) Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p Patch) (Item, error) {

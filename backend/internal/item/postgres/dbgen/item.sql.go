@@ -388,6 +388,117 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 	return items, nil
 }
 
+const listItemsByAttention = `-- name: ListItemsByAttention :many
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+FROM items
+WHERE items.household_id = $1
+  AND items.archived = $2
+  AND items.done = $3
+  AND (
+    ($4::date IS NULL
+      AND (items.attention_on IS NOT NULL OR (items.attention_on IS NULL AND items.id > $5)))
+    OR ($4::date IS NOT NULL
+      AND (items.attention_on, items.id) > ($4::date, $5))
+  )
+  AND ($6::uuid IS NULL OR items.subject_id = $6::uuid)
+  AND (NOT $7::boolean OR items.responsible_user_id IS NOT DISTINCT FROM $8::uuid)
+  AND ($9::text IS NULL OR items.workflow_state = $9::text)
+  AND ($10::text IS NULL
+       OR ($10::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= $11::date))
+       OR ($10::text = 'upcoming' AND items.attention_on > $11::date))
+  AND ($12::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = $12::boolean)
+ORDER BY items.attention_on ASC NULLS FIRST, items.id ASC
+LIMIT $13
+`
+
+type ListItemsByAttentionParams struct {
+	HouseholdID       pgtype.UUID
+	Archived          bool
+	Done              bool
+	AfterAttentionOn  pgtype.Date
+	AfterID           pgtype.UUID
+	SubjectID         pgtype.UUID
+	FilterResponsible bool
+	ResponsibleUserID pgtype.UUID
+	WorkflowState     pgtype.Text
+	Attention         pgtype.Text
+	Today             pgtype.Date
+	Recurring         pgtype.Bool
+	RowLimit          int32
+}
+
+type ListItemsByAttentionRow struct {
+	ID                      string
+	HouseholdID             string
+	SubjectID               string
+	ResponsibleUserID       pgtype.UUID
+	Title                   string
+	Notes                   pgtype.Text
+	AttentionOn             pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	WorkflowState           string
+	Archived                bool
+	Done                    bool
+	LastCompletedOn         pgtype.Date
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	Version                 int64
+}
+
+func (q *Queries) ListItemsByAttention(ctx context.Context, arg ListItemsByAttentionParams) ([]ListItemsByAttentionRow, error) {
+	rows, err := q.db.Query(ctx, listItemsByAttention,
+		arg.HouseholdID,
+		arg.Archived,
+		arg.Done,
+		arg.AfterAttentionOn,
+		arg.AfterID,
+		arg.SubjectID,
+		arg.FilterResponsible,
+		arg.ResponsibleUserID,
+		arg.WorkflowState,
+		arg.Attention,
+		arg.Today,
+		arg.Recurring,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemsByAttentionRow{}
+	for rows.Next() {
+		var i ListItemsByAttentionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.HouseholdID,
+			&i.SubjectID,
+			&i.ResponsibleUserID,
+			&i.Title,
+			&i.Notes,
+			&i.AttentionOn,
+			&i.RecurrenceIntervalValue,
+			&i.RecurrenceIntervalUnit,
+			&i.RecurrenceMode,
+			&i.WorkflowState,
+			&i.Archived,
+			&i.Done,
+			&i.LastCompletedOn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateItem = `-- name: UpdateItem :one
 UPDATE items
 SET title = COALESCE($1::text, title),

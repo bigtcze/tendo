@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -102,7 +103,7 @@ func TestMigrationUpgradeFromV9ToV10PreservesData(t *testing.T) {
 	if _, err = upAdmin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) VALUES($1::uuid,$2::uuid,'2026-10-07',$3::uuid,'waiting',6,'v9-receipt',decode(repeat('ab',32),'hex'))`, hid, iid, owner); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; REVOKE UPDATE (responsible_user_id) ON items FROM tendo; ALTER TABLE items DROP CONSTRAINT items_responsible_membership_fk; DROP INDEX items_responsible_membership_idx; ALTER TABLE items DROP COLUMN responsible_user_id; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (10,11,12,13,14)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; REVOKE UPDATE (responsible_user_id) ON items FROM tendo; ALTER TABLE items DROP CONSTRAINT items_responsible_membership_fk; DROP INDEX items_responsible_membership_idx; ALTER TABLE items DROP COLUMN responsible_user_id; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upAdmin); err == nil {
@@ -162,7 +163,7 @@ func TestMigrationUpgradeFromV6PreservesData(t *testing.T) {
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (7,8,9,10,11,12,13,14)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,7,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, iid string
@@ -270,7 +271,7 @@ func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE items DROP CONSTRAINT items_household_creator_creation_key_unique, DROP CONSTRAINT items_creation_fingerprint_length, DROP CONSTRAINT items_creation_key_valid, DROP CONSTRAINT items_creation_metadata_all_or_none; ALTER TABLE items DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (13,14)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE items DROP CONSTRAINT items_household_creator_creation_key_unique, DROP CONSTRAINT items_creation_fingerprint_length, DROP CONSTRAINT items_creation_key_valid, DROP CONSTRAINT items_creation_metadata_all_or_none; ALTER TABLE items DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, uid, sid, iid string
@@ -305,7 +306,7 @@ func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T
 	if creator.Valid || key.Valid || fingerprint != nil {
 		t.Fatalf("legacy metadata=%+v %+v %x", creator, key, fingerprint)
 	}
-	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 14 || dirty {
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 15 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 	got, err := NewRepository(upAdmin).Get(ctx, hid, iid)
@@ -578,6 +579,440 @@ func itemIDs(rows []item.Item) []string {
 		out[i] = r.ID
 	}
 	return out
+}
+
+func TestAttentionSortPaginationAndMutationsAgainstPostgres(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, app := pool(t, ctx, adminURL), pool(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	var h, actor, subjectID string
+	if err := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('attention pagination','UTC') RETURNING id::text`).Scan(&h); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('attention pagination actor') RETURNING id::text`).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, actor, h); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','attention target') RETURNING id::text`, h).Scan(&subjectID); err != nil {
+		t.Fatal(err)
+	}
+	// Generated UUIDv7 values deliberately alternate key order and attention date; nulls and ties span pages.
+	rows := []struct{ id, date string }{}
+	for _, d := range []string{"", "", "", "", "", "2026-01-01", "2026-01-01", "2026-01-01", "2026-01-01", "2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"} {
+		rows = append(rows, struct{ id, date string }{nextAttentionID(), d})
+	}
+	for n, r := range rows {
+		if _, err := admin.Exec(ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,workflow_state,archived,done) VALUES($1::uuid,$2::uuid,$3::uuid,$4,NULLIF($5,'')::date,'open',false,false)`, r.id, h, subjectID, fmt.Sprintf("row-%d", n), r.date); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := NewRepository(app)
+	q := item.ListQuery{Sort: item.SortAttention, Limit: 2}
+	houses := func(context.Context, string, string) (string, error) { return "UTC", nil }
+	svc := item.NewService(repo, houses, nil, nil, func() time.Time { return time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC) })
+	var got []string
+	pages := 0
+	for {
+		p, err := svc.List(ctx, actor, h, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		if p.NextCursor != nil && len(p.Items) != q.Limit {
+			t.Fatalf("short nonfinal page=%+v", p)
+		}
+		for _, v := range p.Items {
+			got = append(got, v.ID)
+		}
+		if p.NextCursor == nil {
+			break
+		}
+		q.Cursor = *p.NextCursor
+		q.Limit = map[int]int{2: 3, 3: 1, 1: 2}[q.Limit]
+	}
+	want := []string{rows[0].id, rows[1].id, rows[2].id, rows[3].id, rows[4].id, rows[5].id, rows[6].id, rows[7].id, rows[8].id, rows[9].id, rows[10].id, rows[11].id, rows[12].id}
+	if pages < 3 || strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("pages=%d got=%v want=%v", pages, got, want)
+	}
+	// Boundary is encoded, not refetched from the current row value.
+	first, err := svc.List(ctx, actor, h, item.ListQuery{Sort: item.SortAttention, Limit: 2})
+	if err != nil || first.NextCursor == nil {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	if _, err = admin.Exec(ctx, `UPDATE items SET attention_on='2027-01-01' WHERE id=$1::uuid`, first.Items[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	continued, err := svc.List(ctx, actor, h, item.ListQuery{Sort: item.SortAttention, Limit: 5, Cursor: *first.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(continued.Items) != 5 {
+		t.Fatalf("continuation=%v", continued.Items)
+	}
+}
+
+type capturingDB struct {
+	pgx.Tx
+	query string
+	args  []any
+}
+
+func (c *capturingDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	c.query = sql
+	c.args = append([]any(nil), args...)
+	return c.Tx.Query(ctx, sql, args...)
+}
+
+func TestItemListExplainIndexesAtScale(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	admin, app := pool(t, ctx, adminURL), pool(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	var h, s, other, os, actor, sparseSubject string
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('explain scale','UTC') RETURNING id::text`).Scan(&h))
+	must(admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','scale target') RETURNING id::text`, h).Scan(&s))
+	must(admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('explain other','UTC') RETURNING id::text`).Scan(&other))
+	must(admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('explain actor') RETURNING id::text`).Scan(&actor))
+	mustExec := func(sql string, args ...any) { t.Helper(); _, err := admin.Exec(ctx, sql, args...); must(err) }
+	mustExec(`INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, actor, h)
+	must(admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','other target') RETURNING id::text`, other).Scan(&os))
+	must(admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','sparse target') RETURNING id::text`, h).Scan(&sparseSubject))
+	// IDs ascend with n so created pages and cursor positions are deterministic. Target has 10k rows; other household contributes a further 10k.
+	mustExec(`INSERT INTO items(id,household_id,subject_id,title,attention_on,responsible_user_id,workflow_state,archived,done) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((100000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END,CASE WHEN n%10=0 THEN $6::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,(n%11=0),(n%13=0) FROM generate_series(1,20000) n`, h, other, s, os, sparseSubject, actor)
+	mustExec(`INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) SELECT household_id,id,DATE '2026-01-01', $1::uuid,'open',1,'explain-'||id::text,decode(repeat('ab',32),'hex') FROM items WHERE household_id=$2::uuid AND id IN (SELECT id FROM items WHERE household_id=$2::uuid ORDER BY id LIMIT 20)`, actor, h)
+	mustExec(`ANALYZE items`)
+	conn, err := app.Acquire(ctx)
+	must(err)
+	defer conn.Release()
+	type explainCase struct {
+		name      string
+		sort      item.ListSort
+		filters   item.ListFilters
+		after     string
+		afterDate *schedule.Date
+		wantIndex string
+		broad     bool
+		predicate string
+	}
+	d := mustTestDate(2026, time.January, 1)
+	cases := []explainCase{
+		{name: "created first", sort: item.SortCreated, after: "00000000-0000-0000-0000-000000000000", wantIndex: createdOrderIndexes, broad: true, predicate: `id>'00000000-0000-0000-0000-000000000000'::uuid`},
+		{name: "created deep", sort: item.SortCreated, after: "0198a2f0-7c1e-7a53-9b0e-000000110000", wantIndex: createdOrderIndexes, broad: true, predicate: `id>'0198a2f0-7c1e-7a53-9b0e-000000110000'::uuid`},
+		{name: "attention first", sort: item.SortAttention, after: "00000000-0000-0000-0000-000000000000", wantIndex: "items_household_archived_done_attention_id_idx", broad: true, predicate: `(attention_on IS NOT NULL OR (attention_on IS NULL AND id>'00000000-0000-0000-0000-000000000000'::uuid))`},
+		{name: "attention null cursor", sort: item.SortAttention, after: "0198a2f0-7c1e-7a53-9b0e-000000107000", wantIndex: "items_household_archived_done_attention_id_idx", predicate: `(attention_on IS NOT NULL OR (attention_on IS NULL AND id>'0198a2f0-7c1e-7a53-9b0e-000000107000'::uuid))`},
+		{name: "attention repeated date cursor", sort: item.SortAttention, after: "0198a2f0-7c1e-7a53-9b0e-000000105010", afterDate: &d, wantIndex: "items_household_archived_done_attention_id_idx", broad: true, predicate: `(attention_on,id) > (DATE '2026-01-01','0198a2f0-7c1e-7a53-9b0e-000000105010'::uuid)`},
+		{name: "attention upcoming", sort: item.SortAttention, after: "00000000-0000-0000-0000-000000000000", filters: item.ListFilters{Attention: schedule.Upcoming}, wantIndex: "items_household_archived_done_attention_id_idx", broad: true, predicate: `attention_on>DATE '2026-01-03'`},
+		{name: "attention needs open", sort: item.SortAttention, after: "00000000-0000-0000-0000-000000000000", filters: item.ListFilters{Attention: schedule.NeedsAttention, WorkflowState: item.StateOpen}, wantIndex: "items_household_archived_done_attention_id_idx", predicate: `(attention_on IS NULL OR attention_on<=DATE '2026-01-03') AND workflow_state='open'`},
+		{name: "attention sparse subject", sort: item.SortAttention, after: "00000000-0000-0000-0000-000000000000", filters: item.ListFilters{SubjectID: sparseSubject}, wantIndex: "items_household_archived_done_attention_id_idx", predicate: `subject_id='` + sparseSubject + `'::uuid`},
+		{name: "attention responsible UUID", sort: item.SortAttention, after: "00000000-0000-0000-0000-000000000000", filters: item.ListFilters{ResponsibleUserID: item.Some(actor)}, wantIndex: "items_household_archived_done_attention_id_idx", predicate: `responsible_user_id='` + actor + `'::uuid`},
+		{name: "attention unassigned", sort: item.SortAttention, after: "00000000-0000-0000-0000-000000000000", filters: item.ListFilters{ResponsibleUserID: item.Null[string]()}, wantIndex: "items_household_archived_done_attention_id_idx", predicate: `responsible_user_id IS NULL`},
+	}
+
+	var customIDs []string
+	for _, tc := range cases {
+		tx, err := conn.Begin(ctx)
+		must(err)
+		_, err = tx.Exec(ctx, `SET LOCAL plan_cache_mode=force_custom_plan`)
+		must(err)
+		capture := &capturingDB{Tx: tx}
+		repo := NewRepository(capture)
+		got, err := repo.List(ctx, h, item.ListOptions{Filters: tc.filters, Today: mustTestDate(2026, time.January, 3), Sort: tc.sort, AfterID: tc.after, AfterAttentionOn: tc.afterDate, Limit: 51})
+		must(err)
+		if len(got) > 51 {
+			t.Fatalf("%s returned %d rows", tc.name, len(got))
+		}
+		order := "id ASC"
+		if tc.sort == item.SortAttention {
+			order = "attention_on ASC NULLS FIRST,id ASC"
+		}
+		oracleSQL := `SELECT id::text FROM items WHERE household_id=$1::uuid AND archived=false AND done=false AND ` + tc.predicate + ` ORDER BY ` + order + ` LIMIT 51`
+		oracleRows, err := admin.Query(ctx, oracleSQL, h)
+		must(err)
+		var expected []string
+		for oracleRows.Next() {
+			var id string
+			must(oracleRows.Scan(&id))
+			expected = append(expected, id)
+		}
+		must(oracleRows.Err())
+		oracleRows.Close()
+		if strings.Join(itemIDs(got), ",") != strings.Join(expected, ",") {
+			t.Fatalf("%s repo IDs differ from oracle: got=%v want=%v", tc.name, itemIDs(got), expected)
+		}
+		if tc.name == "attention first" {
+			customIDs = itemIDs(got)
+		}
+		var payload []byte
+		must(tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON)\n"+capture.query, capture.args...).Scan(&payload))
+		var docs []map[string]any
+		must(json.Unmarshal(payload, &docs))
+		plan := docs[0]["Plan"].(map[string]any)
+		t.Logf("EXPLAIN custom %s ids=%v plan=%s", tc.name, itemIDs(got), payload)
+		if tc.broad {
+			if !planOrderedIndex(plan, tc.wantIndex) {
+				t.Errorf("%s main path lacks ordered index %s", tc.name, tc.wantIndex)
+			}
+			if mainHasSort(plan) {
+				t.Errorf("%s main path contains Sort", tc.name)
+			}
+		}
+		must(tx.Commit(ctx))
+	}
+	// Production SQL auto-plan warmup and prepared-plan counters, on one runtime connection.
+	tx, err := conn.Begin(ctx)
+	must(err)
+	capture := &capturingDB{Tx: tx}
+	_, err = NewRepository(capture).List(ctx, h, item.ListOptions{Today: mustTestDate(2026, time.January, 3), Sort: item.SortAttention, AfterID: "00000000-0000-0000-0000-000000000000", Limit: 51})
+	must(err)
+	must(tx.Commit(ctx))
+	for n := 0; n < 12; n++ {
+		rows, err := conn.Query(ctx, capture.query, capture.args...)
+		must(err)
+		for rows.Next() {
+			_, err := rows.Values()
+			must(err)
+		}
+		rows.Close()
+		must(rows.Err())
+	}
+	var prepared string
+	must(conn.QueryRow(ctx, `SELECT COALESCE(json_agg(json_build_object('name',name,'generic_plans',generic_plans,'custom_plans',custom_plans))::text,'[]') FROM pg_prepared_statements`).Scan(&prepared))
+	t.Logf("pg_prepared_statements=%s", prepared)
+	// Force generic for diagnostics only; require no temp spill and equivalent page IDs.
+	tx, err = conn.Begin(ctx)
+	must(err)
+	_, err = tx.Exec(ctx, `SET LOCAL plan_cache_mode=force_generic_plan`)
+	must(err)
+	captureGeneric := &capturingDB{Tx: tx}
+	generic, err := NewRepository(captureGeneric).List(ctx, h, item.ListOptions{Today: mustTestDate(2026, time.January, 3), Sort: item.SortAttention, AfterID: "00000000-0000-0000-0000-000000000000", Limit: 51})
+	must(err)
+	var payload []byte
+	must(tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON)\n"+captureGeneric.query, captureGeneric.args...).Scan(&payload))
+	var docs []map[string]any
+	must(json.Unmarshal(payload, &docs))
+	gp := docs[0]["Plan"].(map[string]any)
+	t.Logf("EXPLAIN forced generic attention first ids=%v plan=%s", itemIDs(generic), payload)
+	if planTempWritten(gp) != 0 {
+		t.Errorf("generic plan spilled temp blocks: %d", planTempWritten(gp))
+	}
+	if strings.Join(itemIDs(generic), ",") != strings.Join(customIDs, ",") {
+		t.Errorf("generic page mismatch: generic=%v custom=%v", itemIDs(generic), customIDs)
+	}
+	tx.Rollback(ctx)
+}
+
+// createdOrderIndexes lists the indexes that can each legitimately serve the unchanged
+// V1 id-ordered list without a Sort; the planner chooses by cost (with this fixture's
+// 50/50 household split it may walk items_pkey and filter the household), so none is pinned.
+const createdOrderIndexes = "items_pkey|items_household_id_id_key|items_household_archived_done_id_idx"
+
+// planOrderedIndex reports whether the main (non-subplan) path contains an ordered
+// Index Scan or Index Only Scan on one of the "|"-separated index names.
+func planOrderedIndex(node map[string]any, index string) bool {
+	if name, ok := node["Index Name"].(string); ok && (node["Node Type"] == "Index Scan" || node["Node Type"] == "Index Only Scan") {
+		for _, want := range strings.Split(index, "|") {
+			if name == want {
+				return true
+			}
+		}
+	}
+	children, _ := node["Plans"].([]any)
+	for _, child := range children {
+		m := child.(map[string]any)
+		rel, _ := m["Parent Relationship"].(string)
+		if rel == "SubPlan" || rel == "InitPlan" {
+			continue
+		}
+		if planOrderedIndex(m, index) {
+			return true
+		}
+	}
+	return false
+}
+func mainHasSort(node map[string]any) bool {
+	if node["Node Type"] == "Sort" || node["Node Type"] == "Incremental Sort" {
+		return true
+	}
+	children, _ := node["Plans"].([]any)
+	for _, child := range children {
+		m := child.(map[string]any)
+		rel, _ := m["Parent Relationship"].(string)
+		if rel == "SubPlan" || rel == "InitPlan" {
+			continue
+		}
+		if mainHasSort(m) {
+			return true
+		}
+	}
+	return false
+}
+func planTempWritten(node map[string]any) int {
+	total := 0
+	if n, ok := node["Temp Written Blocks"].(float64); ok {
+		total += int(n)
+	}
+	children, _ := node["Plans"].([]any)
+	for _, child := range children {
+		total += planTempWritten(child.(map[string]any))
+	}
+	return total
+}
+
+func planUsesIndex(node map[string]any, index string) bool {
+	if node["Index Name"] == index {
+		return true
+	}
+	children, _ := node["Plans"].([]any)
+	for _, child := range children {
+		if planUsesIndex(child.(map[string]any), index) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMigrationUpgradeFromV14ToV15PreservesData(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin := pool(t, ctx, adminURL)
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
+	cfg, err := pgxpool.ParseConfig(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.Database = dbName
+	upAdmin, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upAdmin.Close()
+	appCfg, err := pgxpool.ParseConfig(appURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appCfg.ConnConfig.Database = dbName
+	upApp, err := pgxpool.NewWithConfig(ctx, appCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upApp.Close()
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var h, actor, assignee, sid, i1, i2, i3 string
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(upAdmin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('upgrade v14','UTC') RETURNING id::text`).Scan(&h))
+	for _, v := range []struct {
+		login  string
+		target *string
+	}{{"upgrade actor", &actor}, {"upgrade assignee", &assignee}} {
+		must(upAdmin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, v.login).Scan(v.target))
+	}
+	must(func() error {
+		_, e := upAdmin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner'),($3::uuid,$2::uuid,'member')`, actor, h, assignee)
+		return e
+	}())
+	must(upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','upgrade subject') RETURNING id::text`, h).Scan(&sid))
+	// Different schedule/workflow partitions, responsible assignment and idempotent create metadata all survive the v14 rewind.
+	for _, row := range []struct {
+		title      string
+		date       any
+		rec        bool
+		arch, done bool
+		version    int64
+		creation   string
+		into       *string
+	}{{"null attention", nil, false, false, false, 4, "v14-item-1", &i1}, {"past recurring", "2026-01-02", true, true, false, 7, "v14-item-2", &i2}, {"future done", "2030-02-03", false, false, true, 9, "v14-item-3", &i3}} {
+		must(upAdmin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done,version,created_by_user_id,creation_key,creation_request_fingerprint) VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5::date,CASE WHEN $6 THEN 2 END,CASE WHEN $6 THEN 'week' END,CASE WHEN $6 THEN 'fixed' END,$7,$8,$9,$10::uuid,$11,decode(repeat('cd',32),'hex')) RETURNING id::text`, h, sid, assignee, row.title, row.date, row.rec, row.arch, row.done, row.version, actor, row.creation).Scan(row.into))
+	}
+	// Receipt facts include an undone receipt with actor/time metadata and an active completion.
+	must(func() error {
+		_, e := upAdmin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,cycle_attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,prior_workflow_state,next_attention_on,item_version_before,idempotency_key,request_fingerprint,undone_at,undone_by_user_id) VALUES($1::uuid,$2::uuid,'2026-02-01',$3::uuid,NULL,2,'week','fixed','waiting','2026-02-15',3,'upgrade-undone',decode(repeat('ab',32),'hex'),'2026-02-02 03:04:05+00',$3::uuid),($1::uuid,$4::uuid,'2026-02-03',$3::uuid,'2026-01-20',2,'week','fixed','open','2026-02-17',8,'upgrade-active',decode(repeat('ef',32),'hex'),NULL,NULL)`, h, i2, actor, i1)
+		return e
+	}())
+	// Rewind migration 015 and its ledger first; then compare complete durable rows.
+	must(func() error {
+		_, e := upAdmin.Exec(ctx, `DROP INDEX items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version=15`)
+		return e
+	}())
+	snapshot := func() string {
+		t.Helper()
+		var got string
+		must(upAdmin.QueryRow(ctx, `SELECT jsonb_build_object('items',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM items x),'completions',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM item_completions x),'subjects',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM subjects x),'memberships',(SELECT jsonb_agg(to_jsonb(x) ORDER BY x.user_id,x.household_id) FROM household_memberships x))::text`).Scan(&got))
+		return got
+	}
+	before := snapshot()
+	if err = database.ValidateSchema(ctx, upApp); err == nil {
+		t.Fatal("v14 accepted")
+	}
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	after := snapshot()
+	if before != after {
+		t.Fatalf("database rows changed across v14->v15\nbefore=%s\nafter=%s", before, after)
+	}
+	if err = database.ValidateSchema(ctx, upApp); err != nil {
+		t.Fatalf("runtime schema validation: %v", err)
+	}
+	var version int
+	var dirty bool
+	must(upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty))
+	if version != 15 || dirty {
+		t.Fatalf("version=%d dirty=%v", version, dirty)
+	}
+	var def string
+	var valid bool
+	must(upAdmin.QueryRow(ctx, `SELECT pg_get_indexdef('items_household_archived_done_attention_id_idx'::regclass),indisvalid FROM pg_index WHERE indexrelid='items_household_archived_done_attention_id_idx'::regclass`).Scan(&def, &valid))
+	const wantDef = "CREATE INDEX items_household_archived_done_attention_id_idx ON public.items USING btree (household_id, archived, done, attention_on NULLS FIRST, id)"
+	if def != wantDef || !valid {
+		t.Fatalf("attention index def=%q valid=%v want=%q", def, valid, wantDef)
+	}
+	var oldExists bool
+	must(upAdmin.QueryRow(ctx, `SELECT to_regclass('items_household_archived_done_id_idx') IS NOT NULL`).Scan(&oldExists))
+	if !oldExists {
+		t.Fatal("legacy created index missing")
+	}
+	repo := NewRepository(upApp)
+	for _, sortBy := range []item.ListSort{item.SortCreated, item.SortAttention} {
+		rows, e := repo.List(ctx, h, item.ListOptions{Today: mustTestDate(2026, time.February, 4), Sort: sortBy, AfterID: "00000000-0000-0000-0000-000000000000", Limit: 10})
+		must(e)
+		if len(rows) != 1 {
+			t.Fatalf("sort=%s rows=%v", sortBy, rows)
+		}
+		if rows[0].Title != "null attention" {
+			t.Errorf("sort=%s row=%+v", sortBy, rows[0])
+		}
+	}
+	var canSelect, canDelete, canTruncate, canCreate bool
+	must(upApp.QueryRow(ctx, `SELECT has_table_privilege(current_user,'items','SELECT'),has_table_privilege(current_user,'items','DELETE'),has_table_privilege(current_user,'items','TRUNCATE'),has_schema_privilege(current_user,'public','CREATE')`).Scan(&canSelect, &canDelete, &canTruncate, &canCreate))
+	if !canSelect || canDelete || canTruncate || canCreate {
+		t.Fatalf("runtime privileges select=%v delete=%v truncate=%v create-public=%v", canSelect, canDelete, canTruncate, canCreate)
+	}
 }
 
 func TestItemsAgainstPostgres(t *testing.T) {
@@ -2146,7 +2581,7 @@ func TestMigrationUpgradeFromV7PreservesUndoableReceipt(t *testing.T) {
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; REVOKE UPDATE (undone_at, undone_by_user_id) ON item_completions FROM tendo; ALTER TABLE item_completions DROP CONSTRAINT item_completions_undo_actor_pair_check; ALTER TABLE item_completions DROP COLUMN undone_by_user_id; ALTER TABLE item_completions DROP COLUMN undone_at; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (8,9,10,11,12,13,14)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; REVOKE UPDATE (undone_at, undone_by_user_id) ON item_completions FROM tendo; ALTER TABLE item_completions DROP CONSTRAINT item_completions_undo_actor_pair_check; ALTER TABLE item_completions DROP COLUMN undone_by_user_id; ALTER TABLE item_completions DROP COLUMN undone_at; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, actor, iid, cid string
@@ -2169,7 +2604,7 @@ func TestMigrationUpgradeFromV7PreservesUndoableReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 7 database accepted by version 14 application")
+		t.Fatal("version 7 database accepted by version 15 application")
 	}
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -2226,7 +2661,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_subject_id_fkey; ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (6,7,8,9,10,11,12,13,14)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; ALTER TABLE items DROP CONSTRAINT items_household_id_subject_id_fkey; ALTER TABLE items DROP CONSTRAINT items_recurrence_all_or_none; ALTER TABLE items DROP COLUMN recurrence_interval_value, DROP COLUMN recurrence_interval_unit, DROP COLUMN recurrence_mode; ALTER TABLE items DROP CONSTRAINT items_household_id_id_key; DROP INDEX items_household_archived_done_id_idx; CREATE INDEX items_household_archived_id_idx ON items(household_id,archived,id); ALTER TABLE items DROP COLUMN done; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,6,7,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid, iid string
@@ -2240,7 +2675,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 5 database accepted by version 14 application")
+		t.Fatal("version 5 database accepted by version 15 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -2253,7 +2688,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatalf("legacy item=%+v err=%v", got, err)
 	}
 	var max int64
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 14 {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 15 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 }
@@ -2287,7 +2722,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (5,6,7,8,9,10,11,12,13,14)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id;  DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; ALTER TABLE subjects DROP CONSTRAINT subjects_household_id_id_key; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,5,6,7,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid, sid string
@@ -2298,7 +2733,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 4 database accepted by version 14 application")
+		t.Fatal("version 4 database accepted by version 15 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
@@ -2320,7 +2755,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 14 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 15 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

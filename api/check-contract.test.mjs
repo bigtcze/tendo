@@ -355,6 +355,49 @@ test('household fixtures enforce the ETag pattern, problem media type, and body 
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('item list sort and freshness query contract', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const path = '/api/v1/households/{householdId}/items'
+  const operation = contract.paths[path].get
+  const sort = operation.parameters.find(parameter => parameter.name === 'sort')
+  const guard = operation.parameters.find(parameter => parameter.name === 'attentionDate')
+  assert.deepEqual(sort.schema, { type: 'string', enum: ['created', 'attention_on'], default: 'created' })
+  assert.equal(guard.schema.format, 'date')
+  assert.equal(guard.schema.pattern, '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+  assert.ok(new RegExp(guard.schema.pattern).test('2026-03-01'))
+  assert.ok(!new RegExp(guard.schema.pattern).test('2026-3-01'))
+  const Ajv2020 = (await import('ajv/dist/2020.js')).default
+  const addFormats = (await import('ajv-formats')).default
+  const ajv = new Ajv2020({ strict: false }); addFormats(ajv)
+  const validateGuard = ajv.compile(guard.schema)
+  assert.equal(validateGuard('2026-03-01'), true)
+  assert.equal(validateGuard('2028-02-29'), true)
+  for (const invalid of ['2026-02-30','2026-3-01','2026-03-01T00:00:00Z',' 2026-03-01','2026-03-01 ','']) assert.equal(validateGuard(invalid), false, `accepted ${invalid}`)
+  // ajv-formats validates RFC3339 full-date calendar values but accepts year 0000; service Date range validation rejects it.
+  assert.equal(validateGuard('0000-01-01'), true)
+  const validateSort = ajv.compile(sort.schema)
+  for (const value of ['created','attention_on']) assert.equal(validateSort(value), true)
+  for (const value of ['Created','attention-on','',' created']) assert.equal(validateSort(value), false, `accepted ${value}`)
+  assert.match(JSON.stringify(contract.components.schemas.QueryProblem), /sort/)
+  assert.match(JSON.stringify(contract.components.schemas.QueryProblem), /attentionDate/)
+  assert.ok(operation.responses['400'].content['application/problem+json'])
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-api-item-list-'))
+  const fixturePath = join(directory, 'responses.json')
+  const headers = { 'x-request-id': 'contract-check', 'cache-control': 'no-store', 'content-type': 'application/problem+json' }
+  const prefix = { type: 'about:blank', title: 'Bad Request', status: 400, code: 'invalid_query' }
+  const fixtures = ['sort', 'attentionDate'].map(parameter => ({ path, method: 'get', status: 400, headers, body: { ...prefix, parameter } }))
+  const id = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80'
+  fixtures.push({ path, method: 'get', status: 200, headers: { ...headers, 'content-type': 'application/json' }, body: { items: [{ id, subjectId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70', responsibleUserId: null, title: 'A valid item', notes: null, attentionOn: null, recurrence: null, workflowState: 'open', attention: 'needs_attention', archived: false, done: false, lastCompletedOn: null, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null } })
+  try {
+    await writeFile(fixturePath, JSON.stringify(fixtures))
+    const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''; child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close'); assert.equal(code, 0, stderr)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('subject fixtures enforce Location, ETag, list envelope, concurrency problems, and strict bodies', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'tendo-api-subject-'))
   const fixturePath = join(directory, 'responses.json')
@@ -386,7 +429,7 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
   }
   try {
     for (const fixture of [created, reused, list, listNext, got, patched, failed, required, badQuery, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
-    for (const parameter of ['subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring']) {
+    for (const parameter of ['subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring', 'sort', 'attentionDate']) {
       const accepted = structuredClone(badQuery); accepted.body.parameter = parameter
       assert.equal((await run(accepted)).code, 0, `accepted query parameter ${parameter}`)
     }

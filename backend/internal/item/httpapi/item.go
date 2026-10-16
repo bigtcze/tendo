@@ -180,7 +180,19 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		b := recurringText == "true"
 		recurring = &b
 	}
-	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor, SubjectID: subjectID, ResponsibleUserID: responsibleID, WorkflowState: workflow, Attention: attention, Recurring: recurring})
+	sortText, ok := readScalar("sort")
+	if !ok {
+		return
+	}
+	attentionDate, ok := readScalar("attentionDate")
+	if !ok {
+		return
+	}
+	var sortBy item.ListSort
+	if sortText != "" {
+		sortBy = item.ListSort(sortText)
+	}
+	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Sort: sortBy, AttentionDate: attentionDate, Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor, SubjectID: subjectID, ResponsibleUserID: responsibleID, WorkflowState: workflow, Attention: attention, Recurring: recurring})
 	if err != nil {
 		writeServiceError(w, err)
 		return

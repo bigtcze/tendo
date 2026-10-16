@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,6 +33,8 @@ var fixedNow = time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC)
 
 type env struct {
 	repo            *itemtest.Repo
+	clockCalls      int
+	clock           func() time.Time
 	svc             *item.Service
 	zone            string
 	now             time.Time
@@ -69,7 +72,14 @@ func newEnv(zone string) *env {
 		}
 		return false, item.ErrNotFound // foreignID and unknown ids
 	}
-	e.svc = item.NewService(e.repo, houses, subjects, func(context.Context, string, string) error { return nil }, func() time.Time { return e.now })
+	clock := func() time.Time {
+		e.clockCalls++
+		if e.clock != nil {
+			return e.clock()
+		}
+		return e.now
+	}
+	e.svc = item.NewService(e.repo, houses, subjects, func(context.Context, string, string) error { return nil }, clock)
 	return e
 }
 
@@ -1021,6 +1031,320 @@ func TestListLimitsCursorErrorsAndPagination(t *testing.T) {
 	empty, err := newEnv("UTC").svc.List(ctx, userID, householdID, item.ListQuery{})
 	if err != nil || empty.Items == nil || len(empty.Items) != 0 {
 		t.Fatalf("empty=%+v err=%v", empty, err)
+	}
+}
+
+func TestListAttentionSortAndFreshnessGuard(t *testing.T) {
+	e := newEnv("America/New_York")
+	nullA, nullB := "0198a2f0-7c1e-7a53-9b0e-000000000001", "0198a2f0-7c1e-7a53-9b0e-000000000003"
+	past, today, future := itemtest.Date(2026, time.March, 1), itemtest.Date(2026, time.March, 1), itemtest.Date(2026, time.March, 3)
+	e.repo.Seed(item.Item{ID: nullA, HouseholdID: householdID, SubjectID: subjectID})
+	e.repo.Seed(item.Item{ID: nullB, HouseholdID: householdID, SubjectID: subjectID})
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000002", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: past})
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000004", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: today})
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000005", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: future})
+	created, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Limit: 1})
+	if err != nil || len(created.Items) != 1 {
+		t.Fatalf("created=%+v err=%v", created, err)
+	}
+	legacy, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortCreated, Limit: 1})
+	if err != nil || *created.NextCursor != *legacy.NextCursor || !strings.HasPrefix(string(decodeCursor(t, *legacy.NextCursor)), "i1:") {
+		t.Fatalf("legacy cursor mismatch %v %v", created, legacy)
+	}
+	q := item.ListQuery{Sort: item.SortAttention, Limit: 2}
+	page, err := e.svc.List(context.Background(), userID, householdID, q)
+	if err != nil || page.NextCursor == nil || page.Items[0].AttentionOn != nil || page.Items[1].AttentionOn != nil {
+		t.Fatalf("null page=%+v err=%v", page, err)
+	}
+	pos := strings.Split(string(decodeCursor(t, *page.NextCursor)), ":")
+	if len(pos) != 6 || pos[4] != "-" {
+		t.Fatalf("null position=%v", pos)
+	}
+	q.Cursor = *page.NextCursor
+	more, err := e.svc.List(context.Background(), userID, householdID, q)
+	if err != nil || len(more.Items) != 2 || more.Items[0].AttentionOn == nil || more.Items[0].AttentionOn.Compare(*more.Items[1].AttentionOn) > 0 {
+		t.Fatalf("continuation=%+v err=%v", more, err)
+	}
+	pos = strings.Split(string(decodeCursor(t, *more.NextCursor)), ":")
+	if pos[4] != "2026-03-01" {
+		t.Fatalf("dated position=%v", pos)
+	}
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortCreated, Cursor: *page.NextCursor}); !isQuery(err, "cursor") {
+		t.Fatalf("sort binding=%v", err)
+	}
+	for name, value := range map[string]string{"bad": "not-date", "impossible": "2026-02-30", "timestamp": "2026-03-01T00:00:00Z", "stale": "2026-03-02"} {
+		before := e.repo.Calls
+		_, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: value})
+		if !isQuery(err, "attentionDate") || e.repo.Calls != before {
+			t.Errorf("%s guard err=%v calls=%d/%d", name, err, e.repo.Calls, before)
+		}
+	}
+	guard := "2026-03-01"
+	for _, query := range []item.ListQuery{{AttentionDate: guard}, {Sort: item.SortAttention, AttentionDate: guard}, {Attention: "needs_attention", AttentionDate: guard}} {
+		if _, err = e.svc.List(context.Background(), userID, householdID, query); err != nil {
+			t.Errorf("guard %v: %v", query, err)
+		}
+	}
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Cursor: *page.NextCursor, AttentionDate: guard}); !isQuery(err, "cursor") {
+		t.Errorf("guard binding=%v", err)
+	}
+	// Guarded continuation gets attentionDate precedence over a stale cursor.
+	guardPage, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: guard, Limit: 1})
+	if err != nil || guardPage.NextCursor == nil {
+		t.Fatalf("guard page=%+v err=%v", guardPage, err)
+	}
+	e.now = e.now.Add(24 * time.Hour)
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: guard, Cursor: "bad"}); !isQuery(err, "attentionDate") {
+		t.Errorf("guard/cursor precedence=%v", err)
+	}
+	// Guarded attention sorting binds both the presence and value of the guard.
+	e.now = fixedNow
+	guardedAttention, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, AttentionDate: guard, Limit: 1})
+	if err != nil || guardedAttention.NextCursor == nil {
+		t.Fatalf("guarded attention page=%+v err=%v", guardedAttention, err)
+	}
+	guardParts := strings.Split(string(decodeCursor(t, *guardedAttention.NextCursor)), ":")
+	guardParts[3] = "-"
+	guardOnlyCursor := base64.RawURLEncoding.EncodeToString([]byte(strings.Join(guardParts, ":")))
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Cursor: guardOnlyCursor}); !isQuery(err, "cursor") {
+		t.Errorf("removed guard accepted: %v", err)
+	}
+	// Attention-sort cursors without an attention filter or freshness guard are not date-bound.
+	e.now = fixedNow
+	q = item.ListQuery{Sort: item.SortAttention, Limit: 1}
+	freePage, err := e.svc.List(context.Background(), userID, householdID, q)
+	if err != nil || freePage.NextCursor == nil {
+		t.Fatalf("attention-only page=%+v err=%v", freePage, err)
+	}
+	e.now = e.now.Add(24 * time.Hour)
+	q.Cursor = *freePage.NextCursor
+	if _, err = e.svc.List(context.Background(), userID, householdID, q); err != nil {
+		t.Errorf("attention-only cursor stale: %v", err)
+	}
+	if _, err = e.svc.List(context.Background(), "bad-user", householdID, item.ListQuery{Sort: "bad", AttentionDate: "bad"}); !errors.Is(err, item.ErrNotFound) {
+		t.Errorf("authorization precedence=%v", err)
+	}
+	// Use 02:00 UTC: New York is still March 1 while UTC has rolled over.
+	e.now = time.Date(2026, time.March, 2, 2, 0, 0, 0, time.UTC)
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: "2026-03-01"}); err != nil {
+		t.Errorf("household-local date rejected: %v", err)
+	}
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: "2026-03-02"}); !isQuery(err, "attentionDate") {
+		t.Errorf("UTC date incorrectly accepted: %v", err)
+	}
+}
+
+func decodeCursor(t *testing.T, cursor string) []byte {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+func isQuery(err error, parameter string) bool {
+	var q *item.InvalidQueryError
+	return errors.As(err, &q) && q.Parameter == parameter
+}
+
+func TestAttentionCursorRejectsMalformedPosition(t *testing.T) {
+	e := newEnv("UTC")
+	for i := range []string{"2026-03-01", "2026-03-02", "2026-03-03"} {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i+1), HouseholdID: householdID, SubjectID: subjectID, AttentionOn: itemtest.Date(2026, time.March, i+1)})
+	}
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Limit: 1})
+	if err != nil || p.NextCursor == nil {
+		t.Fatalf("page=%+v err=%v", p, err)
+	}
+	parts := strings.Split(string(decodeCursor(t, *p.NextCursor)), ":")
+	bad := map[string]string{"empty": "", "impossible": "2026-02-30", "year zero": "0000-01-01", "timestamp": "2026-03-01T00:00:00Z", "padded": "2026-03-01 ", "malformed": "not-a-date"}
+	for name, pos := range bad {
+		mut := append([]string(nil), parts...)
+		mut[4] = pos
+		cursor := base64.RawURLEncoding.EncodeToString([]byte(strings.Join(mut, ":")))
+		calls := e.repo.Calls
+		_, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Cursor: cursor})
+		if !isQuery(err, "cursor") || e.repo.Calls != calls {
+			t.Errorf("%s err=%v repo calls %d->%d", name, err, calls, e.repo.Calls)
+		}
+	}
+}
+func TestAttentionCursorUsesReturnedNotLookaheadKey(t *testing.T) {
+	e := newEnv("UTC")
+	for i := range []string{"2026-03-01", "2026-03-02", "2026-03-03"} {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i+1), HouseholdID: householdID, SubjectID: subjectID, AttentionOn: itemtest.Date(2026, time.March, i+1)})
+	}
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Limit: 2})
+	if err != nil || p.NextCursor == nil {
+		t.Fatalf("page=%+v err=%v", p, err)
+	}
+	parts := strings.Split(string(decodeCursor(t, *p.NextCursor)), ":")
+	if parts[4] != "2026-03-02" || parts[5] != p.Items[1].ID {
+		t.Fatalf("cursor=%v rows=%+v", parts, p.Items)
+	}
+}
+func TestAttentionCursorRejectsCreatedFilteredCursor(t *testing.T) {
+	e := newEnv("UTC")
+	for i := 0; i < 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i+1), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Limit: 1})
+	if err != nil || p.NextCursor == nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Sort: item.SortAttention, Cursor: *p.NextCursor}); !isQuery(err, "cursor") {
+		t.Fatalf("created cursor accepted: %v", err)
+	}
+}
+func TestAttentionCursorBindsContext(t *testing.T) {
+	e := newEnv("UTC")
+	for i := 1; i <= 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Limit: 1})
+	if err != nil || p.NextCursor == nil {
+		t.Fatal(err)
+	}
+	cases := map[string]item.ListQuery{"subject": {Sort: item.SortAttention, SubjectID: subjectID, Cursor: *p.NextCursor}, "responsible": {Sort: item.SortAttention, ResponsibleUserID: "unassigned", Cursor: *p.NextCursor}, "workflow": {Sort: item.SortAttention, WorkflowState: "open", Cursor: *p.NextCursor}, "attention": {Sort: item.SortAttention, Attention: "upcoming", Cursor: *p.NextCursor}, "recurring": {Sort: item.SortAttention, Recurring: ptr(true), Cursor: *p.NextCursor}, "archived": {Sort: item.SortAttention, Archived: true, Cursor: *p.NextCursor}, "done": {Sort: item.SortAttention, Done: true, Cursor: *p.NextCursor}}
+	for n, q := range cases {
+		if _, err = e.svc.List(context.Background(), userID, householdID, q); !isQuery(err, "cursor") {
+			t.Errorf("%s binding: %v", n, err)
+		}
+	}
+}
+func TestCreatedFilteredCursorExplicitSortEquivalent(t *testing.T) {
+	e := newEnv("UTC")
+	for i := 1; i <= 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	a, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Limit: 1})
+	if err != nil || a.NextCursor == nil {
+		t.Fatal(err)
+	}
+	b, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Sort: item.SortCreated, Limit: 1})
+	if err != nil || b.NextCursor == nil || *a.NextCursor != *b.NextCursor {
+		t.Fatalf("omitted=%v explicit=%v err=%v", a.NextCursor, b.NextCursor, err)
+	}
+	for _, q := range []item.ListQuery{{SubjectID: subjectID, Cursor: *a.NextCursor}, {SubjectID: subjectID, Sort: item.SortCreated, Cursor: *b.NextCursor}} {
+		if _, err = e.svc.List(context.Background(), userID, householdID, q); err != nil {
+			t.Fatalf("equivalent cursor: %v", err)
+		}
+	}
+}
+func TestGuardPresenceCannotBeRemoved(t *testing.T) {
+	e := newEnv("UTC")
+	e.now = time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	e.now = time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+	guard := "2026-03-02"
+	// Only guard presence differs between the two requests (same sort, no filters, same day).
+	for _, sortBy := range []item.ListSort{item.SortCreated, item.SortAttention} {
+		p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: sortBy, AttentionDate: guard, Limit: 1})
+		if err != nil || p.NextCursor == nil {
+			t.Fatalf("%s page=%+v err=%v", sortBy, p, err)
+		}
+		if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: sortBy, Cursor: *p.NextCursor}); !isQuery(err, "cursor") {
+			t.Fatalf("%s removed guard accepted: %v", sortBy, err)
+		}
+	}
+}
+func TestGuardedCursorSameDayContinuation(t *testing.T) {
+	e := newEnv("America/New_York")
+	e.now = time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	guard := "2026-03-02"
+	for _, sortBy := range []item.ListSort{item.SortCreated, item.SortAttention} {
+		q := item.ListQuery{Sort: sortBy, AttentionDate: guard, Limit: 2}
+		p, err := e.svc.List(context.Background(), userID, householdID, q)
+		if err != nil || p.NextCursor == nil || len(p.Items) != 2 {
+			t.Fatalf("%s first page=%+v err=%v", sortBy, p, err)
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(*p.NextCursor)
+		if err != nil || strings.Split(string(raw), ":")[3] != guard {
+			t.Fatalf("%s guarded cursor not date-bound: %q err=%v", sortBy, raw, err)
+		}
+		q.Cursor = *p.NextCursor
+		p, err = e.svc.List(context.Background(), userID, householdID, q)
+		if err != nil || p.NextCursor != nil || len(p.Items) != 1 || p.Items[0].ID != "0198a2f0-7c1e-7a53-9b0e-000000000003" {
+			t.Fatalf("%s continuation page=%+v err=%v", sortBy, p, err)
+		}
+	}
+}
+func TestGuardedCursorMidnightTransitions(t *testing.T) {
+	e := newEnv("America/New_York")
+	for i := 1; i <= 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	e.now = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	old := "2026-03-01"
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: old, Limit: 1})
+	if err != nil || p.NextCursor == nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(24 * time.Hour)
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: old, Cursor: *p.NextCursor}); !isQuery(err, "attentionDate") {
+		t.Fatalf("old guard=%v", err)
+	}
+	newDate := "2026-03-02"
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: newDate, Cursor: *p.NextCursor}); !isQuery(err, "cursor") {
+		t.Fatalf("new guard old cursor=%v", err)
+	}
+}
+func TestAttentionFilteredSortCursorExpiresAtMidnight(t *testing.T) {
+	e := newEnv("America/New_York")
+	e.now = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 3; i++ {
+		e.repo.Seed(item.Item{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i), HouseholdID: householdID, SubjectID: subjectID})
+	}
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Attention: "needs_attention", Limit: 1})
+	if err != nil || p.NextCursor == nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(24 * time.Hour)
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Sort: item.SortAttention, Attention: "needs_attention", Cursor: *p.NextCursor}); !isQuery(err, "cursor") {
+		t.Fatalf("stale attention cursor=%v", err)
+	}
+}
+func TestListUsesOneBusinessDate(t *testing.T) {
+	e := newEnv("America/New_York")
+	e.now = time.Date(2026, time.March, 2, 4, 30, 0, 0, time.UTC)
+	today := itemtest.Date(2026, time.March, 1)
+	tomorrow := itemtest.Date(2026, time.March, 2)
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000001", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: today})
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000002", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: tomorrow})
+	calls := 0
+	e.svc = item.NewService(e.repo, func(context.Context, string, string) (string, error) { return e.zone, nil }, nil, nil, func() time.Time {
+		calls++
+		if calls == 1 {
+			return time.Date(2026, time.March, 2, 4, 30, 0, 0, time.UTC)
+		}
+		return time.Date(2026, time.March, 2, 5, 30, 0, 0, time.UTC)
+	})
+	p, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{AttentionDate: "2026-03-01", Attention: "needs_attention"})
+	if calls != 1 {
+		t.Fatalf("clock called %d times", calls)
+	}
+	e.clockCalls = calls
+	if err != nil || len(p.Items) != 1 || p.Items[0].ID != "0198a2f0-7c1e-7a53-9b0e-000000000001" || p.Items[0].Attention != schedule.NeedsAttention {
+		t.Fatalf("page=%+v err=%v", p, err)
+	}
+}
+func TestListSortAndGuardValidationDoesNotCallRepository(t *testing.T) {
+	e := newEnv("UTC")
+	for _, tc := range []struct {
+		name  string
+		q     item.ListQuery
+		param string
+	}{{"uppercase sort", item.ListQuery{Sort: "Created"}, "sort"}, {"padded sort", item.ListQuery{Sort: " created"}, "sort"}, {"unsupported sort", item.ListQuery{Sort: "title"}, "sort"}, {"year zero", item.ListQuery{AttentionDate: "0000-01-01"}, "attentionDate"}, {"padded guard", item.ListQuery{AttentionDate: " 2026-03-02"}, "attentionDate"}} {
+		before := e.repo.Calls
+		_, err := e.svc.List(context.Background(), userID, householdID, tc.q)
+		if !isQuery(err, tc.param) || e.repo.Calls != before {
+			t.Errorf("%s err=%v calls=%d/%d", tc.name, err, e.repo.Calls, before)
+		}
 	}
 }
 

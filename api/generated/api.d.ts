@@ -302,7 +302,7 @@ export interface paths {
         };
         /**
          * List items
-         * @description Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. subjectId, responsibleUserId, workflowState, attention, and recurring are single-valued filters combined with AND; unknown or foreign UUID references return an empty result. Without these filters cursors retain the i1 format; any filter uses an i2 cursor bound to household and filter fingerprint. Attention-filter cursors are additionally bound to household-local business date and cannot continue after local midnight. Unknown query parameters are ignored. Derived attention uses the household timezone.
+         * @description Returns items using keyset cursor pagination, sorted by ascending id by default (sort=created), or attentionOn ascending with null first and id tie-break (sort=attention_on). archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. subjectId, responsibleUserId, workflowState, attention, and recurring are single-valued filters combined with AND; unknown or foreign UUID references return an empty result. attentionDate optionally guards that the supplied canonical date is today in the household timezone; it never changes filtering/as-of semantics. Without structured filters, non-default sort, or attentionDate cursors retain exact i1 format; extended requests use i2 bound to household, filters, sort, and attentionDate. Attention-filter and guarded cursors are bound to household-local business date and cannot continue after local midnight. Unknown query parameters are ignored. Derived attention uses the household timezone.
          */
         get: operations["listItems"];
         put?: never;
@@ -628,7 +628,7 @@ export interface components {
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            parameter?: "limit" | "cursor" | "archived" | "done" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring";
+            parameter?: "limit" | "cursor" | "archived" | "done" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate";
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -4300,6 +4300,10 @@ export interface operations {
                 archived?: components["parameters"]["Archived"];
                 /** @description false (default) lists unfinished items; true lists completed one-off items. */
                 done?: components["parameters"]["Done"];
+                /** @description Single exact value created (default) or attention_on; attention_on orders null attentionOn first, then ascending date and id. */
+                sort?: "created" | "attention_on";
+                /** @description Optional canonical YYYY-MM-DD freshness guard; must equal household-local today or returns invalid_query and parameter attentionDate. Never an as-of date. */
+                attentionDate?: string;
                 /** @description Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value. */
                 subjectId?: string;
                 /** @description Single UUID or exact lowercase unassigned; ANDed with other filters. Unknown or foreign IDs produce an empty result. Bound into filtered cursors. */
@@ -4363,7 +4367,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemList"];
                 };
             };
-            /** @description A query parameter is invalid: limit is not an integer from 1 to 100; cursor is malformed or mismatched; archived/done/recurring is not lowercase true or false; UUID filters are malformed; or workflowState/attention is outside its documented values. New filters must be single, nonempty scalar values (no repeats or comma lists). The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100; cursor is malformed or mismatched; archived/done/recurring is not lowercase true or false; UUID filters are malformed; workflowState/attention is outside documented values; sort is not created or attention_on; or attentionDate is not a canonical real date equal to household-local today. Query values must be single nonempty scalar values (no repeats or comma lists). The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

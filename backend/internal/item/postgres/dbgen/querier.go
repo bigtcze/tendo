@@ -20,6 +20,7 @@ type Querier interface {
 	LatestActiveCompletionVersion(ctx context.Context, arg LatestActiveCompletionVersionParams) (int64, error)
 	ListCompletions(ctx context.Context, arg ListCompletionsParams) ([]ListCompletionsRow, error)
 	ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error)
+	ListItemsByAttention(ctx context.Context, arg ListItemsByAttentionParams) ([]ListItemsByAttentionRow, error)
 	LockItemForCompletion(ctx context.Context, arg LockItemForCompletionParams) (LockItemForCompletionRow, error)
 	MarkCompletionUndone(ctx context.Context, arg MarkCompletionUndoneParams) (int64, error)
 	UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateItemRow, error)

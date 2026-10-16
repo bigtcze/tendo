@@ -421,11 +421,13 @@ func (e OIDCValidationProblemStatus) Valid() bool {
 const (
 	QueryProblemParameterArchived          QueryProblemParameter = "archived"
 	QueryProblemParameterAttention         QueryProblemParameter = "attention"
+	QueryProblemParameterAttentionDate     QueryProblemParameter = "attentionDate"
 	QueryProblemParameterCursor            QueryProblemParameter = "cursor"
 	QueryProblemParameterDone              QueryProblemParameter = "done"
 	QueryProblemParameterLimit             QueryProblemParameter = "limit"
 	QueryProblemParameterRecurring         QueryProblemParameter = "recurring"
 	QueryProblemParameterResponsibleUserId QueryProblemParameter = "responsibleUserId"
+	QueryProblemParameterSort              QueryProblemParameter = "sort"
 	QueryProblemParameterSubjectId         QueryProblemParameter = "subjectId"
 	QueryProblemParameterWorkflowState     QueryProblemParameter = "workflowState"
 )
@@ -437,6 +439,8 @@ func (e QueryProblemParameter) Valid() bool {
 		return true
 	case QueryProblemParameterAttention:
 		return true
+	case QueryProblemParameterAttentionDate:
+		return true
 	case QueryProblemParameterCursor:
 		return true
 	case QueryProblemParameterDone:
@@ -446,6 +450,8 @@ func (e QueryProblemParameter) Valid() bool {
 	case QueryProblemParameterRecurring:
 		return true
 	case QueryProblemParameterResponsibleUserId:
+		return true
+	case QueryProblemParameterSort:
 		return true
 	case QueryProblemParameterSubjectId:
 		return true
@@ -681,6 +687,24 @@ func (e WorkflowState) Valid() bool {
 	case Paused:
 		return true
 	case Waiting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListItemsParamsSort.
+const (
+	ListItemsParamsSortAttentionOn ListItemsParamsSort = "attention_on"
+	ListItemsParamsSortCreated     ListItemsParamsSort = "created"
+)
+
+// Valid indicates whether the value is a known member of the ListItemsParamsSort enum.
+func (e ListItemsParamsSort) Valid() bool {
+	switch e {
+	case ListItemsParamsSortAttentionOn:
+		return true
+	case ListItemsParamsSortCreated:
 		return true
 	default:
 		return false
@@ -1345,6 +1369,12 @@ type ListItemsParams struct {
 	// Done false (default) lists unfinished items; true lists completed one-off items.
 	Done *Done `form:"done,omitempty" json:"done,omitempty"`
 
+	// Sort Single exact value created (default) or attention_on; attention_on orders null attentionOn first, then ascending date and id.
+	Sort *ListItemsParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// AttentionDate Optional canonical YYYY-MM-DD freshness guard; must equal household-local today or returns invalid_query and parameter attentionDate. Never an as-of date.
+	AttentionDate *string `form:"attentionDate,omitempty" json:"attentionDate,omitempty"`
+
 	// SubjectId Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value.
 	SubjectId *string `form:"subjectId,omitempty" json:"subjectId,omitempty"`
 
@@ -1363,6 +1393,9 @@ type ListItemsParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
+
+// ListItemsParamsSort defines parameters for ListItems.
+type ListItemsParamsSort string
 
 // ListItemsParamsRecurring defines parameters for ListItems.
 type ListItemsParamsRecurring string

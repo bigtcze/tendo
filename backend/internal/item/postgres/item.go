@@ -266,6 +266,9 @@ func (r *Repository) Get(ctx context.Context, householdID, itemID string) (item.
 }
 
 func (r *Repository) List(ctx context.Context, householdID string, opts item.ListOptions) ([]item.Item, error) {
+	if opts.Sort == "" {
+		opts.Sort = item.SortCreated
+	}
 	hid, ok1 := parseUUID(householdID)
 	after, ok2 := parseUUID(opts.AfterID)
 	if !ok1 || !ok2 {
@@ -300,17 +303,35 @@ func (r *Repository) List(ctx context.Context, householdID string, opts item.Lis
 	if f.Recurring != nil {
 		recurring = pgtype.Bool{Bool: *f.Recurring, Valid: true}
 	}
-	rows, err := r.queries.ListItems(ctx, dbgen.ListItemsParams{HouseholdID: hid, Archived: f.Archived, Done: f.Done, AfterID: after, SubjectID: subjectID, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring, RowLimit: int32(opts.Limit)})
-	if err != nil {
-		return nil, errPersistence
-	}
-	items := make([]item.Item, 0, len(rows))
-	for _, found := range rows {
-		converted, err := toItem(row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID, Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue, RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState, Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version})
+	params := dbgen.ListItemsParams{HouseholdID: hid, Archived: f.Archived, Done: f.Done, AfterID: after, SubjectID: subjectID, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring, RowLimit: int32(opts.Limit)}
+	items := make([]item.Item, 0, opts.Limit)
+	switch opts.Sort {
+	case item.SortCreated:
+		rows, err := r.queries.ListItems(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, errPersistence
 		}
-		items = append(items, converted)
+		for _, found := range rows {
+			converted, convErr := toItem(row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID, Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue, RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState, Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version})
+			if convErr != nil {
+				return nil, convErr
+			}
+			items = append(items, converted)
+		}
+	case item.SortAttention:
+		rows, err := r.queries.ListItemsByAttention(ctx, dbgen.ListItemsByAttentionParams{HouseholdID: params.HouseholdID, Archived: params.Archived, Done: params.Done, AfterID: params.AfterID, AfterAttentionOn: date(opts.AfterAttentionOn), SubjectID: params.SubjectID, FilterResponsible: params.FilterResponsible, ResponsibleUserID: params.ResponsibleUserID, WorkflowState: params.WorkflowState, Attention: params.Attention, Today: params.Today, Recurring: params.Recurring, RowLimit: params.RowLimit})
+		if err != nil {
+			return nil, errPersistence
+		}
+		for _, found := range rows {
+			converted, convErr := toItem(row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID, Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue, RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState, Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version})
+			if convErr != nil {
+				return nil, convErr
+			}
+			items = append(items, converted)
+		}
+	default:
+		return nil, item.ErrUnavailable
 	}
 	return items, nil
 }
