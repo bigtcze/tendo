@@ -88,6 +88,24 @@ Checks run in this order and the first failure is returned: 403/421 origin and a
 - `attentionDate` must be exactly one canonical, real `YYYY-MM-DD` date and match household-local today. It is a freshness guard only, never an as-of date. A mismatch returns `400 invalid_query` with `parameter: attentionDate`; clients should restart the list from page one after local midnight.
 - Cursor selection/bindings: omitted or explicit `sort=created` with V1-only query parameters keeps the V1 cursor format unchanged. Any structured filter, `sort=attention_on`, or a supplied `attentionDate` uses an extended cursor bound to the household and the normalized query (filters, archived/done, sort, guard presence). Changing filters, sort, or guard presence invalidates continuation with `400 invalid_query`, normally naming `cursor`; a malformed or stale supplied guard names `attentionDate` before cursor validation. Changing `limit` is allowed. Cursors from requests with an attention filter or guard expire at household-local midnight; attention-sort-only cursors do not. Traversal is deterministic for unchanged matching rows; it is not a snapshot, so a row whose sort key or matching state changes between pages may move across the page boundary. Cursors are opaque and unsigned; unknown query parameters remain ignored.
 
+### Item summary
+
+`GET /api/v1/households/{householdId}/items/summary` returns the counts for the complete matching collection, without pagination. It accepts the same filters and semantics as item listing: `subjectId`, `responsibleUserId` (including `unassigned`), `workflowState`, `attention`, `recurring`, and the `attentionDate` household-local-today freshness guard. Presence of `limit`, `cursor`, `archived`, `done`, or `sort` is rejected with `400 invalid_query` naming that parameter.
+
+The response fields are `evaluatedOn`, `total`, `needsAttention`, `inProgress`, `waiting`, `upcoming`, `paused`, `done`, and `archived`. Each item belongs to exactly one partition, in precedence order:
+
+| Precedence | Partition | Rule |
+| --- | --- | --- |
+| 1 | `archived` | Archived item |
+| 2 | `done` | Completed one-off item |
+| 3 | `paused` | Workflow state paused |
+| 4 | `inProgress` | Workflow state in_progress |
+| 5 | `waiting` | Workflow state waiting |
+| 6 | `needsAttention` | Open item with no attention date or date ≤ today |
+| 7 | `upcoming` | Open item with attention date > today |
+
+`total` equals the sum of the seven counters; an empty result has all counters zero. `evaluatedOn` is household-local today and can be supplied as `attentionDate` to reject a stale response after midnight. Summary responses have no ETag. Summary and list requests are not snapshot-bound to one another.
+
 ## Completions
 
 - Create a receipt with `POST /api/v1/households/{householdId}/items/{itemId}/completions`. `Idempotency-Key` is required, case-sensitive, 1–128 visible ASCII bytes with no normalization. `If-Match` must contain the current strong item ETag. The body may be `{}` (household-local today) or specify `completedOn` as a valid, non-future business date.
