@@ -3,6 +3,7 @@
   "extends": ["config:recommended"],
   "enabledManagers": ["npm", "gomod", "dockerfile", "docker-compose", "github-actions", "custom.regex"],
   "ignorePaths": ["**/node_modules/**", "**/vendor/**"],
+  "ignoreDeps": ["ghcr.io/bigtcze/tendo"],
   "prConcurrentLimit": 3,
   "branchConcurrentLimit": 3,
   "prHourlyLimit": 1,

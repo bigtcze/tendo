@@ -121,7 +121,7 @@ The opt-in capture builds and runs the production app against real PostgreSQL, u
 | Proxy | Caddy/Nginx/Traefik TLS, SNI/Host, trusted forwarding, forged-header rejection, Origin, health/SPA headers, OIDC callback/link/login and `__Host-` cookies through HTTPS, outage recovery, secret-free logs |
 | Backup | archive round trip, Unicode/null rows, ownership/FK/CHECK/runtime permissions, existing target/truncation safety |
 | Household backup | API-populated restore with fresh credentials; counts/ledger/API bodies/ETags/session/password/idempotency/undo/new writes/invitations/restrictions |
-| Quick start | Exact install-guide shell blocks and README command consistency; private fresh clone, settings permissions/secrets, Compose startup, HTTP first-owner setup/login/household/UI, then token-disabled restart |
+| Quick start | Exact install-guide shell blocks and README command consistency; release-asset install into an empty directory with a locally built image, settings permissions/secrets, Compose startup, HTTP first-owner setup/login/household/UI, then token-disabled restart |
 | Browser | 28 serial production journeys; onboarding, CRUD, authorization, OIDC, viewports/keyboard/localization/security; persisted item across app-only midnight restart |
 
 The E2E runner seeds an unowned foreign household as migrator; browser and API assertions verify cross-household denial, and a post-suite database check confirms the seed is unchanged. Home/create/detail layouts are checked at 360, 768 and 1280px widths.

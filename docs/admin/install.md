@@ -1,33 +1,36 @@
 # Install Tendo
 
-This guide installs Tendo with Docker Compose on one server. Compose runs two long-lived containers: PostgreSQL and the Tendo app, which also serves the web interface. A short one-shot `migrate` container prepares the database before the app starts.
+This guide installs Tendo with Docker Compose on one server. Compose runs two long-lived containers: PostgreSQL and the Tendo app, which also serves the web interface. A short one-shot `migrate` container prepares the database before the app starts. The app image is published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64`; you do not need to build anything.
 
 ## Before you start
 
 You need:
 
-- a Linux server or computer with GNU sed, Docker Engine, and the Docker Compose plugin (`docker compose version` should work);
-- Git, OpenSSL, and curl;
+- a Linux server or computer with GNU sed, Docker Engine, and the Docker Compose plugin 2.23.1 or newer (`docker compose version` shows it);
+- OpenSSL and curl;
 - a free local port, `8080` by default.
 
 Tendo does not need any outside account or service. It sends no email and no telemetry.
 
 ## 1. Get Tendo
 
+Create a directory for Tendo and download the Compose file from the latest release:
+
 ```sh
-git clone https://github.com/bigtcze/tendo.git
+mkdir tendo
 cd tendo
+curl -fsSLO https://github.com/bigtcze/tendo/releases/latest/download/compose.yaml
 ```
 
-Run every later command from this `tendo` directory.
+Run every later command from this `tendo` directory. Compose uses the directory name as the project name, and the database volume is named after it, so keep Tendo in this directory.
 
 ## 2. Create your settings file
 
-Copy the example and keep it private:
+Download the example settings as `.env` and keep the file private:
 
 ```sh
 umask 077
-cp .env.example .env
+curl -fsSL -o .env https://github.com/bigtcze/tendo/releases/latest/download/example.env
 ```
 
 Generate three independent secrets: two database passwords and the one-time setup code you will enter in the browser.
@@ -47,10 +50,10 @@ The defaults serve Tendo at `http://localhost:8080`, only on this machine. To re
 ## 3. Start Tendo
 
 ```sh
-docker compose up -d --build --wait
+docker compose up -d --wait
 ```
 
-The first build takes a few minutes. Compose waits for PostgreSQL to become healthy and the migration to finish, then starts the app. Check that the app is ready:
+Compose downloads the images, waits for PostgreSQL to become healthy and the migration to finish, then starts the app. Check that the app is ready:
 
 ```sh
 curl --fail --show-error http://localhost:8080/health/ready
@@ -93,4 +96,4 @@ docker compose up -d --force-recreate --wait app
 
 ## How this is tested
 
-Required CI runs the exact commands on this page, extracted from these code blocks, in `scripts/quickstart-smoke.sh` (replacing only the public GitHub clone command with a clone of the checkout being tested). It also performs the setup step over the same HTTP API used by the browser. Other deployment checks start this same `compose.yaml` with generated secrets in `scripts/runtime-smoke.sh` and `scripts/setup-smoke.sh`; browser end-to-end tests create the first household through the setup screen.
+Required CI runs the exact commands on this page, extracted from these code blocks, in `scripts/quickstart-smoke.sh`. It replaces only the release download address with the files `scripts/release-assets.sh` stages from the checkout being tested, and runs them against an app image built from that checkout. It also performs the setup step over the same HTTP API used by the browser. Other deployment checks start this same `compose.yaml`, with `deploy/compose.build.yaml` building the app from source, using generated secrets in `scripts/runtime-smoke.sh` and `scripts/setup-smoke.sh`; browser end-to-end tests create the first household through the setup screen.

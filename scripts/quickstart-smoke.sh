@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-# Local uncommitted changes are intentionally not copied: this is a real clone of the tested checkout's HEAD.
-for name in POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_SETUP_TOKEN TENDO_RESTART_POLICY TENDO_TEST_CLOCK_NOW TENDO_TEST_CLOCK_ACK; do
+# Installs from the release assets of this checkout (scripts/release-assets.sh) with an app image built from it.
+for name in TENDO_VERSION POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_SETUP_TOKEN TENDO_RESTART_POLICY TENDO_TEST_CLOCK_NOW TENDO_TEST_CLOCK_ACK; do
   unset "$name"
 done
 while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep -E '^TENDO_(OIDC_|TEST_CLOCK_)' || true)
 export COMPOSE_PROJECT_NAME="tendo-quickstart-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
+# A unique local tag, so the documented `docker compose up` uses the image built here and never pulls a published one.
+image_tag="smoke-$COMPOSE_PROJECT_NAME"
+image="ghcr.io/bigtcze/tendo:$image_tag"
+image_built=0
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tendo-quickstart.XXXXXX")
 chmod 700 "$tmp"
 clone="$tmp/tendo"
+assets="$tmp/release-assets"
 result=0
 secret_values=()
 secret_file="$tmp/secret-inventory"
@@ -60,6 +65,10 @@ cleanup() {
       (( result != 0 )) || result=1
     fi
   fi
+  if (( image_built )) && ! docker image rm "$image" >/dev/null; then
+    printf 'Quick-start image cleanup failed\n' >&2
+    (( result != 0 )) || result=1
+  fi
   if ! rm -rf "$tmp"; then
     printf 'Quick-start temporary directory cleanup failed\n' >&2
     (( result != 0 )) || result=1
@@ -68,7 +77,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 "$root/scripts/quickstart_docs.py" "$root" > "$tmp/blocks.json"
+bash "$root/scripts/release-assets.sh" "$assets"
+python3 "$root/scripts/quickstart_docs.py" "$root" "$assets" > "$tmp/blocks.json"
 mapfile -d '' -t blocks < <(python3 - "$tmp/blocks.json" <<'PY'
 import json,sys
 for block in json.load(open(sys.argv[1],encoding='utf-8')): sys.stdout.write(block+'\0')
@@ -83,17 +93,19 @@ finally: s.close()
 PY
 then :; else printf 'Quick-start smoke cannot use documented port 8080: 127.0.0.1:8080 is already in use\n' >&2; exit 1; fi
 
+docker build --quiet --tag "$image" "$root" >/dev/null
+image_built=1
+export TENDO_VERSION=$image_tag
+
 clone_pwd=$(cd "$tmp" && bash -euo pipefail -c "${blocks[0]}"$'\n'"pwd -P")
 clone_pwd=${clone_pwd##*$'\n'}
-expected_clone_pwd=$(cd "$clone" && pwd -P)
-[[ $clone_pwd == "$expected_clone_pwd" ]] || { printf 'Get Tendo block must leave the shell in the clone (missing cd tendo?)\n' >&2; exit 1; }
 [[ -d $clone ]] || { printf 'Get Tendo block did not create %s\n' "$clone" >&2; exit 1; }
-expected_head=$(git -C "$root" rev-parse HEAD)
-clone_head=$(git -C "$clone" rev-parse HEAD)
-[[ $clone_head == "$expected_head" ]] || { printf 'Fresh clone HEAD does not match tested checkout HEAD\n' >&2; exit 1; }
+expected_clone_pwd=$(cd "$clone" && pwd -P)
+[[ $clone_pwd == "$expected_clone_pwd" ]] || { printf 'Get Tendo block must leave the shell in the tendo directory (missing cd tendo?)\n' >&2; exit 1; }
+cmp -s "$clone/compose.yaml" "$root/compose.yaml" || { printf 'Get Tendo block did not download the release compose.yaml\n' >&2; exit 1; }
 (cd "$clone" && bash -euo pipefail -c "${blocks[1]}" && bash -euo pipefail -c "${blocks[2]}")
 python3 - "$clone/.env" "$clone" <<'PY'
-import base64,os,re,subprocess,sys
+import base64,os,re,sys
 p=sys.argv[1]; mode=os.stat(p).st_mode & 0o777
 if mode!=0o600: raise SystemExit(f'.env mode must be 0600, got {mode:04o}; check documented umask command')
 values={}
@@ -107,7 +119,8 @@ token=values.get('TENDO_SETUP_TOKEN','')
 try: decoded=base64.b64decode(token,validate=True)
 except Exception: decoded=b''
 if len(token)!=44 or len(decoded)!=32 or base64.b64encode(decoded).decode()!=token: raise SystemExit('setup token must be canonical base64 encoding of 32 bytes (44 characters)')
-if subprocess.run(['git','-C',sys.argv[2],'status','--porcelain'],capture_output=True,text=True,check=True).stdout: raise SystemExit('fresh clone has a non-empty git status; expected .env to be ignored')
+if values.get('TENDO_VERSION')!='latest': raise SystemExit('example.env must default TENDO_VERSION to latest')
+if sorted(os.listdir(sys.argv[2]))!=['.env','compose.yaml']: raise SystemExit(f'install directory must hold only compose.yaml and .env, found {sorted(os.listdir(sys.argv[2]))}')
 PY
 secret_values=()
 for key in POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_SETUP_TOKEN; do
@@ -132,6 +145,7 @@ poll_ready() {
 }
 (cd "$clone" && bash -euo pipefail -c "${blocks[3]}")
 poll_ready "${blocks[6]}"
+[[ $(docker inspect --format '{{.Config.Image}}' "$(cd "$clone" && docker compose ps -q app)") == "$image" ]] || { printf 'app container does not run the image built from this checkout\n' >&2; exit 1; }
 token=$(cd "$clone" && bash -euo pipefail -c "${blocks[4]}")
 [[ -n $token ]] || { printf 'Setup-code command returned an empty token\n' >&2; exit 1; }
 TOKEN="$token" CLONE_ENV="$clone/.env" COOKIE_FILE="$cookie_file" python3 - <<'PY'
@@ -196,4 +210,4 @@ if status!=503:raise SystemExit(f'Disabled setup PUT expected exact status 503, 
 problem=json.loads(raw)
 if problem.get('code')!='setup_unavailable':raise SystemExit('Disabled setup PUT expected problem code setup_unavailable')
 PY
-printf 'Quick-start smoke passed: documented install and README commands, first-owner API setup, login, household persistence, embedded UI, and disabled setup.\n'
+printf 'Quick-start smoke passed: documented release-asset install and README commands, first-owner API setup, login, household persistence, embedded UI, and disabled setup.\n'

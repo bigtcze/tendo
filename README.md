@@ -17,19 +17,20 @@ The interface is available in English and Czech and works on phones, tablets, an
 
 ## Quick start
 
-These commands are for Linux with GNU sed. You need Docker Engine with the Docker Compose plugin, Git, and OpenSSL.
+These commands are for Linux with GNU sed. You need Docker Engine with the Docker Compose plugin 2.23.1 or newer, curl, and OpenSSL.
 
 ```sh
-git clone https://github.com/bigtcze/tendo.git
+mkdir tendo
 cd tendo
+curl -fsSLO https://github.com/bigtcze/tendo/releases/latest/download/compose.yaml
 umask 077
-cp .env.example .env
+curl -fsSL -o .env https://github.com/bigtcze/tendo/releases/latest/download/example.env
 sed -i \
   -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
   -e "s/^TENDO_DATABASE_PASSWORD=.*/TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)/" \
   -e "s|^TENDO_SETUP_TOKEN=.*|TENDO_SETUP_TOKEN=$(openssl rand -base64 32)|" \
   .env
-docker compose up -d --build --wait
+docker compose up -d --wait
 ```
 
 Tendo now runs at `http://localhost:8080`, reachable only from this machine. Keep `.env` private; it holds your database passwords. The [installation guide](docs/admin/install.md) explains each step.
@@ -55,7 +56,7 @@ Tendo serves plain HTTP. To use it from phones or other computers, put it behind
 
 ## Update and back up
 
-- [Update Tendo](docs/admin/update.md) — back up first, then pull and rebuild.
+- [Update Tendo](docs/admin/update.md) — back up first, then pull the new image.
 - [Back up and restore](docs/admin/backup-restore.md)
 
 ## Documentation
@@ -83,4 +84,4 @@ Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
 
 ## Project status and license
 
-The first version of Tendo is complete. There are no tagged releases yet; `main` is the release line, so you install and update from a checkout. See [LICENSE](LICENSE) for the license.
+Tendo 1.0 is the first stable release. Images are published at `ghcr.io/bigtcze/tendo` with the tags `latest`, `v1`, and the exact version; see [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).

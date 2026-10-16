@@ -20,8 +20,8 @@ TENDO_TRUSTED_PROXY_CIDRS=
 TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml")
-migrate=(docker compose --profile migration --project-name "$project" -f "$root/compose.yaml")
+compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
+migrate=(docker compose --profile migration --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
 cleanup() {
   local result=$?
   trap - EXIT

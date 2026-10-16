@@ -1,0 +1,120 @@
+name: Release
+
+# Pushing a vX.Y.Z tag publishes ghcr.io/bigtcze/tendo with the tags vX.Y.Z, vX.Y, vX and latest,
+# then creates the GitHub release with compose.yaml and example.env attached.
+# The release notes come from docs/releases/vX.Y.Z.md, which must already be on main.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/bigtcze/tendo
+
+jobs:
+  verify:
+    name: verify
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Tag is on main and passed required CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "Tag $GITHUB_REF_NAME is not on main" >&2; exit 1; }
+          test -s "docs/releases/$GITHUB_REF_NAME.md" || { echo "Missing docs/releases/$GITHUB_REF_NAME.md" >&2; exit 1; }
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=required" --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.completed_at) | last | .conclusion // "missing"')
+          [[ $conclusion == success ]] || { echo "required check on $GITHUB_SHA is $conclusion, not success" >&2; exit 1; }
+      - name: Tag is new and the highest version, so floating tags never move backwards
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; publish a new version instead" >&2
+            exit 1
+          fi
+          highest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          [[ $highest == "$GITHUB_REF_NAME" ]] || { echo "$GITHUB_REF_NAME is not the highest version tag ($highest)" >&2; exit 1; }
+
+  image:
+    name: image
+    needs: verify
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v6.2.0
+        env:
+          # Multi-platform images show the description from the index annotations on GHCR.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=semver,pattern=v{{major}}
+          flavor: |
+            latest=true
+          labels: |
+            org.opencontainers.image.title=Tendo
+            org.opencontainers.image.description=Self-hosted shared list for the things a household needs to remember.
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.url=https://github.com/bigtcze/tendo
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+
+  release:
+    name: release
+    needs: image
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=$(mktemp -d)
+          bash scripts/release-assets.sh "$assets"
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --latest \
+            --title "Tendo $GITHUB_REF_NAME" \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
+            "$assets/compose.yaml" "$assets/example.env"
