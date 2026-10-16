@@ -89,6 +89,7 @@ route.
 3. Backend: attention sort + date guard + migration 015 indexes.
 4. Backend: items summary endpoint (counts).
 5. Backend: text search (extensions, normalized column, GIN).
+   - PR #112, merged: optional `q` on item list and summary, migration 016 (`unaccent`, `pg_trgm`, trigger-maintained `search_text`, GIN index), fail-closed schema validation.
 6. Frontend: server-backed attention-first home with truthful counts and bounded per-group pages; F5, F6, F7.
    - 6a (PR #110, merged): server-backed groups, summary counts in headings, per-group Show more with remaining count, title wrapping — fixes F1 and F5 and the home part of F13. F6 and F7 remain open.
 7. Frontend: "All items" search/filter view incl. done and archived, URL-preserved context, bounded rendering (F2–F4, F13).
