@@ -6,7 +6,7 @@ import { ItemForm, type ItemFormValues } from './ItemForm';
 import { listMembers, type Member } from '../members/membersApi';
 import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
 import { clearPendingItemCreate, getPendingItemCreate, setPendingItemCreate, type PendingItemCreate } from './pendingItemCreate';
-import { completeItem, createItem, getItem, listActiveSubjects, listItems, undoCompletion, type Completion, type Item, type Recurrence, type Subject } from './itemsApi';
+import { completeItem, createItem, getItem, getItemsSummary, listActiveSubjects, listItemGroup, undoCompletion, type Completion, type Item, type ItemGroup, type ItemSummary, type Recurrence, type Subject } from './itemsApi';
 
 type Notice = { text: string; completion?: Completion; itemId?: string; retryKey?: string; retryKind?: 'complete' | 'undo'; undoAvailable?: boolean };
 type SubjectState = 'loading' | 'error' | 'ready';
@@ -21,6 +21,11 @@ function idempotencyKey() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+function countPluralKey(count: number, locale: string): MessageKey {
+  const category = new Intl.PluralRules(locale).select(count);
+  const supported: Record<string, readonly string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
+  return `items.group.count.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
 }
 function pluralKey(unit: Recurrence['intervalUnit'], count: number, locale: string): MessageKey {
   const category = new Intl.PluralRules(locale).select(count);
@@ -42,7 +47,7 @@ function ItemRow({ item, subjectName, locale, busy, onDone, onOpenItem, rowRef }
   const { t } = useI18n();
   return <li ref={rowRef} data-item-id={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
     <div className="min-w-0 flex-1 basis-48">
-      <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id)} className="inline-flex min-h-11 min-w-0 max-w-full break-words text-left text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><span aria-hidden="true">{item.title}</span><span className="sr-only">{t('itemDetail.open', { title: item.title })}</span></NavLink>
+      <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id)} className="inline-flex min-h-11 min-w-0 max-w-full [overflow-wrap:anywhere] text-left text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><span aria-hidden="true">{item.title}</span><span className="sr-only">{t('itemDetail.open', { title: item.title })}</span></NavLink>
       <p className="mt-1 text-sm text-muted">{subjectName}{item.attention === 'upcoming' && item.attentionOn ? ` · ${t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}` : ''}</p>
       {item.recurrence ? <p className="mt-1 text-sm text-muted">{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
     </div>
@@ -50,24 +55,27 @@ function ItemRow({ item, subjectName, locale, busy, onDone, onOpenItem, rowRef }
   </li>;
 }
 
-const groups: { key: MessageKey; matches: (item: Item) => boolean; quiet?: boolean }[] = [
-  { key: 'items.group.needs', matches: (item) => item.attention === 'needs_attention' && item.workflowState === 'open' },
-  { key: 'items.group.inProgress', matches: (item) => item.workflowState === 'in_progress' },
-  { key: 'items.group.waiting', matches: (item) => item.workflowState === 'waiting' },
-  { key: 'items.group.upcoming', matches: (item) => item.attention === 'upcoming' && item.workflowState === 'open', quiet: true },
-  { key: 'items.group.paused', matches: (item) => item.workflowState === 'paused', quiet: true },
+const groups: { id: ItemGroup; key: MessageKey; count: GroupCount; quiet?: boolean }[] = [
+  { id: 'needs', key: 'items.group.needs', count: 'needsAttention' },
+  { id: 'inProgress', key: 'items.group.inProgress', count: 'inProgress' },
+  { id: 'waiting', key: 'items.group.waiting', count: 'waiting' },
+  { id: 'upcoming', key: 'items.group.upcoming', count: 'upcoming', quiet: true },
+  { id: 'paused', key: 'items.group.paused', count: 'paused', quiet: true },
 ];
+type GroupCount = 'needsAttention' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';
+type GroupData = { items: Item[]; cursor: string | null; loadingMore: boolean };
 
 export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onSignedOut }: { userId: string; householdId: string; onOpenPeople: () => void; onOpenItem: (itemId: string) => void; onSignedOut: () => void }) {
   const { t, locale } = useI18n();
-  const [items, setItems] = useState<Item[]>([]);
+  const emptyGroups = (): Record<ItemGroup, GroupData> => ({ needs: { items: [], cursor: null, loadingMore: false }, inProgress: { items: [], cursor: null, loadingMore: false }, waiting: { items: [], cursor: null, loadingMore: false }, upcoming: { items: [], cursor: null, loadingMore: false }, paused: { items: [], cursor: null, loadingMore: false } });
+  const [groupData, setGroupData] = useState<Record<ItemGroup, GroupData>>(emptyGroups);
+  const [summary, setSummary] = useState<ItemSummary | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
   const [subjectRetry, setSubjectRetry] = useState(0);
   const [subjectLoadingArchived, setSubjectLoadingArchived] = useState(false);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [itemsRequestComplete, setItemsRequestComplete] = useState(false);
   const [error, setError] = useState(false);
@@ -75,7 +83,6 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const [createUncertain, setCreateUncertain] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
   const [adding, setAdding] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
   const addingRef = useRef(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [createNotice, setCreateNotice] = useState<'uncertain' | 'reused' | null>(() => getPendingItemCreate(userId, householdId) ? 'uncertain' : null);
   const [busy, setBusy] = useState(false);
@@ -88,41 +95,64 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const returnFocus = useRef(false);
   const focusedRow = useRef(false);
   const retryHadFocus = useRef(false);
-  const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const sectionHeadingRefs = useRef(new Map<ItemGroup, HTMLHeadingElement>());
+  const showMoreButtons = useRef(new Map<ItemGroup, HTMLButtonElement>());
+  const showMoreInFlight = useRef(new Set<ItemGroup>());
+  const focusedMoreGroup = useRef<ItemGroup | null>(null);
+  const itemGroup = (itemId: string): ItemGroup | null => {
+    for (const group of groups) if (groupData[group.id].items.some((item) => item.id === itemId)) return group.id;
+    return null;
+  }
   const names = new Map(subjects.map((subject) => [subject.id, subject.name]));
   const recoverySubjects = pendingCreate ? [
     ...subjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
     subjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
   ] : subjects.filter((subject) => !subject.archived);
 
-  const refresh = useCallback(async () => {
+  const loadHome = useCallback(async ({ allowStaleRestart }: { allowStaleRestart: boolean }) => {
     const started = ++generation.current;
+    const current = () => mounted.current && started === generation.current;
     setLoading(true);
-    const result = await listItems(householdId);
-    if (started !== generation.current) return;
-    if (result.kind === 'unauthenticated') onSignedOut();
-    else if (result.kind === 'ok') { setItems(result.items); setCursor(result.nextCursor); setError(false); }
-    else setError(true);
-    setLoading(false);
+    setGroupData((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, { ...value, loadingMore: false }])) as Record<ItemGroup, GroupData>);
+    showMoreInFlight.current.clear();
+    async function load(allowRestart: boolean): Promise<void> {
+      const summaryResult = await getItemsSummary(householdId);
+      if (!current()) return;
+      if (summaryResult.kind === 'unauthenticated') { if (!current()) return; onSignedOut(); setLoading(false); return; }
+      if (summaryResult.kind !== 'ok') { setError(true); setLoading(false); return; }
+      const nextSummary = summaryResult.summary;
+      const entries = await Promise.all(groups.filter((group) => nextSummary[group.count] > 0).map(async (group) => [group.id, await listItemGroup(householdId, group.id, nextSummary.evaluatedOn)] as const));
+      if (!current()) return;
+      if (entries.some(([, result]) => result.kind === 'unauthenticated')) { if (!current()) return; onSignedOut(); setLoading(false); return; }
+      if (entries.some(([, result]) => result.kind === 'stale')) {
+        if (allowRestart) return load(false);
+        setError(true); setLoading(false); return;
+      }
+      if (entries.some(([, result]) => result.kind !== 'ok')) { setError(true); setLoading(false); return; }
+      const nextData = emptyGroups();
+      for (const [id, result] of entries) if (result.kind === 'ok') nextData[id] = { items: result.items, cursor: result.nextCursor, loadingMore: false };
+      setSummary(nextSummary);
+      setGroupData(nextData);
+      setError(false);
+      setLoading(false);
+    }
+    await load(allowStaleRestart);
+    if (current()) setItemsRequestComplete(true);
   }, [householdId, onSignedOut]);
+  const refresh = useCallback(() => loadHome({ allowStaleRestart: true }), [loadHome]);
 
   useEffect(() => {
-    memberLoadGeneration.current++;
     mounted.current = true;
-    return () => { mounted.current = false; };
+    memberLoadGeneration.current++;
+    const generationRef = generation;
+    const inFlightRef = showMoreInFlight;
+    return () => { mounted.current = false; generationRef.current++; inFlightRef.current.clear(); };
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    const started = ++generation.current;
-    void listItems(householdId).then((result) => {
-      if (cancelled || started !== generation.current) return;
-      if (result.kind === 'unauthenticated') onSignedOut();
-      else if (result.kind === 'ok') { setItems(result.items); setCursor(result.nextCursor); setLoading(false); setItemsRequestComplete(true); }
-      else { setError(true); setLoading(false); setItemsRequestComplete(true); }
-    });
-    return () => { cancelled = true; };
-  }, [householdId, onSignedOut]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- start async loading; state updates follow network responses.
+    void loadHome({ allowStaleRestart: true });
+  }, [loadHome]);
 
   async function openAddForm() {
     const token = ++memberLoadGeneration.current;
@@ -200,6 +230,15 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   useEffect(() => {
     if (!adding && returnFocus.current) { addRef.current?.focus(); returnFocus.current = false; }
   }, [adding]);
+  useEffect(() => {
+    const id = focusedMoreGroup.current;
+    if (!id || groupData[id].loadingMore) return;
+    const button = showMoreButtons.current.get(id);
+    if (document.activeElement !== button && document.activeElement !== document.body) { focusedMoreGroup.current = null; return; }
+    if (!button || !groupData[id].cursor) sectionHeadingRefs.current.get(id)?.focus();
+    else if (document.activeElement !== button) button.focus();
+    focusedMoreGroup.current = null;
+  }, [groupData]);
 
   function beginMutation() {
     if (mutationBusy.current) return false;
@@ -242,16 +281,33 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     } finally { endMutation(); }
   }
 
-  async function showMore() {
-    if (!cursor || loadingMore) return;
+  async function showMore(id: ItemGroup) {
+    const state = groupData[id];
+    if (!state.cursor || showMoreInFlight.current.has(id) || !summary || !mounted.current) return;
     const started = generation.current;
-    setLoadingMore(true);
-    const result = await listItems(householdId, cursor);
-    setLoadingMore(false);
-    if (started !== generation.current) return;
-    if (result.kind === 'unauthenticated') onSignedOut();
-    else if (result.kind === 'ok') { setItems((old) => [...old, ...result.items.filter((item) => !old.some((known) => known.id === item.id))]); setCursor(result.nextCursor); }
-    else setError(true);
+    const focused = document.activeElement === showMoreButtons.current.get(id);
+    showMoreInFlight.current.add(id);
+    focusedMoreGroup.current = focused ? id : null;
+    setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: true } }));
+    const result = await listItemGroup(householdId, id, summary.evaluatedOn, state.cursor);
+    if (!mounted.current || started !== generation.current) return;
+    showMoreInFlight.current.delete(id);
+    if (result.kind === 'unauthenticated') { onSignedOut(); setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: false } })); }
+    else if (result.kind === 'stale') { focusedMoreGroup.current = null; await loadHome({ allowStaleRestart: false }); }
+    else if (result.kind === 'ok') {
+      setGroupData((current) => {
+        const old = current[id];
+        const seen = new Set(old.items.map((item) => item.id));
+        const items = [...old.items, ...result.items.filter((item) => !seen.has(item.id))];
+        return { ...current, [id]: { items, cursor: result.nextCursor, loadingMore: false } };
+      });
+    } else {
+      setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: false } }));
+      setError(true);
+    }
+    if (focused && mounted.current && started === generation.current && result.kind === 'ok') {
+      focusedMoreGroup.current = id;
+    }
   }
 
   async function finish(itemId: string) {
@@ -306,6 +362,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
 
   async function undo() {
     if (!notice?.completion || !notice.itemId) return;
+    const focusedGroup = itemGroup(notice.itemId);
     if (!beginMutation()) return;
     const previous = notice;
     const itemId = notice.itemId;
@@ -327,7 +384,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
         requestAnimationFrame(() => {
           const done = document.querySelector<HTMLButtonElement>(`[data-item-id="${itemId}"] [data-action="done"]`);
           if (done) done.focus();
-          else if (sectionHeadingRef.current) sectionHeadingRef.current.focus();
+          else if (focusedGroup && sectionHeadingRefs.current.has(focusedGroup)) sectionHeadingRefs.current.get(focusedGroup)?.focus();
+          else if (groups.map((group) => sectionHeadingRefs.current.get(group.id)).find(Boolean)) groups.map((group) => sectionHeadingRefs.current.get(group.id)).find(Boolean)?.focus();
           else if (noticeRef.current) noticeRef.current.focus();
           else addRef.current?.focus();
         });
@@ -352,15 +410,14 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     {error ? <div className="space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button></div> : null}
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
     {subjectState === 'error' && !subjectLoadingArchived ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { subjectLoadBusy.current = true; setSubjectState('loading'); setSubjectRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
-    {!loading && !error && items.length === 0 && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
+    {!loading && !error && summary && groups.every((group) => summary[group.count] === 0) && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
     {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={() => { void openAddForm(); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
     {adding && ((createUncertain && pendingCreate) || (subjectState === 'ready' && subjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate ? recoverySubjects : subjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : undefined} locked={createUncertain && !!pendingCreate} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
     {adding && !(createUncertain && pendingCreate) && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
-    {!loading ? groups.map((group) => {
-      const grouped = items.filter(group.matches);
-      if (!grouped.length) return null;
-      return <section key={group.key} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={sectionHeadingRef} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)}</h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{grouped.map((item) => <ItemRow key={item.id} item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul></section>;
+    {!loading && summary ? groups.map((group) => {
+      const state = groupData[group.id];
+      if (!state.items.length) return null;
+      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
     }) : null}
-    {cursor && !loading ? <Button type="button" variant="quiet" disabled={loadingMore} onClick={() => void showMore()}>{loadingMore ? t('items.moreLoading') : t('subjects.more')}</Button> : null}
   </div>;
 }

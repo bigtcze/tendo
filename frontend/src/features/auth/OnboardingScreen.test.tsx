@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, emptyHome, installFakeServer, json, session } from '../../test/fakeServer';
+import { itemRoutes } from '../../test/fakeItems';
 
 function renderApp() {
   return render(
@@ -76,6 +77,7 @@ describe('onboarding', () => {
       'POST /api/v1/session': json(201, session()),
       [`GET /api/v1/households/${HOUSEHOLD_ID}`]: json(200, household),
       ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
     await fillForm();

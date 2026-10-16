@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Completion, Item, Subject } from './itemsApi';
+import { itemRoutes } from '../../test/fakeItems';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const itemId = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80';
@@ -21,7 +22,7 @@ function item(overrides: Partial<Item> = {}): Item { return { id: itemId, subjec
 function completion(id: string, completedOn: string, overrides: Partial<Completion> = {}): Completion { return { id, itemId, completedOn, completedByUserId: 'secret-user', cycleAttentionOn: '2024-10-10', recurrence: null, nextAttentionOn: '2026-10-10', createdAt: `${completedOn}T00:00:00Z`, undoneAt: null, undoneByUserId: null, ...overrides }; }
 function app() { return render(<I18nProvider><App /></I18nProvider>); }
 function requestsOf(requests: RecordedRequest[], method: string, requestPath: string) { return requests.filter((request) => request.method === method && request.path === requestPath); }
-function common(routes: Record<string, Response | ((request: RecordedRequest) => Response | Promise<Response>)>) { return { ...baseRoutes, [`GET ${base}/items`]: json(200, { items: [item()], nextCursor: null }), [`GET ${base}/subjects/s-1`]: json(200, subject, { ETag: '"subject"' }), [`GET ${path}`]: json(200, item(), { ETag: '"1"' }), [`GET ${historyPath}`]: json(200, { items: [], nextCursor: null }), ...routes }; }
+function common(routes: Record<string, Response | ((request: RecordedRequest) => Response | Promise<Response>)>) { return { ...baseRoutes, ...itemRoutes(base, [item()]), [`GET ${base}/subjects/s-1`]: json(200, subject, { ETag: '"subject"' }), [`GET ${path}`]: json(200, item(), { ETag: '"1"' }), [`GET ${historyPath}`]: json(200, { items: [], nextCursor: null }), ...routes }; }
 beforeEach(() => { vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); window.history.replaceState(null, '', '/'); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); window.history.replaceState(null, '', '/'); });
 

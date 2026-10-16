@@ -2,7 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n';
-import { HOUSEHOLD_ID, household, emptyHome, installFakeServer, json, session } from '../test/fakeServer';
+import { HOUSEHOLD_ID, household, installFakeServer, json, session } from '../test/fakeServer';
+import { itemRoutes } from '../test/fakeItems';
 import { App } from './App';
 
 function renderApp() {
@@ -115,7 +116,7 @@ describe('signed in', () => {
       'GET /api/v1/auth/setup': json(200, { required: false }),
       'POST /api/v1/session': json(201, session()),
       [householdPath]: json(200, household),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
     await userEvent.type(await screen.findByLabelText('Login'), 'anna');
@@ -141,7 +142,7 @@ describe('signed in', () => {
   it('an existing session goes straight to home', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: json(200, household),
     });
     renderApp();
@@ -163,7 +164,7 @@ describe('signed in', () => {
 
   it('household 404 shows the no-household message', async () => {
     installFakeServer({ 'GET /api/v1/session': json(200, session()),
-      ...emptyHome, [householdPath]: problem(404) });
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []), [householdPath]: problem(404) });
     renderApp();
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
       'Your account isn’t part of a household yet.',
@@ -173,7 +174,7 @@ describe('signed in', () => {
   it('sign out calls DELETE /api/v1/session and returns to login', async () => {
     const fake = installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: json(200, household),
       'DELETE /api/v1/session': json(204),
       'GET /api/v1/auth/setup': json(200, { required: false }),
@@ -189,7 +190,7 @@ describe('signed in', () => {
   it('failed sign out keeps the signed-in state and says so', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: json(200, household),
       'DELETE /api/v1/session': problem(503),
     });
@@ -202,7 +203,7 @@ describe('signed in', () => {
   it('401 on household fetch returns to login', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: problem(401),
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
@@ -215,7 +216,7 @@ describe('signed in', () => {
     let calls = 0;
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: () => (++calls === 1 ? problem(500) : json(200, household)),
     });
     renderApp();
@@ -265,7 +266,7 @@ describe('localization', () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
-      ...emptyHome,
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: json(200, household),
     });
     renderApp();

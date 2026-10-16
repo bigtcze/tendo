@@ -34,7 +34,8 @@ test('future one-off item crosses midnight into needs attention', async ({ page 
   const session = await page.request.get('/api/v1/session');
   expect(session.status()).toBe(200);
   const householdId = (await session.json() as { defaultHouseholdId: string }).defaultHouseholdId;
-  const group = (name: string) => page.getByRole('heading', { level: 2, name, exact: true }).locator('xpath=ancestor::section[1]');
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const group = (name: string) => page.getByRole('heading', { level: 2, name: new RegExp(`^${escapeRegExp(name)}(\\s|$)`) }).locator('xpath=ancestor::section[1]');
   const row = (name: string) => group(name).getByRole('listitem').filter({ hasText: title });
 
   if (phase === 'before') {
