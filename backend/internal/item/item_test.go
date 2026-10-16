@@ -2,6 +2,10 @@ package item_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -945,6 +949,9 @@ func TestRepositoryInvalidReferenceBecomesSubjectValidationError(t *testing.T) {
 func TestCursorRoundTripAndRejection(t *testing.T) {
 	id := "0198A2F0-7C1E-7A53-9B0E-5D3F2C1A4B70"
 	cursor := item.EncodeCursor(id)
+	if cursor != "aTE6MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtNWQzZjJjMWE0Yjcw" {
+		t.Fatalf("legacy cursor bytes=%q", cursor)
+	}
 	if strings.ContainsAny(cursor, "=+/") || cursor == id {
 		t.Fatalf("cursor not opaque base64url: %s", cursor)
 	}
@@ -1014,6 +1021,125 @@ func TestListLimitsCursorErrorsAndPagination(t *testing.T) {
 	empty, err := newEnv("UTC").svc.List(ctx, userID, householdID, item.ListQuery{})
 	if err != nil || empty.Items == nil || len(empty.Items) != 0 {
 		t.Fatalf("empty=%+v err=%v", empty, err)
+	}
+}
+
+func TestListStructuredFiltersAndBoundCursor(t *testing.T) {
+	e := newEnv("America/New_York")
+	future := itemtest.Date(2026, time.March, 3)
+	past := itemtest.Date(2026, time.March, 2)
+	responsible := userID
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000001", HouseholdID: householdID, SubjectID: subjectID, ResponsibleUserID: &responsible, AttentionOn: future, WorkflowState: item.StatePaused, Recurrence: &schedule.Policy{Enabled: true}, CreatedAt: fixedNow})
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000002", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: past, WorkflowState: item.StatePaused, CreatedAt: fixedNow})
+	for _, tc := range []struct {
+		name string
+		q    item.ListQuery
+		want int
+	}{
+		{"all AND filters", item.ListQuery{SubjectID: strings.ToUpper(subjectID), ResponsibleUserID: responsible, WorkflowState: "paused", Attention: "upcoming", Recurring: ptr(true)}, 1},
+		{"unassigned", item.ListQuery{ResponsibleUserID: "unassigned"}, 1},
+		{"recurring false", item.ListQuery{Recurring: ptr(false)}, 1},
+		{"needs attention excludes future local date", item.ListQuery{Attention: "needs_attention"}, 0},
+		{"unknown id empty", item.ListQuery{SubjectID: missingID}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := e.svc.List(context.Background(), userID, householdID, tc.q)
+			if err != nil || len(page.Items) != tc.want {
+				t.Fatalf("items=%+v err=%v", page.Items, err)
+			}
+		})
+	}
+	q := item.ListQuery{SubjectID: subjectID, Limit: 1}
+	page, err := e.svc.List(context.Background(), userID, householdID, q)
+	if err != nil || page.NextCursor == nil {
+		t.Fatalf("first=%+v err=%v", page, err)
+	}
+	cursor := *page.NextCursor
+	q.Cursor = cursor
+	q.Limit = 2
+	if _, err = e.svc.List(context.Background(), userID, householdID, q); err != nil {
+		t.Fatalf("changed limit rejected: %v", err)
+	}
+	var invalid *item.InvalidQueryError
+	for name, changed := range map[string]item.ListQuery{
+		"archived":    {Archived: true, SubjectID: subjectID, Cursor: cursor},
+		"done":        {Done: true, SubjectID: subjectID, Cursor: cursor},
+		"subject":     {SubjectID: missingID, Cursor: cursor},
+		"responsible": {SubjectID: subjectID, ResponsibleUserID: "unassigned", Cursor: cursor},
+		"workflow":    {SubjectID: subjectID, WorkflowState: "paused", Cursor: cursor},
+		"attention":   {SubjectID: subjectID, Attention: "upcoming", Cursor: cursor},
+		"recurring":   {SubjectID: subjectID, Recurring: ptr(false), Cursor: cursor},
+	} {
+		if _, err = e.svc.List(context.Background(), userID, householdID, changed); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+			t.Errorf("%s mismatch err=%v", name, err)
+		}
+	}
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{Cursor: cursor}); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+		t.Fatalf("unfiltered i2 accepted: %v", err)
+	}
+	legacy := item.EncodeCursor("0198a2f0-7c1e-7a53-9b0e-000000000001")
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Cursor: legacy}); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+		t.Fatalf("filtered i1 accepted: %v", err)
+	}
+	// Explicit archived=false and UUID hex casing are fingerprint-equivalent.
+	firstDefault, err := e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Limit: 1})
+	if err != nil || firstDefault.NextCursor == nil {
+		t.Fatalf("default cursor=%+v err=%v", firstDefault, err)
+	}
+	if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: strings.ToUpper(subjectID), Archived: false, Cursor: *firstDefault.NextCursor}); err != nil {
+		t.Fatalf("equivalent filter rejected: %v", err)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(*firstDefault.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(string(decoded), ":")
+	canonical, _ := json.Marshal([]string{"tendo.items.list.v2", "false", "false", subjectID, "", "", "", "", "created", ""})
+	digest := sha256.Sum256(canonical)
+	wantFingerprint := hex.EncodeToString(digest[:])
+	if len(parts) != 6 || parts[0] != "i2" || parts[2] != wantFingerprint {
+		t.Fatalf("cursor payload=%q fingerprint=%s want=%s", decoded, func() string {
+			if len(parts) > 2 {
+				return parts[2]
+			}
+			return ""
+		}(), wantFingerprint)
+	}
+	validPayload := strings.Split(string(decoded), ":")
+	mutations := map[string]func([]string) []string{
+		"extra field":         func(p []string) []string { return append(p, "extra") },
+		"missing field":       func(p []string) []string { return p[:5] },
+		"wrong version":       func(p []string) []string { p[0] = "i3"; return p },
+		"bad last UUID":       func(p []string) []string { p[5] = "not-a-uuid"; return p },
+		"uppercase last UUID": func(p []string) []string { p[5] = strings.ToUpper(p[5]); return p },
+		"changed household":   func(p []string) []string { p[1] = missingID; return p },
+		"changed hash":        func(p []string) []string { p[2] = strings.Repeat("0", 64); return p },
+		"changed date":        func(p []string) []string { p[3] = "2026-03-02"; return p },
+		"bad sort":            func(p []string) []string { p[4] = "title"; return p },
+	}
+	encode := func(p []string) string { return base64.RawURLEncoding.EncodeToString([]byte(strings.Join(p, ":"))) }
+	for name, mutate := range mutations {
+		p := append([]string(nil), validPayload...)
+		malformed := encode(mutate(p))
+		if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Cursor: malformed}); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+			t.Errorf("%s cursor accepted: %v", name, err)
+		}
+	}
+	for name, bad := range map[string]string{"padded": *firstDefault.NextCursor + "=", "invalid base64": "%%%"} {
+		if _, err = e.svc.List(context.Background(), userID, householdID, item.ListQuery{SubjectID: subjectID, Cursor: bad}); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+			t.Errorf("%s cursor accepted: %v", name, err)
+		}
+	}
+	e.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-000000000003", HouseholdID: householdID, SubjectID: subjectID, AttentionOn: future, WorkflowState: item.StatePaused, CreatedAt: fixedNow})
+	q = item.ListQuery{Attention: "upcoming", Limit: 1}
+	datePage, err := e.svc.List(context.Background(), userID, householdID, q)
+	if err != nil || datePage.NextCursor == nil {
+		t.Fatalf("attention page=%+v err=%v", datePage, err)
+	}
+	e.now = e.now.Add(8 * time.Hour)
+	q.Cursor = *datePage.NextCursor
+	if _, err = e.svc.List(context.Background(), userID, householdID, q); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+		t.Fatalf("midnight binding err=%v", err)
 	}
 }
 

@@ -386,6 +386,10 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
   }
   try {
     for (const fixture of [created, reused, list, listNext, got, patched, failed, required, badQuery, invalid]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    for (const parameter of ['subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring']) {
+      const accepted = structuredClone(badQuery); accepted.body.parameter = parameter
+      assert.equal((await run(accepted)).code, 0, `accepted query parameter ${parameter}`)
+    }
     for (const [name, fixture, mutate, diagnostic] of [
       ['created without ETag', created, f => { delete f.headers.etag }, 'missing ETag'],
       ['created without Location', created, f => { delete f.headers.location }, 'missing Location'],

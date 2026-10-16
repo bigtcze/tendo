@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -183,6 +184,14 @@ func TestMigrationUpgradeFromV6PreservesData(t *testing.T) {
 	}
 }
 
+func mustTestDate(year int, month time.Month, day int) schedule.Date {
+	d, err := schedule.NewDate(year, month, day)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
 func sameDate(a, b *schedule.Date) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
@@ -306,6 +315,270 @@ func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T
 }
 
 const itemIDFloor = "00000000-0000-0000-0000-000000000000"
+
+func TestFilteredListAgainstPostgres(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, app := pool(t, ctx, adminURL), pool(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	house := func(name, zone string) string {
+		var id string
+		if err := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES($1,$2) RETURNING id::text`, name, zone).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	h1, h2 := house("filtered-list-a", "America/New_York"), house("filtered-list-b", "UTC")
+	user := ""
+	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('filtered_list_user') RETURNING id::text`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner'),($1::uuid,$3::uuid,'owner')`, user, h1, h2); err != nil {
+		t.Fatal(err)
+	}
+	subjectFor := func(h, name string) string {
+		var id string
+		if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person',$2) RETURNING id::text`, h, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	s1, s2 := subjectFor(h1, "filter-subject-a"), subjectFor(h1, "filter-subject-b")
+	foreignSubject := subjectFor(h2, "filter-subject-foreign")
+	member := ""
+	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('filtered_list_member') RETURNING id::text`).Scan(&member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, member, h1); err != nil {
+		t.Fatal(err)
+	}
+	foreignUser := ""
+	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('filtered_list_foreign') RETURNING id::text`).Scan(&foreignUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, foreignUser, h2); err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Date(2026, time.March, 2, 4, 30, 0, 0, time.UTC) // New York business date is March 1, UTC date is March 2.
+	houses := func(_ context.Context, u, h string) (string, error) {
+		if u != user || (h != h1 && h != h2) {
+			return "", item.ErrNotFound
+		}
+		if h == h1 {
+			return "America/New_York", nil
+		}
+		return "UTC", nil
+	}
+	members := func(_ context.Context, u, h string) error {
+		var n int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid`, u, h).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return item.ErrNotFound
+		}
+		return nil
+	}
+	repo := NewRepository(app)
+	svc := item.NewService(repo, houses, nil, members, func() time.Time { return clock })
+	insert := func(h, s, title, responsible, state string, attention *string, recurring, archived, done bool) string {
+		var id string
+		err := admin.QueryRow(ctx, `INSERT INTO items(household_id,subject_id,title,responsible_user_id,workflow_state,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done) VALUES($1::uuid,$2::uuid,$3,NULLIF($4,'')::uuid,$5,NULLIF($6,'')::date,CASE WHEN $7 THEN 1 END,CASE WHEN $7 THEN 'day' END,CASE WHEN $7 THEN 'fixed' END,$8,$9) RETURNING id::text`, h, s, title, responsible, state, func() string {
+			if attention == nil {
+				return ""
+			}
+			return *attention
+		}(), recurring, archived, done).Scan(&id)
+		if err != nil {
+			t.Fatalf("insert %s: %v", title, err)
+		}
+		return id
+	}
+	ids := map[string]string{}
+	for _, tc := range []struct {
+		name, sub, res, state, day string
+		rec, arch, done            bool
+	}{
+		{"null-unassigned", s1, "", "open", "", false, false, false},
+		{"yesterday", s1, member, "in_progress", "2026-02-28", true, false, false},
+		{"today", s1, member, "waiting", "2026-03-01", false, false, false},
+		// 2026-03-02 is upcoming in New York (Mar 1) but would be due by the UTC date (Mar 2).
+		{"tomorrow", s1, "", "paused", "2026-03-02", true, false, false},
+		{"archived-s2", s2, "", "paused", "2026-03-03", false, true, false},
+		{"done-s1", s1, member, "open", "2026-02-01", false, false, true},
+		{"archived-s1", s1, "", "open", "", true, true, false},
+		{"archived-done-s1", s1, "", "open", "", false, true, true},
+	} {
+		var d *string
+		if tc.day != "" {
+			d = &tc.day
+		}
+		ids[tc.name] = insert(h1, tc.sub, tc.name, tc.res, tc.state, d, tc.rec, tc.arch, tc.done)
+	}
+	for _, state := range []string{"open", "in_progress", "waiting", "paused"} {
+		ids["state-"+state] = insert(h1, s2, "state-"+state, "", state, nil, false, false, false)
+	}
+	foreignItem := insert(h2, foreignSubject, "foreign-house-item", "", "open", nil, false, false, false)
+	list := func(h string, q item.ListQuery) []item.Item {
+		t.Helper()
+		p, e := svc.List(ctx, user, h, q)
+		if e != nil {
+			t.Fatalf("list %s %+v: %v", h, q, e)
+		}
+		return p.Items
+	}
+	// check asserts the exact matching set (in ascending id order) for h1.
+	check := func(name string, q item.ListQuery, names ...string) {
+		t.Helper()
+		want := make([]string, 0, len(names))
+		for _, n := range names {
+			id, ok := ids[n]
+			if !ok {
+				t.Fatalf("%s: unknown fixture %q", name, n)
+			}
+			want = append(want, id)
+		}
+		sort.Strings(want)
+		got := itemIDs(list(h1, q))
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s: got %v want %v (%v)", name, got, want, names)
+		}
+	}
+	states := []string{"state-open", "state-in_progress", "state-waiting", "state-paused"}
+	with := func(extra ...string) []string { return append(append([]string{}, extra...), states...) }
+	check("subject", item.ListQuery{SubjectID: s1}, "null-unassigned", "yesterday", "today", "tomorrow")
+	check("subject uppercase", item.ListQuery{SubjectID: strings.ToUpper(s1)}, "null-unassigned", "yesterday", "today", "tomorrow")
+	check("responsible uuid", item.ListQuery{ResponsibleUserID: member}, "yesterday", "today")
+	check("unassigned NULL", item.ListQuery{ResponsibleUserID: "unassigned"}, with("null-unassigned", "tomorrow")...)
+	check("workflow open", item.ListQuery{WorkflowState: "open"}, "null-unassigned", "state-open")
+	check("workflow in_progress", item.ListQuery{WorkflowState: "in_progress"}, "yesterday", "state-in_progress")
+	check("workflow waiting", item.ListQuery{WorkflowState: "waiting"}, "today", "state-waiting")
+	check("workflow paused", item.ListQuery{WorkflowState: "paused"}, "tomorrow", "state-paused")
+	check("attention household-local null/yesterday/today", item.ListQuery{Attention: "needs_attention"}, with("null-unassigned", "yesterday", "today")...)
+	check("attention upcoming household-local tomorrow", item.ListQuery{Attention: "upcoming"}, "tomorrow")
+	for _, r := range list(h1, item.ListQuery{Attention: "upcoming"}) {
+		if r.Attention != schedule.Upcoming {
+			t.Fatalf("filtered upcoming row derived %q", r.Attention)
+		}
+	}
+	check("recurring true", item.ListQuery{Recurring: ptrBool(true)}, "yesterday", "tomorrow")
+	check("recurring false", item.ListQuery{Recurring: ptrBool(false)}, with("null-unassigned", "today")...)
+	check("AND subject/state", item.ListQuery{SubjectID: s1, WorkflowState: "paused"}, "tomorrow")
+	check("AND attention/state", item.ListQuery{Attention: "needs_attention", WorkflowState: "paused"}, "state-paused")
+	check("AND responsible/recurring", item.ListQuery{ResponsibleUserID: member, Recurring: ptrBool(true)}, "yesterday")
+	check("archived only", item.ListQuery{Archived: true, SubjectID: s2}, "archived-s2")
+	check("archived upcoming", item.ListQuery{Archived: true, Attention: "upcoming"}, "archived-s2")
+	check("archived recurring", item.ListQuery{Archived: true, Recurring: ptrBool(true)}, "archived-s1")
+	check("done only", item.ListQuery{Done: true, SubjectID: s1}, "done-s1")
+	check("done responsible", item.ListQuery{Done: true, ResponsibleUserID: member}, "done-s1")
+	check("archived+done", item.ListQuery{Archived: true, Done: true, SubjectID: s1}, "archived-done-s1")
+	if got := list(h1, item.ListQuery{SubjectID: "0198a2f0-7c1e-7a53-9b0e-000000000099"}); len(got) != 0 {
+		t.Fatalf("unknown subject=%v", itemIDs(got))
+	}
+	if got := list(h1, item.ListQuery{SubjectID: foreignSubject}); len(got) != 0 {
+		t.Fatalf("foreign subject=%v", itemIDs(got))
+	}
+	if got := list(h1, item.ListQuery{ResponsibleUserID: foreignUser}); len(got) != 0 {
+		t.Fatalf("foreign user=%v", itemIDs(got))
+	}
+	if got := list(h2, item.ListQuery{SubjectID: s1}); len(got) != 0 {
+		t.Fatalf("reverse subject isolation=%v", itemIDs(got))
+	}
+	if got := list(h2, item.ListQuery{ResponsibleUserID: member}); len(got) != 0 {
+		t.Fatalf("reverse responsible isolation=%v", itemIDs(got))
+	}
+	if got := list(h2, item.ListQuery{SubjectID: foreignSubject}); len(got) != 1 || got[0].ID != foreignItem {
+		t.Fatalf("own household filtered list=%v", itemIDs(got))
+	}
+	if got := list(h2, item.ListQuery{ResponsibleUserID: "unassigned"}); len(got) != 1 || got[0].ID != foreignItem {
+		t.Fatalf("own household unassigned list=%v", itemIDs(got))
+	}
+	// Clearing a policy moves the row from recurring=true to recurring=false.
+	if _, err := repo.Update(ctx, h1, ids["yesterday"], 1, item.Change{Recurrence: item.Null[schedule.Policy]()}); err != nil {
+		t.Fatal(err)
+	}
+	check("recurring true after clear", item.ListQuery{Recurring: ptrBool(true)}, "tomorrow")
+	check("recurring false after clear", item.ListQuery{Recurring: ptrBool(false)}, with("null-unassigned", "yesterday", "today")...)
+	// Sparse interleaved set on its own subject: 3 of every 7 rows match. Walk the real
+	// service/repository with limit 2; every page boundary is followed by non-matching rows.
+	s3 := subjectFor(h1, "filter-subject-sparse")
+	var sparseIDs []string
+	for n := 0; n < 35; n++ {
+		sub := s2
+		if n%7 < 3 {
+			sub = s3
+		}
+		id := insert(h1, sub, fmt.Sprintf("sparse-%02d", n), "", "open", nil, false, false, false)
+		if sub == s3 {
+			sparseIDs = append(sparseIDs, id)
+		}
+	}
+	var actual []string
+	cursor := ""
+	pages := 0
+	for {
+		p, e := svc.List(ctx, user, h1, item.ListQuery{SubjectID: s3, Limit: 2, Cursor: cursor})
+		if e != nil {
+			t.Fatal(e)
+		}
+		pages++
+		if p.NextCursor != nil && len(p.Items) != 2 {
+			t.Fatalf("short non-final page %d: %v", pages, itemIDs(p.Items))
+		}
+		actual = append(actual, itemIDs(p.Items)...)
+		if p.NextCursor == nil {
+			break
+		}
+		cursor = *p.NextCursor
+	}
+	sort.Strings(sparseIDs) // uuidv7 order is not guaranteed to follow insertion order across connections.
+	if len(sparseIDs) != 15 || pages != 8 || strings.Join(actual, ",") != strings.Join(sparseIDs, ",") {
+		t.Fatalf("sparse pages=%d IDs=%v want=%v", pages, actual, sparseIDs)
+	}
+	// Both filter cursor mismatch and household binding; caller is a member of both.
+	first, e := svc.List(ctx, user, h1, item.ListQuery{SubjectID: s1, Limit: 1})
+	if e != nil || first.NextCursor == nil {
+		t.Fatalf("first cursor=%+v %v", first, e)
+	}
+	var invalid *item.InvalidQueryError
+	if _, e = svc.List(ctx, user, h1, item.ListQuery{SubjectID: s2, Cursor: *first.NextCursor}); !errors.As(e, &invalid) || invalid.Parameter != "cursor" {
+		t.Fatalf("changed subject cursor=%v", e)
+	}
+	houseCursor, e := svc.List(ctx, user, h1, item.ListQuery{WorkflowState: "open", Limit: 1})
+	if e != nil || houseCursor.NextCursor == nil {
+		t.Fatalf("household binding source=%+v %v", houseCursor, e)
+	}
+	if _, e = svc.List(ctx, user, h2, item.ListQuery{WorkflowState: "open", Cursor: *houseCursor.NextCursor}); !errors.As(e, &invalid) || invalid.Parameter != "cursor" {
+		t.Fatalf("household cursor=%v", e)
+	}
+	att, e := svc.List(ctx, user, h1, item.ListQuery{Attention: "needs_attention", Limit: 1})
+	if e != nil || att.NextCursor == nil {
+		t.Fatalf("attention cursor=%+v %v", att, e)
+	}
+	subOnly, e := svc.List(ctx, user, h1, item.ListQuery{SubjectID: s1, Limit: 1})
+	if e != nil || subOnly.NextCursor == nil {
+		t.Fatalf("subject cursor=%+v %v", subOnly, e)
+	}
+	clock = clock.Add(2 * time.Hour) // crosses New York local midnight from Mar 1 to Mar 2.
+	if _, e = svc.List(ctx, user, h1, item.ListQuery{Attention: "needs_attention", Cursor: *att.NextCursor}); !errors.As(e, &invalid) || invalid.Parameter != "cursor" {
+		t.Fatalf("attention midnight cursor=%v", e)
+	}
+	if _, e = svc.List(ctx, user, h1, item.ListQuery{SubjectID: s1, Cursor: *subOnly.NextCursor}); e != nil {
+		t.Fatalf("date-independent cursor invalid after midnight: %v", e)
+	}
+}
+
+func ptrBool(v bool) *bool { return &v }
+func itemIDs(rows []item.Item) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.ID
+	}
+	return out
+}
 
 func TestItemsAgainstPostgres(t *testing.T) {
 	appURL, adminURL := integrationURLs(t)
@@ -634,7 +907,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err != nil || assigned.ResponsibleUserID == nil || *assigned.ResponsibleUserID != memberA {
 			t.Fatalf("assigned=%+v err=%v", assigned, err)
 		}
-		listed, err := repo.List(ctx, hA, false, false, itemIDFloor, 100)
+		listed, err := repo.List(ctx, hA, item.ListOptions{Filters: item.ListFilters{}, Today: mustTestDate(2026, time.January, 15), AfterID: itemIDFloor, Limit: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -942,7 +1215,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		var got []string
 		after := "00000000-0000-0000-0000-000000000000"
 		for {
-			rows, err := repo.List(ctx, h, false, false, after, 3)
+			rows, err := repo.List(ctx, h, item.ListOptions{Filters: item.ListFilters{}, Today: mustTestDate(2026, time.January, 15), AfterID: after, Limit: 3})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -961,11 +1234,11 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if _, err := repo.Update(ctx, h, ids[1], 1, item.Change{Archived: &yes}); err != nil {
 			t.Fatal(err)
 		}
-		active, err := repo.List(ctx, h, false, false, "00000000-0000-0000-0000-000000000000", 100)
+		active, err := repo.List(ctx, h, item.ListOptions{Filters: item.ListFilters{}, Today: mustTestDate(2026, time.January, 15), AfterID: "00000000-0000-0000-0000-000000000000", Limit: 100})
 		if err != nil || len(active) != 6 {
 			t.Fatalf("active=%d err=%v", len(active), err)
 		}
-		archived, err := repo.List(ctx, h, true, false, "00000000-0000-0000-0000-000000000000", 100)
+		archived, err := repo.List(ctx, h, item.ListOptions{Filters: item.ListFilters{Archived: true}, Today: mustTestDate(2026, time.January, 15), AfterID: "00000000-0000-0000-0000-000000000000", Limit: 100})
 		if err != nil || len(archived) != 1 || archived[0].ID != ids[1] {
 			t.Fatalf("archived=%+v err=%v", archived, err)
 		}
@@ -1310,7 +1583,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err = admin.QueryRow(ctx, `SELECT completed_on::text FROM item_completions WHERE id=$1::uuid`, lastID).Scan(&storedDate); err != nil || storedDate != "2026-03-10" {
 			t.Fatalf("stored latest receipt date=%s err=%v", storedDate, err)
 		}
-		list, err := repo.List(ctx, hA, false, false, "00000000-0000-0000-0000-000000000000", 100)
+		list, err := repo.List(ctx, hA, item.ListOptions{Filters: item.ListFilters{}, Today: mustTestDate(2026, time.January, 15), AfterID: "00000000-0000-0000-0000-000000000000", Limit: 100})
 		if err != nil || len(list) == 0 || list[len(list)-1].LastCompletedOn == nil || list[len(list)-1].LastCompletedOn.String() != "2026-03-10" {
 			t.Fatalf("list latest=%+v err=%v", list, err)
 		}
@@ -1357,7 +1630,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if _, err := repo.Update(ctx, hA, i.ID, 1, item.Change{Title: &title}); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("update=%v", err)
 		}
-		rows, err := repo.List(ctx, hA, false, false, "00000000-0000-0000-0000-000000000000", 100)
+		rows, err := repo.List(ctx, hA, item.ListOptions{Filters: item.ListFilters{}, Today: mustTestDate(2026, time.January, 15), AfterID: "00000000-0000-0000-0000-000000000000", Limit: 100})
 		if err != nil {
 			t.Fatal(err)
 		}

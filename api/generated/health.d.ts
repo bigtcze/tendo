@@ -302,7 +302,7 @@ export interface paths {
         };
         /**
          * List items
-         * @description Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. Unknown query parameters are ignored. Derived attention uses the household timezone.
+         * @description Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. subjectId, responsibleUserId, workflowState, attention, and recurring are single-valued filters combined with AND; unknown or foreign UUID references return an empty result. Without these filters cursors retain the i1 format; any filter uses an i2 cursor bound to household and filter fingerprint. Attention-filter cursors are additionally bound to household-local business date and cannot continue after local midnight. Unknown query parameters are ignored. Derived attention uses the household timezone.
          */
         get: operations["listItems"];
         put?: never;
@@ -628,7 +628,7 @@ export interface components {
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            parameter?: "limit" | "cursor" | "archived" | "done";
+            parameter?: "limit" | "cursor" | "archived" | "done" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring";
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -4300,6 +4300,16 @@ export interface operations {
                 archived?: components["parameters"]["Archived"];
                 /** @description false (default) lists unfinished items; true lists completed one-off items. */
                 done?: components["parameters"]["Done"];
+                /** @description Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value. */
+                subjectId?: string;
+                /** @description Single UUID or exact lowercase unassigned; ANDed with other filters. Unknown or foreign IDs produce an empty result. Bound into filtered cursors. */
+                responsibleUserId?: string;
+                /** @description Single value open, in_progress, waiting, or paused; ANDed with other filters and bound into filtered cursors. */
+                workflowState?: components["schemas"]["WorkflowState"];
+                /** @description Single needs_attention or upcoming value; ANDed with other filters. Filtered cursor is bound to household-local business date and rejected after midnight. */
+                attention?: components["schemas"]["ItemAttention"];
+                /** @description Single exact lowercase true or false; true selects recurring items and false selects one-off items. ANDed with other filters and bound into filtered cursors. */
+                recurring?: "true" | "false";
             };
             header?: {
                 /**
@@ -4353,7 +4363,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemList"];
                 };
             };
-            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100; cursor is malformed or mismatched; archived/done/recurring is not lowercase true or false; UUID filters are malformed; or workflowState/attention is outside its documented values. New filters must be single, nonempty scalar values (no repeats or comma lists). The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

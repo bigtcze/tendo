@@ -419,10 +419,15 @@ func (e OIDCValidationProblemStatus) Valid() bool {
 
 // Defines values for QueryProblemParameter.
 const (
-	QueryProblemParameterArchived QueryProblemParameter = "archived"
-	QueryProblemParameterCursor   QueryProblemParameter = "cursor"
-	QueryProblemParameterDone     QueryProblemParameter = "done"
-	QueryProblemParameterLimit    QueryProblemParameter = "limit"
+	QueryProblemParameterArchived          QueryProblemParameter = "archived"
+	QueryProblemParameterAttention         QueryProblemParameter = "attention"
+	QueryProblemParameterCursor            QueryProblemParameter = "cursor"
+	QueryProblemParameterDone              QueryProblemParameter = "done"
+	QueryProblemParameterLimit             QueryProblemParameter = "limit"
+	QueryProblemParameterRecurring         QueryProblemParameter = "recurring"
+	QueryProblemParameterResponsibleUserId QueryProblemParameter = "responsibleUserId"
+	QueryProblemParameterSubjectId         QueryProblemParameter = "subjectId"
+	QueryProblemParameterWorkflowState     QueryProblemParameter = "workflowState"
 )
 
 // Valid indicates whether the value is a known member of the QueryProblemParameter enum.
@@ -430,11 +435,21 @@ func (e QueryProblemParameter) Valid() bool {
 	switch e {
 	case QueryProblemParameterArchived:
 		return true
+	case QueryProblemParameterAttention:
+		return true
 	case QueryProblemParameterCursor:
 		return true
 	case QueryProblemParameterDone:
 		return true
 	case QueryProblemParameterLimit:
+		return true
+	case QueryProblemParameterRecurring:
+		return true
+	case QueryProblemParameterResponsibleUserId:
+		return true
+	case QueryProblemParameterSubjectId:
+		return true
+	case QueryProblemParameterWorkflowState:
 		return true
 	default:
 		return false
@@ -611,13 +626,13 @@ func (e SubjectValidationProblemField) Valid() bool {
 
 // Defines values for UndoCompletionRequestUndone.
 const (
-	True UndoCompletionRequestUndone = true
+	UndoCompletionRequestUndoneTrue UndoCompletionRequestUndone = true
 )
 
 // Valid indicates whether the value is a known member of the UndoCompletionRequestUndone enum.
 func (e UndoCompletionRequestUndone) Valid() bool {
 	switch e {
-	case True:
+	case UndoCompletionRequestUndoneTrue:
 		return true
 	default:
 		return false
@@ -666,6 +681,24 @@ func (e WorkflowState) Valid() bool {
 	case Paused:
 		return true
 	case Waiting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListItemsParamsRecurring.
+const (
+	ListItemsParamsRecurringFalse ListItemsParamsRecurring = "false"
+	ListItemsParamsRecurringTrue  ListItemsParamsRecurring = "true"
+)
+
+// Valid indicates whether the value is a known member of the ListItemsParamsRecurring enum.
+func (e ListItemsParamsRecurring) Valid() bool {
+	switch e {
+	case ListItemsParamsRecurringFalse:
+		return true
+	case ListItemsParamsRecurringTrue:
 		return true
 	default:
 		return false
@@ -1312,9 +1345,27 @@ type ListItemsParams struct {
 	// Done false (default) lists unfinished items; true lists completed one-off items.
 	Done *Done `form:"done,omitempty" json:"done,omitempty"`
 
+	// SubjectId Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value.
+	SubjectId *string `form:"subjectId,omitempty" json:"subjectId,omitempty"`
+
+	// ResponsibleUserId Single UUID or exact lowercase unassigned; ANDed with other filters. Unknown or foreign IDs produce an empty result. Bound into filtered cursors.
+	ResponsibleUserId *string `form:"responsibleUserId,omitempty" json:"responsibleUserId,omitempty"`
+
+	// WorkflowState Single value open, in_progress, waiting, or paused; ANDed with other filters and bound into filtered cursors.
+	WorkflowState *WorkflowState `form:"workflowState,omitempty" json:"workflowState,omitempty"`
+
+	// Attention Single needs_attention or upcoming value; ANDed with other filters. Filtered cursor is bound to household-local business date and rejected after midnight.
+	Attention *ItemAttention `form:"attention,omitempty" json:"attention,omitempty"`
+
+	// Recurring Single exact lowercase true or false; true selects recurring items and false selects one-off items. ANDed with other filters and bound into filtered cursors.
+	Recurring *ListItemsParamsRecurring `form:"recurring,omitempty" json:"recurring,omitempty"`
+
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
+
+// ListItemsParamsRecurring defines parameters for ListItems.
+type ListItemsParamsRecurring string
 
 // CreateItemParams defines parameters for CreateItem.
 type CreateItemParams struct {

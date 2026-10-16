@@ -265,13 +265,42 @@ func (r *Repository) Get(ctx context.Context, householdID, itemID string) (item.
 	return toItem(row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID, Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue, RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState, Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version})
 }
 
-func (r *Repository) List(ctx context.Context, householdID string, archived, done bool, afterID string, limit int) ([]item.Item, error) {
+func (r *Repository) List(ctx context.Context, householdID string, opts item.ListOptions) ([]item.Item, error) {
 	hid, ok1 := parseUUID(householdID)
-	after, ok2 := parseUUID(afterID)
+	after, ok2 := parseUUID(opts.AfterID)
 	if !ok1 || !ok2 {
 		return nil, item.ErrNotFound
 	}
-	rows, err := r.queries.ListItems(ctx, dbgen.ListItemsParams{HouseholdID: hid, Archived: archived, Done: done, AfterID: after, RowLimit: int32(limit)})
+	f := opts.Filters
+	var subjectID pgtype.UUID
+	if f.SubjectID != "" {
+		var ok bool
+		subjectID, ok = parseUUID(f.SubjectID)
+		if !ok {
+			return nil, item.ErrNotFound
+		}
+	}
+	var responsible pgtype.UUID
+	if f.ResponsibleUserID.Value != nil {
+		var ok bool
+		responsible, ok = parseUUID(*f.ResponsibleUserID.Value)
+		if !ok {
+			return nil, item.ErrNotFound
+		}
+	}
+	workflow, attention := pgtype.Text{}, pgtype.Text{}
+	if f.WorkflowState != "" {
+		workflow = pgtype.Text{String: string(f.WorkflowState), Valid: true}
+	}
+	if f.Attention != "" {
+		attention = pgtype.Text{String: string(f.Attention), Valid: true}
+	}
+	today := date(&opts.Today)
+	var recurring pgtype.Bool
+	if f.Recurring != nil {
+		recurring = pgtype.Bool{Bool: *f.Recurring, Valid: true}
+	}
+	rows, err := r.queries.ListItems(ctx, dbgen.ListItemsParams{HouseholdID: hid, Archived: f.Archived, Done: f.Done, AfterID: after, SubjectID: subjectID, FilterResponsible: f.ResponsibleUserID.Set, ResponsibleUserID: responsible, WorkflowState: workflow, Attention: attention, Today: today, Recurring: recurring, RowLimit: int32(opts.Limit)})
 	if err != nil {
 		return nil, errPersistence
 	}

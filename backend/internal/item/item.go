@@ -10,7 +10,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -174,11 +176,32 @@ type Change struct {
 }
 
 type ListQuery struct {
-	Archived bool
-	Done     bool
+	Archived          bool
+	Done              bool
+	SubjectID         string
+	ResponsibleUserID string
+	WorkflowState     string
+	Attention         string
+	Recurring         *bool
 	// Limit 0 selects DefaultLimit.
 	Limit  int
 	Cursor string
+}
+
+type ListFilters struct {
+	Archived, Done    bool
+	SubjectID         string
+	ResponsibleUserID Nullable[string]
+	WorkflowState     WorkflowState
+	Attention         schedule.Attention
+	Recurring         *bool
+}
+
+type ListOptions struct {
+	Filters ListFilters
+	Today   schedule.Date
+	AfterID string
+	Limit   int
 }
 
 type Page struct {
@@ -198,7 +221,7 @@ type Repository interface {
 	CreateIdempotent(ctx context.Context, householdID string, d Draft) (Item, bool, error)
 	FindCreation(ctx context.Context, householdID, actorID, key string) (Item, []byte, error)
 	Get(ctx context.Context, householdID, itemID string) (Item, error)
-	List(ctx context.Context, householdID string, archived, done bool, afterID string, limit int) ([]Item, error)
+	List(ctx context.Context, householdID string, opts ListOptions) ([]Item, error)
 	Complete(ctx context.Context, householdID, itemID, key string, fingerprint [32]byte, decide CompletionDecider) (Completion, bool, error)
 	UndoCompletion(ctx context.Context, householdID, itemID, completionID string, decide CompletionUndoDecider) (Completion, error)
 	ListCompletions(ctx context.Context, householdID, itemID, afterID string, limit int) ([]Completion, error)
@@ -438,36 +461,131 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if limit < 1 || limit > MaxLimit {
 		return Page{}, &InvalidQueryError{"limit"}
 	}
+	filters := ListFilters{Archived: q.Archived, Done: q.Done}
+	if q.SubjectID != "" {
+		if !validUUID(q.SubjectID) {
+			return Page{}, &InvalidQueryError{"subjectId"}
+		}
+		filters.SubjectID = strings.ToLower(q.SubjectID)
+	}
+	if q.ResponsibleUserID != "" {
+		if q.ResponsibleUserID == "unassigned" {
+			filters.ResponsibleUserID = Null[string]()
+		} else {
+			if !validUUID(q.ResponsibleUserID) {
+				return Page{}, &InvalidQueryError{"responsibleUserId"}
+			}
+			v := strings.ToLower(q.ResponsibleUserID)
+			filters.ResponsibleUserID = Some(v)
+		}
+	}
+	if q.WorkflowState != "" {
+		v, ok := ParseWorkflowState(q.WorkflowState)
+		if !ok {
+			return Page{}, &InvalidQueryError{"workflowState"}
+		}
+		filters.WorkflowState = v
+	}
+	if q.Attention != "" {
+		switch schedule.Attention(q.Attention) {
+		case schedule.NeedsAttention, schedule.Upcoming:
+			filters.Attention = schedule.Attention(q.Attention)
+		default:
+			return Page{}, &InvalidQueryError{"attention"}
+		}
+	}
+	if q.Recurring != nil {
+		filters.Recurring = q.Recurring
+	}
+	extended := q.SubjectID != "" || q.ResponsibleUserID != "" || q.WorkflowState != "" || q.Attention != "" || q.Recurring != nil
 	after := nilUUID
 	if q.Cursor != "" {
-		id, err := DecodeCursor(q.Cursor)
+		if extended {
+			after, err = decodeBoundCursor(q.Cursor, householdID, filters, today)
+		} else {
+			after, err = DecodeCursor(q.Cursor)
+		}
 		if err != nil {
 			return Page{}, &InvalidQueryError{"cursor"}
 		}
-		after = id
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := s.repository.List(ctx, householdID, q.Archived, q.Done, after, limit+1)
+	rows, err := s.repository.List(ctx, householdID, ListOptions{Filters: filters, Today: today, AfterID: after, Limit: limit + 1})
 	if err != nil {
 		return Page{}, ErrUnavailable
 	}
 	page := Page{Items: rows}
 	if len(rows) > limit {
 		page.Items = rows[:limit]
-		next := EncodeCursor(rows[limit-1].ID)
+		last := strings.ToLower(rows[limit-1].ID)
+		var next string
+		if extended {
+			next = encodeBoundCursor(householdID, filters, today, last)
+		} else {
+			next = EncodeCursor(last)
+		}
 		page.NextCursor = &next
 	}
 	out := make([]Item, 0, len(page.Items))
 	for _, row := range page.Items {
-		d, err := derive(row, today)
-		if err != nil {
-			return Page{}, err
+		d, e := derive(row, today)
+		if e != nil {
+			return Page{}, e
 		}
 		out = append(out, d)
 	}
 	page.Items = out
 	return page, nil
+}
+
+func listFingerprint(f ListFilters) string {
+	responsible := ""
+	if f.ResponsibleUserID.Set {
+		if f.ResponsibleUserID.Value == nil {
+			responsible = "unassigned"
+		} else {
+			responsible = *f.ResponsibleUserID.Value
+		}
+	}
+	workflow, attention, recurring := "", "", ""
+	if f.WorkflowState != "" {
+		workflow = string(f.WorkflowState)
+	}
+	if f.Attention != "" {
+		attention = string(f.Attention)
+	}
+	if f.Recurring != nil {
+		recurring = strconv.FormatBool(*f.Recurring)
+	}
+	b, _ := json.Marshal([]string{"tendo.items.list.v2", strconv.FormatBool(f.Archived), strconv.FormatBool(f.Done), f.SubjectID, responsible, workflow, attention, recurring, "created", ""})
+	d := sha256.Sum256(b)
+	return fmt.Sprintf("%x", d)
+}
+func encodeBoundCursor(h string, f ListFilters, today schedule.Date, last string) string {
+	date := "-"
+	if f.Attention != "" {
+		date = today.String()
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(strings.Join([]string{"i2", h, listFingerprint(f), date, "-", last}, ":")))
+}
+func decodeBoundCursor(cursor, household string, f ListFilters, today schedule.Date) (string, error) {
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(cursor)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(string(raw), ":")
+	if len(parts) != 6 || parts[0] != "i2" || parts[1] != household || parts[2] != listFingerprint(f) || parts[4] != "-" || !validUUID(parts[5]) || parts[5] != strings.ToLower(parts[5]) {
+		return "", errors.New("invalid bound cursor")
+	}
+	wantDate := "-"
+	if f.Attention != "" {
+		wantDate = today.String()
+	}
+	if parts[3] != wantDate {
+		return "", errors.New("stale bound cursor")
+	}
+	return strings.ToLower(parts[5]), nil
 }
 
 func (s *Service) Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p Patch) (Item, error) {
