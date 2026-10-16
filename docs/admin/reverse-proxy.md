@@ -4,6 +4,15 @@ Tendo serves plain HTTP. A reverse proxy terminates TLS and forwards one sanitiz
 
 Set `TENDO_PUBLIC_URL` to the exact external origin, including a non-default port when used, with no path other than `/`, query, or fragment. OIDC uses this canonical value to construct its registered callback `<TENDO_PUBLIC_URL>/api/v1/auth/oidc/callback`; never derive the callback from request Host or forwarded headers. The app rejects incorrect scheme/authority with 421 and mismatched `Origin` or unsafe requests without canonical `Origin` with 403. Health endpoints are exempt for HTTP and IP-based probes. A non-health request with the correct public origin proceeds to normal routing (currently an unknown path returns 404).
 
+The example configurations are in the repository under [`deploy/reverse-proxy/`](../../deploy/reverse-proxy). Download the ones you need from the release you run, for example for 1.0.0:
+
+```text
+https://raw.githubusercontent.com/bigtcze/tendo/v1.0.0/deploy/reverse-proxy/Caddyfile
+https://raw.githubusercontent.com/bigtcze/tendo/v1.0.0/deploy/reverse-proxy/nginx.conf
+https://raw.githubusercontent.com/bigtcze/tendo/v1.0.0/deploy/reverse-proxy/traefik.yml
+https://raw.githubusercontent.com/bigtcze/tendo/v1.0.0/deploy/reverse-proxy/traefik-dynamic.yml
+```
+
 ## Trust boundary
 
 `TENDO_TRUSTED_PROXY_CIDRS` is an optional comma-separated list of CIDRs for the immediate TCP peer, not a list of client networks. Empty means no forwarded headers are trusted. Determine the proxy container's actual address on the app's Docker network and use its exact `/32` (IPv4) or `/128` (IPv6), or a deliberately small dedicated subnet containing only that controlled proxy. Do not assume Docker's bridge subnet or trust broad private ranges; inspect the network and reserve/address it so no other workload can join. Keep the proxy and app on a dedicated network, and prevent untrusted containers from reaching the app network.

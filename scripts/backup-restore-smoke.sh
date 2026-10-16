@@ -26,14 +26,14 @@ cleanup() {
 trap cleanup EXIT
 
 # A temporary profile override excludes the app; only private PostgreSQL is started.
-compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$temp_dir/compose.yaml")
+compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" -f "$temp_dir/compose.yaml")
 cat >"$temp_dir/compose.yaml" <<'YAML'
 services:
   app:
     profiles: [disabled-for-backup-smoke]
 YAML
 "${compose[@]}" up -d --wait --wait-timeout 90 postgres
-docker compose --profile migration --project-name "$project" -f "$root/compose.yaml" run --rm migrate
+docker compose --profile migration --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" run --rm migrate
 psql() { "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres "$@"; }
 psql -d tendo <<'SQL'
 CREATE SCHEMA smoke AUTHORIZATION tendo;

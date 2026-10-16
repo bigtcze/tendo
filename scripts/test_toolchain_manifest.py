@@ -79,6 +79,14 @@ class ToolchainManifestTests(unittest.TestCase):
         errors = workflow_errors(read(WORKFLOW))
         self.assertEqual(errors, [], "\n".join(errors))
 
+    def test_release_workflow_action_pins(self):
+        uses = yaml_values(read(".github/workflows/release.yml"), "uses")
+        shared = [value for value in uses if value.split("@", 1)[0] in MANIFEST["actions"]]
+        self.assertTrue(shared, "release workflow uses no manifest-pinned action")
+        for value in shared:
+            action, _, version = value.partition("@")
+            self.assertEqual(version, MANIFEST["actions"][action], value)
+
     def test_workflow_drift_is_detected(self):
         text = read(WORKFLOW)
         sha = MANIFEST["sqlc"]["linuxAmd64Sha256"]
@@ -111,11 +119,12 @@ class ToolchainManifestTests(unittest.TestCase):
     def test_container_image_pins(self):
         images = MANIFEST["images"]
         dockerfile = read("Dockerfile")
-        self.assertEqual(re.findall(r"^FROM (\S+)", dockerfile, re.M), [images["nodeBuild"], images["goBuild"], images["runtime"]])
+        self.assertEqual(re.findall(r"^FROM (?:--platform=\S+ )?(\S+)", dockerfile, re.M), [images["nodeBuild"], images["goBuild"], images["runtime"]])
         provider = read("backend/test/oidc-provider/Dockerfile")
         self.assertEqual(re.findall(r"^FROM (\S+)", provider, re.M), [images["oidcProviderBuild"], images["oidcProviderRuntime"]])
         compose = read("compose.yaml")
-        self.assertEqual(set(yaml_values(compose, "image")), {images["postgres"]})
+        app_image = "ghcr.io/bigtcze/tendo:${TENDO_VERSION:-latest}"
+        self.assertEqual(sorted(yaml_values(compose, "image")), sorted([images["postgres"], app_image, app_image]))
         proxy = read("scripts/proxy-smoke.sh")
         for name in ("caddy", "nginx", "traefik"):
             self.assert_all(rf"'({name}:[^']+)'", proxy, images[name], f"proxy-smoke.sh {name}")

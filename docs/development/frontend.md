@@ -15,7 +15,7 @@ Today the UI shows first-run onboarding when setup has not been completed (setup
 Start the backend from the repository root with `TENDO_PUBLIC_URL=http://localhost:8080` in `.env` (see [runtime development](runtime.md)):
 
 ```sh
-docker compose up -d --build
+docker compose -f compose.yaml -f deploy/compose.build.yaml up -d --build
 ```
 
 Set `TENDO_SETUP_TOKEN` as described in [install](../admin/install.md) if you want to try onboarding, then start the dev server:
@@ -68,7 +68,7 @@ It builds the production frontend assets and native Go app/provider binaries, th
 
 ## Production build
 
-`npm run build` writes to `backend/internal/platform/webui/dist`, which the Go binary embeds with `//go:embed`. A committed placeholder keeps `go build` working without a frontend build. The `Dockerfile` has a Node stage that runs the build and a Go stage that copies the output in, so `docker compose up --build` produces one image.
+`npm run build` writes to `backend/internal/platform/webui/dist`, which the Go binary embeds with `//go:embed`. A committed placeholder keeps `go build` working without a frontend build. The `Dockerfile` has a Node stage that runs the build and a Go stage that copies the output in, so `docker compose -f compose.yaml -f deploy/compose.build.yaml up --build` produces one image.
 
 Go serves `index.html` for app routes with a strict same-origin Content-Security-Policy (no inline scripts or styles) and `X-Frame-Options: DENY`, and serves hashed files under `/assets/` with immutable caching. Unknown `/api` and `/health` paths still return `application/problem+json`.
 

@@ -25,14 +25,14 @@ TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0
 TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
 origin=$TENDO_PUBLIC_URL
 
-compose_a=(docker compose --project-name "$project_a" -f "$root/compose.yaml")
-compose_b=(docker compose --project-name "$project_b" -f "$root/compose.yaml")
+compose_a=(docker compose --project-name "$project_a" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
+compose_b=(docker compose --project-name "$project_b" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
 cleanup() {
   local result=$?
   trap - EXIT
   local project
   for project in "$project_a" "$project_b"; do
-    if ! docker compose --project-name "$project" -f "$root/compose.yaml" down --volumes --remove-orphans --rmi local; then
+    if ! docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" down --volumes --remove-orphans --rmi local; then
       printf 'Compose cleanup failed for project %s\n' "$project" >&2
       (( result != 0 )) || result=1
     fi

@@ -2,10 +2,9 @@
 
 This is the reference for every setting. For step-by-step installation, see [install](install.md). The Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Owners create invite links from **Household members**; no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). When OIDC is configured, the sign-in screen offers it and people connect their own identity from **Your account**; see the [OIDC guide](oidc.md). PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
-Copy `.env.example` to `.env` and generate two independent hexadecimal database passwords:
+Settings live in `.env` next to `compose.yaml`; the release's `example.env` is the template (`.env.example` in the repository). Generate two independent hexadecimal database passwords:
 
 ```sh
-cp .env.example .env
 openssl rand -hex 32
 openssl rand -hex 32
 ```
@@ -13,7 +12,7 @@ openssl rand -hex 32
 Set them in their respective variables, then start all services (including the one-shot migration):
 
 ```sh
-docker compose up -d --build
+docker compose up -d --wait
 ```
 
 Never commit `.env` or reuse development credentials elsewhere. Generate an independent setup token only when ready to initialize the first owner:
@@ -22,10 +21,11 @@ Never commit `.env` or reuse development credentials elsewhere. Generate an inde
 openssl rand -base64 32
 ```
 
-The output is 44-character standard base64 ending in `=`. Set it as the existing `TENDO_SETUP_TOKEN` key in `.env` (replace its value; do not add duplicate keys), ensure `.env` is mode `0600` (`chmod 600 .env`), and recreate the app with `docker compose up -d --build --force-recreate app`; restarting an existing container does not load changed Compose environment. Empty configuration disables setup; `.env.example` intentionally leaves setup disabled. Malformed nonempty tokens fail startup. The token is a bootstrap secret, not a visitor-registration credential; only perform setup over the canonical origin, with the token kept private. Never export it to logs or commit it. The onboarding screen calls this code the "setup code"; paste it there together with the household name, owner login, password, and time zone (see [install](install.md#4-create-your-household)). Clear it after setup.
+The output is 44-character standard base64 ending in `=`. Set it as the existing `TENDO_SETUP_TOKEN` key in `.env` (replace its value; do not add duplicate keys), ensure `.env` is mode `0600` (`chmod 600 .env`), and recreate the app with `docker compose up -d --force-recreate app`; restarting an existing container does not load changed Compose environment. Empty configuration disables setup; `.env.example` intentionally leaves setup disabled. Malformed nonempty tokens fail startup. The token is a bootstrap secret, not a visitor-registration credential; only perform setup over the canonical origin, with the token kept private. Never export it to logs or commit it. The onboarding screen calls this code the "setup code"; paste it there together with the household name, owner login, password, and time zone (see [install](install.md#4-create-your-household)). Clear it after setup.
 
 | Variable | Required/default | Meaning and security |
 | --- | --- | --- |
+| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v1`, or an exact release such as `v1.0.0`. See [update](update.md). |
 | `POSTGRES_PASSWORD` | Required; no default | PostgreSQL bootstrap superuser password; independent random hexadecimal value. |
 | `TENDO_DATABASE_PASSWORD` | Required; no default | Restricted web-role password; independent random hexadecimal value. |
 | `TENDO_SETUP_TOKEN` | Empty; first-run setup disabled (the onboarding screen says so) | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |

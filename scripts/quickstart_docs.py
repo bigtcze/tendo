@@ -17,6 +17,8 @@ INSTALL_HEADINGS = (
 README_HEADINGS = ("## Quick start", "## First sign-in")
 SHELL_LANGUAGES = {"", "sh", "bash", "shell", "console", "zsh"}
 INSTALL_COUNTS = (1, 2, 2, 1, 1)
+RELEASE_DOWNLOAD_URL = "https://github.com/bigtcze/tendo/releases/latest/download/"
+RELEASE_ASSETS = ("compose.yaml", "example.env")
 
 
 def _fences(text: str) -> list[tuple[str, str, int, int]]:
@@ -88,8 +90,8 @@ def _shell_fence_counts(text: str, ranges: list[tuple[int, int]], label: str, ex
             raise ValueError(f"{label}: expected sh fence, found {fence[0] or '(empty info string)'} at line {fence[2] + 1}")
 
 
-def extract_blocks(install_text: str, readme_text: str, repo_root: str) -> list[str]:
-    """Validate docs and return ordered install blocks; only substitute the clone URL."""
+def extract_blocks(install_text: str, readme_text: str, assets_url: str) -> list[str]:
+    """Validate docs and return ordered install blocks; only substitute the release download URL."""
     install_sections, install_ranges = _section_ranges(install_text, INSTALL_HEADINGS, "docs/admin/install.md")
     install_blocks: list[list[str]] = []
     for heading, section, expected in zip(INSTALL_HEADINGS, install_sections, INSTALL_COUNTS):
@@ -117,15 +119,12 @@ def extract_blocks(install_text: str, readme_text: str, repo_root: str) -> list[
     if not actual_signin or actual_signin != expected_signin:
         raise ValueError("README.md ## First sign-in commands must exactly match install sections 4 and 5 in order")
 
-    get_block = install_blocks[0][0]
-    clone_command = "git clone https://github.com/bigtcze/tendo.git"
-    if get_block.splitlines().count(clone_command) != 1:
-        raise ValueError("docs/admin/install.md Get Tendo: expected exactly one exact GitHub clone command line")
-    install_blocks[0][0] = get_block.replace(
-        clone_command,
-        f"git clone --quiet --no-hardlinks --depth 1 file://{repo_root} tendo",
-        1,
-    )
+    # Release downloads are the only substitution: the smoke serves the same files from a local directory.
+    downloads = re.findall(re.escape(RELEASE_DOWNLOAD_URL) + r"(\S*)", "\n".join(install_blocks[0] + install_blocks[1]))
+    if downloads != list(RELEASE_ASSETS):
+        raise ValueError(f"docs/admin/install.md: sections 1 and 2 must download exactly {list(RELEASE_ASSETS)} in order; found {downloads}")
+    for blocks in (install_blocks[0], install_blocks[1]):
+        blocks[:] = [block.replace(RELEASE_DOWNLOAD_URL, assets_url) for block in blocks]
     # Block order: section 3's health block follows all five documented sections.
     return [
         install_blocks[0][0],
@@ -138,12 +137,16 @@ def extract_blocks(install_text: str, readme_text: str, repo_root: str) -> list[
 
 
 def main() -> int:
-    root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
+    if len(sys.argv) != 3:
+        print("usage: quickstart_docs.py REPOSITORY_ROOT RELEASE_ASSETS_DIRECTORY", file=sys.stderr)
+        return 2
+    root = Path(sys.argv[1]).resolve()
+    assets_url = Path(sys.argv[2]).resolve().as_uri() + "/"
     try:
         blocks = extract_blocks(
             (root / "docs/admin/install.md").read_text(encoding="utf-8"),
             (root / "README.md").read_text(encoding="utf-8"),
-            str(root),
+            assets_url,
         )
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)

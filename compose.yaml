@@ -8,7 +8,11 @@ services:
       TENDO_DATABASE_PASSWORD: ${TENDO_DATABASE_PASSWORD:?Set hexadecimal TENDO_DATABASE_PASSWORD in .env}
     volumes:
       - postgres-data:/var/lib/postgresql
-      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    configs:
+      # Runs once, when the data volume is first created.
+      - source: postgres-init
+        target: /docker-entrypoint-initdb.d/010-role.sh
+        mode: 0555
     healthcheck:
       # TCP probe: the image's init-time temporary server listens only on the Unix socket.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d tendo"]
@@ -19,7 +23,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    build: .
+    image: ghcr.io/bigtcze/tendo:${TENDO_VERSION:-latest}
     entrypoint: ["/tendo", "migrate"]
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?Set hexadecimal POSTGRES_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
@@ -29,7 +33,7 @@ services:
     restart: "no"
 
   app:
-    build: .
+    image: ghcr.io/bigtcze/tendo:${TENDO_VERSION:-latest}
     stop_grace_period: 70s
     environment:
       DATABASE_URL: postgres://tendo:${TENDO_DATABASE_PASSWORD:?Set hexadecimal TENDO_DATABASE_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
@@ -58,6 +62,20 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
     restart: "${TENDO_RESTART_POLICY:-unless-stopped}"
+
+configs:
+  # Creates the restricted role the app connects as. `$$` keeps Compose from interpolating.
+  postgres-init:
+    content: |
+      #!/bin/sh
+      set -eu
+      psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" \
+        --set=application_password="$$TENDO_DATABASE_PASSWORD" <<'SQL'
+      CREATE ROLE tendo LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD :'application_password';
+      GRANT CONNECT ON DATABASE tendo TO tendo;
+      REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+      GRANT USAGE ON SCHEMA public TO tendo;
+      SQL
 
 volumes:
   postgres-data:

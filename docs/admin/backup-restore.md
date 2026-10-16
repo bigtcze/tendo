@@ -43,7 +43,7 @@ Do not publish PostgreSQL on a host or network port to make a backup.
 
 Use this after losing a server, or when moving Tendo to another one. The target must be a **new, empty** installation, with a new data volume. Never restore over a database that already holds Tendo data.
 
-1. Prepare the new installation as in [install](install.md) steps 1–2, but **do not start it yet**. Use the same Tendo version, and a `.env` with the same `TENDO_PUBLIC_URL` and OIDC settings you had before. You can generate new database passwords; the backup does not depend on them. Leave `TENDO_SETUP_TOKEN` empty, because the restored data already has an owner.
+1. Prepare the new installation as in [install](install.md) steps 1–2, but **do not start it yet**. Use the same Tendo version (`TENDO_VERSION` and that release's `compose.yaml`), and a `.env` with the same `TENDO_PUBLIC_URL` and OIDC settings you had before. You can generate new database passwords; the backup does not depend on them. Leave `TENDO_SETUP_TOKEN` empty, because the restored data already has an owner.
 
 2. Start only PostgreSQL. This creates the empty `tendo` database and the restricted `tendo` role:
 
@@ -68,7 +68,7 @@ Use this after losing a server, or when moving Tendo to another one. The target 
 5. Start Tendo:
 
    ```sh
-   docker compose up -d --build --wait
+   docker compose up -d --wait
    ```
 
 6. Sign in with your usual login and check your household, people and things, items, and history.

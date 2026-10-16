@@ -1,9 +1,0 @@
-#!/bin/sh
-set -eu
-psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-  --set=application_password="$TENDO_DATABASE_PASSWORD" <<'SQL'
-CREATE ROLE tendo LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD :'application_password';
-GRANT CONNECT ON DATABASE tendo TO tendo;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO tendo;
-SQL

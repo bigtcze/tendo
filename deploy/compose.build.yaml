@@ -1,0 +1,11 @@
+# Development and CI only: build the app image from this checkout instead of pulling a release.
+# Use after the root file, for example:
+#   docker compose -f compose.yaml -f deploy/compose.build.yaml up -d --build --wait
+# Relative paths resolve against the project directory (the repository root), not this file.
+services:
+  migrate:
+    image: !reset null
+    build: .
+  app:
+    image: !reset null
+    build: .
