@@ -499,6 +499,85 @@ func (q *Queries) ListItemsByAttention(ctx context.Context, arg ListItemsByAtten
 	return items, nil
 }
 
+const summarizeItems = `-- name: SummarizeItems :one
+WITH classified AS (
+  SELECT CASE
+    WHEN items.archived THEN 'archived'
+    WHEN items.done THEN 'done'
+    WHEN items.workflow_state = 'paused' THEN 'paused'
+    WHEN items.workflow_state = 'in_progress' THEN 'in_progress'
+    WHEN items.workflow_state = 'waiting' THEN 'waiting'
+    WHEN items.attention_on IS NULL OR items.attention_on <= $1::date THEN 'needs_attention'
+    ELSE 'upcoming'
+  END AS partition
+  FROM items
+  WHERE items.household_id = $2
+    AND ($3::uuid IS NULL OR items.subject_id = $3::uuid)
+    AND (NOT $4::boolean OR items.responsible_user_id IS NOT DISTINCT FROM $5::uuid)
+    AND ($6::text IS NULL OR items.workflow_state = $6::text)
+    AND ($7::text IS NULL
+         OR ($7::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= $1::date))
+         OR ($7::text = 'upcoming' AND items.attention_on > $1::date))
+    AND ($8::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = $8::boolean)
+)
+SELECT count(*) AS total,
+  count(*) FILTER (WHERE partition = 'needs_attention') AS needs_attention,
+  count(*) FILTER (WHERE partition = 'in_progress') AS in_progress,
+  count(*) FILTER (WHERE partition = 'waiting') AS waiting,
+  count(*) FILTER (WHERE partition = 'upcoming') AS upcoming,
+  count(*) FILTER (WHERE partition = 'paused') AS paused,
+  count(*) FILTER (WHERE partition = 'done') AS done,
+  count(*) FILTER (WHERE partition = 'archived') AS archived
+FROM classified
+`
+
+type SummarizeItemsParams struct {
+	Today             pgtype.Date
+	HouseholdID       pgtype.UUID
+	SubjectID         pgtype.UUID
+	FilterResponsible bool
+	ResponsibleUserID pgtype.UUID
+	WorkflowState     pgtype.Text
+	Attention         pgtype.Text
+	Recurring         pgtype.Bool
+}
+
+type SummarizeItemsRow struct {
+	Total          int64
+	NeedsAttention int64
+	InProgress     int64
+	Waiting        int64
+	Upcoming       int64
+	Paused         int64
+	Done           int64
+	Archived       int64
+}
+
+func (q *Queries) SummarizeItems(ctx context.Context, arg SummarizeItemsParams) (SummarizeItemsRow, error) {
+	row := q.db.QueryRow(ctx, summarizeItems,
+		arg.Today,
+		arg.HouseholdID,
+		arg.SubjectID,
+		arg.FilterResponsible,
+		arg.ResponsibleUserID,
+		arg.WorkflowState,
+		arg.Attention,
+		arg.Recurring,
+	)
+	var i SummarizeItemsRow
+	err := row.Scan(
+		&i.Total,
+		&i.NeedsAttention,
+		&i.InProgress,
+		&i.Waiting,
+		&i.Upcoming,
+		&i.Paused,
+		&i.Done,
+		&i.Archived,
+	)
+	return i, err
+}
+
 const updateItem = `-- name: UpdateItem :one
 UPDATE items
 SET title = COALESCE($1::text, title),

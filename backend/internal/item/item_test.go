@@ -1309,6 +1309,33 @@ func TestAttentionFilteredSortCursorExpiresAtMidnight(t *testing.T) {
 		t.Fatalf("stale attention cursor=%v", err)
 	}
 }
+func TestSummaryPartitionsAndUsesHouseholdBusinessDate(t *testing.T) {
+	e := newEnv("Europe/Prague")
+	today := itemtest.Date(2026, time.March, 2)
+	rows := []item.Item{
+		{ID: "a", HouseholdID: householdID, AttentionOn: nil, WorkflowState: item.StateOpen},
+		{ID: "b", HouseholdID: householdID, AttentionOn: itemtest.Date(2026, time.March, 1), WorkflowState: item.StateOpen},
+		{ID: "c", HouseholdID: householdID, AttentionOn: today, WorkflowState: item.StateOpen},
+		{ID: "d", HouseholdID: householdID, AttentionOn: itemtest.Date(2026, time.March, 3), WorkflowState: item.StateOpen},
+		{ID: "e", HouseholdID: householdID, AttentionOn: today, WorkflowState: item.StateInProgress},
+		{ID: "f", HouseholdID: householdID, AttentionOn: today, WorkflowState: item.StateWaiting},
+		{ID: "g", HouseholdID: householdID, AttentionOn: today, WorkflowState: item.StatePaused},
+		{ID: "h", HouseholdID: householdID, Done: true, Archived: true},
+		{ID: "i", HouseholdID: householdID, Done: true},
+	}
+	for _, row := range rows {
+		e.repo.Seed(row)
+	}
+	got, err := e.svc.Summary(context.Background(), userID, householdID, item.SummaryQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := item.Summary{EvaluatedOn: *today, SummaryCounts: item.SummaryCounts{Total: 9, NeedsAttention: 3, Upcoming: 1, InProgress: 1, Waiting: 1, Paused: 1, Done: 1, Archived: 1}}
+	if got != want {
+		t.Fatalf("summary=%+v want %+v", got, want)
+	}
+}
+
 func TestListUsesOneBusinessDate(t *testing.T) {
 	e := newEnv("America/New_York")
 	e.now = time.Date(2026, time.March, 2, 4, 30, 0, 0, time.UTC)

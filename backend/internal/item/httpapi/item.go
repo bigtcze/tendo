@@ -46,6 +46,7 @@ type service interface {
 	Create(ctx context.Context, userID, householdID, key string, n item.NewItem) (item.Item, error)
 	Get(ctx context.Context, userID, householdID, itemID string) (item.Item, error)
 	List(ctx context.Context, userID, householdID string, q item.ListQuery) (item.Page, error)
+	Summary(ctx context.Context, userID, householdID string, q item.SummaryQuery) (item.Summary, error)
 	Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p item.Patch) (item.Item, error)
 	Complete(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, key string, request item.CompletionRequest) (item.Completion, bool, error)
 	UndoCompletion(ctx context.Context, userID, householdID, itemID, completionID string, expectedVersion int64) (item.Completion, error)
@@ -69,6 +70,7 @@ func New(s service, auth func(http.Handler) http.Handler, userID func(context.Co
 func (h *Handler) Register(r chi.Router) {
 	r.With(h.auth).Post("/api/v1/households/{householdId}/items", h.create)
 	r.With(h.auth).Get("/api/v1/households/{householdId}/items", h.list)
+	r.With(h.auth).Get("/api/v1/households/{householdId}/items/summary", h.summary)
 	r.With(h.auth).Get("/api/v1/households/{householdId}/items/{itemId}", h.get)
 	r.With(h.auth).Patch("/api/v1/households/{householdId}/items/{itemId}", h.update)
 	h.RegisterCompletionRoutes(r)
@@ -202,6 +204,67 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		items = append(items, toJSON(found))
 	}
 	httpx.WriteJSON(w, http.StatusOK, ItemList{Items: items, NextCursor: page.NextCursor})
+}
+
+func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.userID(r.Context())
+	if !ok {
+		httpx.ProblemResponse(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	values := r.URL.Query()
+	for _, name := range []string{"limit", "cursor", "archived", "done", "sort"} {
+		if _, exists := values[name]; exists {
+			httpx.QueryProblemResponse(w, name)
+			return
+		}
+	}
+	readScalar := func(name string) (string, bool) {
+		v, exists := values[name]
+		if !exists {
+			return "", true
+		}
+		if len(v) != 1 || v[0] == "" {
+			httpx.QueryProblemResponse(w, name)
+			return "", false
+		}
+		return v[0], true
+	}
+	var q item.SummaryQuery
+	var good bool
+	if q.SubjectID, good = readScalar("subjectId"); !good {
+		return
+	}
+	if q.ResponsibleUserID, good = readScalar("responsibleUserId"); !good {
+		return
+	}
+	if q.WorkflowState, good = readScalar("workflowState"); !good {
+		return
+	}
+	if q.Attention, good = readScalar("attention"); !good {
+		return
+	}
+	recurring, good := readScalar("recurring")
+	if !good {
+		return
+	}
+	if recurring != "" {
+		if recurring != "true" && recurring != "false" {
+			httpx.QueryProblemResponse(w, "recurring")
+			return
+		}
+		b := recurring == "true"
+		q.Recurring = &b
+	}
+	if q.AttentionDate, good = readScalar("attentionDate"); !good {
+		return
+	}
+	result, err := h.service.Summary(r.Context(), userID, chi.URLParam(r, "householdId"), q)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, ItemSummary{EvaluatedOn: result.EvaluatedOn.String(), Total: result.Total, NeedsAttention: result.NeedsAttention, InProgress: result.InProgress, Waiting: result.Waiting, Upcoming: result.Upcoming, Paused: result.Paused, Done: result.Done, Archived: result.Archived})
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

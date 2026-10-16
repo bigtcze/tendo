@@ -361,6 +361,26 @@ export interface paths {
         patch: operations["undoItemCompletion"];
         trace?: never;
     };
+    "/api/v1/households/{householdId}/items/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summarize items
+         * @description Counts the complete filtered household collection, including done and archived rows. Each item is classified once: archived, done, paused, in_progress, waiting, needs_attention, upcoming. Counts are conditional on all filters and total equals their sum. attentionDate is a canonical household-local-today guard; evaluatedOn is that same date. Unsupported limit, cursor, archived, done, and sort parameters are rejected when present. Unknown parameters are ignored. No ETag is returned.
+         */
+        get: operations["getItemsSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households/{householdId}/items/{itemId}": {
         parameters: {
             query?: never;
@@ -743,6 +763,26 @@ export interface components {
         CompletionProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             field?: "completedOn" | "recurrence" | "undone";
+        };
+        ItemSummary: {
+            /** Format: date */
+            evaluatedOn: string;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            needsAttention: number;
+            /** Format: int64 */
+            inProgress: number;
+            /** Format: int64 */
+            waiting: number;
+            /** Format: int64 */
+            upcoming: number;
+            /** Format: int64 */
+            paused: number;
+            /** Format: int64 */
+            done: number;
+            /** Format: int64 */
+            archived: number;
         };
         ItemList: {
             items: components["schemas"]["Item"][];
@@ -5492,6 +5532,126 @@ export interface operations {
                      *       "code": "unavailable"
                      *     }
                      */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getItemsSummary: {
+        parameters: {
+            query?: {
+                subjectId?: string;
+                responsibleUserId?: string;
+                workflowState?: components["schemas"]["WorkflowState"];
+                attention?: components["schemas"]["ItemAttention"];
+                recurring?: "true" | "false";
+                attentionDate?: string;
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Counts across all matching lifecycle states. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "evaluatedOn": "2026-03-02",
+                     *       "total": 12,
+                     *       "needsAttention": 3,
+                     *       "inProgress": 2,
+                     *       "waiting": 1,
+                     *       "upcoming": 2,
+                     *       "paused": 1,
+                     *       "done": 1,
+                     *       "archived": 2
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ItemSummary"];
+                };
+            };
+            /** @description Invalid query parameter. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["QueryProblem"];
+                };
+            };
+            /** @description No valid session cookie. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden origin. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household not found or inaccessible. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority mismatch. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };

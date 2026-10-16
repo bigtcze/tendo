@@ -158,6 +158,52 @@ func (f *fixture) createWithKeys(body string, keys ...string) *httptest.Response
 	return w
 }
 
+func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
+	f := newFixture(true)
+	w := f.do(http.MethodGet, base+"/summary", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	bodyEqual(t, w.Body.String(), `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":0,"done":0,"archived":0}`)
+	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
+		t.Fatalf("headers=%v", w.Header())
+	}
+	for _, tc := range []struct{ query, param string }{
+		{"?limit=", "limit"}, {"?cursor=x", "cursor"}, {"?archived=false", "archived"}, {"?done=true", "done"}, {"?sort=created", "sort"},
+		{"?sort=created&limit=5", "limit"}, {"?subjectId=", "subjectId"}, {"?subjectId=" + sid + "&subjectId=" + sid, "subjectId"}, {"?responsibleUserId=", "responsibleUserId"}, {"?workflowState=", "workflowState"}, {"?attention=", "attention"}, {"?recurring=", "recurring"}, {"?recurring=true&recurring=true", "recurring"}, {"?attentionDate=", "attentionDate"}, {"?recurring=True", "recurring"}, {"?workflowState=OPEN", "workflowState"},
+	} {
+		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"parameter":"`+tc.param+`"`) {
+			t.Errorf("query %s status=%d param=%s body=%s", tc.query, w.Code, tc.param, w.Body)
+		}
+	}
+	unauth := newFixture(false)
+	w = unauth.do(http.MethodGet, base+"/summary?workflowState=OPEN", "", nil)
+	if w.Code != 401 || unauth.svcHit != 0 {
+		t.Fatalf("auth status=%d service calls=%d", w.Code, unauth.svcHit)
+	}
+	f.member = item.ErrNotFound
+	structural := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=", "", nil)
+	semantic := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=OPEN", "", nil)
+	if structural.Code != 400 || semantic.Code != 404 {
+		t.Fatalf("structural=%d %s semantic=%d %s", structural.Code, structural.Body, semantic.Code, semantic.Body)
+	}
+	bodies := []string{semantic.Body.String()}
+	f.member = nil
+	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=OPEN", "", nil).Body.String())
+	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/"+missingIDForHTTP+"/items/summary?workflowState=OPEN", "", nil).Body.String())
+	if bodies[0] != bodies[1] || bodies[1] != bodies[2] {
+		t.Fatalf("nonuniform not-found bodies: %q", bodies)
+	}
+	// The literal summary route returns summary fields, not an Item representation.
+	f.member = nil
+	w = f.do(http.MethodGet, base+"/summary", "", nil)
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got["total"] == nil || got["id"] != nil {
+		t.Fatalf("summary dispatched as item: %s err=%v", w.Body, err)
+	}
+}
+
 func TestCreateIdempotencyHeaderValidation(t *testing.T) {
 	cases := []struct {
 		name string

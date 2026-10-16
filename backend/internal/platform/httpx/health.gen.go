@@ -729,6 +729,24 @@ func (e ListItemsParamsRecurring) Valid() bool {
 	}
 }
 
+// Defines values for GetItemsSummaryParamsRecurring.
+const (
+	GetItemsSummaryParamsRecurringFalse GetItemsSummaryParamsRecurring = "false"
+	GetItemsSummaryParamsRecurringTrue  GetItemsSummaryParamsRecurring = "true"
+)
+
+// Valid indicates whether the value is a known member of the GetItemsSummaryParamsRecurring enum.
+func (e GetItemsSummaryParamsRecurring) Valid() bool {
+	switch e {
+	case GetItemsSummaryParamsRecurringFalse:
+		return true
+	case GetItemsSummaryParamsRecurringTrue:
+		return true
+	default:
+		return false
+	}
+}
+
 // AcceptInvitationNewAccountRequest defines model for AcceptInvitationNewAccountRequest.
 type AcceptInvitationNewAccountRequest struct {
 	Login string `json:"login"`
@@ -964,6 +982,19 @@ type ItemRecurrence struct {
 
 	// Mode fixed = Repeat ON, Fluid OFF: next cycle keeps the planned cadence from the current attention date. after_completion = Repeat ON, Fluid ON: next cycle is counted from the actual completion date. Recurrence only affects what happens at the next completion and never changes attentionOn.
 	Mode RecurrenceMode `json:"mode"`
+}
+
+// ItemSummary defines model for ItemSummary.
+type ItemSummary struct {
+	Archived       int64  `json:"archived"`
+	Done           int64  `json:"done"`
+	EvaluatedOn    string `json:"evaluatedOn"`
+	InProgress     int64  `json:"inProgress"`
+	NeedsAttention int64  `json:"needsAttention"`
+	Paused         int64  `json:"paused"`
+	Total          int64  `json:"total"`
+	Upcoming       int64  `json:"upcoming"`
+	Waiting        int64  `json:"waiting"`
 }
 
 // ItemValidationProblem defines model for ItemValidationProblem.
@@ -1408,6 +1439,22 @@ type CreateItemParams struct {
 	// IdempotencyKey Case-sensitive visible ASCII key, 1–128 bytes. Reuse only for retries of the same create intent.
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
+
+// GetItemsSummaryParams defines parameters for GetItemsSummary.
+type GetItemsSummaryParams struct {
+	SubjectId         *string                         `form:"subjectId,omitempty" json:"subjectId,omitempty"`
+	ResponsibleUserId *string                         `form:"responsibleUserId,omitempty" json:"responsibleUserId,omitempty"`
+	WorkflowState     *WorkflowState                  `form:"workflowState,omitempty" json:"workflowState,omitempty"`
+	Attention         *ItemAttention                  `form:"attention,omitempty" json:"attention,omitempty"`
+	Recurring         *GetItemsSummaryParamsRecurring `form:"recurring,omitempty" json:"recurring,omitempty"`
+	AttentionDate     *string                         `form:"attentionDate,omitempty" json:"attentionDate,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetItemsSummaryParamsRecurring defines parameters for GetItemsSummary.
+type GetItemsSummaryParamsRecurring string
 
 // GetItemParams defines parameters for GetItem.
 type GetItemParams struct {

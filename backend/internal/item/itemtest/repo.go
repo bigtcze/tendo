@@ -235,6 +235,62 @@ func (r *Repo) Get(_ context.Context, householdID, itemID string) (item.Item, er
 	return i, nil
 }
 
+func matchesCollection(i item.Item, f item.CollectionFilters, today schedule.Date) bool {
+	if f.SubjectID != "" && i.SubjectID != f.SubjectID {
+		return false
+	}
+	if f.ResponsibleUserID.Set && (f.ResponsibleUserID.Value == nil && i.ResponsibleUserID != nil || f.ResponsibleUserID.Value != nil && (i.ResponsibleUserID == nil || *f.ResponsibleUserID.Value != *i.ResponsibleUserID)) {
+		return false
+	}
+	if f.WorkflowState != "" && i.WorkflowState != f.WorkflowState {
+		return false
+	}
+	if f.Attention != "" {
+		match := f.Attention == schedule.NeedsAttention && (i.AttentionOn == nil || i.AttentionOn.Compare(today) <= 0) || f.Attention == schedule.Upcoming && i.AttentionOn != nil && i.AttentionOn.Compare(today) > 0
+		if !match {
+			return false
+		}
+	}
+	return f.Recurring == nil || (i.Recurrence != nil) == *f.Recurring
+}
+
+func (r *Repo) Summary(_ context.Context, householdID string, opts item.SummaryOptions) (item.SummaryCounts, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Calls++
+	if r.Err != nil {
+		return item.SummaryCounts{}, r.Err
+	}
+	var out item.SummaryCounts
+	for _, i := range r.rows {
+		f := opts.Filters
+		if i.HouseholdID != householdID {
+			continue
+		}
+		if !matchesCollection(i, f, opts.Today) {
+			continue
+		}
+		out.Total++
+		switch {
+		case i.Archived:
+			out.Archived++
+		case i.Done:
+			out.Done++
+		case i.WorkflowState == item.StatePaused:
+			out.Paused++
+		case i.WorkflowState == item.StateInProgress:
+			out.InProgress++
+		case i.WorkflowState == item.StateWaiting:
+			out.Waiting++
+		case i.AttentionOn == nil || i.AttentionOn.Compare(opts.Today) <= 0:
+			out.NeedsAttention++
+		default:
+			out.Upcoming++
+		}
+	}
+	return out, nil
+}
+
 func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions) ([]item.Item, error) {
 	if opts.Sort == "" {
 		opts.Sort = item.SortCreated
@@ -263,22 +319,7 @@ func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions
 				continue
 			}
 		}
-		if f.SubjectID != "" && i.SubjectID != f.SubjectID {
-			continue
-		}
-		if f.ResponsibleUserID.Set && (f.ResponsibleUserID.Value == nil && i.ResponsibleUserID != nil || f.ResponsibleUserID.Value != nil && (i.ResponsibleUserID == nil || *f.ResponsibleUserID.Value != *i.ResponsibleUserID)) {
-			continue
-		}
-		if f.WorkflowState != "" && i.WorkflowState != f.WorkflowState {
-			continue
-		}
-		if f.Attention != "" {
-			match := f.Attention == schedule.NeedsAttention && (i.AttentionOn == nil || i.AttentionOn.Compare(opts.Today) <= 0) || f.Attention == schedule.Upcoming && i.AttentionOn != nil && i.AttentionOn.Compare(opts.Today) > 0
-			if !match {
-				continue
-			}
-		}
-		if f.Recurring != nil && (i.Recurrence != nil) != *f.Recurring {
+		if !matchesCollection(i, item.CollectionFilters{SubjectID: f.SubjectID, ResponsibleUserID: f.ResponsibleUserID, WorkflowState: f.WorkflowState, Attention: f.Attention, Recurring: f.Recurring}, opts.Today) {
 			continue
 		}
 		all = append(all, i)
