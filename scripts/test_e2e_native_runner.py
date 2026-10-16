@@ -188,7 +188,8 @@ class ChildProcessTests(unittest.TestCase):
                 runner.main()
             capture.assert_called_once()
             self.assertEqual(capture.call_args.args[1], app.resolve())
-            self.assertEqual(capture.call_args.args[-1], screenshot)
+            self.assertEqual(capture.call_args.args[-2], screenshot)
+            self.assertIsNone(capture.call_args.args[-1])
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
 

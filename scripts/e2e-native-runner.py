@@ -274,12 +274,12 @@ def assert_foreign_seed_unchanged(inherited: dict[str, str], household_id: str, 
         raise RuntimeError(f"foreign household seed changed during E2E (expected {FOREIGN_SEED_EXPECTED!r}, got {actual!r}); authorization isolation assertion failed")
 
 
-def run_playwright(root, env, children, *args):
+def run_playwright(root, env, children, *args, timeout=600):
     cmd = [str(root / "frontend/node_modules/.bin/playwright"), "test", *args]
-    children.run(cmd, env, "Playwright", root / "frontend", 600)
+    children.run(cmd, env, "Playwright", root / "frontend", timeout)
 
 
-def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path, screenshot_path: Path):
+def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path, screenshot_path: Path | None = None, audit_dir: Path | None = None):
     env = {key: inherited[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in inherited}
     for key in ("PLAYWRIGHT_BROWSERS_PATH", "CI"):
         if key in inherited:
@@ -319,10 +319,16 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         "E2E_BASE_URL": app_origin,
         "E2E_SETUP_TOKEN": setup_token,
         "E2E_OWNER_PASSWORD": base64.b64encode(secrets.token_bytes(24)).decode("ascii"),
-        "E2E_SCREENSHOT_PATH": str(screenshot_path.resolve()),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
     })
-    run_playwright(root, base, children, "e2e/readme-screenshot.spec.ts")
+    if audit_dir is not None:
+        base["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
+        run_playwright(root, base, children, "e2e/ux-audit.spec.ts", timeout=1800)
+    else:
+        if screenshot_path is None:
+            raise RuntimeError("screenshot path is required for README capture")
+        base["E2E_SCREENSHOT_PATH"] = str(screenshot_path.resolve())
+        run_playwright(root, base, children, "e2e/readme-screenshot.spec.ts")
 
 
 def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path):
@@ -421,7 +427,10 @@ def main():
     parser.add_argument("--app", type=Path, required=True)
     parser.add_argument("--provider", type=Path, required=True)
     parser.add_argument("--screenshot", type=Path)
+    parser.add_argument("--audit-dir", type=Path)
     args = parser.parse_args()
+    if args.screenshot and args.audit_dir:
+        parser.error("--screenshot and --audit-dir are mutually exclusive")
     root = args.root.resolve()
     children = Children()
     artifact_dir = root / "frontend/test-results" / f"native-{uuid.uuid4().hex}"
@@ -436,9 +445,12 @@ def main():
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
-        if args.screenshot:
-            run_screenshot(root, args.app.resolve(), os.environ.copy(), children, artifact_dir, args.screenshot)
-            print(f"README screenshot saved at {args.screenshot.resolve()}")
+        if args.screenshot or args.audit_dir:
+            run_screenshot(root, args.app.resolve(), os.environ.copy(), children, artifact_dir, args.screenshot, args.audit_dir)
+            if args.audit_dir:
+                print(f"UX audit artifacts saved at {args.audit_dir.resolve()}")
+            else:
+                print(f"README screenshot saved at {args.screenshot.resolve()}")
         else:
             run_suite(root, args.app.resolve(), args.provider.resolve(), os.environ.copy(), children, artifact_dir)
             print(f"E2E artifacts retained at {artifact_dir}")

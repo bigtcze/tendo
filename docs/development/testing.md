@@ -106,6 +106,16 @@ TENDO_README_SCREENSHOT=$PWD/docs/images/home.png bash scripts/dev-exec.sh -- ba
 
 The opt-in capture builds and runs the production app against real PostgreSQL, uses the fixed test clock `2026-05-14T08:00:00Z`, and creates realistic household data through the public API. It is separate from the required E2E journeys and is not part of CI.
 
+### UX/scale audit capture
+
+With the dedicated PostgreSQL service, pinned tools, and frontend dependencies available:
+
+```sh
+TENDO_UX_AUDIT_DIR=/tmp/opencode/ux-audit bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+```
+
+This opt-in production-build run captures staged home screenshots and viewport-fold screenshots, plus `metrics.json` (request counts/bytes, render timing, DOM size, rows, overflow, and seeding details). It is deliberately excluded from the default browser suite and is not part of required CI.
+
 ## Assertion coverage map
 
 | Layer | Assertions retained |
