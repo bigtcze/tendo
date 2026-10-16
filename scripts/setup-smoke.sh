@@ -616,6 +616,9 @@ status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=Fal
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
 status,_,b=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{'Origin':origin,'Cookie':f'tendo_session={token}','If-Match':'"3"'});assert status==401 and b['code']=='unauthenticated',('undo with revoked cookie',status,b)
 status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
+st,stale_summary_headers,stale_summary=ireq('GET',summary_url,SUMMARY,headers=cookie_header);assert st==401 and stale_summary['code']=='unauthenticated' and 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
+stale_summary_cookie=[p.strip().lower() for p in stale_summary_headers['Set-Cookie'].split(';')]
+assert stale_summary_cookie[0]=='tendo_session=' and 'max-age=0' in stale_summary_cookie,stale_summary_cookie
 login_headers={'Origin':origin,'Content-Type':'application/json'}
 login_req=urllib.request.Request(origin+'/api/v1/session',data=json.dumps({'login':'owner_smoke','password':'correct horse battery'}).encode(),headers=login_headers,method='POST')
 with opener.open(login_req,timeout=8) as login_resp: login_cookie=login_resp.headers.get_all('Set-Cookie')[0].split(';',1)[0]

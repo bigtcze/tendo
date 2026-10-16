@@ -1178,7 +1178,7 @@ paths:
     get:
       operationId: getItemsSummary
       summary: Summarize items
-      description: 'Counts the complete filtered household collection, including done and archived rows. Each item is classified once: archived, done, paused, in_progress, waiting, needs_attention, upcoming. Counts are conditional on all filters and total equals their sum. attentionDate is a canonical household-local-today guard; evaluatedOn is that same date. Unsupported limit, cursor, archived, done, and sort parameters are rejected when present. Unknown parameters are ignored. No ETag is returned.'
+      description: 'Counts the complete filtered household collection, including done and archived rows, in one statement. Filters combine with AND and use the same semantics as item listing; a well-formed but unknown or foreign subjectId or responsibleUserId yields zero counts. Each matching item is counted exactly once by precedence: archived (even if done), then done, then paused, in_progress, waiting by workflowState; only remaining open items are split into needsAttention (no attentionOn or attentionOn on or before household-local today) and upcoming. total equals the sum of the seven counters; an empty result returns zeros. evaluatedOn is the household-local today used for the whole response and may be sent back as attentionDate. Evaluation order: authentication (401); then query structure: presence of limit, cursor, archived, done or sort (in that order) is rejected, then each accepted parameter must be single-valued and nonempty and recurring must be exactly true or false (400 invalid_query naming the parameter); then household membership (uniform 404); then filter values, then attentionDate syntax and equality with household-local today (400 invalid_query). Unknown parameters are ignored. Responses are Cache-Control: no-store and carry no ETag; they are not snapshot-bound to list requests.'
       tags: [Items]
       security: [{ SessionCookie: [] }]
       parameters:
@@ -1187,26 +1187,32 @@ paths:
         - name: subjectId
           in: query
           required: false
+          description: 'Only items of this subject (archived subjects allowed). UUID, case-insensitive.'
           schema: { type: string, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }
         - name: responsibleUserId
           in: query
           required: false
+          description: 'Only items assigned to this member userId, or exactly `unassigned` for items without a responsible member.'
           schema: { type: string, pattern: '^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|unassigned)$' }
         - name: workflowState
           in: query
           required: false
+          description: 'Only items in this workflow state (also applies to done and archived rows).'
           schema: { $ref: '#/components/schemas/WorkflowState' }
         - name: attention
           in: query
           required: false
+          description: 'Date-based filter evaluated with household-local today for every row, including paused, done and archived rows: needs_attention = no attentionOn or on/before today; upcoming = after today.'
           schema: { $ref: '#/components/schemas/ItemAttention' }
         - name: recurring
           in: query
           required: false
+          description: 'true = items with a repeat policy; false = one-off items.'
           schema: { type: string, enum: ['true', 'false'] }
         - name: attentionDate
           in: query
           required: false
+          description: 'Optional freshness guard. Must be a real YYYY-MM-DD equal to household-local today, otherwise 400 invalid_query with parameter attentionDate. Never an as-of date.'
           schema: { type: string, format: date, x-go-type: string, pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }
       responses:
         '200':
@@ -1218,12 +1224,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ItemSummary' }
               example: { evaluatedOn: '2026-03-02', total: 12, needsAttention: 3, inProgress: 2, waiting: 1, upcoming: 2, paused: 1, done: 1, archived: 2 }
-        '400': { description: Invalid query parameter., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' } } } }
-        '401': { description: No valid session cookie., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '403': { description: Forbidden origin., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '404': { description: Household not found or inaccessible., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '421': { description: Request authority mismatch., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
-        '503': { description: Persistence unavailable., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '400': { description: 'A query parameter is unsupported, repeated, empty or invalid, the attentionDate guard is stale or malformed, or trusted forwarded request metadata is malformed (no parameter member).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: attentionDate } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: Persistence unavailable., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/households/{householdId}/items/{itemId}:
     get:
       operationId: getItem

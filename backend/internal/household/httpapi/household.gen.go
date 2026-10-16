@@ -1442,12 +1442,23 @@ type CreateItemParams struct {
 
 // GetItemsSummaryParams defines parameters for GetItemsSummary.
 type GetItemsSummaryParams struct {
-	SubjectId         *string                         `form:"subjectId,omitempty" json:"subjectId,omitempty"`
-	ResponsibleUserId *string                         `form:"responsibleUserId,omitempty" json:"responsibleUserId,omitempty"`
-	WorkflowState     *WorkflowState                  `form:"workflowState,omitempty" json:"workflowState,omitempty"`
-	Attention         *ItemAttention                  `form:"attention,omitempty" json:"attention,omitempty"`
-	Recurring         *GetItemsSummaryParamsRecurring `form:"recurring,omitempty" json:"recurring,omitempty"`
-	AttentionDate     *string                         `form:"attentionDate,omitempty" json:"attentionDate,omitempty"`
+	// SubjectId Only items of this subject (archived subjects allowed). UUID, case-insensitive.
+	SubjectId *string `form:"subjectId,omitempty" json:"subjectId,omitempty"`
+
+	// ResponsibleUserId Only items assigned to this member userId, or exactly `unassigned` for items without a responsible member.
+	ResponsibleUserId *string `form:"responsibleUserId,omitempty" json:"responsibleUserId,omitempty"`
+
+	// WorkflowState Only items in this workflow state (also applies to done and archived rows).
+	WorkflowState *WorkflowState `form:"workflowState,omitempty" json:"workflowState,omitempty"`
+
+	// Attention Date-based filter evaluated with household-local today for every row, including paused, done and archived rows: needs_attention = no attentionOn or on/before today; upcoming = after today.
+	Attention *ItemAttention `form:"attention,omitempty" json:"attention,omitempty"`
+
+	// Recurring true = items with a repeat policy; false = one-off items.
+	Recurring *GetItemsSummaryParamsRecurring `form:"recurring,omitempty" json:"recurring,omitempty"`
+
+	// AttentionDate Optional freshness guard. Must be a real YYYY-MM-DD equal to household-local today, otherwise 400 invalid_query with parameter attentionDate. Never an as-of date.
+	AttentionDate *string `form:"attentionDate,omitempty" json:"attentionDate,omitempty"`
 
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`

@@ -370,7 +370,7 @@ export interface paths {
         };
         /**
          * Summarize items
-         * @description Counts the complete filtered household collection, including done and archived rows. Each item is classified once: archived, done, paused, in_progress, waiting, needs_attention, upcoming. Counts are conditional on all filters and total equals their sum. attentionDate is a canonical household-local-today guard; evaluatedOn is that same date. Unsupported limit, cursor, archived, done, and sort parameters are rejected when present. Unknown parameters are ignored. No ETag is returned.
+         * @description Counts the complete filtered household collection, including done and archived rows, in one statement. Filters combine with AND and use the same semantics as item listing; a well-formed but unknown or foreign subjectId or responsibleUserId yields zero counts. Each matching item is counted exactly once by precedence: archived (even if done), then done, then paused, in_progress, waiting by workflowState; only remaining open items are split into needsAttention (no attentionOn or attentionOn on or before household-local today) and upcoming. total equals the sum of the seven counters; an empty result returns zeros. evaluatedOn is the household-local today used for the whole response and may be sent back as attentionDate. Evaluation order: authentication (401); then query structure: presence of limit, cursor, archived, done or sort (in that order) is rejected, then each accepted parameter must be single-valued and nonempty and recurring must be exactly true or false (400 invalid_query naming the parameter); then household membership (uniform 404); then filter values, then attentionDate syntax and equality with household-local today (400 invalid_query). Unknown parameters are ignored. Responses are Cache-Control: no-store and carry no ETag; they are not snapshot-bound to list requests.
          */
         get: operations["getItemsSummary"];
         put?: never;
@@ -5540,11 +5540,17 @@ export interface operations {
     getItemsSummary: {
         parameters: {
             query?: {
+                /** @description Only items of this subject (archived subjects allowed). UUID, case-insensitive. */
                 subjectId?: string;
+                /** @description Only items assigned to this member userId, or exactly `unassigned` for items without a responsible member. */
                 responsibleUserId?: string;
+                /** @description Only items in this workflow state (also applies to done and archived rows). */
                 workflowState?: components["schemas"]["WorkflowState"];
+                /** @description Date-based filter evaluated with household-local today for every row, including paused, done and archived rows: needs_attention = no attentionOn or on/before today; upcoming = after today. */
                 attention?: components["schemas"]["ItemAttention"];
+                /** @description true = items with a repeat policy; false = one-off items. */
                 recurring?: "true" | "false";
+                /** @description Optional freshness guard. Must be a real YYYY-MM-DD equal to household-local today, otherwise 400 invalid_query with parameter attentionDate. Never an as-of date. */
                 attentionDate?: string;
             };
             header?: {
@@ -5589,7 +5595,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemSummary"];
                 };
             };
-            /** @description Invalid query parameter. */
+            /** @description A query parameter is unsupported, repeated, empty or invalid, the attentionDate guard is stale or malformed, or trusted forwarded request metadata is malformed (no parameter member). */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -5597,21 +5603,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "attentionDate"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["QueryProblem"];
                 };
             };
-            /** @description No valid session cookie. */
+            /** @description No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie. */
             401: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
                     "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Forbidden origin. */
+            /** @description Request Origin is missing, foreign, malformed, or duplicated. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -5619,10 +5643,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Household not found or inaccessible. */
+            /** @description The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -5630,10 +5662,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Request authority mismatch. */
+            /** @description Request authority does not match the configured public origin. */
             421: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -5641,6 +5681,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -5652,6 +5699,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
