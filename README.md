@@ -83,4 +83,4 @@ Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
 
 ## Project status and license
 
-Tendo is in active development and has no tagged release yet; the first version is not finished. See [LICENSE](LICENSE) for the license.
+The first version of Tendo is complete. There are no tagged releases yet; `main` is the release line, so you install and update from a checkout. See [LICENSE](LICENSE) for the license.
