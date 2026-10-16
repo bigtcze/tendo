@@ -831,6 +831,59 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("fixed completion after several missed anchors keeps one backlog item and one receipt", func(t *testing.T) {
+		// Household today is 2026-01-15 (Prague). Anchors 2025-10-10, 2025-11-10, 2025-12-10 and
+		// 2026-01-10 were all missed; the next cycle must be the first future anchor 2026-02-10.
+		title := "fixed catch-up after missed anchors"
+		anchor := "2025-10-10"
+		policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+		created, err := service.Create(ctx, completionUser, hA, "fixed-catch-up", item.NewItem{SubjectID: sA.ID, Title: title, AttentionOn: &anchor, Recurrence: &policy})
+		if err != nil {
+			t.Fatal(err)
+		}
+		receipt, replayed, err := service.Complete(ctx, completionUser, hA, created.ID, created.Version, "fixed-catch-up-done", item.CompletionRequest{})
+		if err != nil || replayed {
+			t.Fatalf("complete=%+v replayed=%v err=%v", receipt, replayed, err)
+		}
+		if receipt.CompletedOn.String() != "2026-01-15" || receipt.CycleAttentionOn == nil || receipt.CycleAttentionOn.String() != anchor || receipt.NextAttentionOn == nil || receipt.NextAttentionOn.String() != "2026-02-10" {
+			t.Fatalf("receipt=%+v", receipt)
+		}
+		var rows, active int
+		var stored string
+		if err = admin.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE NOT done AND NOT archived), max(attention_on::text) FROM items WHERE household_id=$1::uuid AND title=$2`, hA, title).Scan(&rows, &active, &stored); err != nil {
+			t.Fatal(err)
+		}
+		if rows != 1 || active != 1 || stored != "2026-02-10" {
+			t.Fatalf("items rows=%d active=%d attention_on=%s", rows, active, stored)
+		}
+		var receipts int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM item_completions WHERE item_id=$1::uuid`, created.ID).Scan(&receipts); err != nil || receipts != 1 {
+			t.Fatalf("receipts=%d err=%v", receipts, err)
+		}
+		listed := 0
+		for q := (item.ListQuery{Limit: 100}); ; {
+			page, err := service.List(ctx, completionUser, hA, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, it := range page.Items {
+				if it.Title == title {
+					listed++
+					if it.ID != created.ID || it.AttentionOn == nil || it.AttentionOn.String() != "2026-02-10" || it.Done {
+						t.Fatalf("listed=%+v", it)
+					}
+				}
+			}
+			if page.NextCursor == nil {
+				break
+			}
+			q.Cursor = *page.NextCursor
+		}
+		if listed != 1 {
+			t.Fatalf("active backlog lists item %d times", listed)
+		}
+	})
+
 	t.Run("recurrence round trips, clears, and respects database constraints", func(t *testing.T) {
 		for _, tc := range []struct {
 			value int
