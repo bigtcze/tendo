@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { listMembers, type Member } from '../members/membersApi';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
@@ -33,6 +34,7 @@ type Notice =
   | { kind: 'reused' };
 
 type Editing = { subject: Subject; etag: string; conflict: boolean; mine?: SubjectValues };
+const MAX_MEMBER_PAGES = 20;
 
 function mergeById(current: Subject[], more: Subject[]): Subject[] {
   const seen = new Set(current.map((s) => s.id));
@@ -81,6 +83,9 @@ export function SubjectsScreen({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>();
   const [actionFailed, setActionFailed] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [membersLoaded, setMembersLoaded] = useState(false);
+  const memberGeneration = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const busy = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
@@ -103,6 +108,26 @@ export function SubjectsScreen({
       cancelled = true;
     };
   }, [householdId, showArchived, attempt, onSignedOut]);
+
+  useEffect(() => {
+    const generationRef = memberGeneration;
+    const token = ++generationRef.current;
+    void (async () => {
+      const collected: Member[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < MAX_MEMBER_PAGES; page++) {
+        const result = await listMembers(householdId, cursor);
+        if (token !== generationRef.current) return;
+        if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+        if (result.kind !== 'ok') { setMembers([]); setMembersLoaded(false); return; }
+        collected.push(...result.items);
+        if (!result.nextCursor) { setMembers(collected); setMembersLoaded(true); return; }
+        cursor = result.nextCursor;
+      }
+      if (token === generationRef.current) { setMembers([]); setMembersLoaded(false); }
+    })();
+    return () => { if (generationRef.current === token) generationRef.current++; };
+  }, [householdId, adding, editing?.subject.id, editing?.etag, onSignedOut]);
 
   // Moves focus to the confirmation so keyboard and screen reader users are not left on a removed button.
   useEffect(() => {
@@ -142,6 +167,8 @@ export function SubjectsScreen({
   }
 
   function startAdding() {
+    setMembers([]);
+    setMembersLoaded(false);
     const pending = getPendingSubjectCreate(userId, householdId);
     setPendingCreate(pending);
     if (pending) {
@@ -214,6 +241,8 @@ export function SubjectsScreen({
         }
         updateRow(result.subject);
         setAdding(false);
+        setMembers([]);
+        setMembersLoaded(false);
         setEditing({ subject: result.subject, etag: result.etag, conflict: false });
       } else if (result.kind === 'notFound') gone();
       else setActionFailed(true);
@@ -263,7 +292,8 @@ export function SubjectsScreen({
 
   async function add(values: SubjectValues): Promise<SubmitOutcome> {
     const started = generation.current;
-    const pending = pendingCreate ?? { version: 1 as const, key: idempotencyKey(), body: { name: values.name, type: values.type } };
+    const body = { name: values.name, type: values.type, ...(values.linkedUserId ? { linkedUserId: values.linkedUserId } : {}) };
+    const pending = pendingCreate ?? { version: 1 as const, key: idempotencyKey(), body };
     if (!pendingCreate) {
       setPendingSubjectCreate(userId, householdId, pending);
       setPendingCreate(pending);
@@ -310,6 +340,7 @@ export function SubjectsScreen({
     const changes = {
       ...(values.name !== subject.name ? { name: values.name } : {}),
       ...(values.type !== subject.type ? { type: values.type } : {}),
+      ...(values.linkedUserId !== subject.linkedUserId ? { linkedUserId: values.linkedUserId } : {}),
     };
     if (Object.keys(changes).length === 0) {
       closeEditing(subject.id);
@@ -387,8 +418,12 @@ export function SubjectsScreen({
 
   const mine = editing?.mine;
   const yourEntry =
-    mine && (mine.name !== editing.subject.name || mine.type !== editing.subject.type)
-      ? t('subjects.notice.yourEntry', { name: `${mine.name.trim()} (${t(typeLabelKey(mine.type))})` })
+    mine && (mine.name !== editing.subject.name || mine.type !== editing.subject.type || mine.linkedUserId !== editing.subject.linkedUserId)
+      ? t('subjects.notice.yourEntry', {
+          name: `${mine.name.trim()} (${t(typeLabelKey(mine.type))}${mine.linkedUserId !== editing.subject.linkedUserId
+            ? `, ${mine.linkedUserId ? t('subjects.link.row', { login: members.find((member) => member.userId === mine.linkedUserId)?.login ?? t('subjects.link.unknown') }) : t('subjects.link.none')}`
+            : ''})`,
+        })
       : undefined;
 
   return (
@@ -470,7 +505,9 @@ export function SubjectsScreen({
             {adding ? (
               <SubjectForm
                 label={t('subjects.add.formLabel')}
-                initial={createUncertain ? pendingCreate?.body ?? { name: '', type: 'person' } : { name: '', type: 'person' }}
+                initial={createUncertain ? { name: pendingCreate?.body.name ?? '', type: pendingCreate?.body.type ?? 'person', linkedUserId: pendingCreate?.body.linkedUserId ?? null } : { name: '', type: 'person', linkedUserId: null }}
+                members={members}
+                membersLoaded={membersLoaded}
                 submitLabel={t('subjects.add.submit')}
                 pendingLabel={t('subjects.add.submitting')}
                 locked={createUncertain && !!pendingCreate}
@@ -505,7 +542,9 @@ export function SubjectsScreen({
                       <SubjectForm
                         key={`${subject.id}:${editing.etag}`}
                         label={t('subjects.edit.label', { name: subject.name })}
-                        initial={{ name: editing.subject.name, type: editing.subject.type }}
+                        initial={{ name: editing.subject.name, type: editing.subject.type, linkedUserId: editing.subject.linkedUserId }}
+                        members={members}
+                        membersLoaded={membersLoaded}
                         submitLabel={t('subjects.save')}
                         pendingLabel={t('subjects.saving')}
                         notice={editing.conflict ? t('subjects.notice.conflict') : undefined}
@@ -522,6 +561,10 @@ export function SubjectsScreen({
                           <p className="text-sm text-muted" data-subject-type>
                             {t(typeLabelKey(subject.type))}
                           </p>
+                          {subject.type === 'person' && subject.linkedUserId ? (() => {
+                            const member = members.find((entry) => entry.userId === subject.linkedUserId);
+                            return member ? <p className="break-words text-sm text-muted">{t('subjects.link.row', { login: member.login })}</p> : null;
+                          })() : null}
                         </div>
                         <div className="flex items-center gap-1">
                           {showArchived ? (

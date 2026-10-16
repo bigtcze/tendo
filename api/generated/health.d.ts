@@ -288,7 +288,7 @@ export interface paths {
         head?: never;
         /**
          * Update, archive, or unarchive a subject
-         * @description Partial update of name, type, and archived. If-Match with the current strong ETag is required; every successful update increments the version. Archive by sending archived true and unarchive by sending archived false. Archived subjects remain readable and editable. Requires the canonical Origin header.
+         * @description Partial update of name, type, linkedUserId, and archived. linkedUserId omission preserves and null unlinks; a member userId links descriptively only; only person subjects may be linked. If-Match with the current strong ETag is required; every successful update increments the version. Archive by sending archived true and unarchive by sending archived false. Archived subjects remain readable and editable. Requires the canonical Origin header.
          */
         patch: operations["updateSubject"];
         trace?: never;
@@ -595,6 +595,11 @@ export interface components {
             id: string;
             type: components["schemas"]["SubjectType"];
             name: string;
+            /**
+             * Format: uuid
+             * @description Optional descriptive link to the members-list userId of a member of this household. Only person subjects may be linked. The link grants no access and is never used for authorization; null means unlinked.
+             */
+            linkedUserId: string | null;
             archived: boolean;
             /** Format: date-time */
             createdAt: string;
@@ -610,12 +615,16 @@ export interface components {
             /** @description 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422. */
             name: string;
             type: components["schemas"]["SubjectType"];
+            /** @description Optional members-list userId of a member of this household. Omission or null means unlinked. A string links that member and requires type person (422 requires_person). Malformed, unknown, or foreign-household user IDs return 422 invalid_reference. */
+            linkedUserId?: string | null;
         };
         UpdateSubjectRequest: {
             /** @description 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422. */
             name?: string;
             type?: components["schemas"]["SubjectType"];
             archived?: boolean;
+            /** @description Omission leaves the link unchanged; null unlinks; a string links that member. The resulting subject must be type person when linked (422 requires_person); changing type away from person requires null in the same request. Malformed, unknown, or foreign-household user IDs return 422 invalid_reference. */
+            linkedUserId?: string | null;
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -623,16 +632,16 @@ export interface components {
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            field: "name" | "type";
+            field: "name" | "type" | "linkedUserId";
             /** @enum {string} */
-            code: "invalid_characters" | "invalid_length" | "invalid_type";
+            code: "invalid_characters" | "invalid_length" | "invalid_type" | "invalid_reference" | "requires_person";
         };
         /** @description Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
         SubjectCreateProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            field?: "name" | "type";
+            field?: "name" | "type" | "linkedUserId";
             /** @enum {string} */
-            code: "invalid_characters" | "invalid_length" | "invalid_type" | "idempotency_key_reused";
+            code: "invalid_characters" | "invalid_length" | "invalid_type" | "invalid_reference" | "requires_person" | "idempotency_key_reused";
         };
         /** @description Item creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
         ItemCreateProblem: components["schemas"]["Problem"] & {
@@ -3477,6 +3486,7 @@ export interface operations {
                      *           "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
                      *           "type": "vehicle",
                      *           "name": "Octavia",
+                     *           "linkedUserId": null,
                      *           "archived": false,
                      *           "createdAt": "2026-10-07T10:00:00Z",
                      *           "updatedAt": "2026-10-07T10:00:00Z"
@@ -3634,7 +3644,8 @@ export interface operations {
                 /**
                  * @example {
                  *       "name": "Octavia",
-                 *       "type": "vehicle"
+                 *       "type": "person",
+                 *       "linkedUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
                  *     }
                  */
                 "application/json": components["schemas"]["CreateSubjectRequest"];
@@ -3662,8 +3673,9 @@ export interface operations {
                     /**
                      * @example {
                      *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
-                     *       "type": "vehicle",
+                     *       "type": "person",
                      *       "name": "Octavia",
+                     *       "linkedUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *       "archived": false,
                      *       "createdAt": "2026-10-07T10:00:00Z",
                      *       "updatedAt": "2026-10-07T10:00:00Z"
@@ -3672,7 +3684,7 @@ export interface operations {
                     "application/json": components["schemas"]["Subject"];
                 };
             };
-            /** @description Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values, wrong value types, or malformed trusted forwarded metadata. */
+            /** @description Missing Idempotency-Key returns idempotency_key_required; invalid or repeated key returns invalid_idempotency_key. Also malformed JSON, unknown or duplicate keys, null values for non-nullable fields, wrong value types, or malformed trusted forwarded metadata. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -3873,6 +3885,7 @@ export interface operations {
                      *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
                      *       "type": "vehicle",
                      *       "name": "Octavia",
+                     *       "linkedUserId": null,
                      *       "archived": false,
                      *       "createdAt": "2026-10-07T10:00:00Z",
                      *       "updatedAt": "2026-10-07T10:00:00Z"
@@ -4055,6 +4068,7 @@ export interface operations {
                      *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
                      *       "type": "vehicle",
                      *       "name": "Škoda Octavia",
+                     *       "linkedUserId": null,
                      *       "archived": false,
                      *       "createdAt": "2026-10-07T10:00:00Z",
                      *       "updatedAt": "2026-10-07T11:00:00Z"
@@ -4063,7 +4077,7 @@ export interface operations {
                     "application/json": components["schemas"]["Subject"];
                 };
             };
-            /** @description Malformed JSON, unknown or duplicate keys, null values, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
+            /** @description Malformed JSON, unknown or duplicate keys, null values for non-nullable fields, empty patch, or wrong value types. Also trusted forwarded request metadata that is malformed. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -4215,7 +4229,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Field validation failed. field is name or type; code is invalid_characters, invalid_length, or invalid_type. */
+            /** @description Field validation failed for name, type, or linkedUserId; linkedUserId may return invalid_reference or requires_person. */
             422: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

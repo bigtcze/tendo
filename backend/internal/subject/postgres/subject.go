@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/bigtcze/tendo/backend/internal/subject"
 	"github.com/bigtcze/tendo/backend/internal/subject/postgres/dbgen"
@@ -24,6 +25,21 @@ func NewRepository(db dbgen.DBTX) *Repository {
 
 var errPersistence = errors.New("subject persistence failed")
 
+func nullableUUID(s *string) (pgtype.UUID, error) {
+	if s == nil {
+		return pgtype.UUID{}, nil
+	}
+	var u pgtype.UUID
+	if err := u.Scan(*s); err != nil {
+		return pgtype.UUID{}, err
+	}
+	return u, nil
+}
+
+func uuidString(u pgtype.UUID) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", u.Bytes[0:4], u.Bytes[4:6], u.Bytes[6:8], u.Bytes[8:10], u.Bytes[10:16])
+}
+
 func parseUUID(s string) (pgtype.UUID, bool) {
 	var u pgtype.UUID
 	if err := u.Scan(s); err != nil {
@@ -34,26 +50,43 @@ func parseUUID(s string) (pgtype.UUID, bool) {
 
 type row struct {
 	ID, HouseholdID, Type, Name string
+	LinkedUserID                pgtype.UUID
 	Archived                    bool
 	CreatedAt, UpdatedAt        pgtype.Timestamptz
 	Version                     int64
 }
 
 func toSubject(r row) subject.Subject {
-	return subject.Subject{ID: r.ID, HouseholdID: r.HouseholdID, Type: subject.Type(r.Type), Name: r.Name, Archived: r.Archived, CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), Version: r.Version}
+	var linked *string
+	if r.LinkedUserID.Valid {
+		value := uuidString(r.LinkedUserID)
+		linked = &value
+	}
+	return subject.Subject{ID: r.ID, HouseholdID: r.HouseholdID, Type: subject.Type(r.Type), Name: r.Name, Archived: r.Archived, CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), Version: r.Version, LinkedUserID: linked}
 }
 
-func (r *Repository) CreateIdempotent(ctx context.Context, householdID, actorID, key, name string, t subject.Type, fingerprint []byte) (subject.Subject, bool, error) {
+func (r *Repository) CreateIdempotent(ctx context.Context, householdID, actorID, key, name string, t subject.Type, linkedUserID *string, fingerprint []byte) (subject.Subject, bool, error) {
 	hid, ok1 := parseUUID(householdID)
 	actor, ok2 := parseUUID(actorID)
 	if !ok1 || !ok2 {
 		return subject.Subject{}, false, subject.ErrNotFound
 	}
-	created, err := r.queries.CreateSubject(ctx, dbgen.CreateSubjectParams{HouseholdID: hid, Type: string(t), Name: name, CreatedByUserID: actor, CreationKey: pgtype.Text{String: key, Valid: true}, CreationRequestFingerprint: fingerprint})
+	linkedID, err := nullableUUID(linkedUserID)
+	if err != nil {
+		return subject.Subject{}, false, &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}
+	}
+	created, err := r.queries.CreateSubject(ctx, dbgen.CreateSubjectParams{HouseholdID: hid, Type: string(t), Name: name, LinkedUserID: linkedID, CreatedByUserID: actor, CreationKey: pgtype.Text{String: key, Valid: true}, CreationRequestFingerprint: fingerprint})
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-		// The household or actor was deleted concurrently.
-		return subject.Subject{}, false, subject.ErrNotFound
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "23503" && pgErr.ConstraintName == "subjects_linked_membership_fk" {
+			return subject.Subject{}, false, &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}
+		}
+		if pgErr.Code == "23514" && pgErr.ConstraintName == "subjects_linked_user_person_only" {
+			return subject.Subject{}, false, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}
+		}
+		if pgErr.Code == "23503" {
+			return subject.Subject{}, false, subject.ErrNotFound
+		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return subject.Subject{}, false, nil
@@ -61,7 +94,7 @@ func (r *Repository) CreateIdempotent(ctx context.Context, householdID, actorID,
 	if err != nil {
 		return subject.Subject{}, false, errPersistence
 	}
-	return toSubject(row(created)), true, nil
+	return toSubject(row{ID: created.ID, HouseholdID: created.HouseholdID, Type: created.Type, Name: created.Name, Archived: created.Archived, CreatedAt: created.CreatedAt, UpdatedAt: created.UpdatedAt, Version: created.Version, LinkedUserID: created.LinkedUserID}), true, nil
 }
 
 func (r *Repository) FindCreation(ctx context.Context, householdID, actorID, key string) (subject.Subject, []byte, error) {
@@ -77,7 +110,7 @@ func (r *Repository) FindCreation(ctx context.Context, householdID, actorID, key
 	if err != nil {
 		return subject.Subject{}, nil, errPersistence
 	}
-	return toSubject(row{ID: found.ID, HouseholdID: found.HouseholdID, Type: found.Type, Name: found.Name, Archived: found.Archived, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version}), found.CreationRequestFingerprint, nil
+	return toSubject(row{ID: found.ID, HouseholdID: found.HouseholdID, Type: found.Type, Name: found.Name, Archived: found.Archived, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version, LinkedUserID: found.LinkedUserID}), found.CreationRequestFingerprint, nil
 }
 
 func (r *Repository) Get(ctx context.Context, householdID, subjectID string) (subject.Subject, error) {
@@ -93,7 +126,7 @@ func (r *Repository) Get(ctx context.Context, householdID, subjectID string) (su
 	if err != nil {
 		return subject.Subject{}, errPersistence
 	}
-	return toSubject(row(found)), nil
+	return toSubject(row{ID: found.ID, HouseholdID: found.HouseholdID, Type: found.Type, Name: found.Name, Archived: found.Archived, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt, Version: found.Version, LinkedUserID: found.LinkedUserID}), nil
 }
 
 func (r *Repository) List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]subject.Subject, error) {
@@ -108,7 +141,7 @@ func (r *Repository) List(ctx context.Context, householdID string, archived bool
 	}
 	items := make([]subject.Subject, 0, len(rows))
 	for _, item := range rows {
-		items = append(items, toSubject(row(item)))
+		items = append(items, toSubject(row{ID: item.ID, HouseholdID: item.HouseholdID, Type: item.Type, Name: item.Name, Archived: item.Archived, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, Version: item.Version, LinkedUserID: item.LinkedUserID}))
 	}
 	return items, nil
 }
@@ -122,7 +155,7 @@ func (r *Repository) Update(ctx context.Context, householdID, subjectID string, 
 	if !ok1 || !ok2 {
 		return subject.Subject{}, subject.ErrNotFound
 	}
-	params := dbgen.UpdateSubjectParams{HouseholdID: hid, ID: sid, ExpectedVersion: expectedVersion}
+	params := dbgen.UpdateSubjectParams{HouseholdID: hid, ID: sid, ExpectedVersion: expectedVersion, SetLinked: p.LinkedUserIDSet}
 	if p.Name != nil {
 		params.Name = pgtype.Text{String: *p.Name, Valid: true}
 	}
@@ -132,9 +165,25 @@ func (r *Repository) Update(ctx context.Context, householdID, subjectID string, 
 	if p.Archived != nil {
 		params.Archived = pgtype.Bool{Bool: *p.Archived, Valid: true}
 	}
+	if p.LinkedUserIDSet {
+		linkedID, parseErr := nullableUUID(p.LinkedUserID)
+		if parseErr != nil {
+			return subject.Subject{}, &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}
+		}
+		params.LinkedUserID = linkedID
+	}
 	updated, err := r.queries.UpdateSubject(ctx, params)
 	if err == nil {
-		return toSubject(row(updated)), nil
+		return toSubject(row{ID: updated.ID, HouseholdID: updated.HouseholdID, Type: updated.Type, Name: updated.Name, Archived: updated.Archived, CreatedAt: updated.CreatedAt, UpdatedAt: updated.UpdatedAt, Version: updated.Version, LinkedUserID: updated.LinkedUserID}), nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "23503" && pgErr.ConstraintName == "subjects_linked_membership_fk" {
+			return subject.Subject{}, &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}
+		}
+		if pgErr.Code == "23514" && pgErr.ConstraintName == "subjects_linked_user_person_only" {
+			return subject.Subject{}, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}
+		}
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return subject.Subject{}, errPersistence

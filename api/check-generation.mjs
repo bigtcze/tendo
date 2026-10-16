@@ -82,7 +82,7 @@ assert.ok(!/Version/.test(goHousehold.match(/type Household struct \{[^}]*\}/s)?
 assert.ok(generated.includes('getHousehold:'), 'TypeScript output missing operation getHousehold')
 assert.ok(/Household: \{[^}]*id: string[^}]*name: string[^}]*timezone: string[^}]*createdAt: string/s.test(generated), 'TypeScript Household missing required fields')
 for (const name of ['Subject', 'SubjectList', 'CreateSubjectRequest', 'UpdateSubjectRequest']) if (name !== 'UpdateSubjectRequest') assert.ok(goSubject.includes(`type ${name} struct`), `Generated subject Go missing ${name}`)
-assert.ok(/type Subject struct \{[^}]*Archived\s+bool[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]*Name\s+string[^}]*Type\s+SubjectType[^}]*UpdatedAt time\.Time/s.test(goSubject), 'Generated subject Go missing Subject model with required fields')
+assert.ok(/type Subject struct \{[^}]*Archived\s+bool[^}]*CreatedAt\s+time\.Time[^}]*Id\s+string[^}]*LinkedUserId\s+\*string\s+`json:\"linkedUserId\"`[^}]*Name\s+string[^}]*Type\s+SubjectType[^}]*UpdatedAt\s+time\.Time/s.test(goSubject), 'Generated subject Go missing Subject model with required fields')
 assert.ok(!/Version|HouseholdId/.test(goSubject.match(/type Subject struct \{[^}]*\}/s)?.[0] ?? ''), 'Subject response model must not expose version or householdId')
 assert.ok(/type SubjectList struct \{[^}]*Items \[\]Subject[^}]*NextCursor \*string `json:"nextCursor"`/s.test(goSubject), 'Generated SubjectList must always serialize nextCursor')
 assert.ok(/type UpdateSubjectRequest struct \{[^}]*Archived \*bool[^}]*Name \*string[^}]*Type \*SubjectType/s.test(goSubject), 'Generated UpdateSubjectRequest must have optional fields')

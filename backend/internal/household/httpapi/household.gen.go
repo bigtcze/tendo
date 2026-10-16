@@ -488,7 +488,9 @@ const (
 	SubjectCreateProblemCodeIdempotencyKeyReused SubjectCreateProblemCode = "idempotency_key_reused"
 	SubjectCreateProblemCodeInvalidCharacters    SubjectCreateProblemCode = "invalid_characters"
 	SubjectCreateProblemCodeInvalidLength        SubjectCreateProblemCode = "invalid_length"
+	SubjectCreateProblemCodeInvalidReference     SubjectCreateProblemCode = "invalid_reference"
 	SubjectCreateProblemCodeInvalidType          SubjectCreateProblemCode = "invalid_type"
+	SubjectCreateProblemCodeRequiresPerson       SubjectCreateProblemCode = "requires_person"
 )
 
 // Valid indicates whether the value is a known member of the SubjectCreateProblemCode enum.
@@ -500,7 +502,11 @@ func (e SubjectCreateProblemCode) Valid() bool {
 		return true
 	case SubjectCreateProblemCodeInvalidLength:
 		return true
+	case SubjectCreateProblemCodeInvalidReference:
+		return true
 	case SubjectCreateProblemCodeInvalidType:
+		return true
+	case SubjectCreateProblemCodeRequiresPerson:
 		return true
 	default:
 		return false
@@ -509,13 +515,16 @@ func (e SubjectCreateProblemCode) Valid() bool {
 
 // Defines values for SubjectCreateProblemField.
 const (
-	SubjectCreateProblemFieldName SubjectCreateProblemField = "name"
-	SubjectCreateProblemFieldType SubjectCreateProblemField = "type"
+	SubjectCreateProblemFieldLinkedUserId SubjectCreateProblemField = "linkedUserId"
+	SubjectCreateProblemFieldName         SubjectCreateProblemField = "name"
+	SubjectCreateProblemFieldType         SubjectCreateProblemField = "type"
 )
 
 // Valid indicates whether the value is a known member of the SubjectCreateProblemField enum.
 func (e SubjectCreateProblemField) Valid() bool {
 	switch e {
+	case SubjectCreateProblemFieldLinkedUserId:
+		return true
 	case SubjectCreateProblemFieldName:
 		return true
 	case SubjectCreateProblemFieldType:
@@ -556,7 +565,9 @@ func (e SubjectType) Valid() bool {
 const (
 	SubjectValidationProblemCodeInvalidCharacters SubjectValidationProblemCode = "invalid_characters"
 	SubjectValidationProblemCodeInvalidLength     SubjectValidationProblemCode = "invalid_length"
+	SubjectValidationProblemCodeInvalidReference  SubjectValidationProblemCode = "invalid_reference"
 	SubjectValidationProblemCodeInvalidType       SubjectValidationProblemCode = "invalid_type"
+	SubjectValidationProblemCodeRequiresPerson    SubjectValidationProblemCode = "requires_person"
 )
 
 // Valid indicates whether the value is a known member of the SubjectValidationProblemCode enum.
@@ -566,7 +577,11 @@ func (e SubjectValidationProblemCode) Valid() bool {
 		return true
 	case SubjectValidationProblemCodeInvalidLength:
 		return true
+	case SubjectValidationProblemCodeInvalidReference:
+		return true
 	case SubjectValidationProblemCodeInvalidType:
+		return true
+	case SubjectValidationProblemCodeRequiresPerson:
 		return true
 	default:
 		return false
@@ -575,13 +590,16 @@ func (e SubjectValidationProblemCode) Valid() bool {
 
 // Defines values for SubjectValidationProblemField.
 const (
-	SubjectValidationProblemFieldName SubjectValidationProblemField = "name"
-	SubjectValidationProblemFieldType SubjectValidationProblemField = "type"
+	SubjectValidationProblemFieldLinkedUserId SubjectValidationProblemField = "linkedUserId"
+	SubjectValidationProblemFieldName         SubjectValidationProblemField = "name"
+	SubjectValidationProblemFieldType         SubjectValidationProblemField = "type"
 )
 
 // Valid indicates whether the value is a known member of the SubjectValidationProblemField enum.
 func (e SubjectValidationProblemField) Valid() bool {
 	switch e {
+	case SubjectValidationProblemFieldLinkedUserId:
+		return true
 	case SubjectValidationProblemFieldName:
 		return true
 	case SubjectValidationProblemFieldType:
@@ -735,6 +753,9 @@ type CreateItemRequest struct {
 
 // CreateSubjectRequest defines model for CreateSubjectRequest.
 type CreateSubjectRequest struct {
+	// LinkedUserId Optional members-list userId of a member of this household. Omission or null means unlinked. A string links that member and requires type person (422 requires_person). Malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
+	LinkedUserId **string `json:"linkedUserId,omitempty"`
+
 	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
 	Name string      `json:"name"`
 	Type SubjectType `json:"type"`
@@ -1047,12 +1068,15 @@ type StatusResponse struct {
 
 // Subject defines model for Subject.
 type Subject struct {
-	Archived  bool        `json:"archived"`
-	CreatedAt time.Time   `json:"createdAt"`
-	Id        string      `json:"id"`
-	Name      string      `json:"name"`
-	Type      SubjectType `json:"type"`
-	UpdatedAt time.Time   `json:"updatedAt"`
+	Archived  bool      `json:"archived"`
+	CreatedAt time.Time `json:"createdAt"`
+	Id        string    `json:"id"`
+
+	// LinkedUserId Optional descriptive link to the members-list userId of a member of this household. Only person subjects may be linked. The link grants no access and is never used for authorization; null means unlinked.
+	LinkedUserId *string     `json:"linkedUserId"`
+	Name         string      `json:"name"`
+	Type         SubjectType `json:"type"`
+	UpdatedAt    time.Time   `json:"updatedAt"`
 }
 
 // SubjectCreateProblem Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field.
@@ -1137,6 +1161,9 @@ type UpdateItemRequest struct {
 // UpdateSubjectRequest defines model for UpdateSubjectRequest.
 type UpdateSubjectRequest struct {
 	Archived *bool `json:"archived,omitempty"`
+
+	// LinkedUserId Omission leaves the link unchanged; null unlinks; a string links that member. The resulting subject must be type person when linked (422 requires_person); changing type away from person requires null in the same request. Malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
+	LinkedUserId **string `json:"linkedUserId,omitempty"`
 
 	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
 	Name *string      `json:"name,omitempty"`

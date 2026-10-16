@@ -3,8 +3,9 @@ package subjecttest
 
 import (
 	"context"
-	"github.com/bigtcze/tendo/backend/internal/subject"
 	"sort"
+
+	"github.com/bigtcze/tendo/backend/internal/subject"
 	"sync"
 	"time"
 )
@@ -32,12 +33,15 @@ func (r *Repo) Row(id string) (subject.Subject, bool) {
 	return s, ok
 }
 func (r *Repo) Count() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.rows) }
-func (r *Repo) CreateIdempotent(_ context.Context, hid, actor, key, name string, t subject.Type, fp []byte) (subject.Subject, bool, error) {
+func (r *Repo) CreateIdempotent(_ context.Context, hid, actor, key, name string, t subject.Type, linkedUserID *string, fp []byte) (subject.Subject, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Calls++
 	if r.Err != nil {
 		return subject.Subject{}, false, r.Err
+	}
+	if linkedUserID != nil && t != subject.TypePerson {
+		return subject.Subject{}, false, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}
 	}
 	ck := hid + "/" + actor + "/" + key
 	if _, ok := r.creations[ck]; ok {
@@ -45,7 +49,7 @@ func (r *Repo) CreateIdempotent(_ context.Context, hid, actor, key, name string,
 	}
 	r.seq++
 	id := "0198a2f0-7c1e-7a53-9b0e-" + pad(r.seq)
-	s := subject.Subject{ID: id, HouseholdID: hid, Type: t, Name: name, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
+	s := subject.Subject{ID: id, HouseholdID: hid, Type: t, Name: name, LinkedUserID: linkedUserID, CreatedAt: r.Clock, UpdatedAt: r.Clock, Version: 1}
 	r.rows[id] = s
 	r.creations[ck] = append([]byte(nil), fp...)
 	r.creationIDs[ck] = id
@@ -123,6 +127,12 @@ func (r *Repo) Update(_ context.Context, hid, sid string, expected int64, p subj
 	}
 	if p.Archived != nil {
 		s.Archived = *p.Archived
+	}
+	if p.LinkedUserIDSet {
+		s.LinkedUserID = p.LinkedUserID
+	}
+	if s.LinkedUserID != nil && s.Type != subject.TypePerson {
+		return subject.Subject{}, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}
 	}
 	s.Version++
 	s.UpdatedAt = r.Clock.Add(time.Hour)

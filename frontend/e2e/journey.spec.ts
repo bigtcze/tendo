@@ -184,7 +184,7 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  const subjectKeys = ['archived', 'createdAt', 'id', 'name', 'type', 'updatedAt'];
+  const subjectKeys = ['archived', 'createdAt', 'id', 'linkedUserId', 'name', 'type', 'updatedAt'];
   type ServerSubject = Record<string, unknown> & { id: string; name: string; type: string; archived: boolean };
 
   async function serverSubjects(archived: boolean): Promise<ServerSubject[]> {
@@ -918,6 +918,61 @@ test.describe('Tendo production journey', () => {
     await edit.getByRole('button', { name: en['itemDetail.save'] }).click();
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toHaveCount(0);
     expect((await serverItem(title)).responsibleUserId).toBeNull();
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
+  });
+
+  test('n8b. a person can be linked to a member account, edited, and unlinked', async () => {
+    await page.goto('/people');
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    const memberResponse = await page.request.get(`/api/v1/households/${householdId}/members`);
+    expect(memberResponse.status()).toBe(200);
+    const member = ((await memberResponse.json()) as { items: Array<{ userId: string; login: string }> }).items.find((entry) => entry.login === 'member_e2e');
+    expect(member).toBeDefined();
+    const title = 'Linked member person e2e';
+    await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+    const form = page.getByRole('form', { name: en['subjects.add.formLabel'] });
+    await form.getByLabel(en['subjects.name']).fill(title);
+    await form.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(member!.userId);
+    await form.getByRole('button', { name: en['subjects.add.submit'] }).click();
+    await expect(row(title)).toContainText(en['subjects.link.row'].replace('{login}', member!.login));
+    const created = (await serverSubjects(false)).find((entry) => entry.name === title);
+    expect(created?.linkedUserId).toBe(member!.userId);
+    const subjectPath = `/api/v1/households/${householdId}/subjects/${created!.id}`;
+    const savePatch = async (form: ReturnType<typeof page.getByRole>) => {
+      const responsePromise = page.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().endsWith(subjectPath));
+      await form.getByRole('button', { name: en['subjects.save'] }).click();
+      const response = await responsePromise;
+      expect(response.status()).toBe(200);
+      await expect(form).toHaveCount(0);
+      return response.request().postDataJSON() as Record<string, unknown>;
+    };
+
+    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
+    const edit = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
+    await edit.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption('');
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      await expect(edit.getByRole('combobox', { name: en['subjects.link.label'] })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
+    expect(await savePatch(edit)).toEqual({ linkedUserId: null });
+    await expect(row(title)).not.toContainText(en['subjects.link.row'].replace('{login}', member!.login));
+    expect((await (await page.request.get(subjectPath)).json() as { linkedUserId: string | null }).linkedUserId).toBeNull();
+
+    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
+    const relink = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
+    await relink.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(member!.userId);
+    expect(await savePatch(relink)).toEqual({ linkedUserId: member!.userId });
+    await expect(row(title)).toContainText(en['subjects.link.row'].replace('{login}', member!.login));
+    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
+    const changeType = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
+    await changeType.getByRole('radio', { name: en['subjects.type.vehicle'] }).check();
+    await expect(changeType.getByText(en['subjects.link.clearedByType'])).toBeVisible();
+    expect(await savePatch(changeType)).toEqual({ type: 'vehicle', linkedUserId: null });
+    expect(await (await page.request.get(subjectPath)).json()).toMatchObject({ type: 'vehicle', linkedUserId: null });
     await page.setViewportSize({ width: 360, height: 740 });
     try {
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);

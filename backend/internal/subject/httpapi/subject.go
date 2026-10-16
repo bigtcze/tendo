@@ -14,12 +14,12 @@ import (
 const bodyLimit = 4096
 
 var (
-	createFields = map[string]httpx.Field{"name": {Kind: httpx.KindString, Required: true}, "type": {Kind: httpx.KindString, Required: true}}
-	updateFields = map[string]httpx.Field{"name": {Kind: httpx.KindString}, "type": {Kind: httpx.KindString}, "archived": {Kind: httpx.KindBool}}
+	createFields = map[string]httpx.Field{"name": {Kind: httpx.KindString, Required: true}, "type": {Kind: httpx.KindString, Required: true}, "linkedUserId": {Kind: httpx.KindNullableString}}
+	updateFields = map[string]httpx.Field{"name": {Kind: httpx.KindString}, "type": {Kind: httpx.KindString}, "archived": {Kind: httpx.KindBool}, "linkedUserId": {Kind: httpx.KindNullableString}}
 )
 
 type service interface {
-	Create(ctx context.Context, userID, householdID, key, name string, t subject.Type) (subject.Subject, error)
+	Create(ctx context.Context, userID, householdID, key, name string, t subject.Type, linked *string) (subject.Subject, error)
 	Get(ctx context.Context, userID, householdID, subjectID string) (subject.Subject, error)
 	List(ctx context.Context, userID, householdID string, q subject.ListQuery) (subject.Page, error)
 	Update(ctx context.Context, userID, householdID, subjectID string, expectedVersion int64, p subject.Patch) (subject.Subject, error)
@@ -66,7 +66,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	householdID := chi.URLParam(r, "householdId")
-	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], values["name"].(string), subject.Type(values["type"].(string)))
+	var linkedUserID *string
+	if v, present := values["linkedUserId"]; present && v != nil {
+		s := v.(string)
+		linkedUserID = &s
+	}
+	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], values["name"].(string), subject.Type(values["type"].(string)), linkedUserID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -141,6 +146,13 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		b := v.(bool)
 		patch.Archived = &b
 	}
+	if v, present := values["linkedUserId"]; present {
+		patch.LinkedUserIDSet = true
+		if v != nil {
+			s := v.(string)
+			patch.LinkedUserID = &s
+		}
+	}
 	updated, err := h.service.Update(r.Context(), userID, chi.URLParam(r, "householdId"), chi.URLParam(r, "subjectId"), expected, patch)
 	if err != nil {
 		writeServiceError(w, err)
@@ -184,7 +196,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 }
 
 func toJSON(s subject.Subject) Subject {
-	return Subject{Id: s.ID, Type: SubjectType(s.Type), Name: s.Name, Archived: s.Archived, CreatedAt: s.CreatedAt.UTC(), UpdatedAt: s.UpdatedAt.UTC()}
+	return Subject{Id: s.ID, Type: SubjectType(s.Type), Name: s.Name, LinkedUserId: s.LinkedUserID, Archived: s.Archived, CreatedAt: s.CreatedAt.UTC(), UpdatedAt: s.UpdatedAt.UTC()}
 }
 
 // problem keeps the handler's call sites short.

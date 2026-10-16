@@ -1,6 +1,6 @@
 import type { SubjectType } from './subjectsApi';
 
-export type PendingSubjectCreate = { version: 1; key: string; body: { name: string; type: SubjectType } };
+export type PendingSubjectCreate = { version: 1; key: string; body: { name: string; type: SubjectType; linkedUserId?: string } };
 const memory = new Map<string, PendingSubjectCreate>();
 const prefix = 'tendo.pendingSubjectCreate.v1:';
 function storage() { try { return globalThis.sessionStorage; } catch { return undefined; } }
@@ -49,5 +49,6 @@ function isPending(value: unknown): value is PendingSubjectCreate {
   const record = value as Partial<PendingSubjectCreate>;
   return record.version === 1 && typeof record.key === 'string' && record.key.length > 0 &&
     !!record.body && typeof record.body.name === 'string' &&
-    ['person', 'home', 'vehicle', 'pet', 'custom'].includes(record.body.type);
+    ['person', 'home', 'vehicle', 'pet', 'custom'].includes(record.body.type) &&
+    (record.body.linkedUserId === undefined || typeof record.body.linkedUserId === 'string');
 }
