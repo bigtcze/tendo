@@ -287,17 +287,34 @@ func (q *Queries) InsertInitializedItem(ctx context.Context, arg InsertInitializ
 const listItems = `-- name: ListItems :many
 SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
-WHERE items.household_id = $1 AND archived = $2 AND done = $3 AND items.id > $4
-ORDER BY id ASC
-LIMIT $5
+WHERE items.household_id = $1
+  AND items.archived = $2
+  AND items.done = $3
+  AND items.id > $4
+  AND ($5::uuid IS NULL OR items.subject_id = $5::uuid)
+  AND (NOT $6::boolean OR items.responsible_user_id IS NOT DISTINCT FROM $7::uuid)
+  AND ($8::text IS NULL OR items.workflow_state = $8::text)
+  AND ($9::text IS NULL
+       OR ($9::text = 'needs_attention' AND (items.attention_on IS NULL OR items.attention_on <= $10::date))
+       OR ($9::text = 'upcoming' AND items.attention_on > $10::date))
+  AND ($11::boolean IS NULL OR (items.recurrence_interval_value IS NOT NULL) = $11::boolean)
+ORDER BY items.id ASC
+LIMIT $12
 `
 
 type ListItemsParams struct {
-	HouseholdID pgtype.UUID
-	Archived    bool
-	Done        bool
-	AfterID     pgtype.UUID
-	RowLimit    int32
+	HouseholdID       pgtype.UUID
+	Archived          bool
+	Done              bool
+	AfterID           pgtype.UUID
+	SubjectID         pgtype.UUID
+	FilterResponsible bool
+	ResponsibleUserID pgtype.UUID
+	WorkflowState     pgtype.Text
+	Attention         pgtype.Text
+	Today             pgtype.Date
+	Recurring         pgtype.Bool
+	RowLimit          int32
 }
 
 type ListItemsRow struct {
@@ -326,6 +343,13 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		arg.Archived,
 		arg.Done,
 		arg.AfterID,
+		arg.SubjectID,
+		arg.FilterResponsible,
+		arg.ResponsibleUserID,
+		arg.WorkflowState,
+		arg.Attention,
+		arg.Today,
+		arg.Recurring,
 		arg.RowLimit,
 	)
 	if err != nil {

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,15 +18,17 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/item/itemtest"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"github.com/go-chi/chi/v5"
 )
 
 const (
-	userID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
-	hid    = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
-	sid    = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70"
-	iid    = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
-	other  = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
+	userID           = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
+	hid              = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	sid              = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70"
+	iid              = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+	other            = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
+	missingIDForHTTP = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b98"
 )
 
 var at = time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC)
@@ -248,6 +251,143 @@ func TestCreateIdempotencyReplayAndReuseResponses(t *testing.T) {
 		t.Fatalf("unexpected field in reuse problem: %v", problemBody)
 	}
 	_ = first
+}
+
+func TestListStructuredQueryValidationAndFilteredSuccess(t *testing.T) {
+	for _, tc := range []struct{ query, parameter string }{
+		{"subjectId=", "subjectId"}, {"subjectId=" + sid + "&subjectId=" + sid, "subjectId"}, {"subjectId=" + sid + "," + other, "subjectId"}, {"subjectId=bad", "subjectId"},
+		{"responsibleUserId=", "responsibleUserId"}, {"responsibleUserId=unassigned&responsibleUserId=unassigned", "responsibleUserId"}, {"responsibleUserId=unassigned,unassigned", "responsibleUserId"}, {"responsibleUserId=NoNe", "responsibleUserId"},
+		{"workflowState=", "workflowState"}, {"workflowState=open&workflowState=open", "workflowState"}, {"workflowState=open,paused", "workflowState"}, {"workflowState=OPEN", "workflowState"},
+		{"attention=", "attention"}, {"attention=upcoming&attention=upcoming", "attention"}, {"attention=upcoming,needs_attention", "attention"}, {"attention=UPCOMING", "attention"},
+		{"recurring=", "recurring"}, {"recurring=true&recurring=true", "recurring"}, {"recurring=true,false", "recurring"}, {"recurring=1", "recurring"},
+	} {
+		t.Run(tc.parameter+"/"+tc.query, func(t *testing.T) {
+			f := newFixture(true)
+			w := f.do("GET", base+"?"+tc.query, "", nil)
+			if w.Code != 400 || w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
+			}
+			bodyEqual(t, w.Body.String(), `{"type":"about:blank","title":"Bad Request","status":400,"code":"invalid_query","parameter":"`+tc.parameter+`"}`)
+		})
+	}
+	f := newFixture(true)
+	assigned := "0198a2f0-7c1e-7a53-9b0e-000000000062"
+	future := itemtest.Date(2026, time.March, 3)
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, ResponsibleUserID: &assigned, AttentionOn: future, WorkflowState: item.StatePaused, Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}, CreatedAt: at, UpdatedAt: at, Version: 1})
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82", HouseholdID: hid, SubjectID: other, ResponsibleUserID: &assigned, AttentionOn: future, WorkflowState: item.StatePaused, CreatedAt: at, UpdatedAt: at, Version: 1})
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b83", HouseholdID: hid, SubjectID: sid, AttentionOn: future, WorkflowState: item.StateOpen, CreatedAt: at, UpdatedAt: at, Version: 1})
+	decodeIDs := func(t *testing.T, w *httptest.ResponseRecorder) []string {
+		t.Helper()
+		var got struct {
+			Items      []Item  `json:"items"`
+			NextCursor *string `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, len(got.Items))
+		for i, v := range got.Items {
+			ids[i] = v.Id
+		}
+		return ids
+	}
+	cases := []struct {
+		name, query string
+		want        []string
+		limit       int
+	}{
+		{"subject", "subjectId=" + strings.ToUpper(sid), []string{iid, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b83"}, 0},
+		{"responsible uuid", "responsibleUserId=" + assigned, []string{"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82"}, 0},
+		{"unassigned", "responsibleUserId=unassigned", []string{iid, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b83"}, 0},
+		{"workflow", "workflowState=paused", []string{"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82"}, 0},
+		{"attention", "attention=needs_attention", []string{iid}, 0},
+		{"recurring true", "recurring=true", []string{"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81"}, 0},
+		{"recurring false", "recurring=false", []string{iid, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b83"}, 0},
+		{"paged subject", "subjectId=" + sid + "&limit=1", []string{iid}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := base + "?" + tc.query
+			w := f.do("GET", path, "", nil)
+			if w.Code != 200 {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+			got := decodeIDs(t, w)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("IDs=%v want=%v", got, tc.want)
+			}
+			var body struct {
+				NextCursor *string `json:"nextCursor"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &body)
+			if tc.limit == 0 && body.NextCursor != nil {
+				t.Fatalf("cursor=%v want null", *body.NextCursor)
+			}
+			if tc.limit == 1 {
+				if body.NextCursor == nil {
+					t.Fatal("expected i2 cursor")
+				}
+				raw, err := base64.RawURLEncoding.DecodeString(*body.NextCursor)
+				if err != nil || !strings.HasPrefix(string(raw), "i2:") {
+					t.Fatalf("cursor=%q decoded=%q err=%v", *body.NextCursor, raw, err)
+				}
+			}
+		})
+	}
+	for _, unknown := range []string{missingIDForHTTP, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b97"} {
+		w := f.do("GET", base+"?subjectId="+unknown, "", nil)
+		if w.Code != 200 {
+			t.Fatalf("unknown subject status=%d body=%s", w.Code, w.Body)
+		}
+		var empty struct {
+			Items      []Item  `json:"items"`
+			NextCursor *string `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil {
+			t.Fatal(err)
+		}
+		if len(empty.Items) != 0 || empty.NextCursor != nil {
+			t.Fatalf("unknown subject response=%s", w.Body)
+		}
+	}
+}
+
+func TestListQueryPrecedenceUnknownParametersAndLegacyCursor(t *testing.T) {
+	unauth := newFixture(false)
+	if w := unauth.do("GET", base+"?subjectId=", "", nil); w.Code != 401 {
+		t.Fatalf("anonymous=%d %s", w.Code, w.Body)
+	}
+	for _, tc := range []struct {
+		query  string
+		status int
+	}{{"subjectId=", 400}, {"workflowState=open&workflowState=open", 400}, {"subjectId=bad", 404}, {"workflowState=OPEN", 404}, {"subjectId=" + sid + "&cursor=bad", 404}} {
+		f := newFixture(true)
+		f.member = item.ErrNotFound
+		w := f.do("GET", "/api/v1/households/"+other+"/items?"+tc.query, "", nil)
+		if w.Code != tc.status {
+			t.Errorf("query %s status=%d want=%d body=%s", tc.query, w.Code, tc.status, w.Body)
+		}
+	}
+	f := newFixture(true)
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, Title: "second", WorkflowState: item.StateOpen, CreatedAt: at, UpdatedAt: at, Version: 1})
+	w := f.do("GET", base+"?q=x&sort=title&attentionDate=2026-01-01&limit=1", "", nil)
+	if w.Code != 200 {
+		t.Fatalf("unknown params status=%d body=%s", w.Code, w.Body)
+	}
+	var got struct {
+		Items      []Item  `json:"items"`
+		NextCursor *string `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 1 || got.Items[0].Id != iid || got.NextCursor == nil {
+		t.Fatalf("legacy page=%+v", got)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(*got.NextCursor)
+	if err != nil || !strings.HasPrefix(string(raw), "i1:") {
+		t.Fatalf("legacy cursor=%q decoded=%q err=%v", *got.NextCursor, raw, err)
+	}
 }
 
 func TestListDoneQueryValidation(t *testing.T) {

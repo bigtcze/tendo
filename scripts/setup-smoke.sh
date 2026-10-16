@@ -305,6 +305,21 @@ assert active_by_id[fixed['id']]['recurrence']==fixed['recurrence'] and active_b
 assert active_by_id[fluid['id']]['recurrence']==fluid['recurrence'] and active_by_id[fluid['id']]['attentionOn']==fluid['attentionOn'],('fluid list recurrence/attention',active_by_id[fluid['id']])
 status,_,archived_items=ireq('GET',ibase+'?archived=true',ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in archived_items['items']]==[immediate['id']],('archived items',status,archived_items)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Foreign subject','subjectId':foreign},{**mut,'Idempotency-Key':'setup-item-foreign-subject'});assert status==422 and b['field']=='subjectId' and b['code']=='invalid_reference',('foreign subject reference',status,b)
+# Structured item filters exercise the i2 pagination path and captured query errors.
+status,_,filtered=ireq('GET',ibase+'?subjectId='+person['id']+'&limit=1',ICOLL,headers=cookie_header)
+assert status==200 and len(filtered['items'])==1 and isinstance(filtered['nextCursor'],str) and filtered['nextCursor'],('filtered page has i2 cursor',status,filtered)
+raw_cursor=base64.urlsafe_b64decode(filtered['nextCursor']+'='*((4-len(filtered['nextCursor'])%4)%4))
+assert raw_cursor.startswith(b'i2:'),('filtered cursor version',raw_cursor)
+status,_,filtered_next=ireq('GET',ibase+'?subjectId='+person['id']+'&limit=1&cursor='+filtered['nextCursor'],ICOLL,headers=cookie_header)
+assert status==200 and len(filtered_next['items'])==1 and filtered_next['items'][0]['id']!=filtered['items'][0]['id'] and all(x['subjectId']==person['id'] for x in filtered['items']+filtered_next['items']),('filtered continuation distinct subject items',status,filtered,filtered_next)
+status,_,empty_filtered=ireq('GET',ibase+'?subjectId='+random_id,ICOLL,headers=cookie_header)
+assert status==200 and empty_filtered['items']==[] and empty_filtered['nextCursor'] is None,('unknown subject filter empty',status,empty_filtered)
+for name,value in (('subjectId','bad'),('responsibleUserId','Nobody'),('workflowState','OPEN'),('attention','UPCOMING'),('recurring','TRUE')):
+ status,_,problem=ireq('GET',ibase+'?'+name+'='+value,ICOLL,headers=cookie_header)
+ assert status==400 and problem['code']=='invalid_query' and problem['parameter']==name,('invalid structured filter',name,status,problem)
+status,_,cursor_mismatch=ireq('GET',ibase+'?subjectId='+person['id']+'&attention=upcoming&limit=1&cursor='+filtered['nextCursor'],ICOLL,headers=cookie_header)
+assert status==400 and cursor_mismatch['code']=='invalid_query' and cursor_mismatch['parameter']=='cursor',('filter cursor mismatch',status,cursor_mismatch)
+
 # Historical create, history and a validation problem are captured against the OpenAPI schemas.
 historical_policy={'intervalValue':1,'intervalUnit':'month','mode':'fixed'}
 historical_body={'title':'Smoke historical create','subjectId':person['id'],'historicalCompletedOn':'2025-10-31','recurrence':historical_policy}

@@ -139,7 +139,48 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor})
+	values := r.URL.Query()
+	readScalar := func(name string) (string, bool) {
+		v, present := values[name]
+		if !present {
+			return "", true
+		}
+		if len(v) != 1 || v[0] == "" {
+			httpx.QueryProblemResponse(w, name)
+			return "", false
+		}
+		return v[0], true
+	}
+	subjectID, ok := readScalar("subjectId")
+	if !ok {
+		return
+	}
+	responsibleID, ok := readScalar("responsibleUserId")
+	if !ok {
+		return
+	}
+	workflow, ok := readScalar("workflowState")
+	if !ok {
+		return
+	}
+	attention, ok := readScalar("attention")
+	if !ok {
+		return
+	}
+	recurringText, ok := readScalar("recurring")
+	if !ok {
+		return
+	}
+	var recurring *bool
+	if recurringText != "" {
+		if recurringText != "true" && recurringText != "false" {
+			httpx.QueryProblemResponse(w, "recurring")
+			return
+		}
+		b := recurringText == "true"
+		recurring = &b
+	}
+	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor, SubjectID: subjectID, ResponsibleUserID: responsibleID, WorkflowState: workflow, Attention: attention, Recurring: recurring})
 	if err != nil {
 		writeServiceError(w, err)
 		return

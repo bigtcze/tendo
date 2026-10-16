@@ -234,7 +234,7 @@ func (r *Repo) Get(_ context.Context, householdID, itemID string) (item.Item, er
 	return i, nil
 }
 
-func (r *Repo) List(_ context.Context, householdID string, archived, done bool, afterID string, limit int) ([]item.Item, error) {
+func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions) ([]item.Item, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Calls++
@@ -243,13 +243,33 @@ func (r *Repo) List(_ context.Context, householdID string, archived, done bool, 
 	}
 	var all []item.Item
 	for _, i := range r.rows {
-		if i.HouseholdID == householdID && i.Archived == archived && i.Done == done && i.ID > afterID {
-			all = append(all, i)
+		f := opts.Filters
+		if i.HouseholdID != householdID || i.Archived != f.Archived || i.Done != f.Done || i.ID <= opts.AfterID {
+			continue
 		}
+		if f.SubjectID != "" && i.SubjectID != f.SubjectID {
+			continue
+		}
+		if f.ResponsibleUserID.Set && (f.ResponsibleUserID.Value == nil && i.ResponsibleUserID != nil || f.ResponsibleUserID.Value != nil && (i.ResponsibleUserID == nil || *f.ResponsibleUserID.Value != *i.ResponsibleUserID)) {
+			continue
+		}
+		if f.WorkflowState != "" && i.WorkflowState != f.WorkflowState {
+			continue
+		}
+		if f.Attention != "" {
+			match := f.Attention == schedule.NeedsAttention && (i.AttentionOn == nil || i.AttentionOn.Compare(opts.Today) <= 0) || f.Attention == schedule.Upcoming && i.AttentionOn != nil && i.AttentionOn.Compare(opts.Today) > 0
+			if !match {
+				continue
+			}
+		}
+		if f.Recurring != nil && (i.Recurrence != nil) != *f.Recurring {
+			continue
+		}
+		all = append(all, i)
 	}
 	sort.Slice(all, func(a, b int) bool { return all[a].ID < all[b].ID })
-	if len(all) > limit {
-		all = all[:limit]
+	if len(all) > opts.Limit {
+		all = all[:opts.Limit]
 	}
 	return all, nil
 }

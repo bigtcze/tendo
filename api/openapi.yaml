@@ -940,7 +940,7 @@ paths:
     get:
       operationId: listItems
       summary: List items
-      description: 'Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. Unknown query parameters are ignored. Derived attention uses the household timezone.'
+      description: 'Returns items in ascending id order using keyset cursor pagination. archived=true selects archived items independently of done; done=false (default) selects unfinished items and done=true selects completed one-off items. subjectId, responsibleUserId, workflowState, attention, and recurring are single-valued filters combined with AND; unknown or foreign UUID references return an empty result. Without these filters cursors retain the i1 format; any filter uses an i2 cursor bound to household and filter fingerprint. Attention-filter cursors are additionally bound to household-local business date and cannot continue after local midnight. Unknown query parameters are ignored. Derived attention uses the household timezone.'
       tags: [Items]
       security:
         - SessionCookie: []
@@ -951,6 +951,31 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Archived'
         - $ref: '#/components/parameters/Done'
+        - name: subjectId
+          in: query
+          required: false
+          description: Single canonical UUID filter; ANDed with other filters. Unknown or foreign IDs produce an empty result. Filtered pagination cursors are bound to this value.
+          schema: { type: string, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }
+        - name: responsibleUserId
+          in: query
+          required: false
+          description: Single UUID or exact lowercase unassigned; ANDed with other filters. Unknown or foreign IDs produce an empty result. Bound into filtered cursors.
+          schema: { type: string, pattern: '^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|unassigned)$' }
+        - name: workflowState
+          in: query
+          required: false
+          description: Single value open, in_progress, waiting, or paused; ANDed with other filters and bound into filtered cursors.
+          schema: { $ref: '#/components/schemas/WorkflowState' }
+        - name: attention
+          in: query
+          required: false
+          description: Single needs_attention or upcoming value; ANDed with other filters. Filtered cursor is bound to household-local business date and rejected after midnight.
+          schema: { $ref: '#/components/schemas/ItemAttention' }
+        - name: recurring
+          in: query
+          required: false
+          description: Single exact lowercase true or false; true selects recurring items and false selects one-off items. ANDed with other filters and bound into filtered cursors.
+          schema: { type: string, enum: ['true', 'false'] }
       responses:
         '200':
           description: One page of items.
@@ -961,7 +986,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ItemList' }
               example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80, subjectId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, responsibleUserId: null, title: Renew car insurance, notes: Compare two quotes first., attentionOn: '2026-11-01', recurrence: null, workflowState: open, attention: upcoming, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null }
-        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
+        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100; cursor is malformed or mismatched; archived/done/recurring is not lowercase true or false; UUID filters are malformed; or workflowState/attention is outside its documented values. New filters must be single, nonempty scalar values (no repeats or comma lists). The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
@@ -1576,7 +1601,7 @@ components:
         - $ref: '#/components/schemas/Problem'
         - type: object
           properties:
-            parameter: { type: string, enum: [limit, cursor, archived, done] }
+            parameter: { type: string, enum: [limit, cursor, archived, done, subjectId, responsibleUserId, workflowState, attention, recurring] }
     SubjectValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'
