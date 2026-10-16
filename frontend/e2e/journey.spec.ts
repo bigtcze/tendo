@@ -431,8 +431,10 @@ test.describe('Tendo production journey', () => {
     return date.toISOString().slice(0, 10);
   }
 
+  function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
   function group(name: string) {
-    return page.locator('section').filter({ has: page.getByRole('heading', { level: 2, name, exact: true }) });
+    const matches = page.getByRole('heading', { level: 2, name: new RegExp(`^${escapeRegExp(name)}(\\s|$)`) });
+    return matches.first().locator('xpath=ancestor::section[1]');
   }
 
   async function addItem(options: { title: string; subject: string; attentionOn?: string; historicalCompletedOn?: string; repeat?: { value: string; unit: string; fluid: boolean } }) {
@@ -1105,6 +1107,85 @@ test.describe('Tendo production journey', () => {
       expect(body).not.toContain(foreignItemId);
       expect(body).not.toContain(foreignSubjectId);
     }
+  });
+
+  test('n11. home groups use complete server counts and per-group pagination', async () => {
+    const seededIds: string[] = [];
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    const homeRequests: string[] = [];
+    const requestListener = (req: import('@playwright/test').Request) => {
+      if (req.url().includes(`/api/v1/households/${householdId}/items`)) homeRequests.push(`${req.method()} ${new URL(req.url()).pathname}`);
+    };
+    try {
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const subjectResponse = await page.request.post(`/api/v1/households/${householdId}/subjects`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-n11-subject' }, data: { name: 'Slice six subject', type: 'custom' } });
+      expect(subjectResponse.status()).toBe(201);
+      const subjectId = (await subjectResponse.json() as { id: string }).id;
+      for (let index = 0; index < 120; index++) {
+        const response = await page.request.post(`/api/v1/households/${householdId}/items`, { headers: { Origin: baseURL, 'Idempotency-Key': `e2e-n11-future-${index}` }, data: { title: `Slice six future ${index}`, subjectId, attentionOn: '2027-01-01', recurrence: null } });
+        expect(response.status()).toBe(201);
+        seededIds.push((await response.json() as { id: string }).id);
+      }
+      for (let index = 0; index < 3; index++) {
+        const response = await page.request.post(`/api/v1/households/${householdId}/items`, { headers: { Origin: baseURL, 'Idempotency-Key': `e2e-n11-needs-${index}` }, data: { title: `Slice six needs ${index}`, subjectId, recurrence: null } });
+        expect(response.status()).toBe(201);
+        seededIds.push((await response.json() as { id: string }).id);
+      }
+      const summaryResponse = await page.request.get(`/api/v1/households/${householdId}/items/summary`);
+      expect(summaryResponse.status()).toBe(200);
+      const counts = await summaryResponse.json() as { upcoming: number };
+      page.on('request', requestListener);
+      await page.goto('/');
+      const needs = group(en['items.group.needs']);
+      for (let index = 0; index < 3; index++) await expect(needs.getByRole('listitem').filter({ hasText: `Slice six needs ${index}` })).toBeVisible();
+      const upcoming = group(en['items.group.upcoming']);
+      const heading = upcoming.getByRole('heading', { level: 2 });
+      await expect(heading).toContainText(String(counts.upcoming));
+      const initialItems = await upcoming.getByRole('listitem').count();
+      expect(initialItems).toBe(Math.min(25, counts.upcoming));
+      expect(homeRequests.length).toBeLessThanOrEqual(6);
+      await page.setViewportSize({ width: 360, height: 740 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      const more = upcoming.locator('[data-group-more="upcoming"]');
+      await more.focus();
+      const beforePageRequestCount = homeRequests.filter((entry) => entry.startsWith('GET ') && entry.endsWith('/items')).length;
+      await page.keyboard.press('Enter');
+      await expect(upcoming.getByRole('listitem')).toHaveCount(Math.min(50, counts.upcoming));
+      await expect(more).toHaveAttribute('aria-disabled', 'false');
+      await expect(more).toBeFocused();
+      expect(homeRequests.filter((entry) => entry.startsWith('GET ') && entry.endsWith('/items')).length - beforePageRequestCount).toBe(1);
+      if (counts.upcoming > 50) {
+        await page.keyboard.press('Enter');
+        await expect(upcoming.getByRole('listitem')).toHaveCount(Math.min(75, counts.upcoming));
+        await expect(more).toHaveAttribute('aria-disabled', 'false');
+        await expect(more).toBeFocused();
+      }
+      const stableMore = upcoming.locator('[data-group-more="upcoming"]');
+      while (await stableMore.count()) {
+        const before = await upcoming.getByRole('listitem').count();
+        await page.keyboard.press('Enter');
+        const expected = Math.min(counts.upcoming, before + 25);
+        await expect(upcoming.getByRole('listitem')).toHaveCount(expected);
+        if (await stableMore.count()) await expect(stableMore).toHaveAttribute('aria-disabled', 'false');
+      }
+      await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.groupHeading ?? '')).toBe('upcoming');
+    } catch (error) { primaryFailure = error; }
+    finally {
+      page.off('request', requestListener);
+      await page.setViewportSize({ width: 1280, height: 720 });
+      for (const itemId of seededIds) {
+        try {
+          const response = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+          if (response.status() !== 200) { cleanupFailure ??= new Error(`Could not read seeded item ${itemId}: ${response.status()}`); continue; }
+          const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemId}`, { headers: { Origin: baseURL, 'If-Match': response.headers()['etag']! }, data: { archived: true } });
+          if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive seeded item ${itemId}: ${archived.status()}`);
+        } catch (error) { cleanupFailure ??= error; }
+      }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('o. sign out returns to login and revokes the session server-side', async () => {

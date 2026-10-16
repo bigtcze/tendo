@@ -45,17 +45,37 @@ export async function changeItem(householdId: string, itemId: string, body: comp
   return patchItem(householdId, itemId, current.etag, body);
 }
 
-type Problem = { code?: string; field?: string };
+type Problem = { code?: string; field?: string; parameter?: string };
 type ConflictCode = 'item_done' | 'item_archived' | 'completion_not_latest' | 'unknown';
-export type ItemPage = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'noHousehold' } | Failure;
-export async function listItems(householdId: string, cursor?: string): Promise<ItemPage> {
+export type ItemSummary = components['schemas']['ItemSummary'];
+export type ItemGroup = 'needs' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';
+export type ItemGroupPage = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale' } | Failure | { kind: 'noHousehold' };
+const summaryPath = '/api/v1/households/{householdId}/items/summary';
+export async function getItemsSummary(householdId: string): Promise<{ kind: 'ok'; summary: ItemSummary } | { kind: 'noHousehold' } | Failure> {
   try {
-    const { data, response } = await api.GET(listPath, {
-      params: { path: { householdId }, query: { limit: 100, archived: false, done: false, ...(cursor ? { cursor } : {}) } },
-    });
+    const { data, response } = await api.GET(summaryPath, { params: { path: { householdId } } });
+    if (data && response.status === 200) return { kind: 'ok', summary: data };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 404) return { kind: 'noHousehold' };
+  } catch { /* network failure */ }
+  return { kind: 'error' };
+}
+export async function listItemGroup(householdId: string, group: ItemGroup, attentionDate: string, cursor?: string): Promise<ItemGroupPage> {
+  const query = {
+    limit: 25 as const, sort: 'attention_on' as const, attentionDate,
+    ...(group === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}),
+    ...(group === 'inProgress' ? { workflowState: 'in_progress' as const } : {}),
+    ...(group === 'waiting' ? { workflowState: 'waiting' as const } : {}),
+    ...(group === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}),
+    ...(group === 'paused' ? { workflowState: 'paused' as const } : {}),
+    ...(cursor ? { cursor } : {}),
+  };
+  try {
+    const { data, error, response } = await api.GET(listPath, { params: { path: { householdId }, query } });
     if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 404) return { kind: 'noHousehold' };
+    if (response.status === 400 && ['attentionDate', 'cursor'].includes(((error ?? {}) as Problem).parameter ?? '')) return { kind: 'stale' };
   } catch { /* network failure */ }
   return { kind: 'error' };
 }

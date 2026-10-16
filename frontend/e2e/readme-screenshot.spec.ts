@@ -91,8 +91,9 @@ test('capture populated README household home screen', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const heading of [en['items.group.needs'], en['items.group.inProgress'], en['items.group.waiting'], en['items.group.upcoming']]) {
-    await expect(page.getByRole('heading', { level: 2, name: heading, exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: new RegExp(`^${escapeRegExp(heading)}(\\s|$)`) })).toBeVisible();
   }
   for (const title of [
     "Book Anna's dental check-up",

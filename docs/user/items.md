@@ -2,6 +2,10 @@
 
 Items keep household obligations in view without needing an exact date. From Home, choose **Add item**, enter a title, and choose the person or thing it is for. Leave the attention date empty if it should need attention now; choose a date to keep it in Coming up until then. Notes are optional. When your household has more than one member, you can optionally choose who is looking after an item. Any member can assign any household member, and you can change or clear the assignment later by editing the item. If an item already has someone assigned, you can still change or clear it on Edit even when the chooser would otherwise be hidden.
 
+## Home
+
+Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Empty groups are not shown.
+
 ## Repeat an item
 
 Turn on **Repeat** and choose an interval. With **Count the next repeat from when I complete this** off, the planned dates stay on their cadence even if you finish late. For example, a yearly item planned for 1 September 2026 and completed on 20 September has its next date on 1 September 2027.
