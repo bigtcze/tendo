@@ -64,6 +64,25 @@ func TestItemMembersPassesCandidateAndHouseholdAndMapsWrappedErrors(t *testing.T
 	}
 }
 
+func TestSubjectMembersMapsLookup(t *testing.T) {
+	lookup := func(err error) func(context.Context, string, string) (string, error) {
+		return func(_ context.Context, user, householdID string) (string, error) {
+			if user != "candidate" || householdID != "household" {
+				t.Fatalf("args=%s/%s", user, householdID)
+			}
+			return household.RoleMember, err
+		}
+	}
+	if err := subjectMembers(lookup(nil))(context.Background(), "candidate", "household"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ in, want error }{{household.ErrNotFound, subject.ErrNotFound}, {errors.New("outage"), subject.ErrUnavailable}} {
+		if err := subjectMembers(lookup(tc.in))(context.Background(), "candidate", "household"); !errors.Is(err, tc.want) {
+			t.Fatalf("err=%v want=%v", err, tc.want)
+		}
+	}
+}
+
 func TestItemSubjectsReturnsArchivedAndMapsErrors(t *testing.T) {
 	var got [3]string
 	lookup := func(s subject.Subject, result error) func(context.Context, string, string, string) (subject.Subject, error) {

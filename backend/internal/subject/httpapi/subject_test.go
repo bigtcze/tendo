@@ -70,7 +70,12 @@ func newFixture(authenticate bool) *fixture {
 		return nil
 	}
 	r := chi.NewRouter()
-	New(subject.NewService(f.repo, membership), auth, func(ctx context.Context) (string, bool) {
+	New(subject.NewService(f.repo, membership, func(ctx context.Context, userID, hid string) error {
+		if userID == callerID && hid == householdID {
+			return nil
+		}
+		return subject.ErrNotFound
+	}), auth, func(ctx context.Context) (string, bool) {
 		v, ok := ctx.Value(userKey{}).(string)
 		return v, ok
 	}).Register(r)
@@ -127,7 +132,7 @@ func problemBody(status int, title, code string) string {
 var (
 	base        = "/api/v1/households/" + householdID + "/subjects"
 	one         = base + "/" + subjectID
-	wantSubject = `{"id":"` + subjectID + `","type":"vehicle","name":"Octavia","archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	wantSubject = `{"id":"` + subjectID + `","type":"vehicle","name":"Octavia","linkedUserId":null,"archived":false,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
 	ifMatch1    = map[string]string{"If-Match": `"1"`}
 )
 
@@ -149,7 +154,7 @@ func TestCreateReturns201WithLocationETagAndPersistsTrimmedName(t *testing.T) {
 	var got map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	id, _ := got["id"].(string)
-	if len(got) != 6 || got["name"] != "Rex 🐕" || got["type"] != "pet" || got["archived"] != false || id == "" {
+	if len(got) != 7 || got["linkedUserId"] != nil || got["name"] != "Rex 🐕" || got["type"] != "pet" || got["archived"] != false || id == "" {
 		t.Fatalf("body=%v (householdId/version must not leak)", got)
 	}
 	h := w.Header()
@@ -221,7 +226,7 @@ func TestCreateReplayReturnsCurrentStateAndReuseProblem(t *testing.T) {
 	row.Version = 4
 	f.repo.Seed(row)
 	replay := f.do("POST", base, `{"type":"pet","name":"Rex"}`, key)
-	want := `{"id":"` + row.ID + `","type":"pet","name":"Renamed","archived":true,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
+	want := `{"id":"` + row.ID + `","type":"pet","name":"Renamed","linkedUserId":null,"archived":true,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T10:00:00Z"}`
 	if replay.Code != 201 || !jsonEqual(t, replay.Body.String(), want) || replay.Header().Get("ETag") != "\"4\"" || replay.Header().Get("Location") != first.Header().Get("Location") || f.stored(t, row.ID).Version != 4 {
 		t.Fatalf("replay status=%d headers=%v body=%s", replay.Code, replay.Header(), replay.Body)
 	}
@@ -342,7 +347,7 @@ func TestInvalidQueryNamesParameter(t *testing.T) {
 func TestPatchArchiveIncrementsStoredVersion(t *testing.T) {
 	f := newFixture(true)
 	w := f.do("PATCH", one, `{"name":"  Škoda  ","archived":true,"type":"custom"}`, ifMatch1)
-	want := `{"id":"` + subjectID + `","type":"custom","name":"Škoda","archived":true,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`
+	want := `{"id":"` + subjectID + `","type":"custom","name":"Škoda","linkedUserId":null,"archived":true,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`
 	if w.Code != 200 || !jsonEqual(t, w.Body.String(), want) || w.Header().Get("ETag") != `"2"` || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
 	}
@@ -587,7 +592,7 @@ func TestMissingPrincipalAfterAuthIs401(t *testing.T) {
 	repo := newRepo()
 	hits := 0
 	r := chi.NewRouter()
-	New(subject.NewService(repo, func(context.Context, string, string) error { hits++; return nil }), func(next http.Handler) http.Handler { return next }, func(context.Context) (string, bool) { return "", false }).Register(r)
+	New(subject.NewService(repo, func(context.Context, string, string) error { hits++; return nil }, nil), func(next http.Handler) http.Handler { return next }, func(context.Context) (string, bool) { return "", false }).Register(r)
 	for _, tc := range []struct{ method, path, body string }{{"GET", base, ""}, {"GET", one, ""}, {"POST", base, `{"name":"a","type":"home"}`}, {"PATCH", one, `{"archived":true}`}} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")

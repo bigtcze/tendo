@@ -121,7 +121,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 
 	create := func(hid, name string, typ subject.Type) subject.Subject {
 		t.Helper()
-		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, hid, "seed-"+strings.ReplaceAll(name, " ", "-"), name, typ)
+		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, hid, "seed-"+strings.ReplaceAll(name, " ", "-"), name, typ, nil)
 		if err != nil {
 			t.Fatalf("create %q: %v", name, err)
 		}
@@ -136,7 +136,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	}
 
 	t.Run("create persists Unicode name type and version 1", func(t *testing.T) {
-		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, "pg-key", "  Veselí 家族 🚗  ", subject.TypeVehicle)
+		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, "pg-key", "  Veselí 家族 🚗  ", subject.TypeVehicle, nil)
 		if err != nil {
 			t.Fatalf("create subject: %v", err)
 		}
@@ -187,7 +187,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 					return subject.ErrNotFound
 				}
 				return nil
-			}).Create(ctx, pageActor, hid, "page-"+strings.ReplaceAll(name, " ", "-"), name, subject.TypeCustom)
+			}, func(context.Context, string, string) error { return nil }).Create(ctx, pageActor, hid, "page-"+strings.ReplaceAll(name, " ", "-"), name, subject.TypeCustom, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -198,7 +198,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 				return subject.ErrNotFound
 			}
 			return nil
-		})
+		}, func(context.Context, string, string) error { return nil })
 		var got []string
 		cursor, pages := "", 0
 		for {
@@ -352,7 +352,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 		key := "pg-replay-key"
 		baselineRows := rowCount(homeA)
-		first, err := subject.NewService(repo, isMember).Create(ctx, actorID, homeA, key, "Replay subject", subject.TypeHome)
+		first, err := subject.NewService(repo, isMember, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, key, "Replay subject", subject.TypeHome, nil)
 		if err != nil {
 			t.Fatalf("first create=%+v err=%v", first, err)
 		}
@@ -370,13 +370,13 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 		original := first
 		updateName, updateType, archive := "Renamed replay", subject.TypeVehicle, true
-		current, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }).Update(ctx, actorID, homeA, first.ID, 1, subject.Patch{Name: &updateName, Type: &updateType, Archived: &archive})
+		current, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Update(ctx, actorID, homeA, first.ID, 1, subject.Patch{Name: &updateName, Type: &updateType, Archived: &archive})
 		if err != nil {
 			t.Fatal(err)
 		}
 		metadataBefore := append([]byte(nil), storedFingerprint...)
 		beforeCount := rowCount(homeA)
-		replayed, err := subject.NewService(repo, isMember).Create(ctx, actorID, homeA, key, "Replay subject", subject.TypeHome)
+		replayed, err := subject.NewService(repo, isMember, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, key, "Replay subject", subject.TypeHome, nil)
 		if err != nil || replayed != current {
 			t.Fatalf("replay=%+v current=%+v err=%v", replayed, current, err)
 		}
@@ -406,7 +406,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 			go func() {
 				defer concurrentWG.Done()
 				<-start
-				got, e := subject.NewService(barrierRepo, isMember).Create(ctx, actorID, homeA, concurrentKey, "Concurrent same", subject.TypeHome)
+				got, e := subject.NewService(barrierRepo, isMember, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, concurrentKey, "Concurrent same", subject.TypeHome, nil)
 				if e != nil {
 					errs <- e
 				} else {
@@ -450,7 +450,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 			go func() {
 				defer differentWG.Done()
 				<-start
-				_, e := subject.NewService(barrierRepo, isMember).Create(ctx, actorID, homeA, differentKey, name, subject.TypeHome)
+				_, e := subject.NewService(barrierRepo, isMember, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, differentKey, name, subject.TypeHome, nil)
 				concurrentResults <- e
 			}()
 		}
@@ -472,11 +472,11 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 			t.Fatalf("concurrent differing bodies created=%d reused=%d rows=%d before=%d", createdCount, reusedCount, rowCount(homeA), before)
 		}
 		otherActor := secondActor
-		independent, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }).Create(ctx, otherActor, homeA, key, "Replay subject", subject.TypeHome)
+		independent, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, otherActor, homeA, key, "Replay subject", subject.TypeHome, nil)
 		if err != nil || independent.ID == first.ID {
 			t.Fatalf("other actor=%+v err=%v", independent, err)
 		}
-		independent, err = subject.NewService(repo, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeB, key, "Replay subject", subject.TypeHome)
+		independent, err = subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeB, key, "Replay subject", subject.TypeHome, nil)
 		if err != nil || independent.ID == first.ID {
 			t.Fatalf("other household=%+v err=%v", independent, err)
 		}
@@ -593,7 +593,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	})
 
 	t.Run("create in a household that no longer exists is not found", func(t *testing.T) {
-		if _, _, err := repo.CreateIdempotent(ctx, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99", actorID, "orphan-key", "orphan", subject.TypeHome, make([]byte, 32)); !errors.Is(err, subject.ErrNotFound) {
+		if _, _, err := repo.CreateIdempotent(ctx, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99", actorID, "orphan-key", "orphan", subject.TypeHome, nil, make([]byte, 32)); !errors.Is(err, subject.ErrNotFound) {
 			t.Fatalf("err=%v", err)
 		}
 	})
@@ -609,6 +609,42 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("linked account persistence and constraints", func(t *testing.T) {
+		member, err := repo.Get(ctx, homeA, create(homeA, "linked child", subject.TypePerson).ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		link := strings.ToUpper(secondActor)
+		linked, inserted, err := repo.CreateIdempotent(ctx, homeA, actorID, "linked-pg-key", "Linked", subject.TypePerson, &link, make([]byte, 32))
+		if err != nil || !inserted || linked.LinkedUserID == nil || *linked.LinkedUserID != strings.ToLower(secondActor) {
+			t.Fatalf("linked=%+v inserted=%v err=%v", linked, inserted, err)
+		}
+		if got, err := repo.Get(ctx, homeA, linked.ID); err != nil || got.LinkedUserID == nil || *got.LinkedUserID != strings.ToLower(secondActor) {
+			t.Fatalf("roundtrip=%+v err=%v", got, err)
+		}
+		foreignLink := secondActor
+		_, _, err = repo.CreateIdempotent(ctx, homeB, actorID, "foreign-link", "Foreign", subject.TypePerson, &foreignLink, make([]byte, 32))
+		var validation *subject.ValidationError
+		if !errors.As(err, &validation) || validation.Code != "invalid_reference" {
+			t.Fatalf("foreign household err=%v", err)
+		}
+		vehicle := subject.TypeVehicle
+		_, err = repo.Update(ctx, homeA, linked.ID, linked.Version, subject.Patch{Type: &vehicle})
+		if !errors.As(err, &validation) || validation.Code != "requires_person" {
+			t.Fatalf("person CHECK err=%v", err)
+		}
+		if _, err = repo.Get(ctx, homeA, linked.ID); err != nil {
+			t.Fatal(err)
+		}
+		cleared, err := repo.Update(ctx, homeA, linked.ID, linked.Version, subject.Patch{Type: &vehicle, LinkedUserIDSet: true})
+		if err != nil || cleared.Type != vehicle || cleared.LinkedUserID != nil {
+			t.Fatalf("clear+type=%+v err=%v", cleared, err)
+		}
+		if _, err = app.Exec(ctx, `UPDATE subjects SET linked_user_id=$1::uuid WHERE id=$2::uuid`, secondActor, member.ID); err != nil {
+			t.Fatalf("runtime linked_user_id update: %v", err)
+		}
+	})
+
 	t.Run("persistence failure is not reported as not found", func(t *testing.T) {
 		cancelled, stop := context.WithCancel(ctx)
 		stop()
@@ -620,6 +656,75 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 			t.Fatalf("update err=%v", err)
 		}
 	})
+}
+
+func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
+	appURL, adminURL := urls(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin := connect(t, ctx, adminURL)
+	dbName := testpostgres.CreateDatabase(t, ctx, admin)
+	adminCfg, err := pgxpool.ParseConfig(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminCfg.ConnConfig.Database = dbName
+	upAdmin, err := pgxpool.NewWithConfig(ctx, adminCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upAdmin.Close()
+	appCfg, err := pgxpool.ParseConfig(appURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appCfg.ConnConfig.Database = dbName
+	upApp, err := pgxpool.NewWithConfig(ctx, appCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upApp.Close()
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var householdID, subjectID string
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('v13 upgrade','UTC') RETURNING id::text`).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy linkless') RETURNING id::text`, householdID).Scan(&subjectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = upAdmin.Exec(ctx, `ALTER TABLE subjects DROP CONSTRAINT subjects_linked_user_person_only, DROP CONSTRAINT subjects_linked_membership_fk; DROP INDEX subjects_linked_membership_idx; ALTER TABLE subjects DROP COLUMN linked_user_id; DELETE FROM tendo_schema_migrations WHERE version=14`); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.ValidateSchema(ctx, upApp); err == nil {
+		t.Fatal("v13 schema accepted")
+	}
+	if err = database.Migrate(ctx, upAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var linked any
+	if err = upAdmin.QueryRow(ctx, `SELECT linked_user_id FROM subjects WHERE id=$1::uuid`, subjectID).Scan(&linked); err != nil || linked != nil {
+		t.Fatalf("legacy link=%v err=%v", linked, err)
+	}
+	if err = upApp.QueryRow(ctx, `SELECT linked_user_id FROM subjects WHERE id=$1::uuid`, subjectID).Scan(&linked); err != nil || linked != nil {
+		t.Fatalf("runtime legacy link=%v err=%v", linked, err)
+	}
+	var max int
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 14 {
+		t.Fatalf("version=%d err=%v", max, err)
+	}
+	var actor string
+	if err = upAdmin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('upgrade_v13_link_actor') RETURNING id::text`).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = upAdmin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, actor, householdID); err != nil {
+		t.Fatal(err)
+	}
+	created, err := subject.NewService(NewRepository(upApp), func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actor, householdID, "upgrade-v13-linked", "After upgrade", subject.TypePerson, &actor)
+	if err != nil || created.LinkedUserID == nil || *created.LinkedUserID != actor {
+		t.Fatalf("linked create after upgrade=%+v err=%v", created, err)
+	}
 }
 
 func TestMigrationUpgradeFromVersionElevenPreservesSubjectRows(t *testing.T) {
@@ -658,11 +763,11 @@ func TestMigrationUpgradeFromVersionElevenPreservesSubjectRows(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy') RETURNING id::text`, hid).Scan(&legacyID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (12,13)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, `ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upApp); err == nil {
-		t.Fatal("version 11 schema accepted by version 13 application")
+		t.Fatal("version 11 schema accepted by version 14 application")
 	}
 	var legacyName string
 	if err = upAdmin.QueryRow(ctx, `SELECT name FROM subjects WHERE id=$1::uuid`, legacyID).Scan(&legacyName); err != nil || legacyName != "Legacy" {
@@ -707,7 +812,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 3 schema, then add pre-existing data.
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (4,5,6,7,8,9,10,11,12,13)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DELETE FROM tendo_schema_migrations WHERE version IN (4,5,6,7,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid string
@@ -718,7 +823,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, upAdmin); err == nil {
-		t.Fatal("version 3 database accepted by version 13 application")
+		t.Fatal("version 3 database accepted by version 14 application")
 	}
 	if err := database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatalf("upgrade: %v", err)
@@ -736,7 +841,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	if err := upAdmin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES ('upgrade_subject_actor') RETURNING id::text`).Scan(&upgradeActor); err != nil {
 		t.Fatal(err)
 	}
-	created, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }).Create(ctx, upgradeActor, hid, "upgrade-create-key", "After upgrade", subject.TypePerson)
+	created, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, upgradeActor, hid, "upgrade-create-key", "After upgrade", subject.TypePerson, nil)
 	if err != nil || created.Version != 1 {
 		t.Fatalf("create after upgrade: %+v err=%v", created, err)
 	}
@@ -745,7 +850,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 13 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 14 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

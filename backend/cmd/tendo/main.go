@@ -160,7 +160,7 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	invitationService.SetPasswordHasher(passwordGate.HashPassword)
 	identityhttp.NewInvitations(invitationService, sessionHandler.RequireSession, principalID).Register(routes)
 	// Subjects authorize through household membership, never through cross-module SQL.
-	subjectService := subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get))
+	subjectService := subjectapp.NewService(subjectpostgres.NewRepository(pool), subjectMembership(householdService.Get), subjectMembers(membershipService.GetMembership))
 	subjecthttp.New(subjectService, sessionHandler.RequireSession, principalID).Register(routes)
 	// Items reach households and subjects only through injected application-service adapters.
 	itemNow := time.Now

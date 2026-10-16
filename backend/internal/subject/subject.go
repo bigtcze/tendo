@@ -65,14 +65,15 @@ func ParseType(s string) (Type, bool) {
 // Subject is a household-scoped tracked entity. HouseholdID is populated by
 // repositories but is not part of the public representation.
 type Subject struct {
-	ID          string
-	HouseholdID string
-	Type        Type
-	Name        string
-	Archived    bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Version     int64
+	ID           string
+	HouseholdID  string
+	Type         Type
+	Name         string
+	Archived     bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Version      int64
+	LinkedUserID *string
 }
 
 type ValidationError struct{ Field, Code string }
@@ -86,9 +87,11 @@ func (e *InvalidQueryError) Error() string { return "invalid query parameter " +
 
 // Patch is a partial update; nil fields are left unchanged.
 type Patch struct {
-	Name     *string
-	Type     *Type
-	Archived *bool
+	Name            *string
+	Type            *Type
+	Archived        *bool
+	LinkedUserID    *string
+	LinkedUserIDSet bool
 }
 
 type ListQuery struct {
@@ -109,7 +112,7 @@ type Page struct {
 // subjects with id greater than afterID in ascending id order, at most limit.
 // Any other error is an infrastructure failure.
 type Repository interface {
-	CreateIdempotent(ctx context.Context, householdID, actorID, key, name string, t Type, fingerprint []byte) (Subject, bool, error)
+	CreateIdempotent(ctx context.Context, householdID, actorID, key, name string, t Type, linkedUserID *string, fingerprint []byte) (Subject, bool, error)
 	FindCreation(ctx context.Context, householdID, actorID, key string) (Subject, []byte, error)
 	Get(ctx context.Context, householdID, subjectID string) (Subject, error)
 	List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]Subject, error)
@@ -120,13 +123,17 @@ type Repository interface {
 // otherwise. Other errors are infrastructure failures.
 type Authorizer func(ctx context.Context, userID, householdID string) error
 
+// Members returns nil when userID is any-role member of householdID.
+type Members func(ctx context.Context, userID, householdID string) error
+
 type Service struct {
 	repository Repository
 	authorize  Authorizer
+	members    Members
 }
 
-func NewService(repository Repository, authorize Authorizer) *Service {
-	return &Service{repository: repository, authorize: authorize}
+func NewService(repository Repository, authorize Authorizer, members Members) *Service {
+	return &Service{repository: repository, authorize: authorize, members: members}
 }
 
 // check validates the household identifier, canonicalizes it to lowercase, and
@@ -147,7 +154,10 @@ func (s *Service) check(ctx context.Context, userID, householdID string) (string
 }
 
 func mapRepoErr(err error) error {
+	var validation *ValidationError
 	switch {
+	case errors.As(err, &validation):
+		return err
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrVersionMismatch):
 		return err
 	default:
@@ -155,7 +165,7 @@ func mapRepoErr(err error) error {
 	}
 }
 
-func (s *Service) Create(ctx context.Context, userID, householdID, key, name string, t Type) (Subject, error) {
+func (s *Service) Create(ctx context.Context, userID, householdID, key, name string, t Type, linkedUserID *string) (Subject, error) {
 	householdID, err := s.check(ctx, userID, householdID)
 	if err != nil {
 		return Subject{}, err
@@ -163,7 +173,12 @@ func (s *Service) Create(ctx context.Context, userID, householdID, key, name str
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	trimmedForFingerprint := strings.TrimSpace(name)
-	fingerprint := creationFingerprint(strings.ToLower(userID), trimmedForFingerprint, t)
+	linkedForFingerprint := linkedUserID
+	if linkedForFingerprint != nil {
+		canonicalLink := strings.ToLower(*linkedForFingerprint)
+		linkedForFingerprint = &canonicalLink
+	}
+	fingerprint := creationFingerprint(strings.ToLower(userID), trimmedForFingerprint, t, linkedForFingerprint)
 	if existing, stored, findErr := s.repository.FindCreation(ctx, householdID, strings.ToLower(userID), key); findErr == nil {
 		return compareCreation(existing, stored, fingerprint)
 	} else if !errors.Is(findErr, ErrNotFound) {
@@ -176,7 +191,11 @@ func (s *Service) Create(ctx context.Context, userID, householdID, key, name str
 	if _, ok := ParseType(string(t)); !ok {
 		return Subject{}, &ValidationError{"type", "invalid_type"}
 	}
-	created, inserted, err := s.repository.CreateIdempotent(ctx, householdID, strings.ToLower(userID), key, trimmed, t, fingerprint)
+	linkedUserID, err = s.validateLinkedUser(ctx, householdID, t, linkedUserID)
+	if err != nil {
+		return Subject{}, err
+	}
+	created, inserted, err := s.repository.CreateIdempotent(ctx, householdID, strings.ToLower(userID), key, trimmed, t, linkedUserID, fingerprint)
 	if err != nil {
 		return Subject{}, mapRepoErr(err)
 	}
@@ -197,9 +216,33 @@ func compareCreation(existing Subject, stored, submitted []byte) (Subject, error
 	return existing, nil
 }
 
-func creationFingerprint(actor, name string, t Type) []byte {
+func (s *Service) validateLinkedUser(ctx context.Context, householdID string, t Type, linked *string) (*string, error) {
+	if linked == nil {
+		return nil, nil
+	}
+	if t != TypePerson {
+		return nil, &ValidationError{"linkedUserId", "requires_person"}
+	}
+	id := strings.ToLower(*linked)
+	if !validUUID(id) || s.members == nil {
+		return nil, &ValidationError{"linkedUserId", "invalid_reference"}
+	}
+	if err := s.members(ctx, id, householdID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, &ValidationError{"linkedUserId", "invalid_reference"}
+		}
+		return nil, ErrUnavailable
+	}
+	return &id, nil
+}
+
+func creationFingerprint(actor, name string, t Type, linked *string) []byte {
 	var encoded []byte
-	for _, field := range []string{"tendo.subject.create.v1", actor, name, string(t)} {
+	fields := []string{"tendo.subject.create.v1", actor, name, string(t)}
+	if linked != nil {
+		fields = append(fields, strings.ToLower(*linked))
+	}
+	for _, field := range fields {
 		var size [4]byte
 		binary.BigEndian.PutUint32(size[:], uint32(len(field)))
 		encoded = append(encoded, size[:]...)
@@ -274,7 +317,7 @@ func (s *Service) Update(ctx context.Context, userID, householdID, subjectID str
 	if err != nil {
 		return Subject{}, err
 	}
-	if p.Name == nil && p.Type == nil && p.Archived == nil {
+	if p.Name == nil && p.Type == nil && p.Archived == nil && !p.LinkedUserIDSet {
 		return Subject{}, ErrEmptyPatch
 	}
 	normalized := Patch{Type: p.Type, Archived: p.Archived}
@@ -290,8 +333,23 @@ func (s *Service) Update(ctx context.Context, userID, householdID, subjectID str
 			return Subject{}, &ValidationError{"type", "invalid_type"}
 		}
 	}
+	var normalizedLinked *string
+	if p.LinkedUserIDSet && p.LinkedUserID != nil {
+		checkType := TypePerson
+		if p.Type != nil {
+			checkType = *p.Type
+		}
+		normalizedLinked, err = s.validateLinkedUser(ctx, householdID, checkType, p.LinkedUserID)
+		if err != nil {
+			return Subject{}, err
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+	if p.LinkedUserIDSet {
+		normalized.LinkedUserIDSet = true
+		normalized.LinkedUserID = normalizedLinked
+	}
 	updated, err := s.repository.Update(ctx, householdID, subjectID, expectedVersion, normalized)
 	if err != nil {
 		return Subject{}, mapRepoErr(err)

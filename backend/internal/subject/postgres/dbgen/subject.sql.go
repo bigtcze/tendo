@@ -12,30 +12,32 @@ import (
 )
 
 const createSubject = `-- name: CreateSubject :one
-INSERT INTO subjects (household_id, type, name, created_by_user_id, creation_key, creation_request_fingerprint)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO subjects (household_id, type, name, linked_user_id, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES ($1, $2, $3, $4::uuid, $5, $6, $7)
 ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
-RETURNING id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id
 `
 
 type CreateSubjectParams struct {
 	HouseholdID                pgtype.UUID
 	Type                       string
 	Name                       string
+	LinkedUserID               pgtype.UUID
 	CreatedByUserID            pgtype.UUID
 	CreationKey                pgtype.Text
 	CreationRequestFingerprint []byte
 }
 
 type CreateSubjectRow struct {
-	ID          string
-	HouseholdID string
-	Type        string
-	Name        string
-	Archived    bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	Version     int64
+	ID           string
+	HouseholdID  string
+	Type         string
+	Name         string
+	Archived     bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	Version      int64
+	LinkedUserID pgtype.UUID
 }
 
 func (q *Queries) CreateSubject(ctx context.Context, arg CreateSubjectParams) (CreateSubjectRow, error) {
@@ -43,6 +45,7 @@ func (q *Queries) CreateSubject(ctx context.Context, arg CreateSubjectParams) (C
 		arg.HouseholdID,
 		arg.Type,
 		arg.Name,
+		arg.LinkedUserID,
 		arg.CreatedByUserID,
 		arg.CreationKey,
 		arg.CreationRequestFingerprint,
@@ -57,12 +60,13 @@ func (q *Queries) CreateSubject(ctx context.Context, arg CreateSubjectParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.LinkedUserID,
 	)
 	return i, err
 }
 
 const findSubjectCreation = `-- name: FindSubjectCreation :one
-SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, creation_request_fingerprint
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id, creation_request_fingerprint
 FROM subjects
 WHERE household_id = $1 AND created_by_user_id = $2 AND creation_key = $3
 `
@@ -82,6 +86,7 @@ type FindSubjectCreationRow struct {
 	CreatedAt                  pgtype.Timestamptz
 	UpdatedAt                  pgtype.Timestamptz
 	Version                    int64
+	LinkedUserID               pgtype.UUID
 	CreationRequestFingerprint []byte
 }
 
@@ -97,13 +102,14 @@ func (q *Queries) FindSubjectCreation(ctx context.Context, arg FindSubjectCreati
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.LinkedUserID,
 		&i.CreationRequestFingerprint,
 	)
 	return i, err
 }
 
 const getSubject = `-- name: GetSubject :one
-SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id
 FROM subjects
 WHERE household_id = $1 AND id = $2
 `
@@ -114,14 +120,15 @@ type GetSubjectParams struct {
 }
 
 type GetSubjectRow struct {
-	ID          string
-	HouseholdID string
-	Type        string
-	Name        string
-	Archived    bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	Version     int64
+	ID           string
+	HouseholdID  string
+	Type         string
+	Name         string
+	Archived     bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	Version      int64
+	LinkedUserID pgtype.UUID
 }
 
 func (q *Queries) GetSubject(ctx context.Context, arg GetSubjectParams) (GetSubjectRow, error) {
@@ -136,12 +143,13 @@ func (q *Queries) GetSubject(ctx context.Context, arg GetSubjectParams) (GetSubj
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.LinkedUserID,
 	)
 	return i, err
 }
 
 const listSubjects = `-- name: ListSubjects :many
-SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id
 FROM subjects
 WHERE household_id = $1 AND archived = $2 AND id > $3
 ORDER BY id ASC
@@ -156,14 +164,15 @@ type ListSubjectsParams struct {
 }
 
 type ListSubjectsRow struct {
-	ID          string
-	HouseholdID string
-	Type        string
-	Name        string
-	Archived    bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	Version     int64
+	ID           string
+	HouseholdID  string
+	Type         string
+	Name         string
+	Archived     bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	Version      int64
+	LinkedUserID pgtype.UUID
 }
 
 func (q *Queries) ListSubjects(ctx context.Context, arg ListSubjectsParams) ([]ListSubjectsRow, error) {
@@ -189,6 +198,7 @@ func (q *Queries) ListSubjects(ctx context.Context, arg ListSubjectsParams) ([]L
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.LinkedUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -205,30 +215,34 @@ UPDATE subjects
 SET name = COALESCE($1::text, name),
     type = COALESCE($2::text, type),
     archived = COALESCE($3::boolean, archived),
+    linked_user_id = CASE WHEN $4::boolean THEN $5::uuid ELSE linked_user_id END,
     version = version + 1,
     updated_at = now()
-WHERE household_id = $4 AND id = $5 AND version = $6
-RETURNING id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version
+WHERE household_id = $6 AND id = $7 AND version = $8
+RETURNING id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id
 `
 
 type UpdateSubjectParams struct {
 	Name            pgtype.Text
 	Type            pgtype.Text
 	Archived        pgtype.Bool
+	SetLinked       bool
+	LinkedUserID    pgtype.UUID
 	HouseholdID     pgtype.UUID
 	ID              pgtype.UUID
 	ExpectedVersion int64
 }
 
 type UpdateSubjectRow struct {
-	ID          string
-	HouseholdID string
-	Type        string
-	Name        string
-	Archived    bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	Version     int64
+	ID           string
+	HouseholdID  string
+	Type         string
+	Name         string
+	Archived     bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	Version      int64
+	LinkedUserID pgtype.UUID
 }
 
 func (q *Queries) UpdateSubject(ctx context.Context, arg UpdateSubjectParams) (UpdateSubjectRow, error) {
@@ -236,6 +250,8 @@ func (q *Queries) UpdateSubject(ctx context.Context, arg UpdateSubjectParams) (U
 		arg.Name,
 		arg.Type,
 		arg.Archived,
+		arg.SetLinked,
+		arg.LinkedUserID,
 		arg.HouseholdID,
 		arg.ID,
 		arg.ExpectedVersion,
@@ -250,6 +266,7 @@ func (q *Queries) UpdateSubject(ctx context.Context, arg UpdateSubjectParams) (U
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.LinkedUserID,
 	)
 	return i, err
 }

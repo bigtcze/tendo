@@ -365,7 +365,7 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
   const base = { 'x-request-id': 'contract-check', 'cache-control': 'no-store' }
   const json = { ...base, 'content-type': 'application/json' }
   const problem = { ...base, 'content-type': 'application/problem+json' }
-  const subject = { id, type: 'vehicle', name: 'Octavia', archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
+  const subject = { id, type: 'vehicle', name: 'Octavia', linkedUserId: null, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }
   const created = { path: collection, method: 'post', status: 201, headers: { ...json, etag: '"1"', location: `/api/v1/households/${household}/subjects/${id}` }, body: subject }
   const reused = { path: collection, method: 'post', status: 422, headers: problem, body: { type: 'about:blank', title: 'Unprocessable Entity', status: 422, code: 'idempotency_key_reused' } }
   const list = { path: collection, method: 'get', status: 200, headers: json, body: { items: [subject], nextCursor: null } }

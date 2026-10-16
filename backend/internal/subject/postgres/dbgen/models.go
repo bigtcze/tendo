@@ -72,6 +72,7 @@ type Subject struct {
 	CreatedByUserID            pgtype.UUID
 	CreationKey                pgtype.Text
 	CreationRequestFingerprint []byte
+	LinkedUserID               pgtype.UUID
 }
 
 type UserAccount struct {
