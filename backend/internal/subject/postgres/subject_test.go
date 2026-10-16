@@ -609,6 +609,43 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("create linked user FK errors are classified without persisting", func(t *testing.T) {
+		before := rowCount(homeA)
+		missingUser := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b98"
+		_, inserted, err := repo.CreateIdempotent(ctx, homeA, actorID, "missing-linked-user", "Missing member", subject.TypePerson, &missingUser, make([]byte, 32))
+		var validation *subject.ValidationError
+		if inserted || !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "invalid_reference" {
+			t.Fatalf("inserted=%v err=%v", inserted, err)
+		}
+		if after := rowCount(homeA); after != before {
+			t.Fatalf("invalid linked create persisted row: before=%d after=%d", before, after)
+		}
+	})
+
+	t.Run("clear linked user and retype atomically", func(t *testing.T) {
+		link := secondActor
+		created, inserted, err := repo.CreateIdempotent(ctx, homeA, actorID, "clear-retype-linked", "Linked to retype", subject.TypePerson, &link, make([]byte, 32))
+		if err != nil || !inserted {
+			t.Fatalf("create linked subject inserted=%v err=%v", inserted, err)
+		}
+		vehicle := subject.TypeVehicle
+		if _, err = repo.Update(ctx, homeA, created.ID, created.Version, subject.Patch{Type: &vehicle}); err == nil {
+			t.Fatal("type change preserving linked user passed person-only CHECK")
+		}
+		unchanged, getErr := repo.Get(ctx, homeA, created.ID)
+		if getErr != nil || unchanged.Type != subject.TypePerson || unchanged.Version != created.Version || unchanged.LinkedUserID == nil || *unchanged.LinkedUserID != secondActor {
+			t.Fatalf("rejected type change modified row=%+v err=%v", unchanged, getErr)
+		}
+		updated, err := repo.Update(ctx, homeA, created.ID, created.Version, subject.Patch{Type: &vehicle, LinkedUserIDSet: true})
+		if err != nil || updated.Type != vehicle || updated.LinkedUserID != nil || updated.Version != created.Version+1 {
+			t.Fatalf("atomic clear+retype=%+v err=%v", updated, err)
+		}
+		stored, err := repo.Get(ctx, homeA, created.ID)
+		if err != nil || stored.Type != vehicle || stored.LinkedUserID != nil {
+			t.Fatalf("stored after clear+retype=%+v err=%v", stored, err)
+		}
+	})
+
 	t.Run("linked account persistence and constraints", func(t *testing.T) {
 		link := strings.ToUpper(secondActor)
 		linked, inserted, err := repo.CreateIdempotent(ctx, homeA, actorID, "linked-pg-key", "Linked", subject.TypePerson, &link, make([]byte, 32))

@@ -173,7 +173,7 @@ export const en = {
   'subjects.type.pet': 'Pet',
   'subjects.type.custom': 'Other',
   'subjects.link.label': 'Their account in Tendo',
-  'subjects.link.none': 'No account',
+  'subjects.link.none': 'No linked account',
   'subjects.link.unknown': 'Account not listed',
   'subjects.link.hint': 'This just helps you recognise who is who. It does not change what anyone can see.',
   'subjects.link.clearedByType': 'Changing this to something other than a person will clear the linked account.',

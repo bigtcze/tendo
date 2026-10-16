@@ -953,6 +953,11 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
     const edit = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
     await edit.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption('');
+    await page.setViewportSize({ width: 360, height: 740 });
+    try {
+      await expect(edit.getByRole('combobox', { name: en['subjects.link.label'] })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
     expect(await savePatch(edit)).toEqual({ linkedUserId: null });
     await expect(row(title)).not.toContainText(en['subjects.link.row'].replace('{login}', member!.login));
     expect((await (await page.request.get(subjectPath)).json() as { linkedUserId: string | null }).linkedUserId).toBeNull();

@@ -176,7 +176,7 @@ export const cs: Record<MessageKey, string> = {
   'subjects.type.pet': 'Zvíře',
   'subjects.type.custom': 'Jiné',
   'subjects.link.label': 'Jejich účet v Tendu',
-  'subjects.link.none': 'Bez účtu',
+  'subjects.link.none': 'Bez propojeného účtu',
   'subjects.link.unknown': 'Účet není v seznamu',
   'subjects.link.hint': 'Pomáhá jen poznat, o koho jde. Nemění to, co kdo může vidět.',
   'subjects.link.clearedByType': 'Při změně na jiný typ než osoba se propojený účet odebere.',

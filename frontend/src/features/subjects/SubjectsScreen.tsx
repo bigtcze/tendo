@@ -419,7 +419,11 @@ export function SubjectsScreen({
   const mine = editing?.mine;
   const yourEntry =
     mine && (mine.name !== editing.subject.name || mine.type !== editing.subject.type || mine.linkedUserId !== editing.subject.linkedUserId)
-      ? t('subjects.notice.yourEntry', { name: `${mine.name.trim()} (${t(typeLabelKey(mine.type))})` })
+      ? t('subjects.notice.yourEntry', {
+          name: `${mine.name.trim()} (${t(typeLabelKey(mine.type))}${mine.linkedUserId !== editing.subject.linkedUserId
+            ? `, ${mine.linkedUserId ? t('subjects.link.row', { login: members.find((member) => member.userId === mine.linkedUserId)?.login ?? t('subjects.link.unknown') }) : t('subjects.link.none')}`
+            : ''})`,
+        })
       : undefined;
 
   return (
