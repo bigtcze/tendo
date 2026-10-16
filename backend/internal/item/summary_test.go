@@ -3,6 +3,7 @@ package item_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -117,6 +118,49 @@ func TestSummaryFilterAndPartitionMatrix(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestSummaryUsesSingleBusinessDateAndSkipsUnknownFilterLookups(t *testing.T) {
+	repo := itemtest.New()
+	first := time.Date(2026, time.March, 2, 4, 30, 0, 0, time.UTC)
+	second := time.Date(2026, time.March, 2, 5, 30, 0, 0, time.UTC)
+	clockCalls, subjectCalls, memberCalls := 0, 0, 0
+	houses := func(context.Context, string, string) (string, error) { return "America/New_York", nil }
+	subjects := func(context.Context, string, string, string) (bool, error) { subjectCalls++; return false, nil }
+	members := func(context.Context, string, string) error { memberCalls++; return nil }
+	svc := item.NewService(repo, houses, subjects, members, func() time.Time {
+		clockCalls++
+		if clockCalls == 1 {
+			return first
+		}
+		return second
+	})
+	yesterday := itemtest.Date(2026, time.March, 1)
+	today := itemtest.Date(2026, time.March, 1)
+	tomorrow := itemtest.Date(2026, time.March, 2)
+	for i, date := range []*schedule.Date{nil, yesterday, today, tomorrow} {
+		repo.Seed(item.Item{ID: fmt.Sprintf("00000000-0000-0000-0000-%012d", i+1), HouseholdID: householdID, AttentionOn: date, WorkflowState: item.StateOpen})
+	}
+	got, err := svc.Summary(context.Background(), userID, householdID, item.SummaryQuery{AttentionDate: "2026-03-01"})
+	want := item.Summary{EvaluatedOn: *today, SummaryCounts: item.SummaryCounts{Total: 4, NeedsAttention: 3, Upcoming: 1}}
+	if err != nil || got != want || clockCalls != 1 {
+		t.Fatalf("summary=%+v err=%v clockCalls=%d want=%+v", got, err, clockCalls, want)
+	}
+	before := repo.Calls
+	_, err = svc.Summary(context.Background(), userID, householdID, item.SummaryQuery{AttentionDate: "2026-03-03"})
+	var invalid *item.InvalidQueryError
+	if !errors.As(err, &invalid) || repo.Calls != before {
+		t.Fatalf("invalid guard err=%v calls=%d before=%d", err, repo.Calls, before)
+	}
+	for _, q := range []item.SummaryQuery{{SubjectID: missingID}, {ResponsibleUserID: missingID}} {
+		_, err = svc.Summary(context.Background(), userID, householdID, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if subjectCalls != 0 || memberCalls != 0 {
+		t.Fatalf("unknown filter lookups subject=%d member=%d", subjectCalls, memberCalls)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/bigtcze/tendo/backend/internal/item"
@@ -142,17 +143,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	values := r.URL.Query()
-	readScalar := func(name string) (string, bool) {
-		v, present := values[name]
-		if !present {
-			return "", true
-		}
-		if len(v) != 1 || v[0] == "" {
-			httpx.QueryProblemResponse(w, name)
-			return "", false
-		}
-		return v[0], true
-	}
+	readScalar := func(name string) (string, bool) { return readQueryScalar(w, values, name) }
 	subjectID, ok := readScalar("subjectId")
 	if !ok {
 		return
@@ -206,6 +197,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, ItemList{Items: items, NextCursor: page.NextCursor})
 }
 
+func readQueryScalar(w http.ResponseWriter, values url.Values, name string) (string, bool) {
+	v, exists := values[name]
+	if !exists {
+		return "", true
+	}
+	if len(v) != 1 || v[0] == "" {
+		httpx.QueryProblemResponse(w, name)
+		return "", false
+	}
+	return v[0], true
+}
+
 func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.userID(r.Context())
 	if !ok {
@@ -219,17 +222,7 @@ func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	readScalar := func(name string) (string, bool) {
-		v, exists := values[name]
-		if !exists {
-			return "", true
-		}
-		if len(v) != 1 || v[0] == "" {
-			httpx.QueryProblemResponse(w, name)
-			return "", false
-		}
-		return v[0], true
-	}
+	readScalar := func(name string) (string, bool) { return readQueryScalar(w, values, name) }
 	var q item.SummaryQuery
 	var good bool
 	if q.SubjectID, good = readScalar("subjectId"); !good {

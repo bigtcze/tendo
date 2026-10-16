@@ -18,14 +18,14 @@ func (r *Repository) Summary(ctx context.Context, householdID string, opts item.
 		var valid bool
 		subject, valid = parseUUID(f.SubjectID)
 		if !valid {
-			return item.SummaryCounts{}, item.ErrNotFound
+			return item.SummaryCounts{}, errPersistence
 		}
 	}
 	if f.ResponsibleUserID.Value != nil {
 		var valid bool
 		responsible, valid = parseUUID(*f.ResponsibleUserID.Value)
 		if !valid {
-			return item.SummaryCounts{}, item.ErrNotFound
+			return item.SummaryCounts{}, errPersistence
 		}
 	}
 	workflow, attention := pgtype.Text{}, pgtype.Text{}

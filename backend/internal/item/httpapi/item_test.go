@@ -165,17 +165,37 @@ func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
 	bodyEqual(t, w.Body.String(), `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":0,"done":0,"archived":0}`)
-	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
+	if w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
 		t.Fatalf("headers=%v", w.Header())
+	}
+	memberID := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, ResponsibleUserID: ptr(memberID), Title: "assigned", WorkflowState: item.StateWaiting, AttentionOn: itemtest.Date(2026, time.March, 3), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}})
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82", HouseholdID: hid, SubjectID: other, Title: "other subject", WorkflowState: item.StatePaused})
+	for _, tc := range []struct{ query, body string }{
+		{"?subjectId=" + sid, `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?responsibleUserId=" + memberID, `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?responsibleUserId=unassigned", `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+		{"?workflowState=waiting", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?attention=upcoming", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?recurring=true", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?recurring=false", `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+		{"?subjectId=" + sid + "&workflowState=waiting&attention=upcoming&recurring=true&responsibleUserId=" + memberID, `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?attentionDate=2026-03-02", `{"evaluatedOn":"2026-03-02","total":3,"needsAttention":1,"inProgress":0,"waiting":1,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+	} {
+		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
+			t.Errorf("query %s status=%d headers=%v body=%s", tc.query, w.Code, w.Header(), w.Body)
+			continue
+		}
+		bodyEqual(t, w.Body.String(), tc.body)
 	}
 	for _, tc := range []struct{ query, param string }{
 		{"?limit=", "limit"}, {"?cursor=x", "cursor"}, {"?archived=false", "archived"}, {"?done=true", "done"}, {"?sort=created", "sort"},
 		{"?sort=created&limit=5", "limit"}, {"?subjectId=", "subjectId"}, {"?subjectId=" + sid + "&subjectId=" + sid, "subjectId"}, {"?responsibleUserId=", "responsibleUserId"}, {"?workflowState=", "workflowState"}, {"?attention=", "attention"}, {"?recurring=", "recurring"}, {"?recurring=true&recurring=true", "recurring"}, {"?attentionDate=", "attentionDate"}, {"?recurring=True", "recurring"}, {"?workflowState=OPEN", "workflowState"},
+		{"?subjectId=bad", "subjectId"}, {"?responsibleUserId=bad", "responsibleUserId"}, {"?attentionDate=2026-02-30", "attentionDate"}, {"?attentionDate=2026-03-02&attentionDate=2026-03-02", "attentionDate"}, {"?workflowState=open,paused", "workflowState"}, {"?workflowState=%20open", "workflowState"},
 	} {
 		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
-		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"parameter":"`+tc.param+`"`) {
-			t.Errorf("query %s status=%d param=%s body=%s", tc.query, w.Code, tc.param, w.Body)
-		}
+		assertQueryProblem(t, w, tc.param)
 	}
 	unauth := newFixture(false)
 	w = unauth.do(http.MethodGet, base+"/summary?workflowState=OPEN", "", nil)
@@ -192,6 +212,7 @@ func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
 	f.member = nil
 	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=OPEN", "", nil).Body.String())
 	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/"+missingIDForHTTP+"/items/summary?workflowState=OPEN", "", nil).Body.String())
+	bodies = append(bodies, f.do(http.MethodGet, "/api/v1/households/not-a-uuid/items/summary?workflowState=OPEN", "", nil).Body.String())
 	if bodies[0] != bodies[1] || bodies[1] != bodies[2] {
 		t.Fatalf("nonuniform not-found bodies: %q", bodies)
 	}

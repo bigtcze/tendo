@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -81,6 +82,12 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := NewRepository(app)
+	if _, err := repo.Summary(ctx, h, item.SummaryOptions{Filters: item.CollectionFilters{SubjectID: "invalid"}, Today: today}); !errors.Is(err, errPersistence) || errors.Is(err, item.ErrNotFound) {
+		t.Fatalf("invalid validated subject filter error=%v", err)
+	}
+	if _, err := repo.Summary(ctx, h, item.SummaryOptions{Filters: item.CollectionFilters{ResponsibleUserID: item.Some("invalid")}, Today: today}); !errors.Is(err, errPersistence) || errors.Is(err, item.ErrNotFound) {
+		t.Fatalf("invalid validated responsible filter error=%v", err)
+	}
 	clock := time.Date(2026, time.March, 2, 4, 30, 0, 0, time.UTC)
 	houses := func(_ context.Context, uid, hid string) (string, error) {
 		if uid != user || (hid != h && hid != other) {
@@ -94,24 +101,6 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 	svc := item.NewService(repo, houses, nil, nil, func() time.Time { return clock })
 	query := func(q item.SummaryQuery) item.Summary {
 		t.Helper()
-		filters := item.CollectionFilters{}
-		if q.SubjectID != "" {
-			filters.SubjectID = q.SubjectID
-		}
-		if q.ResponsibleUserID != "" {
-			if q.ResponsibleUserID == "unassigned" {
-				filters.ResponsibleUserID = item.Null[string]()
-			} else {
-				filters.ResponsibleUserID = item.Some(q.ResponsibleUserID)
-			}
-		}
-		if q.WorkflowState != "" {
-			filters.WorkflowState = item.WorkflowState(q.WorkflowState)
-		}
-		if q.Attention != "" {
-			filters.Attention = schedule.Attention(q.Attention)
-		}
-		filters.Recurring = q.Recurring
 		return mustSummaryService(t, svc, ctx, user, h, q)
 	}
 	want := item.Summary{EvaluatedOn: today, SummaryCounts: item.SummaryCounts{Total: 11, NeedsAttention: 3, InProgress: 1, Waiting: 1, Upcoming: 1, Paused: 1, Done: 2, Archived: 2}}
@@ -139,22 +128,26 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 	if got, err := svc.Summary(ctx, user, h, item.SummaryQuery{SubjectID: otherS}); err != nil || got.Total != 0 {
 		t.Fatalf("foreign subject=%+v err=%v", got, err)
 	}
-	// The four exact archived/done list partitions together must classify every row once.
+	// Walk the four service-level archived/done partitions through keyset cursors.
 	var walked item.SummaryCounts
 	seen := map[string]bool{}
+	pages := 0
 	for _, lifecycle := range []struct{ arch, done bool }{{false, false}, {false, true}, {true, false}, {true, true}} {
-		last := "00000000-0000-0000-0000-000000000000"
+		cursor := ""
 		for {
-			page, e := repo.List(ctx, h, item.ListOptions{Filters: item.ListFilters{Archived: lifecycle.arch, Done: lifecycle.done}, Today: today, AfterID: last, Limit: 2})
+			page, e := svc.List(ctx, user, h, item.ListQuery{Archived: lifecycle.arch, Done: lifecycle.done, Limit: 7, Cursor: cursor})
 			if e != nil {
 				t.Fatal(e)
 			}
-			for _, row := range page {
+			pages++
+			if pages > 100 {
+				t.Fatal("service list walk exceeded bounded page count")
+			}
+			for _, row := range page.Items {
 				if seen[row.ID] {
 					t.Fatalf("duplicate item %s", row.ID)
 				}
 				seen[row.ID] = true
-				last = row.ID
 				switch {
 				case row.Archived:
 					walked.Archived++
@@ -166,20 +159,24 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 					walked.InProgress++
 				case row.WorkflowState == item.StateWaiting:
 					walked.Waiting++
-				case row.AttentionOn == nil || row.AttentionOn.Compare(today) <= 0:
+				case row.Attention == schedule.NeedsAttention:
 					walked.NeedsAttention++
-				default:
+				case row.Attention == schedule.Upcoming:
 					walked.Upcoming++
 				}
 				walked.Total++
 			}
-			if len(page) < 2 {
+			if page.NextCursor == nil {
 				break
 			}
+			cursor = *page.NextCursor
 		}
 	}
 	if got := query(item.SummaryQuery{}).SummaryCounts; got != walked {
 		t.Errorf("list-walk=%+v summary=%+v", walked, got)
+	}
+	if walked.Total != 11 || walked.NeedsAttention == 0 || walked.InProgress == 0 || walked.Waiting == 0 || walked.Upcoming == 0 || walked.Paused == 0 || walked.Done == 0 || walked.Archived == 0 {
+		t.Fatalf("fixture must populate all partitions: %+v", walked)
 	}
 	var before int64
 	if err = admin.QueryRow(ctx, `SELECT sum(version) FROM items WHERE household_id=$1::uuid`, h).Scan(&before); err != nil {
@@ -229,7 +226,7 @@ func TestSummarizeItemsListWalkEquivalenceLarge(t *testing.T) {
 	_, err := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,workflow_state,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done)
 SELECT $1::uuid, CASE WHEN n%2=0 THEN $2::uuid ELSE $3::uuid END, CASE WHEN n%3=0 THEN $4::uuid END, 'large-'||n,
 CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,
-CASE n%4 WHEN 0 THEN NULL WHEN 1 THEN DATE '2026-03-01' WHEN 2 THEN DATE '2026-03-02' ELSE DATE '2026-03-03' END,
+CASE n%5 WHEN 0 THEN NULL WHEN 1 THEN DATE '2026-03-01' WHEN 2 THEN DATE '2026-03-02' WHEN 3 THEN DATE '2026-03-03' ELSE CASE WHEN n%4=0 THEN DATE '2026-03-03' ELSE DATE '2026-03-01' END END,
 CASE WHEN n%2=0 THEN 1 END, CASE WHEN n%2=0 THEN 'day' END, CASE WHEN n%2=0 THEN 'fixed' END, n%17=0, n%19=0 FROM generate_series(1,280)n`, h, subjectID, otherSubject, member)
 	if err != nil {
 		t.Fatal(err)
@@ -391,14 +388,13 @@ func TestSummaryLifecycleShifts(t *testing.T) {
 	open.Total = 2
 	open.NeedsAttention = 2
 	assert(open)
-	receipt2, _, err := svc.Complete(ctx, user, h, repeating.ID, repeating.Version, "lifecycle-repeat-complete", item.CompletionRequest{})
+	_, _, err = svc.Complete(ctx, user, h, repeating.ID, repeating.Version, "lifecycle-repeat-complete", item.CompletionRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Fixed daily recurrence advances to tomorrow, so the item remains upcoming.
 	upcoming := item.SummaryCounts{Total: 2, NeedsAttention: 1, Upcoming: 1}
 	assert(upcoming)
-	_ = receipt2
 	pausedState := "paused"
 	pausedItem, err := svc.Update(ctx, user, h, created.ID, undoneItem.Version, item.Patch{WorkflowState: &pausedState})
 	if err != nil {
@@ -426,19 +422,35 @@ func TestSummaryLifecycleShifts(t *testing.T) {
 	assert(upcoming)
 }
 
-func collectPlanMetrics(plan map[string]any, actualRows, sharedHit, sharedRead *float64) {
-	if rows, ok := plan["Actual Rows"].(float64); ok {
-		*actualRows += rows
+func inspectPlan(plan map[string]any, aggregates, itemScans *int, hasSubplan *bool) {
+	if typ, _ := plan["Node Type"].(string); strings.Contains(typ, "Aggregate") {
+		*aggregates++
 	}
-	if buffers, ok := plan["Shared Hit Blocks"].(float64); ok {
-		*sharedHit += buffers
+	if relation, _ := plan["Relation Name"].(string); relation == "items" {
+		*itemScans++
 	}
-	if buffers, ok := plan["Shared Read Blocks"].(float64); ok {
-		*sharedRead += buffers
+	if parent, _ := plan["Parent Relationship"].(string); parent == "SubPlan" || parent == "InitPlan" {
+		*hasSubplan = true
+	}
+	if _, ok := plan["Subplan Name"]; ok {
+		*hasSubplan = true
 	}
 	if children, ok := plan["Plans"].([]any); ok {
 		for _, child := range children {
-			collectPlanMetrics(child.(map[string]any), actualRows, sharedHit, sharedRead)
+			inspectPlan(child.(map[string]any), aggregates, itemScans, hasSubplan)
+		}
+	}
+}
+
+func collectItemScanRows(plan map[string]any, rows *[]float64) {
+	if relation, _ := plan["Relation Name"].(string); relation == "items" {
+		if count, ok := plan["Actual Rows"].(float64); ok {
+			*rows = append(*rows, count)
+		}
+	}
+	if children, ok := plan["Plans"].([]any); ok {
+		for _, child := range children {
+			collectItemScanRows(child.(map[string]any), rows)
 		}
 	}
 }
@@ -485,9 +497,7 @@ func TestSummarizeItemsExplainAtScale(t *testing.T) {
 	cases := []struct {
 		name    string
 		filters item.CollectionFilters
-		where   string
-		count   int64
-	}{{"unfiltered", item.CollectionFilters{}, "", 10000}, {"attention", item.CollectionFilters{Attention: schedule.Upcoming}, "attention", 0}, {"sparse subject", item.CollectionFilters{SubjectID: sparse}, "subject", 100}, {"sparse assignee", item.CollectionFilters{ResponsibleUserID: item.Some(assignee)}, "assignee", 1000}, {"combined", item.CollectionFilters{SubjectID: sparse, ResponsibleUserID: item.Some(assignee), Recurring: ptrBool(true)}, "combined", 0}}
+	}{{"unfiltered", item.CollectionFilters{}}, {"attention", item.CollectionFilters{Attention: schedule.Upcoming}}, {"sparse subject", item.CollectionFilters{SubjectID: sparse}}, {"sparse assignee", item.CollectionFilters{ResponsibleUserID: item.Some(assignee)}}, {"combined", item.CollectionFilters{SubjectID: sparse, ResponsibleUserID: item.Some(assignee), Recurring: ptrBool(true)}}}
 	for _, tc := range cases {
 		tx, e := conn.Begin(ctx)
 		if e != nil {
@@ -512,8 +522,11 @@ func TestSummarizeItemsExplainAtScale(t *testing.T) {
 		if len(types) == 0 || !strings.HasSuffix(types[0], "Aggregate") {
 			t.Errorf("%s plan nodes=%v", tc.name, types)
 		}
-		if containsPlanType(types, "Sort") || containsPlanType(types, "SubPlan") || planTempWritten(plan) != 0 {
-			t.Errorf("%s plan has forbidden structure nodes=%v", tc.name, types)
+		aggregates, itemScans := 0, 0
+		hasSubplan := false
+		inspectPlan(plan, &aggregates, &itemScans, &hasSubplan)
+		if aggregates != 1 || itemScans != 1 || hasSubplan || containsPlanType(types, "Sort") || planTempWritten(plan) != 0 {
+			t.Errorf("%s plan structure aggregates=%d itemScans=%d subplan=%v nodes=%v", tc.name, aggregates, itemScans, hasSubplan, types)
 		}
 		independentWhere := `household_id=$1::uuid`
 		independentArgs := []any{h}
@@ -541,11 +554,12 @@ func TestSummarizeItemsExplainAtScale(t *testing.T) {
 			t.Errorf("%s summary=%+v independent=%+v", tc.name, counts, want)
 		}
 		rootType, _ := plan["Node Type"].(string)
-		var actualRows float64
-		var sharedHit, sharedRead float64
-		collectPlanMetrics(plan, &actualRows, &sharedHit, &sharedRead)
+		rootHit, _ := plan["Shared Hit Blocks"].(float64)
+		rootRead, _ := plan["Shared Read Blocks"].(float64)
+		var scanRows []float64
+		collectItemScanRows(plan, &scanRows)
 		executionMS, _ := docs[0]["Execution Time"].(float64)
-		t.Logf("EXPLAIN %s root=%s scans=%v actual_rows=%.0f shared_hit=%.0f shared_read=%.0f execution_ms=%.3f", tc.name, rootType, types, actualRows, sharedHit, sharedRead, executionMS)
+		t.Logf("EXPLAIN %s root=%s scans=%v root_shared_hit=%.0f root_shared_read=%.0f item_scan_actual_rows=%v execution_ms=%.3f", tc.name, rootType, types, rootHit, rootRead, scanRows, executionMS)
 		if e = tx.Commit(ctx); e != nil {
 			t.Fatal(e)
 		}
