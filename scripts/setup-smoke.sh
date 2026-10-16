@@ -397,6 +397,70 @@ status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cooki
 status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)
 status,_,b=ireq('POST',ibase,ICOLL,{'title':'Origin blocked','subjectId':person['id']},{**cookie_header,'Origin':'http://foreign.example','Idempotency-Key':'setup-item-foreign-origin'});assert status==403,('foreign origin items',status,b)
 assert psql(f"SELECT count(*) FROM items WHERE household_id='{household}'")== '8' and psql(f"SELECT title||'|'||workflow_state||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|3','item rejected request or archive persistence'
+# Summary smoke: baseline, seed one row in each partition, then exercise filters and guards.
+SUMMARY='/api/v1/households/{householdId}/items/summary'
+summary_url=ibase+'/summary'
+def summary(query='',record=True):
+ st,hs,result=ireq('GET',summary_url+query,SUMMARY,headers=cookie_header,record=record)
+ assert 'ETag' not in hs,('summary must not return ETag',dict(hs))
+ return st,hs,result
+st,_,summary_before=summary()
+assert st==200 and summary_before['total']==8 and sum(summary_before[k] for k in ('needsAttention','inProgress','waiting','upcoming','paused','done','archived'))==summary_before['total'],('baseline summary',st,summary_before)
+summary_versions={x['id']:ireq('GET',ibase+'/'+x['id'],IITEM,headers=cookie_header)[1]['ETag'] for x in [future, fixed, fluid, historical, fixed_late, oneoff]}
+summary_subject=person['id']
+def make_summary_item(key,title,**fields):
+ body={'title':title,'subjectId':summary_subject,**fields}
+ code,hs,obj=ireq('POST',ibase,ICOLL,body,{**mut,'Idempotency-Key':key})
+ assert code==201,(key,code,obj)
+ return obj
+needs=make_summary_item('summary-needs','Summary needs attention')
+upcoming=make_summary_item('summary-upcoming','Summary upcoming',attentionOn='2099-12-31')
+inprogress=make_summary_item('summary-in-progress','Summary in progress')
+st,_,inprogress=ireq('PATCH',ibase+'/'+inprogress['id'],IITEM,{'workflowState':'in_progress'},{**mut,'If-Match':'"1"'});assert st==200
+waiting=make_summary_item('summary-waiting','Summary waiting')
+st,_,waiting=ireq('PATCH',ibase+'/'+waiting['id'],IITEM,{'workflowState':'waiting'},{**mut,'If-Match':'"1"'});assert st==200
+paused=make_summary_item('summary-paused','Summary paused')
+st,_,paused=ireq('PATCH',ibase+'/'+paused['id'],IITEM,{'workflowState':'paused'},{**mut,'If-Match':'"1"'});assert st==200
+completed=make_summary_item('summary-done','Summary done')
+st,_,summary_receipt=ireq('POST',cpath(completed['id']),CITEM,{}, {**mut,'If-Match':'"1"','Idempotency-Key':'summary-complete'});assert st==201
+archived=make_summary_item('summary-archived','Summary archived')
+st,_,archived=ireq('PATCH',ibase+'/'+archived['id'],IITEM,{'archived':True},{**mut,'If-Match':'"1"'});assert st==200
+archived_done=make_summary_item('summary-archived-done','Summary archived done')
+st,_,_=ireq('POST',cpath(archived_done['id']),CITEM,{}, {**mut,'If-Match':'"1"','Idempotency-Key':'summary-archived-complete'});assert st==201
+st,_,archived_done=ireq('PATCH',ibase+'/'+archived_done['id'],IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert st==200
+st,_,summary_after=summary()
+expected={k:summary_before[k]+delta for k,delta in {'needsAttention':1,'upcoming':1,'inProgress':1,'waiting':1,'paused':1,'done':1,'archived':2,'total':8}.items()}
+assert st==200 and all(summary_after[k]==v for k,v in expected.items()),('summary seeded deltas',summary_after,expected)
+for query in ('?subjectId='+person['id'],'?responsibleUserId=unassigned','?workflowState=paused','?attention=upcoming','?recurring=false','?subjectId='+person['id']+'&workflowState=paused'):
+ st,_,filtered_summary=summary(query);assert st==200,('summary filter',query,st,filtered_summary)
+ # Independent public-API list walk over all four archived/done combinations classified by precedence.
+ walked={k:0 for k in ('needsAttention','inProgress','waiting','upcoming','paused','done','archived')};seen=set()
+ for arch in ('false','true'):
+  for done in ('false','true'):
+   cursor=None
+   while True:
+    url=ibase+query+('&' if query else '?')+f'archived={arch}&done={done}&limit=3'+('&cursor='+cursor if cursor else '')
+    st,_,page=ireq('GET',url,ICOLL,headers=cookie_header,record=False);assert st==200,('summary walk',url,st,page)
+    for row in page['items']:
+     assert row['id'] not in seen,('summary walk duplicate',row['id']);seen.add(row['id'])
+     key='archived' if row['archived'] else 'done' if row['done'] else {'paused':'paused','in_progress':'inProgress','waiting':'waiting'}.get(row['workflowState']) or ('needsAttention' if row['attention']=='needs_attention' else 'upcoming')
+     walked[key]+=1
+    cursor=page['nextCursor']
+    if not cursor:break
+ assert all(filtered_summary[k]==v for k,v in walked.items()) and filtered_summary['total']==len(seen)>0,('summary filter vs list walk',query,filtered_summary,walked)
+st,_,guarded_summary=summary('?attentionDate='+summary_after['evaluatedOn']);assert st==200 and guarded_summary['evaluatedOn']==summary_after['evaluatedOn'],('summary date guard',st,guarded_summary)
+st,_,stale_summary=summary('?attentionDate=0001-01-01');assert st==400 and stale_summary['parameter']=='attentionDate',('stale summary guard',st,stale_summary)
+st,_,invalid_summary_guard=summary('?attentionDate=2026-02-30');assert st==400 and invalid_summary_guard['parameter']=='attentionDate',('invalid summary guard',st,invalid_summary_guard)
+for parameter in ('limit','cursor','archived','done','sort'):
+ st,_,problem=summary('?'+parameter+'=1');assert st==400 and problem['parameter']==parameter,('unsupported summary parameter',parameter,st,problem)
+st,_,anonymous_summary=ireq('GET',summary_url,SUMMARY);assert st==401,('anonymous summary',st,anonymous_summary)
+not_member='0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'
+st,_,hidden_summary=ireq('GET',f'/api/v1/households/{other_id}/items/summary',SUMMARY,headers=cookie_header)
+st2,_,missing_summary=ireq('GET',f'/api/v1/households/{not_member}/items/summary',SUMMARY,headers=cookie_header)
+assert st==404 and st2==404 and hidden_summary==missing_summary,('summary household concealment',st,hidden_summary,st2,missing_summary)
+for item_id,etag in summary_versions.items():
+ st,hs,item=ireq('GET',ibase+'/'+item_id,IITEM,headers=cookie_header)
+ assert st==200 and hs['ETag']==etag,('summary reads changed fixture item version',item_id,etag,dict(hs))
 # Invitation API production-image smoke. The owner cookie remains valid through this block.
 INV='/api/v1/households/{householdId}/invitations'
 INV_ITEM='/api/v1/households/{householdId}/invitations/{invitationId}'
@@ -552,6 +616,9 @@ status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=Fal
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
 status,_,b=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{'Origin':origin,'Cookie':f'tendo_session={token}','If-Match':'"3"'});assert status==401 and b['code']=='unauthenticated',('undo with revoked cookie',status,b)
 status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
+st,stale_summary_headers,stale_summary=ireq('GET',summary_url,SUMMARY,headers=cookie_header);assert st==401 and stale_summary['code']=='unauthenticated' and 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
+stale_summary_cookie=[p.strip().lower() for p in stale_summary_headers['Set-Cookie'].split(';')]
+assert stale_summary_cookie[0]=='tendo_session=' and 'max-age=0' in stale_summary_cookie,stale_summary_cookie
 login_headers={'Origin':origin,'Content-Type':'application/json'}
 login_req=urllib.request.Request(origin+'/api/v1/session',data=json.dumps({'login':'owner_smoke','password':'correct horse battery'}).encode(),headers=login_headers,method='POST')
 with opener.open(login_req,timeout=8) as login_resp: login_cookie=login_resp.headers.get_all('Set-Cookie')[0].split(';',1)[0]

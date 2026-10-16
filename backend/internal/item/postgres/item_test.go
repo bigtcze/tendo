@@ -669,6 +669,12 @@ func (c *capturingDB) Query(ctx context.Context, sql string, args ...any) (pgx.R
 	return c.Tx.Query(ctx, sql, args...)
 }
 
+func (c *capturingDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	c.query = sql
+	c.args = append([]any(nil), args...)
+	return c.Tx.QueryRow(ctx, sql, args...)
+}
+
 func TestItemListExplainIndexesAtScale(t *testing.T) {
 	appURL, adminURL := integrationURLs(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

@@ -158,6 +158,79 @@ func (f *fixture) createWithKeys(body string, keys ...string) *httptest.Response
 	return w
 }
 
+func TestSummaryHTTPResponseAndStructuralValidation(t *testing.T) {
+	f := newFixture(true)
+	w := f.do(http.MethodGet, base+"/summary", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	bodyEqual(t, w.Body.String(), `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":0,"done":0,"archived":0}`)
+	if w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
+		t.Fatalf("headers=%v", w.Header())
+	}
+	memberID := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, ResponsibleUserID: ptr(memberID), Title: "assigned", WorkflowState: item.StateWaiting, AttentionOn: itemtest.Date(2026, time.March, 3), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}})
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82", HouseholdID: hid, SubjectID: other, Title: "other subject", WorkflowState: item.StatePaused})
+	for _, tc := range []struct{ query, body string }{
+		{"?subjectId=" + sid, `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?responsibleUserId=" + memberID, `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?responsibleUserId=unassigned", `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+		{"?workflowState=waiting", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?attention=upcoming", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?recurring=true", `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?recurring=false", `{"evaluatedOn":"2026-03-02","total":2,"needsAttention":1,"inProgress":0,"waiting":0,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+		{"?subjectId=" + sid + "&workflowState=waiting&attention=upcoming&recurring=true&responsibleUserId=" + memberID, `{"evaluatedOn":"2026-03-02","total":1,"needsAttention":0,"inProgress":0,"waiting":1,"upcoming":0,"paused":0,"done":0,"archived":0}`},
+		{"?attentionDate=2026-03-02", `{"evaluatedOn":"2026-03-02","total":3,"needsAttention":1,"inProgress":0,"waiting":1,"upcoming":0,"paused":1,"done":0,"archived":0}`},
+	} {
+		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
+			t.Errorf("query %s status=%d headers=%v body=%s", tc.query, w.Code, w.Header(), w.Body)
+			continue
+		}
+		bodyEqual(t, w.Body.String(), tc.body)
+	}
+	for _, tc := range []struct{ query, param string }{
+		{"?limit=", "limit"}, {"?cursor=x", "cursor"}, {"?archived=false", "archived"}, {"?done=true", "done"}, {"?sort=created", "sort"},
+		{"?sort=created&limit=5", "limit"}, {"?subjectId=", "subjectId"}, {"?subjectId=" + sid + "&subjectId=" + sid, "subjectId"}, {"?responsibleUserId=", "responsibleUserId"}, {"?workflowState=", "workflowState"}, {"?attention=", "attention"}, {"?recurring=", "recurring"}, {"?recurring=true&recurring=true", "recurring"}, {"?attentionDate=", "attentionDate"}, {"?recurring=True", "recurring"}, {"?workflowState=OPEN", "workflowState"},
+		{"?subjectId=bad", "subjectId"}, {"?responsibleUserId=bad", "responsibleUserId"}, {"?attentionDate=2026-02-30", "attentionDate"}, {"?attentionDate=2026-03-02&attentionDate=2026-03-02", "attentionDate"}, {"?workflowState=open,paused", "workflowState"}, {"?workflowState=%20open", "workflowState"},
+	} {
+		w = f.do(http.MethodGet, base+"/summary"+tc.query, "", nil)
+		assertQueryProblem(t, w, tc.param)
+	}
+	unauth := newFixture(false)
+	w = unauth.do(http.MethodGet, base+"/summary?workflowState=OPEN", "", nil)
+	if w.Code != 401 || unauth.svcHit != 0 {
+		t.Fatalf("auth status=%d service calls=%d", w.Code, unauth.svcHit)
+	}
+	f.member = item.ErrNotFound
+	structural := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=", "", nil)
+	semantic := f.do(http.MethodGet, "/api/v1/households/"+other+"/items/summary?workflowState=OPEN", "", nil)
+	if structural.Code != 400 || semantic.Code != 404 {
+		t.Fatalf("structural=%d %s semantic=%d %s", structural.Code, structural.Body, semantic.Code, semantic.Body)
+	}
+	bodies := []string{semantic.Body.String()}
+	f.member = nil
+	for _, path := range []string{other, missingIDForHTTP, "not-a-uuid"} {
+		res := f.do(http.MethodGet, "/api/v1/households/"+path+"/items/summary?workflowState=OPEN", "", nil)
+		if res.Code != 404 {
+			t.Fatalf("household %q status=%d %s", path, res.Code, res.Body)
+		}
+		bodies = append(bodies, res.Body.String())
+	}
+	for i, body := range bodies {
+		if body != bodies[0] {
+			t.Fatalf("nonuniform not-found body %d: %q", i, bodies)
+		}
+	}
+	// The literal summary route returns summary fields, not an Item representation.
+	f.member = nil
+	w = f.do(http.MethodGet, base+"/summary", "", nil)
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got["total"] == nil || got["id"] != nil {
+		t.Fatalf("summary dispatched as item: %s err=%v", w.Body, err)
+	}
+}
+
 func TestCreateIdempotencyHeaderValidation(t *testing.T) {
 	cases := []struct {
 		name string

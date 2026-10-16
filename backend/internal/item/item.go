@@ -197,6 +197,14 @@ type ListQuery struct {
 	Cursor string
 }
 
+type CollectionFilters struct {
+	SubjectID         string
+	ResponsibleUserID Nullable[string]
+	WorkflowState     WorkflowState
+	Attention         schedule.Attention
+	Recurring         *bool
+}
+
 type ListFilters struct {
 	Archived, Done    bool
 	SubjectID         string
@@ -204,6 +212,26 @@ type ListFilters struct {
 	WorkflowState     WorkflowState
 	Attention         schedule.Attention
 	Recurring         *bool
+}
+
+type SummaryQuery struct {
+	SubjectID, ResponsibleUserID, WorkflowState, Attention string
+	Recurring                                              *bool
+	AttentionDate                                          string
+}
+
+type SummaryOptions struct {
+	Filters CollectionFilters
+	Today   schedule.Date
+}
+
+type SummaryCounts struct {
+	Total, NeedsAttention, InProgress, Waiting, Upcoming, Paused, Done, Archived int64
+}
+
+type Summary struct {
+	EvaluatedOn schedule.Date
+	SummaryCounts
 }
 
 type ListOptions struct {
@@ -237,6 +265,7 @@ type Repository interface {
 	FindCreation(ctx context.Context, householdID, actorID, key string) (Item, []byte, error)
 	Get(ctx context.Context, householdID, itemID string) (Item, error)
 	List(ctx context.Context, householdID string, opts ListOptions) ([]Item, error)
+	Summary(ctx context.Context, householdID string, opts SummaryOptions) (SummaryCounts, error)
 	Complete(ctx context.Context, householdID, itemID, key string, fingerprint [32]byte, decide CompletionDecider) (Completion, bool, error)
 	UndoCompletion(ctx context.Context, householdID, itemID, completionID string, decide CompletionUndoDecider) (Completion, error)
 	ListCompletions(ctx context.Context, householdID, itemID, afterID string, limit int) ([]Completion, error)
@@ -481,42 +510,11 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if limit < 1 || limit > MaxLimit {
 		return Page{}, &InvalidQueryError{"limit"}
 	}
-	filters := ListFilters{Archived: q.Archived, Done: q.Done}
-	if q.SubjectID != "" {
-		if !validUUID(q.SubjectID) {
-			return Page{}, &InvalidQueryError{"subjectId"}
-		}
-		filters.SubjectID = strings.ToLower(q.SubjectID)
+	collectionFilters, err := validateCollectionFilters(q.SubjectID, q.ResponsibleUserID, q.WorkflowState, q.Attention, q.Recurring)
+	if err != nil {
+		return Page{}, err
 	}
-	if q.ResponsibleUserID != "" {
-		if q.ResponsibleUserID == "unassigned" {
-			filters.ResponsibleUserID = Null[string]()
-		} else {
-			if !validUUID(q.ResponsibleUserID) {
-				return Page{}, &InvalidQueryError{"responsibleUserId"}
-			}
-			v := strings.ToLower(q.ResponsibleUserID)
-			filters.ResponsibleUserID = Some(v)
-		}
-	}
-	if q.WorkflowState != "" {
-		v, ok := ParseWorkflowState(q.WorkflowState)
-		if !ok {
-			return Page{}, &InvalidQueryError{"workflowState"}
-		}
-		filters.WorkflowState = v
-	}
-	if q.Attention != "" {
-		switch schedule.Attention(q.Attention) {
-		case schedule.NeedsAttention, schedule.Upcoming:
-			filters.Attention = schedule.Attention(q.Attention)
-		default:
-			return Page{}, &InvalidQueryError{"attention"}
-		}
-	}
-	if q.Recurring != nil {
-		filters.Recurring = q.Recurring
-	}
+	filters := ListFilters{Archived: q.Archived, Done: q.Done, SubjectID: collectionFilters.SubjectID, ResponsibleUserID: collectionFilters.ResponsibleUserID, WorkflowState: collectionFilters.WorkflowState, Attention: collectionFilters.Attention, Recurring: collectionFilters.Recurring}
 	if sortBy != SortCreated && sortBy != SortAttention {
 		return Page{}, &InvalidQueryError{"sort"}
 	}

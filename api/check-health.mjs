@@ -155,6 +155,12 @@ function assertResponse(path, status, body, method, headers = {}) {
   if (body && typeof body === 'object' && 'status' in body && expectedMedia.includes('application/problem+json')) {
     assert.equal(body.status, Number(status), `${path} HTTP ${status} problem status does not match HTTP status`)
   }
+  if (path === '/api/v1/households/{householdId}/items/summary' && Number(status) === 200) {
+    assert.equal(headers.etag, undefined, `${path} HTTP 200 must not include ETag`)
+    assert.equal(headers['cache-control'], 'no-store', `${path} HTTP 200 cache-control must be no-store`)
+    const counters = ['needsAttention', 'inProgress', 'waiting', 'upcoming', 'paused', 'done', 'archived']
+    assert.equal(body.total, counters.reduce((sum, name) => sum + body[name], 0), `${path} HTTP 200 total must equal the sum of its counters`)
+  }
 }
 
 for (const [path, pathItem] of Object.entries(contract.paths)) {

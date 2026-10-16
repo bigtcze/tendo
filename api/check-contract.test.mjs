@@ -398,6 +398,64 @@ test('item list sort and freshness query contract', async () => {
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('item summary operation contract and captured responses are strict', async t => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const path = '/api/v1/households/{householdId}/items/summary'
+  const operation = contract.paths[path]?.get
+  assert.ok(operation, 'getItemsSummary operation exists')
+  assert.equal(operation.operationId, 'getItemsSummary')
+  assert.ok(operation.security.some(requirement => requirement.SessionCookie))
+  assert.deepEqual(operation.parameters.map(parameter => parameter.$ref?.split('/').at(-1) ?? parameter.name), ['RequestId', 'HouseholdId', 'subjectId', 'responsibleUserId', 'workflowState', 'attention', 'recurring', 'attentionDate'])
+  for (const code of ['200', '400', '401', '403', '404', '421', '503']) assert.ok(operation.responses[code], `missing ${code} response`)
+  const schema = contract.components.schemas.ItemSummary
+  assert.equal(schema.additionalProperties, false)
+  assert.deepEqual(schema.required, ['evaluatedOn', 'total', 'needsAttention', 'inProgress', 'waiting', 'upcoming', 'paused', 'done', 'archived'])
+  for (const name of schema.required.filter(name => name !== 'evaluatedOn')) {
+    assert.equal(schema.properties[name].type, 'integer', `${name} integer`)
+    assert.equal(schema.properties[name].format, 'int64', `${name} int64`)
+    assert.equal(schema.properties[name].minimum, 0, `${name} nonnegative`)
+  }
+  assert.equal(schema.properties.evaluatedOn.format, 'date')
+
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-api-item-summary-'))
+  const fixturePath = join(directory, 'responses.json')
+  const headers = { 'x-request-id': 'contract-check', 'cache-control': 'no-store', 'content-type': 'application/json' }
+  const base = '/api/v1/households/{householdId}/items/summary'
+  const zero = { evaluatedOn: '2026-10-16', total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 }
+  const mixed = { ...zero, total: 28, needsAttention: 3, inProgress: 2, waiting: 4, upcoming: 5, paused: 6, done: 7, archived: 1 }
+  const good = body => ({ path: base, method: 'get', status: 200, headers: { ...headers }, body: structuredClone(body) })
+  const run = async fixture => {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname], { env: { ...process.env, API_RESPONSE_FIXTURES: fixturePath, SETUP_URL: undefined, CONTRACT_SETUP_ORIGIN: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''; child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close'); return { code, stderr }
+  }
+  try {
+    for (const fixture of [good(zero), good(mixed)]) assert.equal((await run(fixture)).code, 0, JSON.stringify(fixture))
+    const invalids = [
+      ['missing counter', f => { delete f.body.paused }],
+      ['missing evaluatedOn', f => { delete f.body.evaluatedOn }],
+      ['null counter', f => { f.body.paused = null }],
+      ['string counter', f => { f.body.paused = '0' }],
+      ['fractional counter', f => { f.body.paused = 0.5 }],
+      ['negative counter', f => { f.body.paused = -1 }],
+      ['extra field', f => { f.body.extra = true }],
+      ['inconsistent total', f => { f.body.total++ }],
+      ['ETag present', f => { f.headers.etag = '"1"' }],
+      ['wrong content type', f => { f.headers['content-type'] = 'text/plain' }],
+      ['missing no-store', f => { delete f.headers['cache-control'] }],
+      ['missing request ID', f => { delete f.headers['x-request-id'] }],
+    ]
+    for (const [name, mutate] of invalids) await t.test(name, async () => {
+      const fixture = good(mixed); mutate(fixture)
+      const result = await run(fixture)
+      assert.notEqual(result.code, 0, `${name} unexpectedly accepted`)
+    })
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('subject fixtures enforce Location, ETag, list envelope, concurrency problems, and strict bodies', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'tendo-api-subject-'))
   const fixturePath = join(directory, 'responses.json')

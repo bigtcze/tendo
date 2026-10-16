@@ -23,6 +23,7 @@ type Querier interface {
 	ListItemsByAttention(ctx context.Context, arg ListItemsByAttentionParams) ([]ListItemsByAttentionRow, error)
 	LockItemForCompletion(ctx context.Context, arg LockItemForCompletionParams) (LockItemForCompletionRow, error)
 	MarkCompletionUndone(ctx context.Context, arg MarkCompletionUndoneParams) (int64, error)
+	SummarizeItems(ctx context.Context, arg SummarizeItemsParams) (SummarizeItemsRow, error)
 	UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateItemRow, error)
 	UpdateItemForCompletion(ctx context.Context, arg UpdateItemForCompletionParams) error
 	UpdateItemForUndo(ctx context.Context, arg UpdateItemForUndoParams) error
