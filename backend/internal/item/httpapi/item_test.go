@@ -370,7 +370,7 @@ func TestListQueryPrecedenceUnknownParametersAndLegacyCursor(t *testing.T) {
 	}
 	f := newFixture(true)
 	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, Title: "second", WorkflowState: item.StateOpen, CreatedAt: at, UpdatedAt: at, Version: 1})
-	w := f.do("GET", base+"?q=x&sort=title&attentionDate=2026-01-01&limit=1", "", nil)
+	w := f.do("GET", base+"?q=x&futureFlag=x&limit=1", "", nil)
 	if w.Code != 200 {
 		t.Fatalf("unknown params status=%d body=%s", w.Code, w.Body)
 	}
@@ -387,6 +387,174 @@ func TestListQueryPrecedenceUnknownParametersAndLegacyCursor(t *testing.T) {
 	raw, err := base64.RawURLEncoding.DecodeString(*got.NextCursor)
 	if err != nil || !strings.HasPrefix(string(raw), "i1:") {
 		t.Fatalf("legacy cursor=%q decoded=%q err=%v", *got.NextCursor, raw, err)
+	}
+}
+
+func TestListAttentionSortGuardAndQueryContracts(t *testing.T) {
+	for _, raw := range []string{"sort=", "sort=created&sort=attention_on", "sort=created,attention_on", "sort=CREATED", "sort=%20created", "sort=title", "attentionDate=", "attentionDate=2026-02-30", "attentionDate=2026-03-01T00%3A00%3A00Z", "attentionDate=0001-01-01"} {
+		f := newFixture(true)
+		w := f.do("GET", base+"?"+raw, "", nil)
+		var got map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &got)
+		want := "attentionDate"
+		if strings.HasPrefix(raw, "sort=") {
+			want = "sort"
+		}
+		if w.Code != 400 || got["code"] != "invalid_query" || got["parameter"] != want || w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s response=%d %v headers=%v", raw, w.Code, got, w.Header())
+		}
+	}
+	f := newFixture(true)
+	f.now = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	d := itemtest.Date(2026, time.March, 2)
+	f.repo.Seed(item.Item{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81", HouseholdID: hid, SubjectID: sid, AttentionOn: d})
+	for _, tc := range []struct{ query, prefix string }{{"sort=created&limit=1", "i1:"}, {"sort=attention_on&limit=1", "i2:"}, {"attentionDate=2026-03-01&limit=1", "i2:"}} {
+		w := f.do("GET", base+"?"+tc.query, "", nil)
+		var got struct {
+			Items      []Item  `json:"items"`
+			NextCursor *string `json:"nextCursor"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &got)
+		if w.Code != 200 || got.NextCursor == nil {
+			t.Errorf("%s: %d %s", tc.query, w.Code, w.Body)
+			continue
+		}
+		raw, _ := base64.RawURLEncoding.DecodeString(*got.NextCursor)
+		if !strings.HasPrefix(string(raw), tc.prefix) {
+			t.Errorf("%s cursor=%q", tc.query, raw)
+		}
+	}
+	unauth := newFixture(false)
+	if w := unauth.do("GET", base+"?sort=&attentionDate=bad", "", nil); w.Code != 401 {
+		t.Errorf("auth precedence=%d", w.Code)
+	}
+	f = newFixture(true)
+	f.member = item.ErrNotFound
+	if w := f.do("GET", "/api/v1/households/"+other+"/items?sort=title&attentionDate=bad", "", nil); w.Code != 404 {
+		t.Errorf("membership precedence=%d %s", w.Code, w.Body)
+	}
+}
+
+func TestHTTPAttentionSortPreservesOrderAcrossPages(t *testing.T) {
+	f := newFixture(true)
+	rows := []item.Item{
+		{ID: "0198a2f0-7c1e-7a53-9b0e-000000000001", HouseholdID: hid, SubjectID: sid, Title: "future-low", AttentionOn: itemtest.Date(2026, time.March, 10)},
+		{ID: "0198a2f0-7c1e-7a53-9b0e-000000000003", HouseholdID: hid, SubjectID: sid, Title: "past", AttentionOn: itemtest.Date(2026, time.March, 1)},
+		{ID: "0198a2f0-7c1e-7a53-9b0e-000000000002", HouseholdID: hid, SubjectID: sid, Title: "past-low", AttentionOn: itemtest.Date(2026, time.March, 1)},
+		{ID: "0198a2f0-7c1e-7a53-9b0e-000000000005", HouseholdID: hid, SubjectID: sid, Title: "null-high"},
+		{ID: iid, HouseholdID: hid, SubjectID: sid, Title: "dated-last", AttentionOn: itemtest.Date(2026, time.March, 11)},
+		{ID: "0198a2f0-7c1e-7a53-9b0e-000000000004", HouseholdID: hid, SubjectID: sid, Title: "future", AttentionOn: itemtest.Date(2026, time.March, 10)},
+	}
+	for _, row := range rows {
+		f.repo.Seed(row)
+	}
+	want := []string{rows[3].ID, rows[2].ID, rows[1].ID, rows[0].ID, rows[5].ID, rows[4].ID}
+	url := base + "?sort=attention_on&limit=1"
+	var got []string
+	for page := 0; page < 8; page++ {
+		w := f.do("GET", url, "", nil)
+		var body struct {
+			Items []Item  `json:"items"`
+			Next  *string `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || len(body.Items) != 1 {
+			t.Fatalf("response=%d %s", w.Code, w.Body)
+		}
+		got = append(got, body.Items[0].Id)
+		wantAttention := body.Items[0].AttentionOn
+		if page == 0 && wantAttention != nil {
+			t.Errorf("null first page=%+v", body.Items[0])
+		}
+		if page == 1 && (wantAttention == nil || *wantAttention != "2026-03-01") {
+			t.Errorf("past page=%+v", body.Items[0])
+		}
+		if page == 4 && (wantAttention == nil || *wantAttention != "2026-03-10") {
+			t.Errorf("dated page=%+v", body.Items[0])
+		}
+		if page == 5 && (wantAttention == nil || *wantAttention != "2026-03-11") {
+			t.Errorf("last dated page=%+v", body.Items[0])
+		}
+		if body.Next == nil {
+			break
+		}
+		if page == 7 {
+			t.Fatal("expected final page before bound")
+		}
+		url = base + "?sort=attention_on&limit=1&cursor=" + *body.Next
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+}
+
+func TestHTTPAttentionDateScalarValidation(t *testing.T) {
+	for _, query := range []string{"attentionDate=2026-03-01&attentionDate=2026-03-01", "attentionDate=2026-03-01,2026-03-01", "attentionDate=%202026-03-01", "attentionDate=2026-03-03"} {
+		f := newFixture(true)
+		w := f.do("GET", base+"?"+query, "", nil)
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if w.Code != 400 || body["code"] != "invalid_query" || body["parameter"] != "attentionDate" || w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s => %d %v headers=%v", query, w.Code, body, w.Header())
+		}
+	}
+}
+
+func TestHTTPListCursorContextErrors(t *testing.T) {
+	f := newFixture(true)
+	second := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b81"
+	f.repo.Seed(item.Item{ID: second, HouseholdID: hid, SubjectID: sid, Title: "second"})
+	filtered := f.do("GET", base+"?subjectId="+sid+"&sort=created&limit=1", "", nil)
+	var list struct {
+		Next *string `json:"nextCursor"`
+	}
+	_ = json.Unmarshal(filtered.Body.Bytes(), &list)
+	if filtered.Code != 200 || list.Next == nil {
+		t.Fatalf("filtered=%d %s", filtered.Code, filtered.Body)
+	}
+	attention := f.do("GET", base+"?sort=attention_on&limit=1&cursor="+*list.Next, "", nil)
+	assertQueryProblem(t, attention, "cursor")
+	f.now = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	guarded := f.do("GET", base+"?attentionDate=2026-03-01&limit=1", "", nil)
+	_ = json.Unmarshal(guarded.Body.Bytes(), &list)
+	if guarded.Code != 200 || list.Next == nil {
+		t.Fatalf("guard=%d %s", guarded.Code, guarded.Body)
+	}
+	mismatched := f.do("GET", base+"?limit=1&cursor="+*list.Next, "", nil)
+	assertQueryProblem(t, mismatched, "cursor")
+	stale := f.do("GET", base+"?attentionDate=2026-03-02&cursor=bad", "", nil)
+	assertQueryProblem(t, stale, "attentionDate")
+}
+func assertQueryProblem(t *testing.T, w *httptest.ResponseRecorder, param string) {
+	t.Helper()
+	want := `{"type":"about:blank","title":"Bad Request","status":400,"code":"invalid_query","parameter":"` + param + `"}`
+	bodyEqual(t, w.Body.String(), want)
+	if w.Code != 400 || w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("response=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
+	}
+}
+func TestHTTPListNewParameterPrecedence(t *testing.T) {
+	for _, raw := range []string{"sort=", "sort=created&sort=created", "attentionDate=", "attentionDate=2026-03-01&attentionDate=2026-03-01"} {
+		f := newFixture(true)
+		f.member = item.ErrNotFound
+		w := f.do("GET", "/api/v1/households/"+other+"/items?"+raw, "", nil)
+		var b map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &b)
+		param := "attentionDate"
+		if strings.HasPrefix(raw, "sort=") {
+			param = "sort"
+		}
+		if w.Code != 400 || b["parameter"] != param {
+			t.Errorf("transport %s => %d %s", raw, w.Code, w.Body)
+		}
+	}
+	f := newFixture(true)
+	f.member = item.ErrNotFound
+	w := f.do("GET", "/api/v1/households/"+other+"/items?sort=title&attentionDate=2026-02-30", "", nil)
+	if w.Code != 404 || w.Body.String() != `{"code":"not_found","status":404,"title":"Not Found","type":"about:blank"}`+"\n" {
+		t.Fatalf("semantic membership precedence=%d %s", w.Code, w.Body)
 	}
 }
 

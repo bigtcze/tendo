@@ -298,8 +298,34 @@ assert status==200 and patched['title']=='Insurance follow-up' and patched['work
 assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::text,'NULL')||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|NULL|2','item patch persisted'
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert status==428 and b['code']=='precondition_required',('item missing If-Match',status,b)
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
+status,_,null_first=ireq('GET',ibase+'?sort=attention_on&limit=1',ICOLL,headers=cookie_header);assert status==200 and null_first['items'][0]['id']==immediate['id'] and null_first['items'][0]['attentionOn'] is None and null_first['nextCursor'],('attention null first',status,null_first)
 status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
 status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id'],fixed['id'],fluid['id']],('active items',status,active_items)
+# Explicit and implicit created sort preserve the exact same legacy cursor.
+status,_,created_one=ireq('GET',ibase+'?sort=created&limit=1',ICOLL,headers=cookie_header);assert status==200 and created_one['items'][0]['id']==future['id'] and created_one['nextCursor'],('created explicit page',status,created_one)
+status,_,created_omitted=ireq('GET',ibase+'?limit=1',ICOLL,headers=cookie_header);assert status==200 and created_omitted['items'][0]['id']==future['id'] and created_omitted['nextCursor']==created_one['nextCursor'],('created omitted cursor mismatch',status,created_omitted)
+created_raw=base64.urlsafe_b64decode(created_one['nextCursor']+'='*((4-len(created_one['nextCursor'])%4)%4));assert created_raw.startswith(b'i1:'),('created cursor version',created_raw)
+# With the existing null-date item archived, dated work sorts fixed, fluid, future.
+status,_,attention_page=ireq('GET',ibase+'?sort=attention_on&limit=1',ICOLL,headers=cookie_header);assert status==200 and attention_page['items'][0]['id']==fixed['id'] and attention_page['nextCursor'],('attention first page',status,attention_page)
+raw_attention=base64.urlsafe_b64decode(attention_page['nextCursor']+'='*((4-len(attention_page['nextCursor'])%4)%4));parts=raw_attention.decode().split(':');assert parts[0]=='i2' and parts[4]=='2030-01-15',('attention cursor payload',parts)
+attention_ids=[attention_page['items'][0]['id']];cursor=attention_page['nextCursor'];walked=set()
+for _ in range(8):
+ if not cursor:break
+ if cursor in walked:raise AssertionError(('repeated attention cursor',cursor))
+ walked.add(cursor);status,_,page=ireq('GET',ibase+'?sort=attention_on&limit=1&cursor='+cursor,ICOLL,headers=cookie_header);assert status==200,('attention page',status,page);attention_ids.extend(x['id'] for x in page['items']);cursor=page['nextCursor']
+else: raise AssertionError('attention cursor walk exceeded eight pages')
+assert cursor is None and attention_ids==[fixed['id'],fluid['id'],future['id']],('attention sort walk',attention_ids,cursor)
+# Freshness guard malformed calendar and stale date are distinct invalid_query failures.
+for query in ('attentionDate=2026-02-30','attentionDate=0001-01-01'):
+ status,_,problem=ireq('GET',ibase+'?'+query,ICOLL,headers=cookie_header);assert status==400 and problem['code']=='invalid_query' and problem['parameter']=='attentionDate',('bad freshness guard',query,status,problem)
+# Use the household timezone's database date, not the smoke host date.
+today_local=psql(f"SELECT (now() AT TIME ZONE (SELECT timezone FROM households WHERE id='{household}'::uuid))::date::text")
+status,_,guarded=ireq('GET',ibase+'?attentionDate='+today_local+'&limit=1',ICOLL,headers=cookie_header);assert status==200 and len(guarded['items'])==1 and guarded['nextCursor'],('matching guard page',today_local,status,guarded)
+guarded_raw=base64.urlsafe_b64decode(guarded['nextCursor']+'='*((4-len(guarded['nextCursor'])%4)%4));assert guarded_raw.startswith(b'i2:'),('guarded cursor version',guarded_raw)
+status,_,guarded_plain=ireq('GET',ibase+'?sort=created&attentionDate='+today_local+'&limit=1',ICOLL,headers=cookie_header);assert status==200 and guarded_plain['items'][0]['id']==future['id'],('guard without attention filter',status,guarded_plain)
+status,_,sort_mismatch=ireq('GET',ibase+'?sort=created&limit=1&cursor='+attention_page['nextCursor'],ICOLL,headers=cookie_header);assert status==400 and sort_mismatch['parameter']=='cursor',('sort cursor mismatch',status,sort_mismatch)
+for query in ('sort=unsupported','sort='):
+ status,_,problem=ireq('GET',ibase+'?'+query,ICOLL,headers=cookie_header);assert status==400 and problem['code']=='invalid_query' and problem['parameter']=='sort',('bad sort',query,status,problem)
 active_by_id={x['id']:x for x in active_items['items']}
 assert active_by_id[fixed['id']]['recurrence']==fixed['recurrence'] and active_by_id[fixed['id']]['attentionOn']==fixed['attentionOn'],('fixed list recurrence/attention',active_by_id[fixed['id']])
 assert active_by_id[fluid['id']]['recurrence']==fluid['recurrence'] and active_by_id[fluid['id']]['attentionOn']==fluid['attentionOn'],('fluid list recurrence/attention',active_by_id[fluid['id']])

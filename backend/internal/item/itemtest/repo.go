@@ -5,6 +5,7 @@ package itemtest
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -235,6 +236,12 @@ func (r *Repo) Get(_ context.Context, householdID, itemID string) (item.Item, er
 }
 
 func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions) ([]item.Item, error) {
+	if opts.Sort == "" {
+		opts.Sort = item.SortCreated
+	}
+	if opts.Sort != item.SortCreated && opts.Sort != item.SortAttention {
+		return nil, fmt.Errorf("itemtest: unsupported sort %q", opts.Sort)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Calls++
@@ -244,8 +251,17 @@ func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions
 	var all []item.Item
 	for _, i := range r.rows {
 		f := opts.Filters
-		if i.HouseholdID != householdID || i.Archived != f.Archived || i.Done != f.Done || i.ID <= opts.AfterID {
+		if i.HouseholdID != householdID || i.Archived != f.Archived || i.Done != f.Done || (opts.Sort == item.SortCreated && i.ID <= opts.AfterID) {
 			continue
+		}
+		if opts.Sort == item.SortAttention {
+			if opts.AfterAttentionOn == nil {
+				if i.AttentionOn == nil && i.ID <= opts.AfterID {
+					continue
+				}
+			} else if i.AttentionOn == nil || i.AttentionOn.Compare(*opts.AfterAttentionOn) < 0 || (i.AttentionOn.Compare(*opts.AfterAttentionOn) == 0 && i.ID <= opts.AfterID) {
+				continue
+			}
 		}
 		if f.SubjectID != "" && i.SubjectID != f.SubjectID {
 			continue
@@ -267,7 +283,21 @@ func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions
 		}
 		all = append(all, i)
 	}
-	sort.Slice(all, func(a, b int) bool { return all[a].ID < all[b].ID })
+	sort.Slice(all, func(a, b int) bool {
+		if opts.Sort == item.SortAttention {
+			x, y := all[a].AttentionOn, all[b].AttentionOn
+			if x == nil && y != nil {
+				return true
+			}
+			if x != nil && y == nil {
+				return false
+			}
+			if x != nil && y != nil && x.Compare(*y) != 0 {
+				return x.Compare(*y) < 0
+			}
+		}
+		return all[a].ID < all[b].ID
+	})
 	if len(all) > opts.Limit {
 		all = all[:opts.Limit]
 	}
