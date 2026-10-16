@@ -1,7 +1,7 @@
 # Autonomous Flow
 
 cycle=fresh_opencode_session
-goal=advance_highest_value_unproven_DoD
+goal=advance_highest_value_unproven_V2_DoD
 work_unit=small_reviewable_PR
 main=protected
 parallel_PRs=avoid
@@ -12,7 +12,7 @@ parallel_PRs=avoid
 3. Reconcile STATE with reality; reality wins.
 4. If active Tendo PR exists, finish/review/fix it before unrelated work.
 5. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
-6. Select smallest high-value unproven V1 behavior/DoD slice.
+6. Select smallest high-value unproven V2 GUI/UX/scale DoD slice.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -96,18 +96,21 @@ docs_ADR=durable_decisions_only
 ## Blockers
 - Do not spin on quota/outage/missing external dependency.
 - Record exact blocker/evidence in STATE.
-- Choose safe independent V1 work if available.
+- Choose safe independent V2 work if available.
 - Never claim unverified success.
 
-## Completion protocol
-Only after every DoD item is proven on current `main`:
-1. run complete clean CI/test/release validation;
-2. verify docs/config examples against actual release;
-3. create final branch from main;
-4. add `.autonomous/PROJECT_COMPLETE` with V1 completion evidence/commit;
-5. open final PR and pass normal required checks;
-6. merge through protection;
-7. checkout/pull main and verify completion file is tracked there;
-8. end cleanly.
+## V2 release and completion protocol
+Only after every V2_DEFINITION_OF_DONE item is proven on current main:
+1. run complete local and required CI/test/release validation;
+2. review production screenshots/flows/large-backlog evidence and documentation;
+3. via ordinary PR merge `docs/releases/v2.0.0.md` and any release-facing docs;
+4. after green main, create annotated v2.0.0 tag on that exact main commit;
+5. use the existing release workflow; verify GitHub Release, assets, public GHCR
+   image, both architectures, clean install and upgrade with preserved data;
+6. if GitHub permissions/visibility block release, record blocker and STOP
+   claiming completion; never bypass protection or fabricate evidence;
+7. from fresh main create a FINAL completion branch, add V2_COMPLETE with
+   evidence and released tag, open PR, pass checks, merge normally;
+8. sync clean local main and verify tracked V2_COMPLETE, then exit.
 
-Never create/commit PROJECT_COMPLETE directly on main.
+Never create/commit V2_COMPLETE directly on main. Keep V1 PROJECT_COMPLETE.

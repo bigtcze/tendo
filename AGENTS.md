@@ -3,12 +3,12 @@
 mode=autonomous
 language=english
 context_style=terse_structured
-primary_goal=ship_v1
+primary_goal=ship_v2_gui
 main_policy=PR_only
 human_intervention=routine_not_required
 
 ## Read set
-always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,TESTING,DEFINITION_OF_DONE,FLOW,STATE,LEARNINGS
+always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,TESTING,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,FLOW,STATE,LEARNINGS
 when_frontend=UX
 when_http_or_client=API
 when_docs_or_user_setup=DOCUMENTATION
@@ -32,16 +32,16 @@ dependency_or_renovate_PR=FLOW "Dependency maintenance"
 - Clarity > compression. Never invent cryptic shorthand.
 
 ## Authority
-may=plan,code,test,review,refactor,document,create_branch,push_branch,open_PR,enable_auto_merge_when_green
+may=plan,code,test,review,refactor,document,create_branch,push_branch,open_PR,enable_auto_merge_when_green,create_annotated_release_tag_after_green_main
 may_self_improve=AGENTS,FLOW,STATE,LEARNINGS,dev_tooling,tests,CI,docs_ADRs
-must_not_self_change=GUARDRAILS,CHARTER,PRODUCT,ROADMAP,UX,ARCHITECTURE,API,TESTING,DOCUMENTATION,DEFINITION_OF_DONE,systemd_runner,auth_credentials,global_opencode_config
-must_not=direct_commit_main,direct_push_main,force_push,history_rewrite,bypass_required_checks,merge_known_broken,scope_expand_v1
+must_not_self_change=GUARDRAILS,CHARTER,PRODUCT,ROADMAP,UX,ARCHITECTURE,API,TESTING,DOCUMENTATION,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,systemd_runner,auth_credentials,global_opencode_config
+must_not=direct_commit_main,direct_push_main,force_push,history_rewrite,bypass_required_checks,merge_known_broken,scope_expand_v2
 
 ## Completion
-V1 completion is itself a PR-only change.
-Only after every V1 DoD item is proven on `main`, required CI is green, docs are current, and no known release-blocking defect remains:
-1. create a final completion branch from current `main`;
-2. add `.autonomous/PROJECT_COMPLETE`;
-3. open/validate/merge the final PR through normal protection;
-4. sync local `main`;
-5. exit only when `PROJECT_COMPLETE` is tracked on clean local `main`.
+V1 completion is historical: preserve `.autonomous/PROJECT_COMPLETE` and
+its release v1.0.0. V2 is governed by V2_SCOPE and V2_DEFINITION_OF_DONE.
+Release v2.0.0 only after all V2 checks are green and notes are merged;
+validate the published artifacts. Only then add `.autonomous/V2_COMPLETE`
+through a protected PR and stop on clean `main`. Git release tagging on a
+verified main commit is permitted per docs/development/release.md; it is not a
+commit or push to main.

@@ -1,34 +1,22 @@
-Work autonomously on Tendo V1.
+Work autonomously on Tendo V2: a polished, professional, scalable household GUI.
+Read AGENTS.md and its referenced files, especially V2_SCOPE and
+V2_DEFINITION_OF_DONE. V1 is complete and released; preserve all its invariants.
 
-Read `AGENTS.md` and all referenced `.autonomous` context first. Locked files are immutable policy.
+Begin by reconciling git, open PRs, STATE, and required CI. Finish existing PR
+work first. Choose the smallest high-value unproven V2 UX/scale/quality slice.
+Audit real browser UX and realistic large backlogs before aesthetic changes.
 
-Goal this cycle:
-- advance the highest-value unproven V1 Definition-of-Done behavior;
-- finish existing PR/blocker work before unrelated work;
-- keep the change a small complete vertical slice;
-- preserve platform boundaries without speculative infrastructure.
+Never directly commit/push main; use branch + PR, current branch and green
+required checks, independent review, complete local test gate and meaningful
+Playwright production-build browser tests. Never bypass protection, weaken tests,
+change controller/systemd/OpenCode configuration, or implement unrelated ROADMAP
+features. Keep user-facing Czech and English clear; protect recurrence, auth,
+API, idempotency, household isolation, historical data and all V1 behavior.
 
-Hard requirements:
-- never commit/push directly to `main`;
-- branch + PR only;
-- required checks green and branch current before merge;
-- never bypass repository protection;
-- no V2+ implementation;
-- Repeat and Fluid recurrence are distinct concepts;
-- fixed and after-completion recurrence must both remain correct;
-- V1 UI exposes one named/default household only, while DB/auth design remains future multi-household-capable;
-- responsive web only; no native mobile app architecture;
-- preserve calm consumer UX;
-- backend application/domain owns business/date/auth rules;
-- public API follows locked API contract;
-- behavior changes include meaningful tests at appropriate layers;
-- documentation/config examples change with behavior;
-- update STATE from reality before ending;
-- LEARNINGS only for durable reusable knowledge;
-- never modify controller/global OpenCode boundaries.
+Use subagents in bounded packets (one writing subagent per worktree), consult
+oracle for cross-cutting API/DB/auth/concurrency decisions, keep STATE current
+and LEARNINGS reusable. Fix real failure causes; never declare unproven success.
 
-Use available tools/agents for implementation and independent review. Resolve failures rather than hiding them. If blocked, record exact evidence and choose safe independent V1 work.
-
-Completion is not a direct-main action. When all V1 DoD items are proven on main, follow FLOW's final completion-PR protocol.
-
-- Triage multi-domain review feedback into bounded, dependency-aware worker packets. Never forward a cross-domain review wholesale to one writing worker. Route cross-cutting design to `oracle`; the orchestrator owns full validation and failure re-triage.
+After every V2 DoD item passes on main, follow FLOW's V2 release and completion
+protocol: publish and verify GitHub Release v2.0.0 and container, then add
+V2_COMPLETE via final PR and end on clean main. PROJECT_COMPLETE is V1 history.
