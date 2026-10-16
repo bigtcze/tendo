@@ -941,22 +941,32 @@ test.describe('Tendo production journey', () => {
     const created = (await serverSubjects(false)).find((entry) => entry.name === title);
     expect(created?.linkedUserId).toBe(member!.userId);
     const subjectPath = `/api/v1/households/${householdId}/subjects/${created!.id}`;
+    const savePatch = async (form: ReturnType<typeof page.getByRole>) => {
+      const responsePromise = page.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().endsWith(subjectPath));
+      await form.getByRole('button', { name: en['subjects.save'] }).click();
+      const response = await responsePromise;
+      expect(response.status()).toBe(200);
+      await expect(form).toHaveCount(0);
+      return response.request().postDataJSON() as Record<string, unknown>;
+    };
 
     await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
     const edit = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
     await edit.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption('');
-    await edit.getByRole('button', { name: en['subjects.save'] }).click();
+    expect(await savePatch(edit)).toEqual({ linkedUserId: null });
+    await expect(row(title)).not.toContainText(en['subjects.link.row'].replace('{login}', member!.login));
     expect((await (await page.request.get(subjectPath)).json() as { linkedUserId: string | null }).linkedUserId).toBeNull();
 
     await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
     const relink = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
     await relink.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(member!.userId);
-    await relink.getByRole('button', { name: en['subjects.save'] }).click();
+    expect(await savePatch(relink)).toEqual({ linkedUserId: member!.userId });
+    await expect(row(title)).toContainText(en['subjects.link.row'].replace('{login}', member!.login));
     await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
     const changeType = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
     await changeType.getByRole('radio', { name: en['subjects.type.vehicle'] }).check();
     await expect(changeType.getByText(en['subjects.link.clearedByType'])).toBeVisible();
-    await changeType.getByRole('button', { name: en['subjects.save'] }).click();
+    expect(await savePatch(changeType)).toEqual({ type: 'vehicle', linkedUserId: null });
     expect(await (await page.request.get(subjectPath)).json()).toMatchObject({ type: 'vehicle', linkedUserId: null });
     await page.setViewportSize({ width: 360, height: 740 });
     try {
