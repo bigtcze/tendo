@@ -257,6 +257,61 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("filtered pagination adversarial household and partition isolation", func(t *testing.T) {
+		a, b := newHousehold("Filtered A"), newHousehold("Filtered B")
+		aRows := []subject.Subject{}
+		bRows := []subject.Subject{}
+		for i := 0; i < 5; i++ {
+			aRows = append(aRows, create(a, "filtered-a-"+string(rune('a'+i)), subject.TypeCustom))
+			if i < 2 {
+				bRows = append(bRows, create(b, "filtered-b-"+string(rune('a'+i)), subject.TypeCustom))
+			}
+		}
+		archived := true
+		for _, idx := range []int{1} {
+			updated, err := repo.Update(ctx, b, bRows[idx].ID, bRows[idx].Version, subject.Patch{Archived: &archived})
+			if err != nil {
+				t.Fatal(err)
+			}
+			bRows[idx] = updated
+		}
+		updatedA, err := repo.Update(ctx, a, aRows[3].ID, aRows[3].Version, subject.Patch{Archived: &archived})
+		if err != nil {
+			t.Fatal(err)
+		}
+		aRows[3] = updatedA
+		requested := []string{aRows[0].ID, aRows[1].ID, aRows[2].ID, aRows[3].ID, bRows[0].ID, bRows[1].ID}
+		service := subject.NewService(repo, func(context.Context, string, string) error { return nil }, nil)
+		for _, partition := range []struct {
+			archived bool
+			want     []string
+		}{
+			{false, []string{aRows[0].ID, aRows[1].ID, aRows[2].ID}},
+			{true, []string{aRows[3].ID}},
+		} {
+			for _, limit := range []int{1, 2} {
+				var got []string
+				cursor := ""
+				for {
+					page, err := service.List(ctx, actorID, a, subject.ListQuery{IDs: requested, Archived: partition.archived, Limit: limit, Cursor: cursor})
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, item := range page.Items {
+						got = append(got, item.ID)
+					}
+					if page.NextCursor == nil {
+						break
+					}
+					cursor = *page.NextCursor
+				}
+				if strings.Join(got, ",") != strings.Join(partition.want, ",") {
+					t.Fatalf("archived=%v limit=%d got=%v want=%v", partition.archived, limit, got, partition.want)
+				}
+			}
+		}
+	})
+
 	t.Run("archived filter separation", func(t *testing.T) {
 		hid := newHousehold("Archive")
 		active := create(hid, "active", subject.TypeHome)

@@ -280,16 +280,16 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if err != nil {
 		return Page{}, err
 	}
-	ids, err := CanonicalIDs(q.IDs)
-	if err != nil {
-		return Page{}, &InvalidQueryError{"id"}
-	}
 	limit := q.Limit
 	if limit == 0 {
 		limit = DefaultLimit
 	}
 	if limit < 1 || limit > MaxLimit {
 		return Page{}, &InvalidQueryError{"limit"}
+	}
+	ids, err := CanonicalIDs(q.IDs)
+	if err != nil {
+		return Page{}, &InvalidQueryError{"id"}
 	}
 	after := nilUUID
 	if q.Cursor != "" {

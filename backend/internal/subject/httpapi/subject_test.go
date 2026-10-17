@@ -348,9 +348,20 @@ func TestListIDsRepeatedAndValidationPrecedence(t *testing.T) {
 	f := newFixture(true)
 	second := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71"
 	f.repo.Seed(subject.Subject{ID: second, HouseholdID: householdID, Type: subject.TypeHome, Name: "Flat", CreatedAt: created, UpdatedAt: created, Version: 1})
-	w := f.do("GET", base+"?id="+strings.ToUpper(subjectID)+"&id="+second+"&id="+strings.ToUpper(subjectID), "", nil)
+	w := f.do("GET", base+"?id="+second, "", nil)
+	var subset struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &subset); err != nil || w.Code != 200 || len(subset.Items) != 1 || subset.Items[0]["id"] != second {
+		t.Fatalf("strict subset id filter: %d %s err=%v", w.Code, w.Body, err)
+	}
+	w = f.do("GET", base+"?id="+strings.ToUpper(subjectID)+"&id="+second+"&id="+strings.ToUpper(subjectID), "", nil)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), subjectID) || !strings.Contains(w.Body.String(), second) {
 		t.Fatalf("repeated id filter: %d %s", w.Code, w.Body)
+	}
+	duplicateQuery := "?" + strings.Repeat("id="+subjectID+"&", 100) + "id=" + subjectID
+	if w = f.do("GET", base+duplicateQuery, "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"id"`) {
+		t.Fatalf("101 duplicate valid ids: %d %s", w.Code, w.Body)
 	}
 	for _, value := range []string{"", "malformed"} {
 		w = f.do("GET", base+"?id="+value, "", nil)
@@ -364,8 +375,16 @@ func TestListIDsRepeatedAndValidationPrecedence(t *testing.T) {
 		t.Fatalf("unauth invalid id status=%d body=%s", w.Code, w.Body)
 	}
 	f.denyUser = callerID
+	if w := f.do("GET", base+"?id=malformed", "", nil); w.Code != 404 || !jsonEqual(t, w.Body.String(), problemBody(404, "Not Found", "not_found")) {
+		t.Fatalf("semantic validation must follow membership: status=%d body=%s", w.Code, w.Body)
+	}
+	f.denyUser = ""
+	if w := f.do("GET", base+"?id=malformed", "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"id"`) {
+		t.Fatalf("member malformed id: status=%d body=%s", w.Code, w.Body)
+	}
+	f.denyUser = callerID
 	if w := f.do("GET", base+"?id=", "", nil); w.Code != 400 {
-		t.Fatalf("membership precedes query validation: status=%d body=%s", w.Code, w.Body)
+		t.Fatalf("empty structural id check precedes membership: status=%d body=%s", w.Code, w.Body)
 	}
 }
 

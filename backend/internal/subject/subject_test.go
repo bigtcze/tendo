@@ -698,6 +698,17 @@ func TestFilteredListCanonicalizationAndCursorBinding(t *testing.T) {
 	if err != nil || len(second.Items) != 1 || second.Items[0].ID != ids[0] || second.NextCursor != nil {
 		t.Fatalf("second filtered page=%+v err=%v", second, err)
 	}
+	reordered := []string{ids[1], strings.ToUpper(ids[0])}
+	continued, err := svc.List(context.Background(), userID, householdID, ListQuery{IDs: reordered, Limit: 1, Cursor: *page.NextCursor})
+	if err != nil || len(continued.Items) != 1 || continued.Items[0].ID != ids[0] {
+		t.Fatalf("equivalent reordered filter continuation=%+v err=%v", continued, err)
+	}
+	otherHousehold := strings.Replace(householdID, "61", "62", 1)
+	otherSvc := NewService(repo, func(context.Context, string, string) error { return nil }, nil)
+	var crossHouseholdErr *InvalidQueryError
+	if _, err := otherSvc.List(context.Background(), userID, otherHousehold, ListQuery{IDs: input, Cursor: *page.NextCursor}); !errors.As(err, &crossHouseholdErr) || crossHouseholdErr.Parameter != "cursor" {
+		t.Fatalf("cross-household cursor accepted: %v", err)
+	}
 	for _, q := range []ListQuery{{IDs: []string{ids[0]}, Cursor: *page.NextCursor}, {Archived: true, IDs: input, Cursor: *page.NextCursor}, {IDs: input, Cursor: EncodeCursor(ids[1])}, {Cursor: *page.NextCursor}} {
 		var invalid *InvalidQueryError
 		if _, err := svc.List(context.Background(), userID, householdID, q); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
@@ -708,15 +719,19 @@ func TestFilteredListCanonicalizationAndCursorBinding(t *testing.T) {
 	if err != nil || len(archived.Items) != 1 || !archived.Items[0].Archived {
 		t.Fatalf("archived filter=%+v err=%v", archived, err)
 	}
-	if _, err := CanonicalIDs(make([]string, 101)); err == nil {
-		t.Fatal("101 IDs accepted")
-	}
+	oneHundredOne := make([]string, 101)
 	oneHundred := make([]string, 100)
-	for i := range oneHundred {
-		oneHundred[i] = ids[0]
+	for i := range oneHundredOne {
+		oneHundredOne[i] = ids[0]
+		if i < len(oneHundred) {
+			oneHundred[i] = ids[0]
+		}
 	}
-	if got, err := CanonicalIDs(oneHundred); err != nil || len(got) != 1 {
-		t.Fatalf("100 duplicate IDs got=%v err=%v", got, err)
+	if _, err := svc.List(context.Background(), userID, householdID, ListQuery{IDs: oneHundredOne}); !errors.As(err, &crossHouseholdErr) || crossHouseholdErr.Parameter != "id" {
+		t.Fatalf("101 valid IDs error=%v", err)
+	}
+	if _, err := svc.List(context.Background(), userID, householdID, ListQuery{IDs: oneHundred}); err != nil {
+		t.Fatalf("100 duplicate valid IDs rejected: %v", err)
 	}
 	for _, bad := range [][]string{{""}, {"bad"}} {
 		if _, err := CanonicalIDs(bad); err == nil {

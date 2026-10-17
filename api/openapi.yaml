@@ -793,7 +793,7 @@ paths:
     get:
       operationId: listSubjects
       summary: List subjects
-      description: Returns household subjects in ascending id order using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. Repeated id parameters optionally restrict the result to those canonical UUIDs (case-insensitive); unknown or foreign-household IDs are omitted. When filtered, cursors are bound to household, archived partition, and the canonical ID set. nextCursor is null on the last page. Unknown query parameters are ignored. Authentication runs before query validation; after authentication, query validation precedes household membership authorization.
+      description: Returns household subjects in ascending id order using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. Repeated id parameters optionally restrict the result to those canonical UUIDs (case-insensitive); unknown or foreign-household IDs are omitted. When filtered, cursors are bound to household, archived partition, and the canonical ID set. nextCursor is null on the last page. Unknown query parameters are ignored. After authentication, structural query checks (empty id values or more than 100 supplied values) precede household membership authorization; UUID syntax, limit and cursor validation follow membership authorization.
       tags: [Subjects]
       security:
         - SessionCookie: []
