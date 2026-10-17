@@ -91,7 +91,8 @@ route.
 5. Backend: text search (extensions, normalized column, GIN).
    - PR #112, merged: optional `q` on item list and summary, migration 016 (`unaccent`, `pg_trgm`, trigger-maintained `search_text`, GIN index), fail-closed schema validation.
 6. Frontend: server-backed attention-first home with truthful counts and bounded per-group pages; F5, F6, F7.
-   - 6a (PR #110, merged): server-backed groups, summary counts in headings, per-group Show more with remaining count, title wrapping — fixes F1 and F5 and the home part of F13. F6 and F7 remain open.
+   - 6a (PR #110, merged): server-backed groups, summary counts in headings, per-group Show more with remaining count, title wrapping — fixes F1 and F5 and the home part of F13.
+   - 6b (PR #116, merged): rows show attention date, last done and who looks after the item; row Done is a secondary button so Add item stays the single primary — fixes F6 and F7.
 7. Frontend: "All items" search/filter view incl. done and archived, URL-preserved context, bounded rendering (F2–F4, F13).
 8. Frontend: shared navigation and design tokens across every route (F8, F10–F12); subject labels without eager loading (F9).
 9. Accessibility: automated axe checks in production-build E2E plus keyboard/zoom/reduced-motion review (F14).
