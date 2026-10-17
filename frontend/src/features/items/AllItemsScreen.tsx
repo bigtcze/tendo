@@ -53,7 +53,7 @@ function readContext(): Context {
   const normalized = buildQuery(context);
   const location = `/items${normalized ? `?${normalized}` : ''}`;
   if (`${window.location.pathname}${window.location.search}` !== location) {
-    window.history.replaceState(window.history.state, '', location);
+    window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: [] }, '', location);
   }
   return context;
 }
@@ -367,7 +367,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
           {context.cursor ? <Button type="button" variant="quiet" onClick={() => {
             const prior = [...cursorStack()];
             const previous = prior.pop();
-            goToCursor(previous, prior);
+            goToCursor(previous || undefined, prior);
           }}>{stack.length ? t('allItems.previous') : t('allItems.first')}</Button> : null}
           {nextCursor ? <Button type="button" variant="quiet" onClick={() => {
             const prior = [...cursorStack(), ...(context.cursor ? [context.cursor] : [])];

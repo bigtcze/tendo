@@ -1188,6 +1188,228 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n12. all items finds and manages items among 1000+ seeded items with bounded pages', async () => {
+    test.setTimeout(240_000);
+    type SeedItem = { id: string; title: string; recurrence: null | { intervalUnit: 'day' | 'week' | 'month' | 'year'; intervalValue: number; mode: 'fixed' | 'after_completion' }; attentionOn?: string; subjectId: string };
+    type ListBody = { items: Array<{ id: string; title: string }>; nextCursor: string | null };
+    type Summary = { evaluatedOn: string; total: number; needsAttention: number; inProgress: number; waiting: number; upcoming: number; paused: number; done: number; archived: number };
+    const seeded: SeedItem[] = [];
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    const requests: string[] = [];
+    const onRequest = (req: import('@playwright/test').Request) => {
+      const path = new URL(req.url()).pathname;
+      if (path === `/api/v1/households/${householdId}/items` || path === `/api/v1/households/${householdId}/items/summary`) requests.push(`${req.method()} ${req.url()}`);
+    };
+    const apiWalk = async (query: Record<string, string> = {}) => {
+      const results: Array<{ id: string; title: string }> = [];
+      let cursor: string | undefined;
+      do {
+        const params = new URLSearchParams({ limit: '100', ...query, ...(cursor ? { cursor } : {}) });
+        const response = await page.request.get(`/api/v1/households/${householdId}/items?${params}`);
+        expect(response.status()).toBe(200);
+        const body = await response.json() as ListBody;
+        results.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return results;
+    };
+    const getSummary = async (query = '') => {
+      const response = await page.request.get(`/api/v1/households/${householdId}/items/summary${query ? `?${query}` : ''}`);
+      expect(response.status()).toBe(200);
+      return await response.json() as Summary;
+    };
+    const updateItem = async (id: string, body: Record<string, unknown>) => {
+      const current = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
+      expect(current.status()).toBe(200);
+      const response = await page.request.patch(`/api/v1/households/${householdId}/items/${id}`, {
+        headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: body,
+      });
+      expect(response.status()).toBe(200);
+      return response;
+    };
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const subjectsResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
+      expect(subjectsResponse.status()).toBe(200);
+      const subjectEntries = (await subjectsResponse.json() as { items: Array<{ id: string; name: string }> }).items;
+      const subjects = subjectEntries.slice(0, 2);
+      expect(subjects.length).toBe(2);
+      const sessionResponse = await page.request.get('/api/v1/session');
+      const ownerId = (await sessionResponse.json() as { userId: string }).userId;
+
+      const seedStarted = Date.now();
+      const batches = Array.from({ length: 42 }, (_, batch) => Array.from({ length: 25 }, (_, offset) => batch * 25 + offset));
+      for (const batch of batches) {
+        const responses = await Promise.all(batch.map(async (index) => {
+          const repeated = index % 3 !== 0;
+          const recurrence = repeated ? { intervalUnit: (['day', 'week', 'month', 'year'] as const)[index % 4], intervalValue: (index % 4) + 1, mode: (index % 2 ? 'fixed' : 'after_completion') as 'fixed' | 'after_completion' } : null;
+          const payload = {
+            title: index % 131 === 0 ? `Výměna filtru Škoda ${String(index).padStart(4, '0')}` : index === 17 ? `LongUnbreakableHouseholdItemTitle${'x'.repeat(150)}` : `All items seed ${String(index).padStart(4, '0')}`,
+            subjectId: subjects[index % 2]!.id,
+            ...(index % 5 === 0 ? { responsibleUserId: ownerId } : {}),
+            ...(index % 4 === 0 ? { attentionOn: '2025-01-10' } : index % 4 === 1 ? { attentionOn: '2027-01-10' } : {}),
+            recurrence,
+          };
+          const response = await page.request.post(`/api/v1/households/${householdId}/items`, {
+            headers: { Origin: baseURL, 'Idempotency-Key': `e2e-n12-create-${index}` }, data: payload,
+          });
+          expect(response.status(), `seed item ${index}`).toBe(201);
+          return { ...(await response.json() as SeedItem), recurrence, subjectId: payload.subjectId };
+        }));
+        seeded.push(...responses);
+      }
+      const seedDuration = Date.now() - seedStarted;
+      console.log(`n12 seeded ${seeded.length} items in ${seedDuration}ms`);
+      for (let i = 0; i < 12; i++) await updateItem(seeded[100 + i]!.id, { workflowState: i % 2 ? 'paused' : 'in_progress' });
+      for (let i = 0; i < 10; i++) await updateItem(seeded[200 + i]!.id, { archived: true });
+      const oneOffEntries = seeded.filter((item) => item.recurrence === null && !item.title.startsWith('Výměna')).slice(0, 10);
+      for (let i = 0; i < oneOffEntries.length; i++) {
+        const entry = oneOffEntries[i]!;
+        expect(entry.recurrence).toBeNull();
+        const current = await page.request.get(`/api/v1/households/${householdId}/items/${entry.id}`);
+        expect(current.status()).toBe(200);
+        const completed = await page.request.post(`/api/v1/households/${householdId}/items/${entry.id}/completions`, {
+          headers: { Origin: baseURL, 'If-Match': current.headers()['etag']!, 'Idempotency-Key': `e2e-n12-done-${i}` }, data: {},
+        });
+        expect(completed.status()).toBe(201);
+      }
+
+      page.on('request', onRequest);
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const beforeNavigation = requests.length;
+      await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      const summaryResponse = await page.request.get(`/api/v1/households/${householdId}/items/summary`);
+      const summary = await summaryResponse.json() as Summary;
+      const activeCount = summary.needsAttention + summary.inProgress + summary.waiting + summary.upcoming + summary.paused;
+      const statusSelect = page.getByLabel(en['allItems.status.label']);
+      await expect(statusSelect.locator('option').filter({ hasText: `Active (${activeCount})` })).toHaveCount(1);
+      await expect(page.getByRole('heading', { level: 2, name: `Showing 1–25 of ${activeCount}` })).toBeVisible();
+      const openingCalls = requests.slice(beforeNavigation).filter((entry) => entry.startsWith('GET '));
+      expect(openingCalls.filter((entry) => entry.includes('/items/summary')).length).toBe(1);
+      expect(openingCalls.filter((entry) => new URL(entry.replace(/^GET /, '')).pathname === `/api/v1/households/${householdId}/items`).length).toBe(1);
+      expect(openingCalls.length).toBeLessThanOrEqual(6); // summary + first items page + subjects (active/archive) + members, with a small pagination allowance
+
+      const searchInput = page.getByRole('searchbox');
+      await searchInput.fill('vymena filtru skoda');
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      const accented = seeded.filter((item) => item.title.startsWith('Výměna filtru Škoda'));
+      await expect(page.getByRole('listitem')).toHaveCount(accented.length);
+      await expect(page).toHaveURL(/q=vymena\+filtru\+skoda/);
+      await expect(page.getByRole('heading', { level: 2, name: `Showing 1–${accented.length} of ${accented.length}` })).toBeVisible();
+
+      await searchInput.fill('All items seed');
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await statusSelect.selectOption('done');
+      await expect(page.getByRole('listitem')).toHaveCount(10);
+      await statusSelect.selectOption('archived');
+      await expect(page.getByRole('listitem')).toHaveCount(10);
+      await statusSelect.selectOption('active');
+      await searchInput.fill('');
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+
+      const subjectSelect = page.getByLabel(en['items.subject']);
+      await subjectSelect.selectOption(subjects[0]!.id);
+      await page.getByLabel(en['allItems.repeat']).selectOption('false');
+      const filterQuery = `subjectId=${encodeURIComponent(subjects[0]!.id)}&recurring=false`;
+      const filteredSummary = await getSummary(filterQuery);
+      const expectedWalk = await apiWalk({ subjectId: subjects[0]!.id, recurring: 'false', archived: 'false', done: 'false', sort: 'attention_on', attentionDate: (await getSummary(filterQuery)).evaluatedOn });
+      const filterTotal = filteredSummary.needsAttention + filteredSummary.inProgress + filteredSummary.waiting + filteredSummary.upcoming + filteredSummary.paused;
+      expect(expectedWalk.length).toBe(filterTotal);
+      await expect(page.getByRole('listitem')).toHaveCount(Math.min(25, filterTotal));
+      const walkIds: string[] = [];
+      const pageCount = Math.ceil(filterTotal / 25);
+      for (let i = 0; i < pageCount; i++) {
+        const visibleIds = await page.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')!));
+        expect(visibleIds.length).toBeLessThanOrEqual(25);
+        expect(new Set(visibleIds).size).toBe(visibleIds.length);
+        walkIds.push(...visibleIds);
+        if (i < pageCount - 1) {
+          const before = requests.length;
+          await page.getByRole('button', { name: en['allItems.next'] }).click();
+          await expect(page.locator('[data-item-id]')).toHaveCount(Math.min(25, filterTotal - (i + 1) * 25));
+          await expect.poll(() => requests.length - before).toBe(2); // one summary freshness/count request, then one list-page request
+        }
+      }
+      expect(walkIds.length).toBe(expectedWalk.length);
+      expect(new Set(walkIds).size).toBe(walkIds.length);
+      expect([...walkIds].sort()).toEqual(expectedWalk.map((item) => item.id).sort());
+      const domElements = await page.locator('*').count();
+      console.log(`n12 filtered list DOM element count=${domElements}`);
+      expect(domElements).toBeLessThan(1500); // measured bound allows headroom above the 25-row results and filter controls
+
+      // Search context can be paged independently. Open a page-three row and verify exact return restoration.
+      await page.getByLabel(en['allItems.repeat']).selectOption('');
+      await subjectSelect.selectOption('');
+      await searchInput.fill('All items seed');
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      const searchSummary = await getSummary('q=All+items+seed');
+      const searchTotal = searchSummary.needsAttention + searchSummary.inProgress + searchSummary.waiting + searchSummary.upcoming + searchSummary.paused;
+      await expect(page.getByRole('heading', { level: 2, name: `Showing 1–25 of ${searchTotal}` })).toBeVisible();
+      expect(searchTotal).toBeGreaterThan(50);
+      await expect.poll(() => page.getByRole('button', { name: en['allItems.next'] }).count()).toBe(1);
+      await page.getByRole('button', { name: en['allItems.next'] }).click();
+      await expect(page.getByRole('heading', { level: 2, name: /Showing 26–50 of/ })).toBeVisible();
+      await page.getByRole('button', { name: en['allItems.next'] }).click();
+      await expect(page.getByRole('heading', { level: 2, name: /Showing 51–75 of/ })).toBeVisible();
+      const beforeDetailUrl = new URL(page.url());
+      const beforeDetailRows = await page.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')));
+      await page.locator('[data-item-id]').first().getByRole('link').click();
+      await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
+      await expect(page).toHaveURL(beforeDetailUrl.toString());
+      await expect.poll(() => page.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')))).toEqual(beforeDetailRows);
+
+      // Archive one uniquely searched result through its detail screen, then verify the result/count update.
+      await searchInput.fill('vymena filtru skoda 0000');
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await expect(page.getByRole('listitem')).toHaveCount(1);
+      const archivedSearchItem = page.getByRole('link', { name: 'Výměna filtru Škoda 0000' });
+      await archivedSearchItem.click();
+      await page.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
+      await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
+      await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
+      await statusSelect.selectOption('archived');
+      await expect(page.getByRole('listitem')).toHaveCount(1);
+
+      for (const width of [360, 768]) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.goto('/items?q=LongUnbreakableHouseholdItemTitle');
+        await expect(page.getByText(/LongUnbreakableHouseholdItemTitle/)).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${width}px All items overflow`).toBeLessThanOrEqual(0);
+      }
+      await page.getByRole('button', { name: 'Čeština' }).click();
+      await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+      await expect(page.getByLabel(cs['allItems.status.label']).getByRole('option', { name: new RegExp(cs['allItems.status.active']) })).toHaveCount(1);
+      await page.getByRole('button', { name: 'English' }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+    } catch (error) { primaryFailure = error; }
+    finally {
+      page.off('request', onRequest);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      const batches = Array.from({ length: Math.ceil(seeded.length / 25) }, (_, batch) => seeded.slice(batch * 25, batch * 25 + 25));
+      for (const batch of batches) {
+        try {
+          await Promise.all(batch.map(async (item) => {
+            const current = await page.request.get(`/api/v1/households/${householdId}/items/${item.id}`);
+            if (current.status() !== 200) { cleanupFailure ??= new Error(`Could not read seeded item ${item.id}: ${current.status()}`); return; }
+            const body = await current.json() as { archived: boolean };
+            if (body.archived) return;
+            const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${item.id}`, {
+              headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true },
+            });
+            if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive seeded item ${item.id}: ${archived.status()}`);
+          }));
+        } catch (error) { cleanupFailure ??= error; }
+      }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();

@@ -45,20 +45,30 @@ describe('All items', () => {
   });
 
   it.each([
+    ['active', { archived: 'false', done: 'false' }],
     ['needs', { workflowState: 'open', attention: 'needs_attention' }],
     ['inProgress', { workflowState: 'in_progress' }], ['waiting', { workflowState: 'waiting' }],
     ['upcoming', { workflowState: 'open', attention: 'upcoming' }], ['paused', { workflowState: 'paused' }],
     ['done', { done: 'true', archived: 'false' }], ['archived', { archived: 'true' }],
-  ])('uses exact query fields for %s and applies combined filters', async (status, expected) => {
-    const fake = await openAllItems([makeItem(1)]);
-    await userEvent.selectOptions(screen.getByLabelText('Show'), status);
-    await userEvent.type(screen.getByRole('searchbox'), '  care  ');
-    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-    await waitFor(() => expect(reqs(fake.requests, `${base}/items`).length).toBeGreaterThan(2));
+  ])('uses exact query fields for %s with all common filters; summary excludes status', async (status, expected) => {
+    window.history.replaceState(null, '', `/items?status=${status}&q=care&subject=s-1&responsible=${member.userId}&recurring=false`);
+    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
+    app();
+    await screen.findByRole('heading', { name: 'All items' });
+    await waitFor(() => expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.has('attentionDate')).toBe(true));
     const summary = reqs(fake.requests, `${base}/items/summary`).at(-1)!;
     const list = reqs(fake.requests, `${base}/items`).at(-1)!;
-    expect(summary.query.toString()).toBe('q=care');
+    expect(summary.query.toString()).toBe(`q=care&subjectId=s-1&responsibleUserId=${member.userId}&recurring=false`);
+    expect(summary.query.has('workflowState')).toBe(false);
+    expect(summary.query.has('done')).toBe(false);
+    expect(summary.query.has('archived')).toBe(false);
+    expect(list.query.get('limit')).toBe('25');
+    expect(list.query.get('sort')).toBe('attention_on');
+    expect(list.query.get('attentionDate')).toBe('2026-01-15');
     expect(list.query.get('q')).toBe('care');
+    expect(list.query.get('subjectId')).toBe('s-1');
+    expect(list.query.get('responsibleUserId')).toBe(member.userId);
+    expect(list.query.get('recurring')).toBe('false');
     expect(list.query.get('status')).toBeNull();
     for (const [key, value] of Object.entries(expected)) expect(list.query.get(key)).toBe(value);
   });
@@ -83,6 +93,31 @@ describe('All items', () => {
     expect(screen.getByLabelText('Show')).toHaveValue('active');
     expect(screen.getByLabelText('For')).toHaveValue('unknown-id');
     expect(reqs(fake.requests, `${base}/items/summary`).at(-1)?.query.toString()).toBe('subjectId=unknown-id');
+  });
+
+  it('hides failed facets while search still works and keeps unknown subject filters clearable', async () => {
+    const routes = { ...bootRoutes, [subjectsPath]: json(500, {}), [membersPath]: json(500, {}) };
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [makeItem(1)]) });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    expect(await screen.findByRole('heading', { name: 'All items' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText('For')).not.toBeInTheDocument());
+    expect(screen.queryByLabelText("Who's looking after it")).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole('searchbox'), 'Item');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('Item 1')).toBeInTheDocument();
+    expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('q')).toBe('Item');
+
+    cleanup();
+    window.history.replaceState(null, '', '/');
+    window.history.replaceState(null, '', '/items?subject=unknown-subject');
+    const unknown = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
+    app();
+    expect(await screen.findByRole('option', { name: 'Unknown' })).toBeInTheDocument();
+    expect(screen.getByLabelText('For')).toHaveValue('unknown-subject');
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
+    expect(window.location.pathname + window.location.search).toBe('/items');
+    expect(unknown.requests.length).toBeGreaterThan(0);
   });
 
   it('submits trimmed search, clears it, and blocks more than 200 characters without a request', async () => {
@@ -116,6 +151,37 @@ describe('All items', () => {
       expect(request.query.get('responsibleUserId')).toBe(member.userId);
       expect(request.query.get('recurring')).toBe('true');
     }
+  });
+
+  it('restores page three after reload and Previous returns to page two', async () => {
+    const items = Array.from({ length: 80 }, (_, index) => makeItem(index + 1));
+    await openAllItems(items);
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    const pageThree = [...document.querySelectorAll('[data-item-id]')].map((row) => row.textContent);
+    expect(pageThree.some((row) => row.startsWith('Item 51'))).toBe(true);
+    const state = window.history.state;
+    const href = window.location.pathname + window.location.search;
+    cleanup();
+    window.history.replaceState(state, '', href);
+    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, items) });
+    app();
+    await waitFor(() => expect([...document.querySelectorAll('[data-item-id]')].map((row) => row.textContent)).toEqual(pageThree));
+    await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+    expect(await screen.findByText('Item 26')).toBeInTheDocument();
+    expect(window.location.search).toContain('cursor=c%3A25');
+    expect(fake.requests.some((request) => request.query.get('cursor') === 'c:50')).toBe(true);
+  });
+
+  it('shows First page when a deep-linked cursor has no cursor stack', async () => {
+    window.history.replaceState(null, '', '/items?cursor=c%3A25');
+    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, Array.from({ length: 40 }, (_, index) => makeItem(index + 1))) });
+    app();
+    expect(await screen.findByText('Item 26')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'First page' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'First page' }));
+    expect(await screen.findByText('Item 1')).toBeInTheDocument();
+    expect(fake.requests.some((request) => request.query.get('cursor') === 'c:0')).toBe(false);
   });
 
   it('reaches done and archived records from their status choices', async () => {
@@ -161,6 +227,23 @@ describe('All items', () => {
     await screen.findByText('Item 1');
     expect(window.location.pathname + window.location.search).toBe('/items');
     expect(fake.requests.length).toBeGreaterThan(0);
+  });
+
+  it('returns from detail to the exact filtered second page and restores its rows', async () => {
+    const items = Array.from({ length: 60 }, (_, index) => makeItem(index + 1));
+    const fake = await openAllItems(items);
+    await userEvent.type(screen.getByRole('searchbox'), 'Item');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    const pageRows = [...document.querySelectorAll('[data-item-id]')].map((row) => row.textContent);
+    const listUrl = window.location.pathname + window.location.search;
+    await userEvent.click(await screen.findByRole('link', { name: 'Item 26' }));
+    expect(await screen.findByRole('link', { name: 'Back to all items' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'Back to all items' }));
+    await screen.findByText('Item 26');
+    expect(window.location.pathname + window.location.search).toBe(listUrl);
+    expect([...document.querySelectorAll('[data-item-id]')].map((row) => row.textContent)).toEqual(pageRows);
+    expect(fake.requests.some((request) => request.query.get('cursor') === 'c:25')).toBe(true);
   });
 
   it('returns from item detail to the filtered page', async () => {
