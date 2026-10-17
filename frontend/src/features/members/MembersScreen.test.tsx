@@ -20,7 +20,7 @@ describe('members and invitations', () => {
     const fake = installFakeServer(defaults()); renderApp();
     expect(await screen.findByRole('link', { name: 'Household members' })).toHaveAttribute('href', '/members');
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
-    const rows = await screen.findAllByRole('listitem');
+    const rows = within(screen.getByRole('heading', { name: 'Members' }).parentElement!).getAllByRole('listitem');
     expect(rows.map((row) => row.textContent)).toEqual(['anna (you)Owner', 'petrMember']);
     expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members`)).toBe(true);
   });
@@ -118,11 +118,13 @@ describe('members and invitations', () => {
     const fake = installFakeServer(routes);
     renderApp();
     await screen.findByRole('link', { name: 'Household members' });
-    const beforeMembersPage = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`).length;
+    await waitFor(() => expect(fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`)).toHaveLength(2));
+    const membersRequestsBeforeNavigation = fake.requests.filter((r) => r.path === `${base}/members`);
+    const beforeMembersPage = membersRequestsBeforeNavigation.length;
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
-    const membersPageRequests = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`).slice(beforeMembersPage);
-    expect(membersPageRequests.map((r) => r.query.get('cursor'))).toEqual([null, 'next']);
+    const membersPageRequests = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`);
+    expect(membersPageRequests.slice(beforeMembersPage).map((r) => r.query.get('cursor'))).toEqual([null, 'next']);
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
 

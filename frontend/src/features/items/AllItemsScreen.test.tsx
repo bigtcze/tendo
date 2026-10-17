@@ -257,6 +257,50 @@ describe('All items', () => {
     expect(fake.requests.some((request) => request.query.get('cursor') === 'c:25')).toBe(true);
   });
 
+  it('All items navigation starts a clean first page and browser Back restores the filtered page', async () => {
+    const items = Array.from({ length: 60 }, (_, index) => makeItem(index + 1));
+    const fake = await openAllItems(items);
+    await userEvent.type(screen.getByRole('searchbox'), 'Item');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await userEvent.selectOptions(screen.getByLabelText('Repeat'), 'false');
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(window.location.search).toContain('cursor=');
+    const filteredUrl = window.location.pathname + window.location.search;
+
+    const requestStart = fake.requests.length;
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe('/items'));
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+    expect(screen.getByLabelText('Show')).toHaveValue('active');
+    expect(screen.getByLabelText('For')).toHaveValue('');
+    expect(screen.getByLabelText('Repeat')).toHaveValue('');
+    await screen.findByText('Item 1');
+    const freshListRequests = reqs(fake.requests.slice(requestStart), `${base}/items`);
+    expect(freshListRequests.length).toBeGreaterThan(0);
+    expect(freshListRequests.at(-1)!.query.has('cursor')).toBe(false);
+    expect(freshListRequests.at(-1)!.query.has('q')).toBe(false);
+    expect(freshListRequests.at(-1)!.query.has('subjectId')).toBe(false);
+    expect(freshListRequests.at(-1)!.query.has('responsibleUserId')).toBe(false);
+    expect(freshListRequests.at(-1)!.query.has('recurring')).toBe(false);
+    expect(freshListRequests.at(-1)!.query.get('archived')).toBe('false');
+    expect(freshListRequests.at(-1)!.query.get('done')).toBe('false');
+
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe(filteredUrl));
+    expect(await screen.findByRole('searchbox')).toHaveValue('Item');
+    expect(screen.getByLabelText('Repeat')).toHaveValue('false');
+    expect(await screen.findByText('Item 26')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
+    await screen.findByText('Item 1');
+    await userEvent.click(screen.getByRole('link', { name: 'Item 1' }));
+    await screen.findByRole('link', { name: 'Back to all items' });
+    await userEvent.click(screen.getByRole('link', { name: 'Back to all items' }));
+    await screen.findByText('Item 1');
+    expect(window.location.pathname + window.location.search).toBe('/items');
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+  });
+
   it('returns from item detail to the filtered page', async () => {
     await openAllItems([makeItem(1)]);
     await userEvent.type(screen.getByRole('searchbox'), 'Item');

@@ -95,6 +95,7 @@ route.
    - 6b (PR #116, merged): rows show attention date, last done and who looks after the item; row Done is a secondary button so Add item stays the single primary — fixes F6 and F7.
 7. Frontend: "All items" search/filter view incl. done and archived, URL-preserved context, bounded rendering (F2–F4, F13).
 8. Frontend: shared navigation and design tokens across every route (F8, F10–F12); subject labels without eager loading (F9).
+   - 8a (this PR): shared household navigation on every signed-in household route with current-page state (Home and Account only without a household; none on invitations), consistent page headings and width, type-scale tokens, smaller phone heading and padding, no decorative background, and plain setup-code wording — fixes F8, F10, F11 and F12. F9 remains open.
 9. Accessibility: automated axe checks in production-build E2E plus keyboard/zoom/reduced-motion review (F14).
 10. Large-dataset production E2E in required CI (1000+ items), docs, release v2.0.0.
 

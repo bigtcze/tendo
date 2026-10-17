@@ -27,6 +27,15 @@ beforeEach(() => { vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); window.history.replaceState(null, '', '/'); });
 
 describe('item details', () => {
+  it('keeps shared navigation visible and marks All items as current on item detail', async () => {
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${base}/members`]: members }));
+    app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const nav = screen.getByRole('navigation', { name: 'Household navigation' });
+    expect(within(nav).getByRole('link', { name: 'All items' })).toHaveAttribute('aria-current', 'page');
+  });
+
   it('shows the assigned member in the detail read view and hides the line when unassigned', async () => {
     const assigned = item({ responsibleUserId: secondMember.userId });
     installFakeServer(common({ [`GET ${path}`]: json(200, assigned, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
@@ -139,11 +148,11 @@ describe('item details', () => {
     expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(2);
   });
 
-  it('loads details via deep link, shows gone for 404/malformed ids and Back returns home', async () => {
+  it('loads details via deep link, shows gone for 404/malformed ids and Home returns home', async () => {
     const first = installFakeServer(common({ [`GET ${path}`]: json(404), [`GET ${base}/items`]: json(200, { items: [], nextCursor: null }) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     expect(await screen.findByRole('heading', { name: 'That item is gone' })).toBeVisible();
-    await userEvent.click(screen.getByRole('link', { name: 'Back to home' }));
+    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
     expect(await screen.findByRole('heading', { name: 'Veselí' })).toBeVisible();
     cleanup(); window.history.replaceState(null, '', '/items/not-an-id');
     const malformed = installFakeServer(baseRoutes); app();

@@ -328,8 +328,8 @@ describe('Home items', () => {
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
     expect(screen.getByText(/Nov 1, 2026/)).toBeVisible();
-    const rows = screen.getAllByRole('listitem');
-    expect(rows.map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
+    const rows = screen.getByRole('main').querySelectorAll('ul.divide-y > li');
+    expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -527,7 +527,7 @@ describe('Home items', () => {
     await screen.findByRole('button', { name: 'Try again' });
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
-    await userEvent.click(screen.getByRole('link', { name: 'Back to home' }));
+    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
     const postsSent = requestsOf(fake.requests, 'POST', donePath);
@@ -1106,8 +1106,10 @@ describe('Home items', () => {
     await screen.findByText('Check your connection and try again.');
     expect(screen.queryByText('Renew passport')).not.toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]!);
-    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2));
-    expect(screen.getAllByText('Renew passport')).toHaveLength(2);
+    await waitFor(() => expect(within(screen.getByRole('main')).getAllByRole('listitem')).toHaveLength(2));
+    const rows = within(screen.getByRole('main')).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    rows.forEach((row) => expect(row).toHaveTextContent('Renew passport'));
   });
 
   it('keeps Show more focus during loading, then moves to the heading on the final page', async () => {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Layout } from '../../app/Layout';
-import { NavLink } from '../../app/NavLink';
 import { ErrorScreen, LoadingScreen } from '../../app/StatusScreens';
 import { useI18n } from '../../i18n';
 import { api } from '../../lib/api';
@@ -19,17 +18,11 @@ export function HomeScreen({
   session,
   onSignedOut,
   onOpenPeople,
-  onOpenMembers,
-  onOpenAccount,
-  onOpenAllItems,
   onOpenItem,
 }: {
   session: Session;
   onSignedOut: () => void;
   onOpenPeople: () => void;
-  onOpenMembers: () => void;
-  onOpenAccount: () => void;
-  onOpenAllItems: () => void;
   onOpenItem: (itemId: string) => void;
 }) {
   const { t } = useI18n();
@@ -83,38 +76,10 @@ export function HomeScreen({
       ) : null}
       {household.kind === 'ready' ? (
         <section className="settle">
-          <Heading className="font-display text-4xl leading-tight sm:text-5xl">{household.name}</Heading>
-          <div className="mt-8">
+          <Heading className="font-display text-display leading-tight">{household.name}</Heading>
+          <div className="mt-5">
             <ItemsScreen userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onSignedOut={onSignedOut} />
           </div>
-          <NavLink
-            href="/items"
-            onNavigate={onOpenAllItems}
-            className="mt-3 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            {t('home.allItems')}
-          </NavLink>
-          <NavLink
-            href="/people"
-            onNavigate={onOpenPeople}
-            className="mt-6 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            {t('home.people')}
-          </NavLink>
-          <NavLink
-            href="/members"
-            onNavigate={onOpenMembers}
-            className="mt-1 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            {t('home.members')}
-          </NavLink>
-          <NavLink
-            href="/account"
-            onNavigate={onOpenAccount}
-            className="mt-1 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            {t('home.account')}
-          </NavLink>
         </section>
       ) : null}
     </Layout>

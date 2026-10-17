@@ -182,12 +182,12 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await capture(csPage, join(dir, `audit-add-form-cs-${width}.png`));
         await csPage.goto(`/items/${recurringHistoryItemId}`);
         await expect(csPage.getByRole('heading', { name: cs['itemDetail.history'] })).toBeVisible();
-        await expect(csPage.getByRole('list').locator('li')).toHaveCount(2);
+        await expect(csPage.getByRole('main').locator('ol li')).toHaveCount(2);
         await capture(csPage, join(dir, `audit-item-detail-cs-${width}.png`));
         await csContext.close();
         await page.goto(`/items/${recurringHistoryItemId}`);
         await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
-        const history = page.getByRole('list').filter({ has: page.getByText(new RegExp(en['itemDetail.historyDone'].replace('{date}', ''))) });
+        const history = page.getByRole('main').getByRole('list').filter({ has: page.getByText(new RegExp(en['itemDetail.historyDone'].replace('{date}', ''))) });
         await expect(history.locator('li')).toHaveCount(2);
         expect(recurringHistoryItemId).toBe(tall!.id);
         await capture(page, join(dir, `audit-item-detail-en-${width}.png`));
@@ -195,15 +195,15 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await expect(page.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toBeVisible();
         await capture(page, join(dir, `audit-item-edit-en-${width}.png`));
         await page.goto('/');
-        await page.getByRole('link', { name: en['home.people'] }).click();
+        await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['subjects.title'] })).toBeVisible();
         await capture(page, join(dir, `audit-people-things-en-${width}.png`));
         await page.goto('/');
-        await page.getByRole('link', { name: en['home.members'] }).click();
+        await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.members'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['members.title'] })).toBeVisible();
         await capture(page, join(dir, `audit-members-en-${width}.png`));
         await page.goto('/');
-        await page.getByRole('link', { name: en['home.account'] }).click();
+        await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.account'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['account.title'] })).toBeVisible();
         await capture(page, join(dir, `audit-account-en-${width}.png`));
       }
@@ -252,7 +252,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await capture(targetPage, join(dir, `${file}.png`));
       await expect(targetPage.getByRole('heading', { level: 1 }).first()).toBeVisible();
       await targetPage.screenshot({ path: join(dir, `${file}-fold.png`) });
-      metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, showMoreVisible: await targetPage.getByRole('button', { name: (locale === 'cs' ? cs : en)['subjects.more'], exact: true }).isVisible().catch(() => false) };
+      metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, showMoreVisible: await targetPage.locator('button[data-group-more]').first().isVisible().catch(() => false) };
       metrics.listPageSizes.push(...pageSizes);
       targetPage.off('response', responseListener);
       if (context) await context.close();
@@ -264,15 +264,16 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await page.setViewportSize({ width, height: 900 }); await page.goto('/');
         const clickMetrics: Array<Record<string, number>> = [];
         await page.getByRole('heading', { level: 1 }).first().waitFor({ state: 'visible' });
-        const showMore = page.getByRole('button', { name: en['subjects.more'], exact: true });
-        if (actualActiveTotal > 100) await expect(showMore).toBeVisible();
-        if (await showMore.isVisible().catch(() => false)) await showMore.scrollIntoViewIfNeeded();
-        for (let click = 1; click <= 15; click++) {
-          const more = page.getByRole('button', { name: en['subjects.more'], exact: true });
+        // Home pages each attention group separately; expand every group until no "Show more" remains.
+        const groupMore = page.locator('button[data-group-more]');
+        if (actualActiveTotal > 25) await expect(groupMore.first()).toBeVisible();
+        for (let click = 1; click <= 200; click++) {
+          const more = groupMore.first();
           if (!(await more.isVisible().catch(() => false))) break;
           await more.scrollIntoViewIfNeeded();
+          const rowsBefore = await page.locator('li[data-item-id]').count();
           const before = Date.now(); await more.click();
-          await expect.poll(() => page.locator('li[data-item-id]').count()).toBeGreaterThan(clickMetrics.length === 0 ? 100 : clickMetrics[clickMetrics.length - 1].rows);
+          await expect.poll(() => page.locator('li[data-item-id]').count()).toBeGreaterThan(rowsBefore);
           const timeToRenderMs = Date.now() - before;
           const state = await page.evaluate(() => ({ dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, height: document.documentElement.scrollHeight }));
           clickMetrics.push({ click, ...state, timeToRenderMs });

@@ -154,7 +154,7 @@ describe('onboarding', () => {
     expect(screen.getByLabelText('Setup code')).toHaveAttribute('aria-invalid', 'false');
   });
 
-  it('503 setup_unavailable says setup is not switched on', async () => {
+  it('503 setup_unavailable gives plain guidance', async () => {
     installFakeServer({
       ...setupRequired,
       'PUT /api/v1/auth/setup': problem(503, { code: 'setup_unavailable' }),
@@ -163,7 +163,7 @@ describe('onboarding', () => {
     await fillForm();
     await userEvent.click(screen.getByRole('button', { name: 'Create household' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Setup isn’t switched on for this Tendo. Whoever installed it needs to set TENDO_SETUP_TOKEN.',
+      'Setup isn’t available right now. Ask the person who installed Tendo for help.',
     );
     expect(screen.getByLabelText('Login')).toHaveValue('anna');
   });

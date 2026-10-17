@@ -207,7 +207,7 @@ describe('account screen', () => {
     installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': json(200, { linked: true }) });
     renderApp();
     expect(await screen.findByText('Connected. Next time you can use it to sign in.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('link', { name: 'Back to home' }));
+    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe('/account'));
@@ -239,7 +239,7 @@ describe('account screen', () => {
     window.history.replaceState(null, '', '/account');
     renderApp();
     expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to home' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Home$/ })).toBeInTheDocument();
   });
 
   it('renders Czech', async () => {

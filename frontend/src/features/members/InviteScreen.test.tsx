@@ -19,6 +19,7 @@ describe('invitation acceptance', () => {
     window.history.replaceState(null, '', `/invite#${token}`);
     const fake = installFakeServer(signedOutRoutes({ 'POST /api/v1/auth/invitations/accept': json(201, {}), 'POST /api/v1/session': json(201, session()), [`GET ${base}`]: json(200, household) }));
     renderApp(true); expect(await screen.findByRole('heading', { level: 1, name: 'You’ve been invited to Tendo' })).toBeVisible();
+    expect(screen.queryByRole('navigation', { name: 'Household navigation' })).toBeNull();
     await waitFor(() => { expect(location.pathname).toBe('/invite'); expect(location.hash).toBe(''); });
     await userEvent.type(screen.getByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'a sufficiently long password'); await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
@@ -180,7 +181,9 @@ describe('invitation acceptance', () => {
     window.history.replaceState(null, '', `/invite#${token}`);
     let sessionReads = 0;
     const fake = installFakeServer(signedInRoutes({ 'POST /api/v1/invitations/accept': json(201, {}), 'GET /api/v1/session': () => json(200, session(++sessionReads > 1)) })); renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Join household' })); expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Join household' })).toBeVisible();
+    expect(screen.queryByRole('navigation', { name: 'Household navigation' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Join household' })); expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     const acceptIndex = fake.requests.findIndex((r) => r.method === 'POST' && r.path === '/api/v1/invitations/accept');
     const sessionReadsAfterAccept = fake.requests.map((r, index) => ({ r, index })).filter(({ r, index }) => index > acceptIndex && r.method === 'GET' && r.path === '/api/v1/session');
     expect(sessionReadsAfterAccept).toHaveLength(1);

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n';
@@ -139,6 +139,31 @@ describe('signed in', () => {
     expect(screen.getByRole('button', { name: 'Add item' })).toBeVisible();
   });
 
+  it('shows shared navigation with the current page and moves focus to each new heading', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const nav = await screen.findByRole('navigation', { name: 'Household navigation' });
+    const currentHrefs = () => within(screen.getByRole('navigation', { name: 'Household navigation' })).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page').map((link) => link.getAttribute('href'));
+    expect(within(nav).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/', '/items', '/people', '/members', '/account']);
+    expect(currentHrefs()).toEqual(['/']);
+    for (const [name, href, heading] of [
+      ['All items', '/items', 'All items'],
+      ['People and things', '/people', 'People and things'],
+      ['Household members', '/members', 'Household members'],
+      ['Your account', '/account', 'Your account'],
+      ['Home', '/', 'Veselí'],
+    ] as const) {
+      await userEvent.click(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('link', { name: new RegExp(`^${name}$`) }));
+      expect(await screen.findByRole('heading', { level: 1, name: heading })).toHaveFocus();
+      expect(window.location.pathname).toBe(href);
+      expect(currentHrefs()).toEqual([href]);
+    }
+  });
+
   it('an existing session goes straight to home', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
@@ -159,6 +184,18 @@ describe('signed in', () => {
       'Your account isn’t part of a household yet.',
     );
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    const navigation = screen.getByRole('navigation', { name: 'Household navigation' });
+    expect(within(navigation).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/', '/account']);
+    expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+    const currentHrefs = () => within(screen.getByRole('navigation', { name: 'Household navigation' })).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page').map((link) => link.getAttribute('href'));
+    await userEvent.click(within(navigation).getByRole('link', { name: 'Your account' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
+    expect(window.location.pathname).toBe('/account');
+    expect(currentHrefs()).toEqual(['/account']);
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('link', { name: 'Home' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account isn’t part of a household yet.' })).toHaveFocus();
+    expect(window.location.pathname).toBe('/');
+    expect(currentHrefs()).toEqual(['/']);
     expect(fake.requests.every((r) => !r.path.startsWith('/api/v1/households'))).toBe(true);
   });
 

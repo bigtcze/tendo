@@ -95,7 +95,7 @@ describe('navigation', () => {
     expect(screen.queryByText(HOUSEHOLD_ID)).not.toBeInTheDocument();
     expect(fake.requests.find((r) => r.path === `${base}/subjects`)!.query.get('archived')).toBe('false');
 
-    await userEvent.click(screen.getByRole('link', { name: 'Back to home' }));
+    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
     const home = await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     expect(home).toHaveFocus();
     expect(window.location.pathname).toBe('/');
@@ -160,7 +160,7 @@ describe('list', () => {
     });
     renderApp();
     await openPeople();
-    const rows = within(await screen.findByRole('list')).getAllByRole('listitem');
+    const rows = within(await screen.findByRole('main')).getAllByRole('listitem');
     expect(rows.map((r) => r.querySelector('[data-subject-name]')!.textContent)).toEqual([
       'Anna',
       'Flat',
@@ -210,11 +210,13 @@ describe('list', () => {
   it('401 returns to sign-in', async () => {
     installFakeServer({
       ...signedIn,
-      [listKey]: problem(401),
+      // Home also lists subjects; only the People and things screen's own list load is refused.
+      [listKey]: () => (window.location.pathname === '/people' ? problem(401) : page([])),
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
-    await userEvent.click(await screen.findByRole('link', { name: 'People and things' }));
+    await screen.findByRole('button', { name: 'Add item' });
+    await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
     expect(window.location.pathname).toBe('/');
@@ -246,7 +248,7 @@ describe('add', () => {
     expect(JSON.parse(post.body)).toEqual({ name: '  Zuzka ', type: 'person' });
     expect(post.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
     await screen.findByText('Zuzka');
-    const row = within(screen.getByRole('list')).getByText('Zuzka').closest('li')!;
+    const row = within(screen.getByRole('main')).getByText('Zuzka').closest('li')!;
     expect(row).toHaveTextContent('Person');
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
     expect(screen.queryByText('Nothing here yet.')).not.toBeInTheDocument();
@@ -747,7 +749,7 @@ describe('edit', () => {
     await screen.findByRole('form', { name: 'Add a person or thing' });
     await waitFor(() => expect(calls).toBe(3));
     await waitFor(() => expect(fake.requests.some((request) => request.method === 'GET' && request.path === `${base}/members`)).toBe(true));
-    await userEvent.click(await screen.findByRole('link', { name: 'Back to home' }));
+    await userEvent.click(await screen.findByRole('link', { name: /^Home$/ }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     await act(async () => { release(problem(401)); });
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
@@ -944,7 +946,7 @@ describe('archive and restore', () => {
 
     expect(await screen.findByText('Octavia was archived.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Archive Octavia' })).not.toBeInTheDocument();
-    expect(within(screen.getByRole('list')).queryByText('Octavia')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByText('Octavia')).not.toBeInTheDocument();
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     let patch = sent(fake.requests, 'PATCH')[0]!;
@@ -962,8 +964,7 @@ describe('archive and restore', () => {
     expect(patch.headers.get('If-Match')).toBe('"6"');
     await waitFor(() => expect(edit).toHaveFocus());
     expect(screen.queryByText('Octavia was archived.')).not.toBeInTheDocument();
-    const names = within(screen.getByRole('list'))
-      .getAllByRole('listitem')
+    const names = within(screen.getByRole('main')).getAllByRole('listitem')
       .map((r) => r.querySelector('[data-subject-name]')!.textContent);
     expect(names).toEqual(['Anna', 'Octavia']);
   });
@@ -1094,7 +1095,7 @@ describe('Czech', () => {
     expect(screen.getByText('Vozidlo')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Upravit: Anna' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Archivovat: Anna' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Zpět na úvod' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Domů' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Přidat' }));
     const form = screen.getByRole('form', { name: 'Přidat osobu nebo věc' });
     for (const label of ['Osoba', 'Domov', 'Vozidlo', 'Zvíře', 'Jiné']) {
@@ -1186,7 +1187,8 @@ describe('stale responses', () => {
     await waitFor(() => expect(g.state.answered).toBe(true));
     expect(await screen.findByText('Zuzka was added.')).toBeVisible();
     // The archived list must not have taken the new active row.
-    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Household navigation' }).parentElement!).getByRole('list')).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByText('Zuzka')).not.toBeInTheDocument();
   });
 });
 
