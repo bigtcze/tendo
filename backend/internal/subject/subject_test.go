@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +128,25 @@ func (m *memRepo) List(_ context.Context, hid string, archived bool, after strin
 		}
 	}
 	return out, nil
+}
+
+func (m *memRepo) ListByIDs(_ context.Context, hid string, archived bool, ids []string, after string, limit int) ([]Subject, error) {
+	m.calls++
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	var out []Subject
+	for _, r := range m.rows {
+		if r.HouseholdID == hid && r.Archived == archived && wanted[r.ID] && r.ID > after {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, m.err
 }
 
 func (m *memRepo) Update(_ context.Context, hid, sid string, expected int64, p Patch) (Subject, error) {
@@ -656,6 +677,57 @@ func TestListPaginatesWithoutGapsOrDuplicates(t *testing.T) {
 	if err != nil || page.Items == nil || len(page.Items) != 0 || page.NextCursor != nil {
 		t.Fatalf("empty page=%+v err=%v", page, err)
 	}
+}
+
+func TestFilteredListCanonicalizationAndCursorBinding(t *testing.T) {
+	ids := []string{"0198a2f0-0000-7000-8000-000000000003", "0198a2f0-0000-7000-8000-000000000001"}
+	repo := &memRepo{}
+	for i, id := range []string{"0198a2f0-0000-7000-8000-000000000001", "0198a2f0-0000-7000-8000-000000000002", "0198a2f0-0000-7000-8000-000000000003"} {
+		repo.rows = append(repo.rows, Subject{ID: id, HouseholdID: householdID, Archived: i == 1})
+	}
+	svc := NewService(repo, allow, nil)
+	input := []string{strings.ToUpper(ids[0]), ids[1], ids[0]}
+	page, err := svc.List(context.Background(), userID, householdID, ListQuery{IDs: input, Limit: 1})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != ids[1] || page.NextCursor == nil {
+		t.Fatalf("first filtered page=%+v err=%v", page, err)
+	}
+	if !strings.HasPrefix(decodeRaw(*page.NextCursor), "s2:") {
+		t.Fatal("filtered cursor is not s2")
+	}
+	second, err := svc.List(context.Background(), userID, householdID, ListQuery{IDs: input, Limit: 1, Cursor: *page.NextCursor})
+	if err != nil || len(second.Items) != 1 || second.Items[0].ID != ids[0] || second.NextCursor != nil {
+		t.Fatalf("second filtered page=%+v err=%v", second, err)
+	}
+	for _, q := range []ListQuery{{IDs: []string{ids[0]}, Cursor: *page.NextCursor}, {Archived: true, IDs: input, Cursor: *page.NextCursor}, {IDs: input, Cursor: EncodeCursor(ids[1])}, {Cursor: *page.NextCursor}} {
+		var invalid *InvalidQueryError
+		if _, err := svc.List(context.Background(), userID, householdID, q); !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+			t.Fatalf("mismatched cursor query=%+v err=%v", q, err)
+		}
+	}
+	archived, err := svc.List(context.Background(), userID, householdID, ListQuery{IDs: []string{"0198a2f0-0000-7000-8000-000000000002"}, Archived: true})
+	if err != nil || len(archived.Items) != 1 || !archived.Items[0].Archived {
+		t.Fatalf("archived filter=%+v err=%v", archived, err)
+	}
+	if _, err := CanonicalIDs(make([]string, 101)); err == nil {
+		t.Fatal("101 IDs accepted")
+	}
+	oneHundred := make([]string, 100)
+	for i := range oneHundred {
+		oneHundred[i] = ids[0]
+	}
+	if got, err := CanonicalIDs(oneHundred); err != nil || len(got) != 1 {
+		t.Fatalf("100 duplicate IDs got=%v err=%v", got, err)
+	}
+	for _, bad := range [][]string{{""}, {"bad"}} {
+		if _, err := CanonicalIDs(bad); err == nil {
+			t.Fatalf("bad IDs accepted: %v", bad)
+		}
+	}
+}
+
+func decodeRaw(cursor string) string {
+	raw, _ := base64.RawURLEncoding.DecodeString(cursor)
+	return string(raw)
 }
 
 func TestUpdateValidatesPatchAndAppliesVersioning(t *testing.T) {

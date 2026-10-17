@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { NavLink } from '../../app/NavLink';
 import { useI18n, type MessageKey } from '../../i18n';
@@ -6,7 +6,8 @@ import { ItemForm, type ItemFormValues } from './ItemForm';
 import { listMembers, type Member } from '../members/membersApi';
 import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
 import { clearPendingItemCreate, getPendingItemCreate, setPendingItemCreate, type PendingItemCreate } from './pendingItemCreate';
-import { completeItem, createItem, getItem, getItemsSummary, listActiveSubjects, listItemGroup, undoCompletion, type Completion, type Item, type ItemGroup, type ItemSummary, type Recurrence, type Subject } from './itemsApi';
+import { completeItem, createItem, getItem, getItemsSummary, listActiveSubjects, listItemGroup, listSubjectsByIDs, undoCompletion, type Completion, type Item, type ItemGroup, type ItemSummary, type Recurrence, type Subject } from './itemsApi';
+import { getSubject } from '../subjects/subjectsApi';
 
 type Notice = { text: string; completion?: Completion; itemId?: string; retryKey?: string; retryKind?: 'complete' | 'undo'; undoAvailable?: boolean };
 type SubjectState = 'loading' | 'error' | 'ready';
@@ -79,20 +80,39 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const emptyGroups = (): Record<ItemGroup, GroupData> => ({ needs: { items: [], cursor: null, loadingMore: false }, inProgress: { items: [], cursor: null, loadingMore: false }, waiting: { items: [], cursor: null, loadingMore: false }, upcoming: { items: [], cursor: null, loadingMore: false }, paused: { items: [], cursor: null, loadingMore: false } });
   const [groupData, setGroupData] = useState<Record<ItemGroup, GroupData>>(emptyGroups);
   const [summary, setSummary] = useState<ItemSummary | null>(null);
+  const dataHousehold = useRef<string | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [labelSubjectsState, setLabelSubjectsState] = useState<{ scope: string; subjects: Subject[] }>({ scope: `${userId}:${householdId}`, subjects: [] });
+  const labelSubjects = useMemo(() => labelSubjectsState.scope === `${userId}:${householdId}` ? labelSubjectsState.subjects : [], [labelSubjectsState, userId, householdId]);
+  const [labelFailures, setLabelFailures] = useState(false);
+  const [labelLoading, setLabelLoading] = useState(false);
+  const [labelFailureIDs, setLabelFailureIDs] = useState<Set<string>>(new Set());
+  const [labelFinishedIDs, setLabelFinishedIDs] = useState<Set<string>>(new Set());
+  const labelQueue = useRef<string[]>([]);
+  const labelRunner = useRef(false);
+  const labelRunnerToken = useRef(0);
+  const [subjectLoading, setSubjectLoading] = useState(false);
+  const [subjectScope, setSubjectScope] = useState(`${userId}:${householdId}`);
   const [members, setMembers] = useState<Member[]>([]);
   const [homeMembersState, setHomeMembersState] = useState<{ householdId: string; members: Member[] } | null>(null);
-  const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
   const [subjectRetry, setSubjectRetry] = useState(0);
-  const [subjectLoadingArchived, setSubjectLoadingArchived] = useState(false);
+  const subjectGeneration = useRef(0);
+  const labelGeneration = useRef(0);
+  const labelCache = useRef(new Map<string, Subject>());
+  const labelInFlight = useRef(new Set<string>());
+  const labelSettled = useRef(new Map<string, { active: boolean; archived: boolean }>());
+  const [labelRetry, setLabelRetry] = useState(0);
+  const labelsBusy = useRef(false);
+  const recoveryLookup = useRef(new Set<string>());
+  const labelScope = useRef(`${userId}:${householdId}`);
   const [loading, setLoading] = useState(true);
   const [itemsRequestComplete, setItemsRequestComplete] = useState(false);
   const [error, setError] = useState(false);
   const [pendingCreate, setPendingCreate] = useState<PendingItemCreate | undefined>(() => getPendingItemCreate(userId, householdId));
   const [createUncertain, setCreateUncertain] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
   const [adding, setAdding] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
-  const addingRef = useRef(false);
+  const addingRef = useRef(Boolean(getPendingItemCreate(userId, householdId)));
   const [notice, setNotice] = useState<Notice | null>(null);
   const [createNotice, setCreateNotice] = useState<'uncertain' | 'reused' | null>(() => getPendingItemCreate(userId, householdId) ? 'uncertain' : null);
   const [busy, setBusy] = useState(false);
@@ -116,11 +136,12 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     for (const group of groups) if (groupData[group.id].items.some((item) => item.id === itemId)) return group.id;
     return null;
   }
-  const names = new Map(subjects.map((subject) => [subject.id, subject.name]));
+  const activeSubjects = useMemo(() => subjectScope === `${userId}:${householdId}` ? subjects : [], [subjectScope, userId, householdId, subjects]);
+  const names = useMemo(() => new Map([...labelSubjects, ...activeSubjects].map((subject) => [subject.id, subject.name])), [labelSubjects, activeSubjects]);
   const recoverySubjects = pendingCreate ? [
-    ...subjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
-    subjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
-  ] : subjects.filter((subject) => !subject.archived);
+    ...activeSubjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
+    activeSubjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? labelSubjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
+  ] : activeSubjects.filter((subject) => !subject.archived);
 
   const loadHome = useCallback(async ({ allowStaleRestart }: { allowStaleRestart: boolean }) => {
     const started = ++generation.current;
@@ -144,6 +165,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
       if (entries.some(([, result]) => result.kind !== 'ok')) { setError(true); setLoading(false); return; }
       const nextData = emptyGroups();
       for (const [id, result] of entries) if (result.kind === 'ok') nextData[id] = { items: result.items, cursor: result.nextCursor, loadingMore: false };
+      dataHousehold.current = householdId;
       setSummary(nextSummary);
       setGroupData(nextData);
       setError(false);
@@ -159,7 +181,10 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     memberLoadGeneration.current++;
     const generationRef = generation;
     const inFlightRef = showMoreInFlight;
-    return () => { mounted.current = false; generationRef.current++; inFlightRef.current.clear(); };
+    const labelGenerationRef = labelGeneration;
+    const labelRunnerTokenRef = labelRunnerToken;
+    const recoveryLookupRef = recoveryLookup;
+    return () => { mounted.current = false; generationRef.current++; labelGenerationRef.current++; labelsBusy.current = false; labelRunner.current = false; labelRunnerTokenRef.current++; labelQueue.current = []; recoveryLookupRef.current.clear(); inFlightRef.current.clear(); };
   }, []);
 
   useEffect(() => {
@@ -190,9 +215,14 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   }, [householdId, onSignedOut]);
 
   async function openAddForm() {
+    if (dataHousehold.current !== householdId) return;
     const token = ++memberLoadGeneration.current;
     addingRef.current = true;
     setAdding(true);
+    setSubjects([]);
+    setSubjectScope(`${userId}:${householdId}`);
+    setSubjectState('loading');
+    setSubjectLoading(!getPendingItemCreate(userId, householdId));
     const pending = getPendingItemCreate(userId, householdId);
     setPendingCreate(pending);
     setCreateUncertain(Boolean(pending));
@@ -214,46 +244,127 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
 
   function closeAddForm() {
     memberLoadGeneration.current++;
+    subjectGeneration.current++;
     addingRef.current = false;
     setAdding(false);
+    setSubjectLoading(false);
   }
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async (archived: boolean) => {
+    const scope = `${userId}:${householdId}`;
+    if (labelScope.current !== scope) {
+      labelScope.current = scope;
+      labelGeneration.current++;
+      labelCache.current.clear();
+      labelInFlight.current.clear();
+      labelSettled.current.clear();
+      labelQueue.current = [];
+      labelRunner.current = false;
+      labelRunnerToken.current++;
+      labelsBusy.current = false;
+      recoveryLookup.current.clear();
+      setLabelSubjectsState({ scope, subjects: [] });
+      setLabelFailures(false);
+      setLabelFailureIDs(new Set());
+      setLabelLoading(false);
+      setLabelFinishedIDs(new Set());
+    }
+    const token = labelGeneration.current;
+    const generationRef = labelGeneration;
+    const isCurrent = () => mounted.current && token === generationRef.current && labelScope.current === scope;
+    if (dataHousehold.current !== householdId) return;
+    const ids = new Set(Object.values(groupData).flatMap((group) => group.items.map((item) => item.subjectId)));
+    const unresolved = [...ids].filter((id) => !labelCache.current.has(id) && !labelFailureIDs.has(id) && !(labelSettled.current.get(id)?.active && labelSettled.current.get(id)?.archived));
+    if (!unresolved.length) return;
+    const queued = new Set(labelQueue.current);
+    const newIDs = unresolved.filter((id) => !queued.has(id) && !labelInFlight.current.has(id));
+    labelQueue.current.push(...newIDs);
+    if (newIDs.length) setLabelFailureIDs(new Set([...labelFailureIDs].filter((id) => !newIDs.includes(id))));
+    setLabelLoading(true);
+    setLabelFailures(false);
+    if (labelRunner.current) return;
+    labelsBusy.current = true;
+    labelRunner.current = true;
+    const runnerToken = ++labelRunnerToken.current;
+    void (async () => {
+      const failedIDs = new Set([...labelFailureIDs].filter((id) => !newIDs.includes(id)));
+      while (labelQueue.current.length) {
+        const fresh = labelQueue.current.splice(0, 100);
+        fresh.forEach((id) => labelInFlight.current.add(id));
+        const results = await Promise.all([listSubjectsByIDs(householdId, fresh, false), listSubjectsByIDs(householdId, fresh, true)]);
+        fresh.forEach((id) => labelInFlight.current.delete(id));
+        if (!isCurrent() || runnerToken !== labelRunnerToken.current) return;
+        if (results.some((result) => result.kind === 'unauthenticated')) { labelsBusy.current = false; labelRunner.current = false; setLabelLoading(false); onSignedOut(); return; }
+        const [active, archived] = results;
+        if (active.kind === 'ok') {
+          for (const subject of active.subjects) labelCache.current.set(subject.id, subject);
+          for (const id of fresh) labelSettled.current.set(id, { ...labelSettled.current.get(id), active: true, archived: labelSettled.current.get(id)?.archived ?? false });
+        }
+        if (archived.kind === 'ok') {
+          for (const subject of archived.subjects) labelCache.current.set(subject.id, subject);
+          for (const id of fresh) labelSettled.current.set(id, { ...labelSettled.current.get(id), archived: true, active: labelSettled.current.get(id)?.active ?? false });
+        }
+        for (const id of fresh) {
+          const settled = labelSettled.current.get(id);
+          if (!labelCache.current.has(id) && !(settled?.active && settled.archived)) failedIDs.add(id);
+          else failedIDs.delete(id);
+        }
+      }
+      if (!isCurrent() || runnerToken !== labelRunnerToken.current) return;
+      labelsBusy.current = false;
+      labelRunner.current = false;
+      setLabelLoading(false);
+      setLabelSubjectsState({ scope, subjects: [...labelCache.current.values()] });
+      setLabelFinishedIDs(new Set([...labelSettled.current].filter(([, status]) => status.active && status.archived).map(([id]) => id)));
+      setLabelFailureIDs(failedIDs);
+      setLabelFailures(failedIDs.size > 0);
+    })();
+  }, [groupData, householdId, userId, pendingCreate, labelRetry, labelFailureIDs, onSignedOut]);
+
+  useEffect(() => {
+    const token = ++subjectGeneration.current;
+    const generationRef = subjectGeneration;
+    const scope = `${userId}:${householdId}`;
+    const isCurrent = () => mounted.current && token === generationRef.current && addingRef.current && labelScope.current === scope;
+    if (!adding) return;
+    if (createUncertain && pendingCreate) return;
+    void (async () => {
       const collected: Subject[] = [];
       let cursor: string | undefined;
       for (let page = 0; page < MAX_SUBJECT_PAGES; page++) {
-        const result = await listActiveSubjects(householdId, archived, cursor);
-        if (result.kind !== 'ok') return result;
+        const result = await listActiveSubjects(householdId, false, cursor);
+        if (!isCurrent()) return;
+        if (result.kind === 'unauthenticated') { setSubjectLoading(false); onSignedOut(); return; }
+        if (result.kind !== 'ok') { setSubjectLoading(false); setSubjectState('error'); return; }
         collected.push(...result.subjects);
-        if (!result.nextCursor) return { kind: 'ok' as const, subjects: collected };
+        if (!result.nextCursor) {
+          setSubjects(collected);
+          setSubjectScope(`${userId}:${householdId}`);
+          setSubjectLoading(false);
+          setSubjectState('ready');
+          return;
+        }
         cursor = result.nextCursor;
       }
-      return { kind: 'error' as const };
-    };
-    subjectLoadBusy.current = true;
-    void load(false).then(async (active) => {
-      if (cancelled) return;
-      if (active.kind === 'unauthenticated') { subjectLoadBusy.current = false; onSignedOut(); return; }
-      if (active.kind !== 'ok') { subjectLoadBusy.current = false; setSubjectState('error'); return; }
-      setSubjects(active.subjects);
-      subjectLoadBusy.current = false;
-      setSubjectState('ready');
-      setSubjectLoadingArchived(true);
-      subjectLoadBusy.current = true;
-      const archived = await load(true);
-      if (cancelled) { subjectLoadBusy.current = false; setSubjectLoadingArchived(false); return; }
-      subjectLoadBusy.current = false;
-      setSubjectLoadingArchived(false);
-      if (archived.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (archived.kind === 'ok') {
-        const seen = new Set(active.subjects.map((subject) => subject.id));
-        setSubjects((current) => [...current, ...archived.subjects.filter((subject) => !seen.has(subject.id))]);
+      if (isCurrent()) { setSubjects([]); setSubjectScope(`${userId}:${householdId}`); setSubjectLoading(false); setSubjectState('error'); }
+    })();
+    return () => { generationRef.current++; };
+  }, [adding, householdId, userId, createUncertain, pendingCreate, subjectRetry, onSignedOut]);
+
+  useEffect(() => {
+    if (!pendingCreate || !adding || names.has(pendingCreate.body.subjectId) || recoveryLookup.current.has(pendingCreate.body.subjectId)) return;
+    const id = pendingCreate.body.subjectId;
+    recoveryLookup.current.add(id);
+    const token = labelGeneration.current;
+    void getSubject(householdId, id).then((result) => {
+      if (!mounted.current || token !== labelGeneration.current || labelScope.current !== `${userId}:${householdId}`) return;
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind === 'ok') {
+        labelCache.current.set(id, result.subject);
+        setLabelSubjectsState({ scope: `${userId}:${householdId}`, subjects: [...labelCache.current.values()] });
       }
     });
-    return () => { cancelled = true; };
-  }, [householdId, onSignedOut, subjectRetry]);
+  }, [adding, pendingCreate, names, householdId, userId, onSignedOut]);
 
   useEffect(() => {
     if (createNotice === 'reused' || (notice && (focusedRow.current || retryHadFocus.current))) {
@@ -444,15 +555,19 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     <div ref={noticeRef} tabIndex={-1} className="outline-none">{createNotice === 'reused' ? <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2"><p>{t('items.create.reused')}</p></div> : notice ? <NoticeView notice={notice} busy={busy} onUndo={() => void undo()} onRetry={() => void retryNotice()} onRetryFocus={() => { retryHadFocus.current = true; }} /> : null}</div>
     {error ? <div className="space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button></div> : null}
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-    {subjectState === 'error' && !subjectLoadingArchived ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { subjectLoadBusy.current = true; setSubjectState('loading'); setSubjectRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
+    {adding && subjectLoading ? <p role="status" className="text-muted">{t('items.subjects.loading')}</p> : null}
+    {adding && subjectState === 'error' ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => setSubjectRetry((value) => value + 1)}>{t('app.error.retry')}</Button><Button type="button" variant="quiet" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
+    {labelLoading && !labelFailures ? <p role="status" className="sr-only">{t('items.subjects.loading')}</p> : null}
+    {labelFailures ? <div className="flex items-center gap-2"><p className="text-sm text-muted">{t('items.subjectLabels.error')}</p><Button type="button" variant="quiet" onClick={() => { setLabelFailureIDs(new Set()); setLabelRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
     {!loading && !error && summary && groups.every((group) => summary[group.count] === 0) && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
     {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={() => { void openAddForm(); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
-    {adding && ((createUncertain && pendingCreate) || (subjectState === 'ready' && subjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate ? recoverySubjects : subjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : undefined} locked={createUncertain && !!pendingCreate} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
-    {adding && !(createUncertain && pendingCreate) && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
+    {adding && ((createUncertain && pendingCreate) || (subjectState === 'ready' && activeSubjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate ? recoverySubjects : activeSubjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : undefined} locked={createUncertain && !!pendingCreate} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
+    {adding && !(createUncertain && pendingCreate) && subjectState === 'ready' && !activeSubjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
+    {adding && subjectState !== 'ready' && subjectState !== 'error' && !(createUncertain && pendingCreate) ? <Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button> : null}
     {!loading && summary ? groups.map((group) => {
       const state = groupData[group.id];
       if (!state.items.length) return null;
-      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
+      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? (labelLoading && !labelFinishedIDs.has(item.subjectId) ? t('items.subjectLabels.loading') : t('items.subject.unknown'))} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
     }) : null}
   </div>;
 }

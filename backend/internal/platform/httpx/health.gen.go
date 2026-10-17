@@ -424,6 +424,7 @@ const (
 	QueryProblemParameterAttentionDate     QueryProblemParameter = "attentionDate"
 	QueryProblemParameterCursor            QueryProblemParameter = "cursor"
 	QueryProblemParameterDone              QueryProblemParameter = "done"
+	QueryProblemParameterId                QueryProblemParameter = "id"
 	QueryProblemParameterLimit             QueryProblemParameter = "limit"
 	QueryProblemParameterQ                 QueryProblemParameter = "q"
 	QueryProblemParameterRecurring         QueryProblemParameter = "recurring"
@@ -445,6 +446,8 @@ func (e QueryProblemParameter) Valid() bool {
 	case QueryProblemParameterCursor:
 		return true
 	case QueryProblemParameterDone:
+		return true
+	case QueryProblemParameterId:
 		return true
 	case QueryProblemParameterLimit:
 		return true
@@ -1549,6 +1552,9 @@ type ListSubjectsParams struct {
 
 	// Archived false (default) lists active items; true lists archived items only, independently of done status.
 	Archived *Archived `form:"archived,omitempty" json:"archived,omitempty"`
+
+	// Id Repeated canonical UUID filter values, case-insensitive. At most 100 values may be supplied before deduplication.
+	Id *[]string `form:"id,omitempty" json:"id,omitempty"`
 
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`

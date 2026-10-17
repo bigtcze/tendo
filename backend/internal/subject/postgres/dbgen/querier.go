@@ -13,6 +13,7 @@ type Querier interface {
 	FindSubjectCreation(ctx context.Context, arg FindSubjectCreationParams) (FindSubjectCreationRow, error)
 	GetSubject(ctx context.Context, arg GetSubjectParams) (GetSubjectRow, error)
 	ListSubjects(ctx context.Context, arg ListSubjectsParams) ([]ListSubjectsRow, error)
+	ListSubjectsByIDs(ctx context.Context, arg ListSubjectsByIDsParams) ([]ListSubjectsByIDsRow, error)
 	UpdateSubject(ctx context.Context, arg UpdateSubjectParams) (UpdateSubjectRow, error)
 }
 

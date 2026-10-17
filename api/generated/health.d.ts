@@ -254,7 +254,7 @@ export interface paths {
         };
         /**
          * List subjects
-         * @description Returns subjects of the household in creation order (ascending id) using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. nextCursor is always present and is null on the last page. The cursor is opaque. Unknown query parameters are ignored.
+         * @description Returns household subjects in ascending id order using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. Repeated id parameters optionally restrict the result to those canonical UUIDs (case-insensitive); unknown or foreign-household IDs are omitted. When filtered, cursors are bound to household, archived partition, and the canonical ID set. nextCursor is null on the last page. Unknown query parameters are ignored. Authentication runs before query validation; after authentication, query validation precedes household membership authorization.
          */
         get: operations["listSubjects"];
         put?: never;
@@ -648,7 +648,7 @@ export interface components {
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            parameter?: "limit" | "cursor" | "archived" | "done" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate" | "q";
+            parameter?: "limit" | "cursor" | "archived" | "done" | "id" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate" | "q";
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -3494,6 +3494,14 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description false (default) lists active items; true lists archived items only, independently of done status. */
                 archived?: components["parameters"]["Archived"];
+                /**
+                 * @description Repeated canonical UUID filter values, case-insensitive. At most 100 values may be supplied before deduplication.
+                 * @example [
+                 *       "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                 *       "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71"
+                 *     ]
+                 */
+                id?: string[];
             };
             header?: {
                 /**
@@ -3540,7 +3548,7 @@ export interface operations {
                     "application/json": components["schemas"]["SubjectList"];
                 };
             };
-            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
+            /** @description A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed or bound to another filter, archived is not true or false, or id is empty, malformed, or has more than 100 supplied values. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

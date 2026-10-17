@@ -153,6 +153,18 @@ export async function listItemGroup(householdId: string, group: ItemGroup, atten
 }
 
 export type SubjectsResult = { kind: 'ok'; subjects: Subject[]; nextCursor: string | null } | { kind: 'unauthenticated' } | { kind: 'error' } | { kind: 'noHousehold' };
+export async function listSubjectsByIDs(householdId: string, ids: string[], archived: boolean): Promise<SubjectsResult> {
+  try {
+    const { data, response } = await api.GET('/api/v1/households/{householdId}/subjects', {
+      params: { path: { householdId }, query: { limit: 100, archived, id: ids } },
+    });
+    if (data && response.status === 200) return { kind: 'ok', subjects: data.items, nextCursor: data.nextCursor };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 404) return { kind: 'noHousehold' };
+  } catch { /* network failure */ }
+  return { kind: 'error' };
+}
+
 export async function listActiveSubjects(householdId: string, archived = false, cursor?: string): Promise<SubjectsResult> {
   try {
     const { data, response } = await api.GET('/api/v1/households/{householdId}/subjects', {

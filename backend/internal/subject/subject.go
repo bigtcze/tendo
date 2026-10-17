@@ -10,6 +10,8 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -96,6 +98,8 @@ type Patch struct {
 
 type ListQuery struct {
 	Archived bool
+	// IDs nil means unfiltered; non-nil values are canonical, unique UUIDs.
+	IDs []string
 	// Limit 0 selects DefaultLimit.
 	Limit  int
 	Cursor string
@@ -116,6 +120,7 @@ type Repository interface {
 	FindCreation(ctx context.Context, householdID, actorID, key string) (Subject, []byte, error)
 	Get(ctx context.Context, householdID, subjectID string) (Subject, error)
 	List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]Subject, error)
+	ListByIDs(ctx context.Context, householdID string, archived bool, ids []string, afterID string, limit int) ([]Subject, error)
 	Update(ctx context.Context, householdID, subjectID string, expectedVersion int64, p Patch) (Subject, error)
 }
 
@@ -275,6 +280,10 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if err != nil {
 		return Page{}, err
 	}
+	ids, err := CanonicalIDs(q.IDs)
+	if err != nil {
+		return Page{}, &InvalidQueryError{"id"}
+	}
 	limit := q.Limit
 	if limit == 0 {
 		limit = DefaultLimit
@@ -284,15 +293,24 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	}
 	after := nilUUID
 	if q.Cursor != "" {
-		id, err := DecodeCursor(q.Cursor)
-		if err != nil {
+		var cursorErr error
+		if q.IDs == nil {
+			after, cursorErr = DecodeCursor(q.Cursor)
+		} else {
+			after, cursorErr = decodeFilteredCursor(q.Cursor, householdID, q.Archived, ids)
+		}
+		if cursorErr != nil {
 			return Page{}, &InvalidQueryError{"cursor"}
 		}
-		after = id
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	items, err := s.repository.List(ctx, householdID, q.Archived, after, limit+1)
+	var items []Subject
+	if q.IDs == nil {
+		items, err = s.repository.List(ctx, householdID, q.Archived, after, limit+1)
+	} else {
+		items, err = s.repository.ListByIDs(ctx, householdID, q.Archived, ids, after, limit+1)
+	}
 	if err != nil {
 		return Page{}, ErrUnavailable
 	}
@@ -300,6 +318,9 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	if len(items) > limit {
 		page.Items = items[:limit]
 		next := EncodeCursor(items[limit-1].ID)
+		if q.IDs != nil {
+			next = encodeFilteredCursor(householdID, q.Archived, ids, items[limit-1].ID)
+		}
 		page.NextCursor = &next
 	}
 	if page.Items == nil {
@@ -392,6 +413,54 @@ func DecodeCursor(cursor string) (string, error) {
 		return "", errors.New("malformed cursor")
 	}
 	return strings.ToLower(id), nil
+}
+
+// CanonicalIDs validates, lowercases, sorts, and deduplicates list filter IDs.
+func CanonicalIDs(input []string) ([]string, error) {
+	if input == nil {
+		return nil, nil
+	}
+	if len(input) > 100 {
+		return nil, errors.New("too many ids")
+	}
+	seen := make(map[string]struct{}, len(input))
+	ids := make([]string, 0, len(input))
+	for _, id := range input {
+		if !validUUID(id) {
+			return nil, errors.New("invalid id")
+		}
+		id = strings.ToLower(id)
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+func filteredFingerprint(householdID string, archived bool, ids []string) string {
+	fields := []string{"tendo.subject.list.v2", strings.ToLower(householdID), fmt.Sprint(archived)}
+	fields = append(fields, ids...)
+	digest := sha256.Sum256([]byte(strings.Join(fields, "\x00")))
+	return fmt.Sprintf("%x", digest[:16])
+}
+
+func encodeFilteredCursor(householdID string, archived bool, ids []string, lastID string) string {
+	raw := fmt.Sprintf("s2:%s:%s", filteredFingerprint(householdID, archived, ids), strings.ToLower(lastID))
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeFilteredCursor(cursor, householdID string, archived bool, ids []string) (string, error) {
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(cursor)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(string(raw), ":")
+	if len(parts) != 3 || parts[0] != "s2" || parts[1] != filteredFingerprint(householdID, archived, ids) || !validUUID(parts[2]) || parts[2] != strings.ToLower(parts[2]) {
+		return "", errors.New("invalid filtered cursor")
+	}
+	return parts[2], nil
 }
 
 // validUUID accepts only the canonical 8-4-4-4-12 hexadecimal form.

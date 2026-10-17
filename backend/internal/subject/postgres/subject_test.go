@@ -237,6 +237,26 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("batch ID list stays household scoped, archived, ordered and limited", func(t *testing.T) {
+		hid := newHousehold("Batch IDs")
+		first := create(hid, "first", subject.TypeHome)
+		second := create(hid, "second", subject.TypePet)
+		foreign := create(homeB, "foreign", subject.TypeCustom)
+		archived := true
+		gone, err := repo.Update(ctx, hid, second.ID, 1, subject.Patch{Archived: &archived})
+		if err != nil {
+			t.Fatal(err)
+		}
+		active, err := repo.ListByIDs(ctx, hid, false, []string{foreign.ID, second.ID, first.ID}, "00000000-0000-0000-0000-000000000000", 1)
+		if err != nil || len(active) != 1 || active[0].ID != first.ID {
+			t.Fatalf("active=%+v err=%v", active, err)
+		}
+		archivedRows, err := repo.ListByIDs(ctx, hid, true, []string{first.ID, gone.ID}, "00000000-0000-0000-0000-000000000000", 10)
+		if err != nil || len(archivedRows) != 1 || archivedRows[0].ID != gone.ID {
+			t.Fatalf("archived=%+v err=%v", archivedRows, err)
+		}
+	})
+
 	t.Run("archived filter separation", func(t *testing.T) {
 		hid := newHousehold("Archive")
 		active := create(hid, "active", subject.TypeHome)
@@ -485,7 +505,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	t.Run("cross-household isolation", func(t *testing.T) {
 		b := create(homeB, "Bob's boat", subject.TypeVehicle)
 		listedB, err := repo.List(ctx, homeB, false, "00000000-0000-0000-0000-000000000000", 100)
-		if err != nil || len(listedB) != 2 || listedB[1].ID != b.ID {
+		if err != nil || len(listedB) != 3 || listedB[2].ID != b.ID {
 			t.Fatalf("household B list=%+v err=%v", listedB, err)
 		}
 		if _, err := repo.Get(ctx, homeA, b.ID); !errors.Is(err, subject.ErrNotFound) {

@@ -21,6 +21,13 @@ WHERE household_id = sqlc.arg('household_id') AND archived = sqlc.arg('archived'
 ORDER BY id ASC
 LIMIT sqlc.arg('row_limit');
 
+-- name: ListSubjectsByIDs :many
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id
+FROM subjects
+WHERE household_id = sqlc.arg('household_id') AND archived = sqlc.arg('archived') AND id = ANY(sqlc.arg('ids')::uuid[]) AND id > sqlc.arg('after_id')
+ORDER BY id ASC
+LIMIT sqlc.arg('row_limit');
+
 -- name: UpdateSubject :one
 UPDATE subjects
 SET name = COALESCE(sqlc.narg('name')::text, name),

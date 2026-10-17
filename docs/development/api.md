@@ -65,7 +65,7 @@ Collections return `{"items": [...], "nextCursor": string | null}`. `nextCursor`
 - `cursor`: the `nextCursor` of the previous page. It is opaque and versioned; do not build or parse it.
 - Items default to `sort=created`, ordered by `id` ascending (UUIDv7, so creation order). `sort=attention_on` orders by `attentionOn` ascending, null first, then ID ascending; null means the item needs attention now. Sort accepts exactly one nonempty `created` or `attention_on` value. A keyset traversal guarantees unchanged rows keep their order and are not duplicated; concurrent edits to sort keys may move rows across the boundary.
 - Invalid values return `400 invalid_query`. Unknown query parameters are ignored.
-- Subjects: `archived=false` (default) lists active subjects; `archived=true` lists archived ones only.
+- Subjects: `archived=false` (default) lists active subjects; `archived=true` lists archived ones only. Repeated `id` query parameters (for example `?id=<uuid>&id=<uuid>`) filter to at most 100 supplied canonical UUID values (8-4-4-4-12; case-insensitive); duplicates are canonicalized and removed. Empty, malformed, or more than 100 values return `400 invalid_query` with `parameter: id`. Filtered pagination cursors bind the household, archived partition, and canonical sorted ID set; changing any filter invalidates the cursor. `s1:` cursors remain the unfiltered format and cannot be mixed with `id`; filtered `s2:` cursors cannot be used without it. Query evaluation order for this route: Origin/authority middleware → session authentication (401) → query parsing/validation (400) → household membership authorization (uniform 404).
 - Items: `archived=false` (default) lists active items; `archived=true` lists archived items only.
 
 ## Evaluation order

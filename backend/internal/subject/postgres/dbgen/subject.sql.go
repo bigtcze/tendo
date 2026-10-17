@@ -210,6 +210,70 @@ func (q *Queries) ListSubjects(ctx context.Context, arg ListSubjectsParams) ([]L
 	return items, nil
 }
 
+const listSubjectsByIDs = `-- name: ListSubjectsByIDs :many
+SELECT id::text AS id, household_id::text AS household_id, type, name, archived, created_at, updated_at, version, linked_user_id
+FROM subjects
+WHERE household_id = $1 AND archived = $2 AND id = ANY($3::uuid[]) AND id > $4
+ORDER BY id ASC
+LIMIT $5
+`
+
+type ListSubjectsByIDsParams struct {
+	HouseholdID pgtype.UUID
+	Archived    bool
+	Ids         []pgtype.UUID
+	AfterID     pgtype.UUID
+	RowLimit    int32
+}
+
+type ListSubjectsByIDsRow struct {
+	ID           string
+	HouseholdID  string
+	Type         string
+	Name         string
+	Archived     bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	Version      int64
+	LinkedUserID pgtype.UUID
+}
+
+func (q *Queries) ListSubjectsByIDs(ctx context.Context, arg ListSubjectsByIDsParams) ([]ListSubjectsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listSubjectsByIDs,
+		arg.HouseholdID,
+		arg.Archived,
+		arg.Ids,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSubjectsByIDsRow{}
+	for rows.Next() {
+		var i ListSubjectsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.HouseholdID,
+			&i.Type,
+			&i.Name,
+			&i.Archived,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+			&i.LinkedUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateSubject = `-- name: UpdateSubject :one
 UPDATE subjects
 SET name = COALESCE($1::text, name),

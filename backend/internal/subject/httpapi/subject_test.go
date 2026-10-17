@@ -344,6 +344,31 @@ func TestInvalidQueryNamesParameter(t *testing.T) {
 	}
 }
 
+func TestListIDsRepeatedAndValidationPrecedence(t *testing.T) {
+	f := newFixture(true)
+	second := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71"
+	f.repo.Seed(subject.Subject{ID: second, HouseholdID: householdID, Type: subject.TypeHome, Name: "Flat", CreatedAt: created, UpdatedAt: created, Version: 1})
+	w := f.do("GET", base+"?id="+strings.ToUpper(subjectID)+"&id="+second+"&id="+strings.ToUpper(subjectID), "", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), subjectID) || !strings.Contains(w.Body.String(), second) {
+		t.Fatalf("repeated id filter: %d %s", w.Code, w.Body)
+	}
+	for _, value := range []string{"", "malformed"} {
+		w = f.do("GET", base+"?id="+value, "", nil)
+		want := `{"type":"about:blank","title":"Bad Request","status":400,"code":"invalid_query","parameter":"id"}`
+		if w.Code != 400 || !jsonEqual(t, w.Body.String(), want) {
+			t.Fatalf("id=%q: %d %s", value, w.Code, w.Body)
+		}
+	}
+	unauth := newFixture(false)
+	if w := unauth.do("GET", base+"?id=", "", nil); w.Code != 401 {
+		t.Fatalf("unauth invalid id status=%d body=%s", w.Code, w.Body)
+	}
+	f.denyUser = callerID
+	if w := f.do("GET", base+"?id=", "", nil); w.Code != 400 {
+		t.Fatalf("membership precedes query validation: status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestPatchArchiveIncrementsStoredVersion(t *testing.T) {
 	f := newFixture(true)
 	w := f.do("PATCH", one, `{"name":"  Škoda  ","archived":true,"type":"custom"}`, ifMatch1)

@@ -30,7 +30,6 @@ function app() { return render(<I18nProvider><App /></I18nProvider>); }
 function requestsOf(requests: RecordedRequest[], method: string, path: string) { return requests.filter((request) => request.method === method && request.path === path); }
 async function openForm() {
   await screen.findByRole('heading', { name: 'Veselí' });
-  await waitFor(() => expect(screen.queryByText('People and things could not be loaded. Try again.')).not.toBeInTheDocument());
   await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
   return screen.findByRole('form', { name: 'Add an item' });
 }
@@ -55,6 +54,21 @@ describe('item creation', () => {
     expect(JSON.parse(post.body)).toEqual({ title: 'Renew passport', subjectId: 's-1', recurrence: null });
     expect(post.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
     expect(Object.hasOwn(JSON.parse(post.body), 'responsibleUserId')).toBe(false);
+  });
+
+  it('pending-create recovery renders immediately and retries unchanged despite failed subject fetches', async () => {
+    const key = 'a'.repeat(32);
+    const body = { title: 'Frozen recovery', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(503), [memberList]: memberPage(), [`GET ${base}/subjects/missing`]: json(503), [`POST ${base}/items`]: () => json(201, item({ title: body.title, subjectId: body.subjectId })) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(form).getByRole('button', { name: 'Check again' })).toBeEnabled();
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('“Frozen recovery” was added.');
+    const post = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    expect(post.headers.get('Idempotency-Key')).toBe(key);
+    expect(post.body).toBe(JSON.stringify(body));
   });
 
   it('retries an uncertain item create with its stored key and exact body while inputs are frozen', async () => {
@@ -129,6 +143,22 @@ describe('item creation', () => {
     expect(resent.body).toBe(firstPost.body);
   });
 
+  it('Add loads subject pages only when opened and shows chooser only after full paging', async () => {
+    const second = { ...subject, id: 's-2', name: 'Garage' };
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: (request) => {
+      if (request.query.has('id')) return json(200, { items: [], nextCursor: null });
+      return request.query.get('cursor') === 'subject-cursor' ? json(200, { items: [second], nextCursor: null }) : json(200, { items: [subject], nextCursor: 'subject-cursor' });
+    }, [memberList]: memberPage() });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('button', { name: 'Add item' });
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(form).getByRole('option', { name: 'Garage' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).map((request) => request.query.get('cursor'))).toEqual([null, 'subject-cursor']);
+  });
+
   it('ignores older member pages resolved out of order', async () => {
     let resolveFirst!: (response: Response) => void;
     let resolveSecond!: (response: Response) => void;
@@ -144,6 +174,60 @@ describe('item creation', () => {
     await waitFor(() => expect(screen.getByLabelText("Who's looking after it")).toBeVisible());
     await act(async () => resolveFirst(json(200, { items: [ownerMember], nextCursor: null })));
     expect(screen.getByRole('option', { name: 'petr' })).toBeInTheDocument();
+  });
+
+  it('caps Add catalogue paging without exposing a partial chooser and allows retry', async () => {
+    let failWalk = false;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: (request) => {
+      if (failWalk) return json(503);
+      return json(200, { items: [subject], nextCursor: `cursor-${request.query.get('cursor') ?? 'start'}` });
+    }, [memberList]: memberPage() });
+    app();
+    await screen.findByRole('button', { name: 'Add item' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(20);
+    failWalk = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(21);
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
+  it('closes and reopens Add without accepting the earlier subject catalogue response', async () => {
+    let release!: (response: Response) => void;
+    let calls = 0;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => ++calls === 1 ? pending : json(200, { items: [subject], nextCursor: null }), [memberList]: memberPage() });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('button', { name: 'Add item' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+    await act(async () => { release(json(200, { items: [{ ...subject, name: 'Obsolete' }], nextCursor: null })); });
+    expect(within(form).getByRole('option', { name: 'Anna' })).toBeInTheDocument();
+    expect(within(form).queryByRole('option', { name: 'Obsolete' })).not.toBeInTheDocument();
+  });
+
+  it('signs out on a current label 401 and ignores a stale response after unmount', async () => {
+    let release!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => deferred, [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+    cleanup();
+    await act(async () => { release(json(401)); });
+    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+
+    installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: json(401), [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
   });
 
   it('ignores a stale 401 member response after add is cancelled', async () => {
@@ -201,7 +285,7 @@ describe('item creation', () => {
     expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body)).toEqual({ title: 'Check smoke alarm', subjectId: 's-1', recurrence: { intervalValue: 3, intervalUnit: 'month', mode } });
   });
 
-  it('loads the next subject page and renders a newly created item with its resolved subject name', async () => {
+  it('loads active subject pages only after opening Add; the chooser preserves full paging', async () => {
     const second: Subject = { ...subject, id: 's-2', name: 'Garage' };
     const created = item({ id: 'i-2', subjectId: 's-2', title: 'Check the roof' });
     const source: Item[] = [];
@@ -217,6 +301,9 @@ describe('item creation', () => {
       [`POST ${base}/items`]: (request) => { const saved = { ...created, title: JSON.parse(request.body).title }; source.push(saved); return json(201, saved); },
     });
     app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('button', { name: 'Add item' });
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     const form = await openForm();
     expect(screen.queryByText('Check the roof')).not.toBeInTheDocument();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Check the roof');
@@ -304,6 +391,7 @@ describe('item creation', () => {
     const failed = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(503) });
     app();
     await screen.findByRole('heading', { name: 'Veselí' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
     expect(screen.queryByText('Add a person or thing before adding an item.')).not.toBeInTheDocument();
     expect(failed.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects`)).toHaveLength(1);
@@ -311,6 +399,60 @@ describe('item creation', () => {
 });
 
 describe('Home items', () => {
+  it('avoids catalogue requests without rows and batch-loads only unique row subjects across groups', async () => {
+    const noRows = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    expect(requestsOf(noRows.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
+    cleanup();
+
+    const states: Item['workflowState'][] = ['open', 'in_progress', 'waiting', 'open', 'paused'];
+    const rows = Array.from({ length: 125 }, (_, index) => item({ id: `id-${index}`, subjectId: `s-${index}`, title: `Row ${index}`, workflowState: states[Math.floor(index / 25)]!, attention: index >= 75 && index < 100 ? 'upcoming' : 'needs_attention', attentionOn: index >= 75 && index < 100 ? '2027-01-01' : null }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, rows), [subjectList]: (request) => {
+      const ids = request.query.getAll('id');
+      expect(ids.length).toBeLessThanOrEqual(100);
+      return json(200, { items: ids.map((id) => ({ ...subject, id, name: `Name ${id}` })), nextCursor: null });
+    } });
+    app();
+    await screen.findByText('Name s-0');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4));
+    const labelCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
+    expect(labelCalls.map((request) => request.query.getAll('id').length).sort((a, b) => a - b)).toEqual([25, 25, 100, 100]);
+    expect(labelCalls.every((request) => request.query.get('limit') === '100' && request.query.get('cursor') === null)).toBe(true);
+  });
+
+  it('Show more requests only newly visible subject IDs and locale changes reuse labels', async () => {
+    const rows = Array.from({ length: 26 }, (_, index) => item({ id: `walk-${index}`, subjectId: `s-${index}`, title: `Walk ${index}`, workflowState: 'open', attention: 'needs_attention' }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, rows), [subjectList]: (request) => json(200, { items: request.query.getAll('id').map((id) => ({ ...subject, id, name: `Name ${id}` })), nextCursor: null }) });
+    app();
+    await screen.findByText('Name s-0');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+    expect(screen.getByRole('button', { name: 'Show more (1 remaining)' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Show more (1 remaining)' }));
+    await screen.findByText('Name s-25');
+    const calls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
+    expect(calls).toHaveLength(4);
+    expect(calls.slice(2).map((request) => request.query.getAll('id'))).toEqual([['s-9'], ['s-9']]);
+    await userEvent.click(screen.getByRole('button', { name: 'Čeština' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Veselí/ })).toBeVisible());
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);
+  });
+
+  it('requests each shared row subject in both partitions and displays archived names', async () => {
+    const archivedSubject = { ...subject, id: 'archived-id', archived: true, name: 'Archived name' };
+    const same = [item({ id: 'same-needs', title: 'Needs row', subjectId: 'archived-id', workflowState: 'open' }), item({ id: 'same-progress', title: 'Progress row', subjectId: 'archived-id', workflowState: 'in_progress' })];
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, same), [subjectList]: (request) => request.query.get('archived') === 'true' ? json(200, { items: [archivedSubject], nextCursor: null }) : json(200, { items: [], nextCursor: null }) });
+    app();
+    await screen.findByText('Needs row');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+    const rowsWithName = await screen.findAllByText('Archived name');
+    expect(rowsWithName).toHaveLength(2);
+    const calls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
+    expect(calls).toHaveLength(2);
+    expect(calls.map((request) => request.query.get('archived')).sort()).toEqual(['false', 'true']);
+    expect(calls.every((request) => request.query.getAll('id').join() === 'archived-id')).toBe(true);
+  });
+
   it('groups by server states and formats date-only values without timezone shifting', async () => {
     // Node honours TZ changes at runtime; a negative offset would turn a naive Date('2026-11-01') into Oct 31.
     vi.stubEnv('TZ', 'America/Los_Angeles');
@@ -358,6 +500,26 @@ describe('Home items', () => {
     expect(noDateRow).not.toHaveTextContent('Attention date');
     expect(noDateRow).not.toHaveTextContent('Needs attention since');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
+  });
+
+  it('retries only failed label IDs while retaining names from the successful partition', async () => {
+    let failArchived = true;
+    const two = [item({ id: 'label-one', subjectId: 's-1' }), item({ id: 'label-two', subjectId: 's-2', workflowState: 'in_progress' })];
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, two), [subjectList]: (request) => {
+      if (request.query.get('archived') === 'false') return json(200, { items: [{ ...subject, id: 's-1', name: 'Known one' }], nextCursor: null });
+      return failArchived ? json(503) : json(200, { items: [{ ...subject, id: 's-2', name: 'Known two' }], nextCursor: null });
+    } });
+    app();
+    await screen.findByText('Known one');
+    expect(await screen.findByText('Couldn’t load some names. Try again')).toBeVisible();
+    expect(screen.getByText('Person or thing')).toBeVisible();
+    expect(screen.queryByText('s-1')).not.toBeInTheDocument();
+    const before = requestsOf(fake.requests, 'GET', `${base}/subjects`).length;
+    failArchived = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByText('Known two');
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(before + 2);
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).slice(before).every((request) => request.query.getAll('id').join() === 's-2')).toBe(true);
   });
 
   it('keeps home rows visible without assignee names when member loading fails', async () => {
