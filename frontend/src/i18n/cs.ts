@@ -275,7 +275,7 @@ export const cs: Record<MessageKey, string> = {
   'items.done': 'Hotovo',
   'items.done.label': 'Hotovo: {title}',
   'items.needsSince': 'Vyžaduje pozornost od {date}',
-  'items.rowAttentionDate': 'Termín pozornosti: {date}',
+  'items.rowAttentionDate': 'Plánované datum: {date}',
   'items.responsible.you': 'Stará se: vy',
   'items.attentionOn': 'Vyžaduje pozornost: {date}',
   'items.repeatLabel': 'Opakuje se každé {count} {unit}',

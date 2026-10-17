@@ -81,7 +81,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const [summary, setSummary] = useState<ItemSummary | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [homeMembers, setHomeMembers] = useState<Member[]>([]);
+  const [homeMembersState, setHomeMembersState] = useState<{ householdId: string; members: Member[] } | null>(null);
   const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
   const [subjectRetry, setSubjectRetry] = useState(0);
@@ -99,7 +99,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const generation = useRef(0);
   const memberLoadGeneration = useRef(0);
   const homeMemberGeneration = useRef(0);
-  const [homeMembersLoaded, setHomeMembersLoaded] = useState(false);
+  const homeMembers = homeMembersState?.householdId === householdId ? homeMembersState.members : [];
+  const homeMembersLoaded = homeMembersState?.householdId === householdId;
   const mounted = useRef(false);
   const mutationBusy = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
@@ -177,12 +178,12 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
         const result = await listMembers(householdId, cursor);
         if (!isCurrent()) return;
         if (result.kind === 'unauthenticated') { onSignedOut(); return; }
-        if (result.kind !== 'ok') { setHomeMembers([]); setHomeMembersLoaded(false); return; }
+        if (result.kind !== 'ok') { setHomeMembersState(null); return; }
         collected.push(...result.items);
-        if (!result.nextCursor) { setHomeMembers(collected); setHomeMembersLoaded(true); return; }
+        if (!result.nextCursor) { setHomeMembersState({ householdId, members: collected }); return; }
         cursor = result.nextCursor;
       }
-      if (isCurrent()) { setHomeMembers([]); setHomeMembersLoaded(false); }
+      if (isCurrent()) setHomeMembersState(null);
     };
     void loadHomeMembers();
     return () => { generationRef.current++; };

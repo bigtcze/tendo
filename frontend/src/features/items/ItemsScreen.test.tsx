@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -333,21 +334,26 @@ describe('Home items', () => {
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
     const entries = [
-      item({ id: 'needs-date', title: 'Needs date', attentionOn: '2026-02-03', lastCompletedOn: '2025-12-01', responsibleUserId: session().userId }),
+      item({ id: 'needs-date', title: 'Needs date', attentionOn: '2025-12-03', lastCompletedOn: '2025-12-01', responsibleUserId: session().userId }),
       item({ id: 'progress-date', title: 'In progress date', workflowState: 'in_progress', attentionOn: '2026-03-04', responsibleUserId: 'u-2' }),
+      item({ id: 'waiting-date', title: 'Waiting date', workflowState: 'waiting', attentionOn: '2026-03-05' }),
+      item({ id: 'paused-date', title: 'Paused date', workflowState: 'paused', attentionOn: '2026-03-06' }),
+      item({ id: 'upcoming-date', title: 'Upcoming date', attention: 'upcoming', attentionOn: '2026-02-03' }),
       item({ id: 'no-date', title: 'No attention date' }),
     ];
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
     app();
     const needs = await screen.findByText('Needs date');
     const needsRow = needs.closest('li')!;
-    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
-    expect(needsRow).toHaveTextContent('Needs attention Feb 3, 2026');
+    await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
+    expect(needsRow).toHaveTextContent('Needs attention since Dec 3, 2025');
     expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
-    expect(needsRow).toHaveTextContent('Looked after by you');
     const progressRow = screen.getByText('In progress date').closest('li')!;
     expect(progressRow).toHaveTextContent('Attention date Mar 4, 2026');
     expect(progressRow).toHaveTextContent('petr');
+    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5, 2026');
+    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6, 2026');
+    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3, 2026');
     const noDateRow = screen.getByText('No attention date').closest('li')!;
     expect(noDateRow).not.toHaveTextContent('Attention date');
     expect(noDateRow).not.toHaveTextContent('Needs attention since');
@@ -368,6 +374,66 @@ describe('Home items', () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [memberList]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
     expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
+  });
+
+  it('ignores a stale home members 401 after navigating to People and things', async () => {
+    let release!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { release = resolve; });
+    let memberCalls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects, [memberList]: () => ++memberCalls === 1 ? deferred : memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
+    await screen.findByRole('heading', { name: 'People and things' });
+    await act(async () => { release(json(401)); });
+    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(2);
+  });
+
+  it('ignores an obsolete successful home members response from a StrictMode generation', async () => {
+    let releaseFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    let calls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: () => ++calls === 1 ? first : memberPage() });
+    render(<StrictMode><I18nProvider><App /></I18nProvider></StrictMode>);
+    const title = await screen.findByText('Renew passport');
+    const row = title.closest('li')!;
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(2));
+    await waitFor(() => expect(row).toHaveTextContent('petr'));
+    await act(async () => { releaseFirst(json(200, { items: [{ userId: 'u-2', login: 'obsolete', role: 'member' }], nextCursor: null })); });
+    expect(row).toHaveTextContent('petr');
+    expect(row).not.toHaveTextContent('obsolete');
+  });
+
+  it('resolves home assignees from a later members page', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: (request: RecordedRequest) => request.query.get('cursor') === 'later' ? json(200, { items: [secondMember], nextCursor: null }) : json(200, { items: [ownerMember], nextCursor: 'later' }) });
+    app();
+    const title = await screen.findByText('Renew passport');
+    await waitFor(() => expect(title.closest('li')).toHaveTextContent('petr'));
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`).map((request) => request.query.get('cursor'))).toEqual([null, 'later']);
+  });
+
+  it('stops an endless home members cursor chain at 20 pages without unknown metadata', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: (request: RecordedRequest) => json(200, { items: [], nextCursor: `cursor-${request.query.get('cursor') ?? 'start'}` }) });
+    app();
+    const title = await screen.findByText('Renew passport');
+    const row = title.closest('li')!;
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(20));
+    expect(row).not.toHaveTextContent('Unknown member');
+    expect(row).not.toHaveTextContent('petr');
+  });
+
+  it('does not restart the home members walk after Done refresh or locale change', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [memberList]: memberPage(), [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }), [`POST ${donePath}`]: json(201, { id: 'c-locale', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }) });
+    app();
+    await screen.findByText('Renew passport');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
+    await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
+    await screen.findByText('“Renew passport” is done.');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Čeština' }));
+    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
   });
 
