@@ -459,21 +459,56 @@ describe('All items', () => {
     expect(fake.requests.some((request) => request.query.get('cursor') === 'c:0')).toBe(false);
   });
 
-  it('shows error without a loading status after a failed initial or filter request', async () => {
-    const fail = false;
+  it('shows error without a loading status after a failed initial request, and recovers on Try again', async () => {
+    let fail = true;
     const routeSet = itemRoutes(base, [makeItem(1)]);
     const normalList = routeSet[`GET ${base}/items`]!;
-    const fake = installFakeServer({ ...bootRoutes, ...routeSet, [`GET ${base}/items`]: (request) => {
-      if (fail || request.query.get('q') === 'fail') return json(500, {});
-      return normalList(request);
-    } });
+    installFakeServer({ ...bootRoutes, ...routeSet, [`GET ${base}/items`]: (request) => fail ? json(500, {}) : normalList(request) });
     app();
     await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
     await screen.findByRole('heading', { name: 'All items' });
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Item 1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
+  });
+
+  it('shows error without a loading status after a failed filter request', async () => {
+    const routeSet = itemRoutes(base, [makeItem(1)]);
+    const normalList = routeSet[`GET ${base}/items`]!;
+    installFakeServer({ ...bootRoutes, ...routeSet, [`GET ${base}/items`]: (request) => request.query.get('q') === 'fail' ? json(500, {}) : normalList(request) });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    expect(await screen.findByText('Item 1')).toBeInTheDocument();
     await userEvent.type(screen.getByRole('searchbox'), 'fail');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
-    expect(screen.queryByRole('status', { name: 'Loading items…' })).not.toBeInTheDocument();
-    expect(reqs(fake.requests, `${base}/items`).length).toBeGreaterThan(1);
+    expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
+  });
+
+  it.each([25, 50])('offers no phantom Next page when exactly %i unfinished archived items exist and none are completed', async (count) => {
+    const items = Array.from({ length: count }, (_, i) => makeItem(i + 1, { archived: true }));
+    await openAllItems(items);
+    await userEvent.selectOptions(screen.getByLabelText('Show'), 'archived');
+    expect(await screen.findByRole('heading', { level: 2, name: `Showing 1–25 of ${count}` })).toBeInTheDocument();
+    if (count === 50) {
+      await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+      expect(await screen.findByRole('heading', { level: 2, name: 'Showing 26–50 of 50' })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument();
+  });
+
+  it('treats a malformed archived cursor as stale and restarts from the first page', async () => {
+    window.history.replaceState(null, '', '/items?status=archived&cursor=garbage');
+    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { archived: true })]) });
+    app();
+    expect(await screen.findByText('The list changed, so we started from the top.')).toBeInTheDocument();
+    expect(await screen.findByText('Item 1')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).has('cursor')).toBe(false);
+    expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('cursor') === 'garbage')).toBe(false);
   });
 });

@@ -85,14 +85,22 @@ export async function listAllItems(householdId: string, status: AllItemsStatus, 
 
   try {
     if (status === 'archived') {
+      // UI cursor wraps two server streams: 'a:<c>' continues unfinished archived items,
+      // 'b:' starts completed archived items and 'b:<c>' continues them. Anything else is stale.
       const token = cursor ?? '';
       const archivedDone = token.startsWith('b:');
-      const serverCursor = archivedDone ? token.slice(2) : token.startsWith('a:') ? token.slice(2) : '';
+      if (token && !archivedDone && !(token.startsWith('a:') && token.length > 2)) return { kind: 'stale', parameter: 'cursor' };
+      const serverCursor = token.slice(2);
       const first = await fetchStream({ limit: 25, ...common, archived: true, done: archivedDone, ...(serverCursor ? { cursor: serverCursor } : {}) });
       if (first.kind !== 'ok') return first;
       if (archivedDone) return { kind: 'ok', items: first.items, nextCursor: first.nextCursor ? `b:${first.nextCursor}` : null };
       if (first.nextCursor) return { kind: 'ok', items: first.items, nextCursor: `a:${first.nextCursor}` };
-      if (first.items.length === 25) return { kind: 'ok', items: first.items, nextCursor: 'b:' };
+      if (first.items.length === 25) {
+        // Only offer the boundary page when completed archived items actually exist.
+        const probe = await fetchStream({ limit: 1, ...common, archived: true, done: true });
+        if (probe.kind !== 'ok') return probe;
+        return { kind: 'ok', items: first.items, nextCursor: probe.items.length ? 'b:' : null };
+      }
       const second = await fetchStream({ limit: 25 - first.items.length, ...common, archived: true, done: true });
       if (second.kind !== 'ok') return second;
       return { kind: 'ok', items: [...first.items, ...second.items], nextCursor: second.nextCursor ? `b:${second.nextCursor}` : null };
