@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
+import { ItemsScreen } from './ItemsScreen';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Item, Subject } from './itemsApi';
@@ -195,6 +196,26 @@ describe('item creation', () => {
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
   });
 
+  it('withholds the chooser until the full active catalogue walk succeeds', async () => {
+    let releaseSecond!: (response: Response) => void;
+    const second = new Promise<Response>((resolve) => { releaseSecond = resolve; });
+    let calls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: (request) => {
+      if (request.query.has('id')) return json(200, { items: [], nextCursor: null });
+      if (++calls === 1) return json(200, { items: [subject], nextCursor: 'page-two' });
+      return second;
+    }, [memberList]: memberPage() });
+    app();
+    await screen.findByRole('button', { name: 'Add item' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Loading…');
+    await act(async () => releaseSecond(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(form).getByRole('option', { name: 'Garage' })).toBeVisible();
+  });
+
   it('closes and reopens Add without accepting the earlier subject catalogue response', async () => {
     let release!: (response: Response) => void;
     let calls = 0;
@@ -218,12 +239,12 @@ describe('item creation', () => {
     let release!: (response: Response) => void;
     const deferred = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => deferred, [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
-    app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    const signedOut = vi.fn();
+    render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onSignedOut={signedOut} /></I18nProvider>);
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
     cleanup();
     await act(async () => { release(json(401)); });
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(signedOut).not.toHaveBeenCalled();
 
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: json(401), [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
