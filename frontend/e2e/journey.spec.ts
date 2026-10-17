@@ -910,6 +910,11 @@ test.describe('Tendo production journey', () => {
     await form.getByLabel(en['items.responsible.label']).selectOption(member!.userId);
     await form.getByRole('button', { name: en['items.add.submit'] }).click();
     await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
+    // V2 slice 6b: the home row names who looks after the item and keeps Done secondary to Add item.
+    await expect(row(title)).toContainText(en['items.responsible.read'].replace('{name}', member!.login));
+    const rowDone = row(title).getByRole('button', { name: en['items.done.label'].replace('{title}', title), exact: true });
+    await expect(rowDone).toHaveAttribute('data-variant', 'secondary');
+    await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toHaveAttribute('data-variant', 'primary');
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
     const created = await serverItem(title);

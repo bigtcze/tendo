@@ -610,9 +610,9 @@ describe('edit', () => {
     });
     renderApp();
     const form = await openAddForm();
-    await waitFor(() => expect(listed).toBe(4));
+    await waitFor(() => expect(listed).toBe(6));
     const memberRequests = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`);
-    expect(memberRequests.map((request) => request.query.get('cursor'))).toEqual([null, 'next', null, 'next']);
+    expect(memberRequests.map((request) => request.query.get('cursor'))).toEqual([null, 'next', null, 'next', null, 'next']);
     await waitFor(() => expect(within(form).getByRole('option', { name: 'member_two' })).toHaveValue('member-page-two'));
 
     cleanup();
@@ -707,17 +707,17 @@ describe('edit', () => {
     const firstOpening = userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     await firstOpening;
     const firstForm = await screen.findByRole('form', { name: 'Edit Anna' });
-    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(2));
+    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(3));
     await userEvent.click(within(firstForm).getByRole('button', { name: 'Cancel' }));
     const secondOpening = userEvent.click(await screen.findByRole('button', { name: 'Edit Bea' }));
     await secondOpening;
-    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(4));
+    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(5));
     const currentForm = await screen.findByRole('form', { name: 'Edit Bea' });
     await waitFor(() => expect(within(currentForm).getByRole('option', { name: 'current_member' })).toBeInTheDocument());
     await act(async () => { releaseObsolete(problem(401)); });
     expect(within(currentForm).getByRole('option', { name: 'current_member' })).toBeInTheDocument();
     expect(within(currentForm).queryByRole('option', { name: 'member_one' })).not.toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(4);
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(5);
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
@@ -737,7 +737,7 @@ describe('edit', () => {
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
     await screen.findByRole('form', { name: 'Add a person or thing' });
-    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(calls).toBe(3));
     await waitFor(() => expect(fake.requests.some((request) => request.method === 'GET' && request.path === `${base}/members`)).toBe(true));
     await userEvent.click(await screen.findByRole('link', { name: 'Back to home' }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });

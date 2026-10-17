@@ -4,7 +4,7 @@ Items keep household obligations in view without needing an exact date. From Hom
 
 ## Home
 
-Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Empty groups are not shown. Home also links to **All items**, where you can search and filter the full household list.
+Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each item shows who or what it is for, its attention date when it has one, when it was last done, and who is looking after it. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Empty groups are not shown. Home also links to **All items**, where you can search and filter the full household list.
 
 ## Finding items
 
