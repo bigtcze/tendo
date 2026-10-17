@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -201,14 +201,25 @@ describe('All items', () => {
     search.focus();
     await userEvent.selectOptions(screen.getByLabelText('Show'), 'active');
     expect(screen.getByLabelText('Show')).toHaveFocus();
-    for (let page = 0; page < 3; page++) await userEvent.click(await screen.findByRole('button', { name: 'Next page' }));
-    expect(await screen.findByText('Item 76')).toBeInTheDocument();
+    const rowIds = () => [...document.querySelectorAll('[data-item-id]')].map((row) => row.getAttribute('data-item-id'));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Showing 1–25 of 100' })).toBeInTheDocument();
+    const pages = [rowIds()];
+    for (const range of ['26–50', '51–75', '76–100']) {
+      await userEvent.click(await screen.findByRole('button', { name: 'Next page' }));
+      expect(await screen.findByRole('heading', { level: 2, name: `Showing ${range} of 100` })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Previous page' })).toBeInTheDocument();
+      expect(document.querySelectorAll('[data-item-id]').length).toBeLessThanOrEqual(25);
+      pages.push(rowIds());
+    }
+    expect(new Set(pages.flat()).size).toBe(100);
     expect(document.activeElement).toHaveAttribute('tabindex', '-1');
-    expect(document.querySelectorAll('[data-item-id]').length).toBeLessThanOrEqual(25);
-    const thirdPageTitles = [...document.querySelectorAll('[data-item-id]')].map((row) => row.textContent);
-    await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
-    expect(document.querySelectorAll('[data-item-id]').length).toBe(25);
-    expect([...document.querySelectorAll('[data-item-id]')].map((row) => row.textContent)).not.toEqual(thirdPageTitles);
+    for (const [index, range] of [[2, '51–75'], [1, '26–50'], [0, '1–25']] as const) {
+      await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+      expect(await screen.findByRole('heading', { level: 2, name: `Showing ${range} of 100` })).toBeInTheDocument();
+      expect(rowIds()).toEqual(pages[index]);
+    }
+    expect(screen.queryByRole('button', { name: 'Previous page' })).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).has('cursor')).toBe(false);
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await userEvent.selectOptions(screen.getByLabelText('Repeat'), 'true');
     await waitFor(() => expect(new URLSearchParams(window.location.search).has('cursor')).toBe(false));
@@ -270,6 +281,31 @@ describe('All items', () => {
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(staleCount).toBeGreaterThanOrEqual(2);
     expect(fake.requests.filter((request) => request.path === `${base}/items`).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('never shows previous page rows under the next page range while it loads', async () => {
+    const items = Array.from({ length: 60 }, (_, i) => makeItem(i + 1));
+    const routes = itemRoutes(base, items);
+    const listItems = routes[`GET ${base}/items`];
+    let release: (() => void) | undefined;
+    installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items`]: (request: RecordedRequest) => {
+      if (!request.query.has('cursor')) return listItems(request);
+      return new Promise<Response>((resolve) => { release = () => resolve(listItems(request)); });
+    } });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Showing 1–25 of 60' })).toBeInTheDocument();
+    // Synchronous click: assert the very first render after the context change, before the deferred load starts.
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.queryByRole('heading', { level: 2, name: /Showing 26–50/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
+    await waitFor(() => expect(release).toBeDefined());
+    expect(screen.queryByRole('heading', { level: 2, name: /Showing 26–50/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
+    await act(async () => { release!(); });
+    expect(await screen.findByRole('heading', { level: 2, name: 'Showing 26–50 of 60' })).toBeInTheDocument();
+    expect(screen.getByText('Item 26')).toBeInTheDocument();
+    expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
   });
 
   it('ignores stale responses after a quick filter change', async () => {

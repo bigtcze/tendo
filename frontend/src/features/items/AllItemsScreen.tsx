@@ -75,6 +75,12 @@ function recurrenceKey(unit: NonNullable<Item['recurrence']>['intervalUnit'], co
   return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
 }
 
+function countKey(count: number, locale: string): MessageKey {
+  const category = new Intl.PluralRules(locale).select(count);
+  const supported: Record<string, string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
+  return `items.group.count.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
+}
+
 function countFor(status: AllItemsStatus, summary: ItemSummary): number {
   switch (status) {
     case 'active': return summary.needsAttention + summary.inProgress + summary.waiting + summary.upcoming + summary.paused;
@@ -136,7 +142,10 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const [items, setItems] = useState<Item[]>([]);
   const [summary, setSummary] = useState<ItemSummary | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingPage, setLoading] = useState(true);
+  // Query whose rows are currently in `items`; rows for any other context are stale and must not render.
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  const loading = loadingPage || loadedQuery !== buildQuery(context);
   const [error, setError] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [notice, setNotice] = useState(false);
@@ -224,6 +233,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
       setSummary(summaryResult.summary);
       setItems(pageResult.items);
       setNextCursor(pageResult.nextCursor);
+      setLoadedQuery(buildQuery(pageContext));
       setError(false);
       setLoading(false);
     }
@@ -285,6 +295,8 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
             : item.attention === 'upcoming' ? 'items.group.upcoming' : 'items.group.needs');
   const stack = cursorStack();
   const pageNumber = context.cursor ? stack.length + 1 : 1;
+  // After a reload on a later page the earlier cursors are gone, so the page position is unknown.
+  const pageKnown = !context.cursor || stack.length > 0;
   const selectedCount = summary ? countFor(context.status, summary) : 0;
   const anyFilters = Boolean(context.q || context.subjectId || context.responsibleUserId || context.recurring !== undefined);
   const back = <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink">{t('subjects.backHome')}</NavLink>;
@@ -350,9 +362,9 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
           update({ q: undefined, status: 'active', subjectId: undefined, responsibleUserId: undefined, recurring: undefined });
         }}>{t('allItems.clear')}</Button></div> : null}
       {!loading && !error && items.length > 0 ? <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
-        <h2 className="font-display text-xl leading-snug">{t('allItems.range', {
+        <h2 className="font-display text-xl leading-snug">{pageKnown ? t('allItems.range', {
           from: String((pageNumber - 1) * 25 + 1), to: String((pageNumber - 1) * 25 + items.length), total: String(selectedCount),
-        })}</h2>
+        }) : t(countKey(selectedCount, locale), { count: String(selectedCount) })}</h2>
         <ul className="mt-3 divide-y divide-line border-y border-line bg-white/70">
           {items.map((item) => <li key={item.id} data-item-id={item.id} className="p-4">
             <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)} className="inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{item.title}</NavLink>
@@ -370,7 +382,8 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
             goToCursor(previous || undefined, prior);
           }}>{stack.length ? t('allItems.previous') : t('allItems.first')}</Button> : null}
           {nextCursor ? <Button type="button" variant="quiet" onClick={() => {
-            const prior = [...cursorStack(), ...(context.cursor ? [context.cursor] : [])];
+            // '' marks the first page (no cursor) so Previous and the range line stay truthful from page 2 on.
+            const prior = [...cursorStack(), context.cursor ?? ''];
             goToCursor(nextCursor, prior);
           }}>{t('allItems.next')}</Button> : null}
         </div>
