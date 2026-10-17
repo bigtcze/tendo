@@ -145,7 +145,8 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const [loadingPage, setLoading] = useState(true);
   // Query whose rows are currently in `items`; rows for any other context are stale and must not render.
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
-  const loading = loadingPage || loadedQuery !== buildQuery(context);
+  const loading = loadingPage;
+  const rowsCurrent = loadedQuery === buildQuery(context);
   const [error, setError] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [notice, setNotice] = useState(false);
@@ -192,13 +193,14 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   }, [householdId, onSignedOut]);
 
   const loadPage = useCallback(async (nextContext: Context) => {
+    // Context transitions also bump the generation synchronously; each load still owns a fresh token.
     const token = ++generation.current;
-    const isCurrent = () => mounted.current && token === generation.current;
     setLoading(true);
     setError(false);
     setSearchError(false);
 
-    async function run(pageContext: Context, allowRestart: boolean): Promise<void> {
+    async function run(pageContext: Context, allowRestart: boolean, requestToken = token): Promise<void> {
+      const current = () => mounted.current && requestToken === generation.current;
       const activeFilters: AllItemsFilters = {
         ...(pageContext.q ? { q: pageContext.q } : {}),
         ...(pageContext.subjectId ? { subjectId: pageContext.subjectId } : {}),
@@ -206,31 +208,36 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
         ...(pageContext.recurring !== undefined ? { recurring: pageContext.recurring } : {}),
       };
       const summaryResult = await getFilteredItemsSummary(householdId, activeFilters);
-      if (!isCurrent()) return;
+      if (!current()) return;
       if (summaryResult.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (summaryResult.kind !== 'ok') { setError(true); setLoading(false); return; }
+      if (summaryResult.kind !== 'ok') { setError(true); setLoading(false); setLoadedQuery(buildQuery(pageContext)); return; }
+      const nextSummary = summaryResult.summary;
 
-      const pageResult = await listAllItems(householdId, pageContext.status, activeFilters, summaryResult.summary.evaluatedOn, pageContext.cursor);
-      if (!isCurrent()) return;
+      const pageResult = await listAllItems(householdId, pageContext.status, activeFilters, nextSummary.evaluatedOn, pageContext.cursor);
+      if (!current()) return;
       if (pageResult.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (pageResult.kind === 'invalidQuery') { setSearchError(true); setLoading(false); return; }
+      if (pageResult.kind === 'invalidQuery') { setSearchError(true); setLoading(false); setLoadedQuery(buildQuery(pageContext)); return; }
       if (pageResult.kind === 'stale') {
         if (allowRestart) {
+          if (!current()) return;
+          generation.current++;
           setNotice(true);
           const firstPage = { ...pageContext, cursor: undefined };
           const query = buildQuery(firstPage);
           window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: [] }, '', `/items${query ? `?${query}` : ''}`);
+          const restartToken = generation.current;
           skipNextContextLoad.current = true;
           setContext(firstPage);
-          await run(firstPage, false);
+          await run(firstPage, false, restartToken);
           return;
         }
         setError(true);
         setLoading(false);
+        setLoadedQuery(buildQuery(pageContext));
         return;
       }
-      if (pageResult.kind !== 'ok') { setError(true); setLoading(false); return; }
-      setSummary(summaryResult.summary);
+      if (pageResult.kind !== 'ok') { setError(true); setLoading(false); setLoadedQuery(buildQuery(pageContext)); return; }
+      setSummary(nextSummary);
       setItems(pageResult.items);
       setNextCursor(pageResult.nextCursor);
       setLoadedQuery(buildQuery(pageContext));
@@ -250,13 +257,16 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
     return () => window.clearTimeout(timer);
   }, [loadPage, context, attempt]);
   useEffect(() => {
-    if (!loading && !error && focusResults.current) {
-      resultRef.current?.focus();
-      focusResults.current = false;
-    }
+    if (loading || error || !focusResults.current) return;
+    const active = document.activeElement;
+    const pagingControl = active instanceof HTMLElement && active.matches('[data-all-items-page]');
+    if (pagingControl || active === document.body || active === null) resultRef.current?.focus();
+    focusResults.current = false;
   }, [loading, error, items]);
   useEffect(() => {
     const sync = () => {
+      if (window.location.pathname !== '/items') return;
+      generation.current++;
       const next = readContext();
       setContext(next);
       setSearch(next.q ?? '');
@@ -271,6 +281,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   }, []);
 
   function update(next: Partial<Context>) {
+    generation.current++;
     const value: Context = { ...context, ...next, cursor: undefined };
     const query = buildQuery(value);
     window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: [] }, '', `/items${query ? `?${query}` : ''}`);
@@ -296,12 +307,13 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const stack = cursorStack();
   const pageNumber = context.cursor ? stack.length + 1 : 1;
   // After a reload on a later page the earlier cursors are gone, so the page position is unknown.
-  const pageKnown = !context.cursor || stack.length > 0;
+  const pageKnown = !context.cursor || stack[0] === '';
   const selectedCount = summary ? countFor(context.status, summary) : 0;
   const anyFilters = Boolean(context.q || context.subjectId || context.responsibleUserId || context.recurring !== undefined);
   const back = <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink">{t('subjects.backHome')}</NavLink>;
 
   function goToCursor(cursor: string | undefined, nextStack: string[]) {
+    generation.current++;
     const next = { ...context, cursor };
     const query = buildQuery(next);
     window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: nextStack }, '', `/items${query ? `?${query}` : ''}`);
@@ -354,14 +366,14 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
       {notice ? <p role="status" aria-live="polite" className="rounded-xl bg-sand px-4 py-2">{t('allItems.stale')}</p> : null}
       {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
       {error ? <div><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => setAttempt((value) => value + 1)}>{t('app.error.retry')}</Button></div> : null}
-      {!loading && !error && summary && summary.total === 0 && !anyFilters
+      {!loading && !error && rowsCurrent && summary && summary.total === 0 && !anyFilters
         ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-8"><p className="font-display text-xl">{t('allItems.none')}</p><NavLink href="/" onNavigate={onBack} className="mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('items.add')}</NavLink></div> : null}
-      {!loading && !error && summary && !items.length && (summary.total > 0 || anyFilters)
+      {!loading && !error && rowsCurrent && summary && !items.length && (summary.total > 0 || anyFilters)
         ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-8"><p className="font-display text-xl">{t('allItems.noMatch')}</p><Button type="button" variant="quiet" className="mt-2 -ml-3" onClick={() => {
           setSearch(''); setStatus('active'); setSubjectId(''); setResponsible(''); setRecurring(''); setSearchError(false);
           update({ q: undefined, status: 'active', subjectId: undefined, responsibleUserId: undefined, recurring: undefined });
         }}>{t('allItems.clear')}</Button></div> : null}
-      {!loading && !error && items.length > 0 ? <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
+      {!loading && !error && rowsCurrent && items.length > 0 ? <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
         <h2 className="font-display text-xl leading-snug">{pageKnown ? t('allItems.range', {
           from: String((pageNumber - 1) * 25 + 1), to: String((pageNumber - 1) * 25 + items.length), total: String(selectedCount),
         }) : t(countKey(selectedCount, locale), { count: String(selectedCount) })}</h2>
@@ -376,12 +388,12 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
           </li>)}
         </ul>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          {context.cursor ? <Button type="button" variant="quiet" onClick={() => {
+          {context.cursor ? <Button data-all-items-page type="button" variant="quiet" onClick={() => {
             const prior = [...cursorStack()];
             const previous = prior.pop();
             goToCursor(previous || undefined, prior);
           }}>{stack.length ? t('allItems.previous') : t('allItems.first')}</Button> : null}
-          {nextCursor ? <Button type="button" variant="quiet" onClick={() => {
+          {nextCursor ? <Button data-all-items-page type="button" variant="quiet" onClick={() => {
             // '' marks the first page (no cursor) so Previous and the range line stay truthful from page 2 on.
             const prior = [...cursorStack(), context.cursor ?? ''];
             goToCursor(nextCursor, prior);

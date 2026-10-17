@@ -1,4 +1,4 @@
-import type { components } from '../../../../api/generated/api';
+import type { components, operations } from '../../../../api/generated/api';
 import { api } from '../../lib/api';
 
 export type Item = components['schemas']['Item'];
@@ -64,16 +64,55 @@ export async function getFilteredItemsSummary(householdId: string, filters: AllI
   return { kind: 'error' as const };
 }
 export async function listAllItems(householdId: string, status: AllItemsStatus, filters: AllItemsFilters, attentionDate: string, cursor?: string): Promise<AllItemsPageResult> {
-  const query = { limit: 25 as const, sort: 'attention_on' as const, attentionDate, ...(filters.q ? { q: filters.q } : {}), ...(filters.subjectId ? { subjectId: filters.subjectId } : {}), ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}), ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' as const : 'false' as const } : {}), ...(status === 'active' ? { archived: false as const, done: false as const } : {}), ...(status === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}), ...(status === 'inProgress' ? { workflowState: 'in_progress' as const } : {}), ...(status === 'waiting' ? { workflowState: 'waiting' as const } : {}), ...(status === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}), ...(status === 'paused' ? { workflowState: 'paused' as const } : {}), ...(status === 'done' ? { done: true as const, archived: false as const } : {}), ...(status === 'archived' ? { archived: true as const } : {}), ...(cursor ? { cursor } : {}) };
-  try {
+  const common = {
+    sort: 'attention_on' as const,
+    attentionDate,
+    ...(filters.q ? { q: filters.q } : {}),
+    ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
+    ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}),
+    ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' as const : 'false' as const } : {}),
+  };
+
+  async function fetchStream(query: operations['listItems']['parameters']['query']) {
     const { data, error, response } = await api.GET(listPath, { params: { path: { householdId }, query } });
     if (data && response.status === 200) return { kind: 'ok' as const, items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' as const };
     if (response.status === 404) return { kind: 'noHousehold' as const };
     if (response.status === 400 && ['attentionDate', 'cursor'].includes(((error ?? {}) as Problem).parameter ?? '')) return { kind: 'stale' as const, parameter: ((error ?? {}) as Problem).parameter };
     if (response.status === 400 && ((error ?? {}) as Problem).parameter === 'q') return { kind: 'invalidQuery' as const };
+    return { kind: 'error' as const };
+  }
+
+  try {
+    if (status === 'archived') {
+      const token = cursor ?? '';
+      const archivedDone = token.startsWith('b:');
+      const serverCursor = archivedDone ? token.slice(2) : token.startsWith('a:') ? token.slice(2) : '';
+      const first = await fetchStream({ limit: 25, ...common, archived: true, done: archivedDone, ...(serverCursor ? { cursor: serverCursor } : {}) });
+      if (first.kind !== 'ok') return first;
+      if (archivedDone) return { kind: 'ok', items: first.items, nextCursor: first.nextCursor ? `b:${first.nextCursor}` : null };
+      if (first.nextCursor) return { kind: 'ok', items: first.items, nextCursor: `a:${first.nextCursor}` };
+      if (first.items.length === 25) return { kind: 'ok', items: first.items, nextCursor: 'b:' };
+      const second = await fetchStream({ limit: 25 - first.items.length, ...common, archived: true, done: true });
+      if (second.kind !== 'ok') return second;
+      return { kind: 'ok', items: [...first.items, ...second.items], nextCursor: second.nextCursor ? `b:${second.nextCursor}` : null };
+    }
+
+    const query = {
+      limit: 25 as const,
+      ...common,
+      ...(status === 'active' ? { archived: false as const, done: false as const } : {}),
+      ...(status === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}),
+      ...(status === 'inProgress' ? { workflowState: 'in_progress' as const } : {}),
+      ...(status === 'waiting' ? { workflowState: 'waiting' as const } : {}),
+      ...(status === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}),
+      ...(status === 'paused' ? { workflowState: 'paused' as const } : {}),
+      ...(status === 'done' ? { done: true as const, archived: false as const } : {}),
+      ...(cursor ? { cursor } : {}),
+    };
+    return await fetchStream(query);
   } catch { /* network failure */ }
-  return { kind: 'error' as const };
+  return { kind: 'error' };
 }
 const summaryPath = '/api/v1/households/{householdId}/items/summary';
 export async function getItemsSummary(householdId: string): Promise<{ kind: 'ok'; summary: ItemSummary } | { kind: 'noHousehold' } | Failure> {

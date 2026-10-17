@@ -350,4 +350,130 @@ describe('All items', () => {
     expect(await screen.findByRole('heading', { name: 'Všechny položky' })).toBeInTheDocument();
     expect(fake.requests.length).toBeGreaterThan(0);
   });
+
+  it('does not rewrite a popped home URL when leaving the list route', async () => {
+    await openAllItems([makeItem(1)]);
+    window.history.pushState(null, '', '/');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await screen.findByRole('heading', { name: 'Veselí' });
+    expect(window.location.pathname).toBe('/');
+    expect(screen.queryByRole('heading', { name: 'All items' })).not.toBeInTheDocument();
+  });
+
+  it('submits trimmed search and blocks more than 200 characters without a request', async () => {
+    const fake = await openAllItems([makeItem(1, { title: 'Garden care' })]);
+    const input = screen.getByRole('searchbox');
+    await userEvent.type(input, ' care ');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(window.location.search).toBe('?q=care'));
+    const before = reqs(fake.requests, `${base}/items`).length;
+    await userEvent.clear(input);
+    await userEvent.type(input, 'x'.repeat(201));
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('Search needs to be 200 characters or fewer.')).toBeInTheDocument();
+    expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
+  });
+
+  it('keeps a count-only heading while paging from a deep-linked cursor', async () => {
+    window.history.replaceState(null, '', '/items?cursor=c%3A25');
+    const items = Array.from({ length: 100 }, (_, index) => makeItem(index + 1));
+    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, items) });
+    app();
+    await screen.findByRole('heading', { name: 'All items' });
+    await waitFor(() => expect(screen.queryByText('Loading items…')).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: '100 items' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByRole('heading', { name: '100 items' })).toBeInTheDocument();
+    expect(screen.queryByText(/Showing 26–50/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+    expect(screen.getByRole('heading', { name: '100 items' })).toBeInTheDocument();
+    expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('cursor') === 'c:50')).toBe(true);
+  });
+
+  it('reaches archived completed items over multiple UI pages, topping up the first stream', async () => {
+    const fixtures = Array.from({ length: 27 }, (_, index) => makeItem(index + 1, { archived: true, done: index >= 20 }));
+    const fake = await openAllItems(fixtures);
+    await userEvent.selectOptions(screen.getByLabelText('Show'), 'archived');
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Archived (27)' })).toBeInTheDocument());
+    const ids = new Set<string>();
+    for (let page = 0; page < 2; page++) {
+      await waitFor(() => expect(document.querySelectorAll('[data-item-id]').length).toBeGreaterThan(0));
+      const pageIds = [...document.querySelectorAll('[data-item-id]')].map((row) => row.getAttribute('data-item-id')!);
+      expect(pageIds.length).toBeLessThanOrEqual(25);
+      pageIds.forEach((id) => ids.add(id));
+      if (page === 0) await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    }
+    expect(ids.size).toBe(27);
+    const archivedCalls = reqs(fake.requests, `${base}/items`).filter((request) => request.query.get('archived') === 'true');
+    expect(archivedCalls.some((request) => request.query.get('done') === 'false')).toBe(true);
+    expect(archivedCalls.some((request) => request.query.get('done') === 'true')).toBe(true);
+  });
+
+  it('invalidates a stale cursor response as soon as a filter changes', async () => {
+    let release: ((response: Response) => void) | undefined;
+    let pendingCursor = false;
+    const items = Array.from({ length: 30 }, (_, i) => makeItem(i + 1));
+    const routeSet = itemRoutes(base, items);
+    const normalList = routeSet[`GET ${base}/items`]!;
+    const fake = installFakeServer({ ...bootRoutes, ...routeSet, [`GET ${base}/items`]: (request) => {
+      if (request.query.has('cursor') && !pendingCursor) {
+        pendingCursor = true;
+        return new Promise<Response>((resolve) => { release = resolve; });
+      }
+      return normalList(request);
+    } });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    await screen.findByRole('heading', { name: 'All items' });
+    await waitFor(() => expect(screen.queryByText('Loading items…')).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.has('cursor'))).toBe(true));
+    await waitFor(() => expect(release).toBeDefined());
+    fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'true' } });
+    const changedUrl = window.location.pathname + window.location.search;
+    await act(async () => { release!(json(400, { parameter: 'cursor' })); });
+    expect(window.location.pathname + window.location.search).toBe(changedUrl);
+    expect(changedUrl).toContain('recurring=true');
+    expect(screen.queryByText('The list changed, so we started from the top.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
+  });
+
+  it('does not steal focus if the user moves focus while paging is pending', async () => {
+    const items = Array.from({ length: 30 }, (_, i) => makeItem(i + 1));
+    const routes = itemRoutes(base, items);
+    const listItems = routes[`GET ${base}/items`]!;
+    let release: (() => void) | undefined;
+    const fake = installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items`]: (request: RecordedRequest) => request.query.has('cursor')
+      ? new Promise<Response>((resolve) => { release = () => resolve(listItems(request)); })
+      : listItems(request) });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    await screen.findByRole('heading', { name: 'All items' });
+    await waitFor(() => expect(screen.queryByText('Loading items…')).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(release).toBeDefined());
+    screen.getByRole('searchbox').focus();
+    await act(async () => { release!(); });
+    await screen.findByText('Item 26');
+    expect(screen.getByRole('searchbox')).toHaveFocus();
+    expect(fake.requests.some((request) => request.query.get('cursor') === 'c:0')).toBe(false);
+  });
+
+  it('shows error without a loading status after a failed initial or filter request', async () => {
+    const fail = false;
+    const routeSet = itemRoutes(base, [makeItem(1)]);
+    const normalList = routeSet[`GET ${base}/items`]!;
+    const fake = installFakeServer({ ...bootRoutes, ...routeSet, [`GET ${base}/items`]: (request) => {
+      if (fail || request.query.get('q') === 'fail') return json(500, {});
+      return normalList(request);
+    } });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    await screen.findByRole('heading', { name: 'All items' });
+    await userEvent.type(screen.getByRole('searchbox'), 'fail');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading items…' })).not.toBeInTheDocument();
+    expect(reqs(fake.requests, `${base}/items`).length).toBeGreaterThan(1);
+  });
 });
