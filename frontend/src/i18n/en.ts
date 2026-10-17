@@ -382,7 +382,7 @@ export const en = {
   'allItems.previous': 'Previous page',
   'allItems.first': 'First page',
   'allItems.next': 'Next page',
-  'allItems.results': 'Search results',
+  'allItems.results': 'Results',
 } as const;
 
 export type MessageKey = keyof typeof en;

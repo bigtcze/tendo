@@ -385,5 +385,5 @@ export const cs: Record<MessageKey, string> = {
   'allItems.previous': 'Předchozí stránka',
   'allItems.first': 'První stránka',
   'allItems.next': 'Další stránka',
-  'allItems.results': 'Výsledky hledání',
+  'allItems.results': 'Výsledky',
 };

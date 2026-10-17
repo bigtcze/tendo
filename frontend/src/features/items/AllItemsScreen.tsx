@@ -302,39 +302,39 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
     <section className="settle space-y-5">
       {back}
       <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('allItems.title')}</Heading>
-      <form role="search" onSubmit={submit} className="flex flex-wrap items-end gap-3">
+      <form role="search" onSubmit={submit} className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
           <label htmlFor="all-items-search" className="block text-sm font-medium">{t('allItems.search')}</label>
           <input id="all-items-search" type="search" value={search}
             onChange={(event) => { setSearch(event.target.value); setSearchError(false); }}
             aria-invalid={searchError} aria-describedby={searchError ? 'all-items-search-error' : undefined}
-            className="mt-1 min-h-11 w-full rounded-xl border border-line bg-white px-3" />
+            className="mt-1 min-h-11 w-full rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" />
           {searchError ? <p id="all-items-search-error" className="mt-1 text-sm text-red-800">{t('allItems.searchTooLong')}</p> : null}
         </div>
         <Button type="submit">{t('allItems.searchButton')}</Button>
       </form>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm">{t('allItems.status.label')}
-          <select value={status} onChange={(event) => { const value = event.target.value as AllItemsStatus; setStatus(value); update({ status: value }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+          <select value={status} onChange={(event) => { const value = event.target.value as AllItemsStatus; setStatus(value); update({ status: value }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             {statuses.map((id) => <option key={id} value={id}>{t(statusKeys[id])}{summary ? ` (${countFor(id, summary)})` : ''}</option>)}
           </select>
         </label>
         {subjectState === 'ready' ? <label className="text-sm">{t('items.subject')}
-          <select value={subjectId} onChange={(event) => { setSubjectId(event.target.value); update({ subjectId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+          <select value={subjectId} onChange={(event) => { setSubjectId(event.target.value); update({ subjectId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <option value="">{t('allItems.any')}</option>
             {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}{subject.archived ? ` ${t('allItems.archivedSuffix')}` : ''}</option>)}
             {subjectId && !subjectNames.has(subjectId) ? <option value={subjectId}>{t('allItems.unknown')}</option> : null}
           </select>
         </label> : null}
         {memberState === 'ready' ? <label className="text-sm">{t('items.responsible.label')}
-          <select value={responsible} onChange={(event) => { setResponsible(event.target.value); update({ responsibleUserId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+          <select value={responsible} onChange={(event) => { setResponsible(event.target.value); update({ responsibleUserId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <option value="">{t('allItems.anyone')}</option><option value="unassigned">{t('items.responsible.none')}</option>
             {members.map((member) => <option key={member.userId} value={member.userId}>{member.login}{member.userId === userId ? ` (${t('allItems.you')})` : ''}</option>)}
             {responsible && responsible !== 'unassigned' && !members.some((member) => member.userId === responsible) ? <option value={responsible}>{t('allItems.unknown')}</option> : null}
           </select>
         </label> : null}
         <label className="text-sm">{t('allItems.repeat')}
-          <select value={recurring} onChange={(event) => { setRecurring(event.target.value); update({ recurring: event.target.value === '' ? undefined : event.target.value === 'true' }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+          <select value={recurring} onChange={(event) => { setRecurring(event.target.value); update({ recurring: event.target.value === '' ? undefined : event.target.value === 'true' }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <option value="">{t('allItems.any')}</option><option value="true">{t('allItems.repeating')}</option><option value="false">{t('allItems.oneOff')}</option>
           </select>
         </label>
@@ -343,26 +343,27 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
       {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
       {error ? <div><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => setAttempt((value) => value + 1)}>{t('app.error.retry')}</Button></div> : null}
       {!loading && !error && summary && summary.total === 0 && !anyFilters
-        ? <div><p>{t('allItems.none')}</p><NavLink href="/" onNavigate={onBack} className="underline">{t('items.add')}</NavLink></div> : null}
+        ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-8"><p className="font-display text-xl">{t('allItems.none')}</p><NavLink href="/" onNavigate={onBack} className="mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('items.add')}</NavLink></div> : null}
       {!loading && !error && summary && !items.length && (summary.total > 0 || anyFilters)
-        ? <div><p>{t('allItems.noMatch')}</p><Button type="button" variant="quiet" onClick={() => {
+        ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-8"><p className="font-display text-xl">{t('allItems.noMatch')}</p><Button type="button" variant="quiet" className="mt-2 -ml-3" onClick={() => {
           setSearch(''); setStatus('active'); setSubjectId(''); setResponsible(''); setRecurring(''); setSearchError(false);
           update({ q: undefined, status: 'active', subjectId: undefined, responsibleUserId: undefined, recurring: undefined });
         }}>{t('allItems.clear')}</Button></div> : null}
       {!loading && !error && items.length > 0 ? <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
-        <h2 className="font-display text-xl">{t('allItems.range', {
+        <h2 className="font-display text-xl leading-snug">{t('allItems.range', {
           from: String((pageNumber - 1) * 25 + 1), to: String((pageNumber - 1) * 25 + items.length), total: String(selectedCount),
         })}</h2>
-        <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">
+        <ul className="mt-3 divide-y divide-line border-y border-line bg-white/70">
           {items.map((item) => <li key={item.id} data-item-id={item.id} className="p-4">
-            <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)} className="inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg underline underline-offset-4">{item.title}</NavLink>
-            <p className="mt-1 text-sm text-muted">{subjectNames.get(item.subjectId) ?? t('items.subject.unknown')} · {labelForItem(item)}</p>
+            <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)} className="inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{item.title}</NavLink>
+            <p className="mt-1 text-sm text-muted">{subjectNames.get(item.subjectId) ?? t('items.subject.unknown')}</p>
+            <p className="text-sm font-medium text-accent-strong">{labelForItem(item)}</p>
             {item.attentionOn ? <p className="text-sm text-muted">{t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}</p> : null}
             {item.recurrence ? <p className="text-sm text-muted">{t(recurrenceKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
             {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown') })}</p> : null}
           </li>)}
         </ul>
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           {context.cursor ? <Button type="button" variant="quiet" onClick={() => {
             const prior = [...cursorStack()];
             const previous = prior.pop();

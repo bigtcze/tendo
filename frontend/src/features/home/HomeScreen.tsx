@@ -90,7 +90,7 @@ export function HomeScreen({
           <NavLink
             href="/items"
             onNavigate={onOpenAllItems}
-            className="mt-6 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="mt-3 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {t('home.allItems')}
           </NavLink>
