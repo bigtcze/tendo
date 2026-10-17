@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +12,7 @@ import { itemRoutes } from '../../test/fakeItems';
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const subjectList = `GET ${base}/subjects`;
 const memberList = `GET ${base}/members`;
-const ownerMember = { userId: 'u-1', login: 'anna', role: 'owner' as const };
+const ownerMember = { userId: session().userId, login: 'anna', role: 'owner' as const };
 const secondMember = { userId: 'u-2', login: 'petr', role: 'member' as const };
 const memberPage = (items = [ownerMember, secondMember]) => json(200, { items, nextCursor: null });
 const donePath = `${base}/items/i-1/completions`;
@@ -134,11 +135,11 @@ describe('item creation', () => {
     const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
     const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
     let calls = 0;
-    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: () => (++calls === 1 ? first : second) });
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: () => (++calls === 1 ? memberPage() : calls === 2 ? first : second) });
     app(); await openForm();
     await userEvent.click(within(await screen.findByRole('form', { name: 'Add an item' })).getByRole('button', { name: 'Cancel' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
-    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(calls).toBe(3));
     await act(async () => resolveSecond(json(200, { items: [ownerMember, secondMember], nextCursor: null })));
     await waitFor(() => expect(screen.getByLabelText("Who's looking after it")).toBeVisible());
     await act(async () => resolveFirst(json(200, { items: [ownerMember], nextCursor: null })));
@@ -148,15 +149,15 @@ describe('item creation', () => {
   it('ignores a stale 401 member response after add is cancelled', async () => {
     let resolveMembers!: (response: Response) => void;
     const pending = new Promise<Response>((resolve) => { resolveMembers = resolve; });
-    const signedOut = vi.fn();
-    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: () => pending });
+    let calls = 0;
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: () => ++calls === 1 ? memberPage() : pending });
     app();
     await screen.findByRole('heading', { name: 'Veselí' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
     await act(async () => resolveMembers(json(401)));
-    expect(signedOut).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
   });
@@ -331,6 +332,120 @@ describe('Home items', () => {
     expect(rows.map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
+  it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
+    const entries = [
+      item({ id: 'needs-date', title: 'Needs date', attentionOn: '2025-12-03', lastCompletedOn: '2025-12-01', responsibleUserId: session().userId }),
+      item({ id: 'progress-date', title: 'In progress date', workflowState: 'in_progress', attentionOn: '2026-03-04', responsibleUserId: 'u-2' }),
+      item({ id: 'waiting-date', title: 'Waiting date', workflowState: 'waiting', attentionOn: '2026-03-05' }),
+      item({ id: 'paused-date', title: 'Paused date', workflowState: 'paused', attentionOn: '2026-03-06' }),
+      item({ id: 'upcoming-date', title: 'Upcoming date', attention: 'upcoming', attentionOn: '2026-02-03' }),
+      item({ id: 'no-date', title: 'No attention date' }),
+    ];
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
+    app();
+    const needs = await screen.findByText('Needs date');
+    const needsRow = needs.closest('li')!;
+    await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
+    expect(needsRow).toHaveTextContent('Needs attention since Dec 3, 2025');
+    expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
+    const progressRow = screen.getByText('In progress date').closest('li')!;
+    expect(progressRow).toHaveTextContent('Attention date Mar 4, 2026');
+    expect(progressRow).toHaveTextContent('petr');
+    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5, 2026');
+    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6, 2026');
+    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3, 2026');
+    const noDateRow = screen.getByText('No attention date').closest('li')!;
+    expect(noDateRow).not.toHaveTextContent('Attention date');
+    expect(noDateRow).not.toHaveTextContent('Needs attention since');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
+  });
+
+  it('keeps home rows visible without assignee names when member loading fails', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: json(503) });
+    app();
+    const title = await screen.findByText('Renew passport');
+    const row = title.closest('li')!;
+    await waitFor(() => expect(row).not.toHaveTextContent('Unknown member'));
+    expect(row).not.toHaveTextContent('petr');
+    expect(row).toBeVisible();
+  });
+
+  it('signs out when the home members request is unauthorized', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [memberList]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
+  });
+
+  it('ignores a stale home members 401 after navigating to People and things', async () => {
+    let release!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { release = resolve; });
+    let memberCalls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects, [memberList]: () => ++memberCalls === 1 ? deferred : memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
+    await screen.findByRole('heading', { name: 'People and things' });
+    await act(async () => { release(json(401)); });
+    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(2);
+  });
+
+  it('ignores an obsolete successful home members response from a StrictMode generation', async () => {
+    let releaseFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    let calls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: () => ++calls === 1 ? first : memberPage() });
+    render(<StrictMode><I18nProvider><App /></I18nProvider></StrictMode>);
+    const title = await screen.findByText('Renew passport');
+    const row = title.closest('li')!;
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(2));
+    await waitFor(() => expect(row).toHaveTextContent('petr'));
+    await act(async () => { releaseFirst(json(200, { items: [{ userId: 'u-2', login: 'obsolete', role: 'member' }], nextCursor: null })); });
+    expect(row).toHaveTextContent('petr');
+    expect(row).not.toHaveTextContent('obsolete');
+  });
+
+  it('resolves home assignees from a later members page', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: (request: RecordedRequest) => request.query.get('cursor') === 'later' ? json(200, { items: [secondMember], nextCursor: null }) : json(200, { items: [ownerMember], nextCursor: 'later' }) });
+    app();
+    const title = await screen.findByText('Renew passport');
+    await waitFor(() => expect(title.closest('li')).toHaveTextContent('petr'));
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`).map((request) => request.query.get('cursor'))).toEqual([null, 'later']);
+  });
+
+  it('stops an endless home members cursor chain at 20 pages without unknown metadata', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ responsibleUserId: 'u-2' })]), [subjectList]: subjects, [memberList]: (request: RecordedRequest) => json(200, { items: [], nextCursor: `cursor-${request.query.get('cursor') ?? 'start'}` }) });
+    app();
+    const title = await screen.findByText('Renew passport');
+    const row = title.closest('li')!;
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(20));
+    expect(row).not.toHaveTextContent('Unknown member');
+    expect(row).not.toHaveTextContent('petr');
+  });
+
+  it('does not restart the home members walk after Done refresh or locale change', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [memberList]: memberPage(), [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }), [`POST ${donePath}`]: json(201, { id: 'c-locale', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }) });
+    app();
+    await screen.findByText('Renew passport');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
+    await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
+    await screen.findByText('“Renew passport” is done.');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Čeština' }));
+    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
+  });
+
+  it('gives each secondary Done button a title-inclusive accessible name', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ title: 'Renew passport' })]), [subjectList]: subjects });
+    app();
+    const title = await screen.findByText('Renew passport');
+    const done = within(title.closest('li')!).getByRole('button', { name: /Done:/ });
+    expect(done).toHaveTextContent('Done');
+    expect(done).toHaveAttribute('data-variant', 'secondary');
+  });
+
   it('reuses the unresolved key when the server committed but the response was lost', async () => {
     let posts = 0;
     const fake = installFakeServer({
@@ -345,10 +460,10 @@ describe('Home items', () => {
       },
     });
     app();
-    const done = await screen.findByRole('button', { name: 'Done' });
+    const done = await screen.findByRole('button', { name: /Done:/ });
     await userEvent.click(done);
     await screen.findByRole('button', { name: 'Try again' });
-    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
     await screen.findByText('“Renew passport” is done.');
     const sentPosts = requestsOf(fake.requests, 'POST', donePath);
     expect(sentPosts).toHaveLength(2);
@@ -366,9 +481,9 @@ describe('Home items', () => {
       [`POST ${donePath}`]: () => json(201, { id: `c-${postCount++}`, itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' }, nextAttentionOn: '2027-01-01', createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }),
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await screen.findByRole('button', { name: 'Undo' });
-    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
     await waitFor(() => expect(requestsOf(fake.requests, 'POST', donePath)).toHaveLength(2));
     const posts = requestsOf(fake.requests, 'POST', donePath);
     expect(posts[0]!.headers.get('Idempotency-Key')).not.toBe(posts[1]!.headers.get('Idempotency-Key'));
@@ -385,7 +500,7 @@ describe('Home items', () => {
       [`POST ${donePath}`]: (request) => request.headers.get('If-Match') === '"7"' ? json(503) : json(503),
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     const key = requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
@@ -407,13 +522,13 @@ describe('Home items', () => {
       [`POST ${donePath}`]: () => { if (++posts === 1) throw new Error('response lost'); return json(201, { id: 'c-nav', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }); },
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     const key = requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
     await screen.findByRole('button', { name: 'Try again' });
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
     await userEvent.click(screen.getByRole('link', { name: 'Back to home' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
     const postsSent = requestsOf(fake.requests, 'POST', donePath);
     expect(postsSent).toHaveLength(2);
@@ -442,7 +557,7 @@ describe('Home items', () => {
       },
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
     await screen.findByText('“Renew passport” is done.');
     const posts = requestsOf(fake.requests, 'POST', donePath);
@@ -464,12 +579,12 @@ describe('Home items', () => {
     };
     const first = installFakeServer(server);
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     const key = requestsOf(first.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
     cleanup();
     const reloaded = installFakeServer(server);
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await screen.findByText('“Renew passport” is done.');
     expect(requestsOf(reloaded.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key')).toBe(key);
   });
@@ -499,7 +614,7 @@ describe('Home items', () => {
   it('keeps Add item focused after an undone receipt is replayed', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }), [`POST ${donePath}`]: json(201, { id: 'c-undone', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-02T00:00:00Z', undoneByUserId: 'u-1' }) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByText('That was already undone. The list is up to date.')).toBeVisible();
     await waitFor(() => expect(screen.getByText('That was already undone. The list is up to date.').closest('[tabindex="-1"]')).toHaveFocus());
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
@@ -511,7 +626,7 @@ describe('Home items', () => {
     const waiting = new Promise<void>((resolve) => { release = resolve; });
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: async () => { await waiting; return json(200, item(), { ETag: '"7"' }); }, [`POST ${donePath}`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'item_done' }), [`POST ${base}/items`]: json(201, item()) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     const add = await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(add);
     const form = await screen.findByRole('form', { name: 'Add an item' });
@@ -522,7 +637,7 @@ describe('Home items', () => {
     await userEvent.click(submit);
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(0);
     expect(add).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Done:/ })).toBeDisabled();
     release();
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Add item' })).toBeEnabled());
   });
@@ -540,9 +655,9 @@ describe('Home items', () => {
       [`PATCH ${donePath}/c-focus`]: json(200, { id: 'c-focus', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-01T00:00:00Z', undoneByUserId: 'u-1' }),
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-    const done = await screen.findByRole('button', { name: 'Done' });
+    const done = await screen.findByRole('button', { name: /Done:/ });
     await waitFor(() => expect(done).toHaveFocus());
     const gets = requestsOf(fake.requests, 'GET', `${base}/items/i-1`);
     const patch = requestsOf(fake.requests, 'PATCH', `${donePath}/c-focus`)[0]!;
@@ -561,7 +676,7 @@ describe('Home items', () => {
       [`POST ${donePath}`]: () => ++postCalls === 1 ? Promise.reject(new Error('network')) : json(201, { id: 'c-1', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' }, nextAttentionOn: '2027-01-01', createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }),
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
     expect(requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('If-Match')).toBe('"7"');
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -594,7 +709,7 @@ describe('Home items', () => {
       [`PATCH ${donePath}/c-undo`]: json(200, { id: 'c-undo', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-01T00:00:00Z', undoneByUserId: 'u-1' }),
     });
     app();
-    const doneButton = await screen.findByRole('button', { name: 'Done' });
+    const doneButton = await screen.findByRole('button', { name: /Done:/ });
     await userEvent.click(doneButton);
     expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
     await waitFor(() => expect(screen.getByText('“Renew passport” is done.').closest('[tabindex="-1"]')).toHaveFocus());
@@ -608,7 +723,7 @@ describe('Home items', () => {
   it.each([{ status: 412, message: 'That changed just now.' }, { status: 409, message: 'This item is already done. The list is up to date.' }])('shows a calm $status completion notice and refreshes', async ({ status, message }) => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: (request) => request.query.get('archived') === 'true' ? json(200, { items: [], nextCursor: null }) : subjects, [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"3"' }), [`POST ${donePath}`]: status === 409 ? json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'item_done' }) : json(status), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByText(new RegExp(message))).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`).length).toBeGreaterThanOrEqual(2);
     if (status === 409) expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
@@ -617,7 +732,7 @@ describe('Home items', () => {
   it('clears the pending key when the item is gone during Done', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(404) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await screen.findByText('That item is gone. The list is up to date.');
     expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
   });
@@ -649,14 +764,14 @@ describe('Home items', () => {
   it('returns to sign-in on 401 while completing', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
   });
 
   it('a terminal 422 shows a calm notice without a retry action', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }), [`POST ${donePath}`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, code: 'future_date' }) });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     expect(await screen.findByText('A completion date cannot be in the future.')).toBeVisible();
     const notice = screen.getByText('A completion date cannot be in the future.').closest<HTMLElement>('[aria-live="polite"]')!;
     expect(within(notice).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
@@ -677,7 +792,7 @@ describe('Home items', () => {
       [`PATCH ${donePath}/c-old`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'completion_not_latest' }),
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
     expect(await screen.findByText('Only the latest completion can be undone.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
@@ -874,7 +989,7 @@ describe('Home items', () => {
     });
     app();
     await screen.findByText('Renew passport');
-    await userEvent.click(within(screen.getByText('Renew passport').closest('li')!).getByRole('button', { name: 'Done' }));
+    await userEvent.click(within(screen.getByText('Renew passport').closest('li')!).getByRole('button', { name: /Done:/ }));
     await screen.findByText('Renew passport');
     const heading = screen.getByRole('heading', { level: 2, name: 'Coming up 2 items' });
     expect(heading.closest('section')).toHaveTextContent('Existing upcoming');
@@ -1078,7 +1193,7 @@ describe('Home items', () => {
     await userEvent.click(more);
     await waitFor(() => expect(more).toHaveAttribute('aria-disabled', 'true'));
     failReload = true;
-    await userEvent.click(screen.getAllByRole('button', { name: 'Done' })[0]!);
+    await userEvent.click(within(screen.getByText('Race 0').closest('li')!).getByRole('button', { name: 'Done: Race 0' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
     await act(async () => releaseMore(json(200, { items: entries.slice(25), nextCursor: null })));
     await waitFor(() => expect(more).toHaveAttribute('aria-disabled', 'false'));
@@ -1117,7 +1232,7 @@ describe('Home items', () => {
     const more = screen.getByRole('button', { name: 'Show more (2 remaining)' });
     await userEvent.click(more);
     await waitFor(() => expect(more).toHaveAttribute('aria-disabled', 'true'));
-    await userEvent.click(screen.getAllByRole('button', { name: 'Done' })[0]!);
+    await userEvent.click(within(screen.getByText('Generation 0').closest('li')!).getByRole('button', { name: 'Done: Generation 0' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
     await act(async () => resolveMore(json(200, { items: entries.slice(25), nextCursor: null })));
     expect(within(more.closest('section')!).getAllByRole('listitem')).toHaveLength(25);
@@ -1156,7 +1271,7 @@ describe('Home items', () => {
       [`POST ${donePath}`]: () => { done = true; return json(201, { id: 'c-done', itemId: 'i-1', completedOn: '2026-01-15', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-15T00:00:00Z', undoneAt: null, undoneByUserId: null }); },
     });
     app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     await screen.findByText('Nothing needs attention right now.');
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2);
   });

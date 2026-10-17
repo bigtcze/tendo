@@ -113,12 +113,16 @@ describe('members and invitations', () => {
   });
 
   it('owner is discovered on a later members page', async () => {
-    const ownerPage = json(200, { items: [{ userId: 'other', login: 'petr', role: 'member' }], nextCursor: 'next' });
-    const routes = { ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'next' ? page([{ userId: session().userId, login: 'anna', role: 'owner' }]) : ownerPage };
+    const ownerPage = () => json(200, { items: [{ userId: 'other', login: 'petr', role: 'member' }], nextCursor: 'next' });
+    const routes = { ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'next' ? page([{ userId: session().userId, login: 'anna', role: 'owner' }]) : ownerPage() };
     const fake = installFakeServer(routes);
-    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    renderApp();
+    await screen.findByRole('link', { name: 'Household members' });
+    const beforeMembersPage = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`).length;
+    await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
-    expect(fake.requests.filter((r) => r.path === `${base}/members`).map((r) => r.query.get('cursor'))).toEqual([null, 'next']);
+    const membersPageRequests = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`).slice(beforeMembersPage);
+    expect(membersPageRequests.map((r) => r.query.get('cursor'))).toEqual([null, 'next']);
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
 

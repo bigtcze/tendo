@@ -43,15 +43,24 @@ function NoticeView({ notice, busy, onUndo, onRetry, onRetryFocus }: { notice: N
   </div>;
 }
 
-function ItemRow({ item, subjectName, locale, busy, onDone, onOpenItem, rowRef }: { item: Item; subjectName: string; locale: string; busy: boolean; onDone: () => void; onOpenItem: (itemId: string) => void; rowRef?: (node: HTMLLIElement | null) => void }) {
+function ItemRow({ item, group, subjectName, locale, userId, members, membersLoaded, busy, onDone, onOpenItem, rowRef }: { item: Item; group: ItemGroup; subjectName: string; locale: string; userId: string; members: Member[]; membersLoaded: boolean; busy: boolean; onDone: () => void; onOpenItem: (itemId: string) => void; rowRef?: (node: HTMLLIElement | null) => void }) {
   const { t } = useI18n();
+  const responsible = item.responsibleUserId ? members.find((member) => member.userId === item.responsibleUserId) : undefined;
+  const attentionLine = item.attentionOn
+    ? t(group === 'upcoming' ? 'items.attentionOn' : group === 'needs' ? 'items.needsSince' : 'items.rowAttentionDate', { date: formatDate(item.attentionOn, locale) })
+    : null;
+  const historyLine = [
+    item.lastCompletedOn ? t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) }) : null,
+    item.responsibleUserId && membersLoaded ? responsible ? t(responsible.userId === userId ? 'items.responsible.you' : 'items.responsible.read', { name: responsible.login }) : t('items.responsible.unknown') : null,
+  ].filter(Boolean).join(' · ');
   return <li ref={rowRef} data-item-id={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
     <div className="min-w-0 flex-1 basis-48">
       <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id)} className="inline-flex min-h-11 min-w-0 max-w-full [overflow-wrap:anywhere] text-left text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><span aria-hidden="true">{item.title}</span><span className="sr-only">{t('itemDetail.open', { title: item.title })}</span></NavLink>
-      <p className="mt-1 text-sm text-muted">{subjectName}{item.attention === 'upcoming' && item.attentionOn ? ` · ${t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}` : ''}</p>
-      {item.recurrence ? <p className="mt-1 text-sm text-muted">{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
+      <p className="mt-1 break-words text-sm text-muted">{subjectName}{attentionLine ? ` · ${attentionLine}` : ''}</p>
+      {historyLine ? <p className="mt-1 break-words text-sm text-muted">{historyLine}</p> : null}
+      {item.recurrence ? <p className="mt-1 break-words text-sm text-muted">{t(pluralKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
     </div>
-    <Button type="button" data-action="done" disabled={busy} onClick={onDone}>{t('items.done')}</Button>
+    <Button type="button" variant="secondary" data-action="done" aria-label={t('items.done.label', { title: item.title })} disabled={busy} onClick={onDone}>{t('items.done')}</Button>
   </li>;
 }
 
@@ -72,6 +81,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const [summary, setSummary] = useState<ItemSummary | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [homeMembersState, setHomeMembersState] = useState<{ householdId: string; members: Member[] } | null>(null);
   const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
   const [subjectRetry, setSubjectRetry] = useState(0);
@@ -88,6 +98,9 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
   const memberLoadGeneration = useRef(0);
+  const homeMemberGeneration = useRef(0);
+  const homeMembers = homeMembersState?.householdId === householdId ? homeMembersState.members : [];
+  const homeMembersLoaded = homeMembersState?.householdId === householdId;
   const mounted = useRef(false);
   const mutationBusy = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
@@ -153,6 +166,28 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     // eslint-disable-next-line react-hooks/set-state-in-effect -- start async loading; state updates follow network responses.
     void loadHome({ allowStaleRestart: true });
   }, [loadHome]);
+
+  useEffect(() => {
+    const token = ++homeMemberGeneration.current;
+    const generationRef = homeMemberGeneration;
+    const isCurrent = () => mounted.current && token === generationRef.current;
+    const collected: Member[] = [];
+    let cursor: string | undefined;
+    const loadHomeMembers = async () => {
+      for (let page = 0; page < MAX_MEMBER_PAGES; page++) {
+        const result = await listMembers(householdId, cursor);
+        if (!isCurrent()) return;
+        if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+        if (result.kind !== 'ok') { setHomeMembersState(null); return; }
+        collected.push(...result.items);
+        if (!result.nextCursor) { setHomeMembersState({ householdId, members: collected }); return; }
+        cursor = result.nextCursor;
+      }
+      if (isCurrent()) setHomeMembersState(null);
+    };
+    void loadHomeMembers();
+    return () => { generationRef.current++; };
+  }, [householdId, onSignedOut]);
 
   async function openAddForm() {
     const token = ++memberLoadGeneration.current;
@@ -417,7 +452,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     {!loading && summary ? groups.map((group) => {
       const state = groupData[group.id];
       if (!state.items.length) return null;
-      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
+      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
     }) : null}
   </div>;
 }

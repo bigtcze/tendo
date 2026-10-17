@@ -598,21 +598,25 @@ describe('edit', () => {
 
   it('passes member cursors and stops paging at the page cap', async () => {
     let listed = 0;
+    let countMembers = false;
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([]),
       [membersKey]: (req) => {
-        listed++;
+        if (countMembers) listed++;
         return req.query.get('cursor') === 'next'
           ? json(200, { items: [{ userId: 'member-page-two', login: 'member_two', role: 'member' }], nextCursor: null })
           : json(200, { items: [{ userId: memberId, login: 'member_one', role: 'member' }], nextCursor: 'next' });
       },
     });
     renderApp();
-    const form = await openAddForm();
-    await waitFor(() => expect(listed).toBe(4));
-    const memberRequests = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`);
-    expect(memberRequests.map((request) => request.query.get('cursor'))).toEqual([null, 'next', null, 'next']);
+    await openPeople();
+    countMembers = true;
+    await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    const form = await screen.findByRole('form', { name: 'Add a person or thing' });
+    await waitFor(() => expect(listed).toBe(2));
+    const memberRequests = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).slice(-2);
+    expect(memberRequests.map((request) => request.query.get('cursor'))).toEqual([null, 'next']);
     await waitFor(() => expect(within(form).getByRole('option', { name: 'member_two' })).toHaveValue('member-page-two'));
 
     cleanup();
@@ -624,9 +628,10 @@ describe('edit', () => {
     window.history.replaceState(null, '', '/people');
     renderApp();
     await screen.findByRole('heading', { level: 1, name: 'People and things' });
+    const beforeAdd = capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length;
     await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
     const capForm = await screen.findByRole('form', { name: 'Add a person or thing' });
-    await waitFor(() => expect(capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length).toBe(40));
+    await waitFor(() => expect(capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length - beforeAdd).toBe(20));
     expect(within(capForm).queryByRole('combobox', { name: 'Their account in Tendo' })).not.toBeInTheDocument();
   });
 
@@ -686,7 +691,8 @@ describe('edit', () => {
   it('ignores an obsolete member 401 after switching editors', async () => {
     let releaseObsolete!: (response: Response) => void;
     const obsolete = new Promise<Response>((resolve) => { releaseObsolete = resolve; });
-    let calls = 0;
+    let deferFirstEditor = false;
+    let deferredStarted = false;
     const linkedFirst = { ...anna, linkedUserId: memberId };
     const linkedSecond = { ...subject('s-3', 'Bea'), linkedUserId: memberId };
     const currentMembers = () => json(200, { items: [{ userId: 'current-user', login: 'current_member', role: 'member' }], nextCursor: null });
@@ -694,30 +700,32 @@ describe('edit', () => {
       ...signedIn,
       [listKey]: page([linkedFirst, linkedSecond]),
       [membersKey]: () => {
-        const call = calls++;
-        if (call === 0) return currentMembers();
-        if (call === 1) return obsolete;
+        if (deferFirstEditor) { deferredStarted = true; return obsolete; }
         return currentMembers();
       },
       [itemKey('s-1')]: etagged(linkedFirst, '"1"'),
       [itemKey('s-3')]: etagged(linkedSecond, '"1"'),
     });
     renderApp();
+    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     await openPeople();
-    const firstOpening = userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    await firstOpening;
-    const firstForm = await screen.findByRole('form', { name: 'Edit Anna' });
     await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(2));
+    deferFirstEditor = true;
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    const firstForm = await screen.findByRole('form', { name: 'Edit Anna' });
+    await waitFor(() => expect(deferredStarted).toBe(true));
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(3);
     await userEvent.click(within(firstForm).getByRole('button', { name: 'Cancel' }));
+    deferFirstEditor = false;
     const secondOpening = userEvent.click(await screen.findByRole('button', { name: 'Edit Bea' }));
     await secondOpening;
-    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(4));
+    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(5));
     const currentForm = await screen.findByRole('form', { name: 'Edit Bea' });
     await waitFor(() => expect(within(currentForm).getByRole('option', { name: 'current_member' })).toBeInTheDocument());
     await act(async () => { releaseObsolete(problem(401)); });
     expect(within(currentForm).getByRole('option', { name: 'current_member' })).toBeInTheDocument();
     expect(within(currentForm).queryByRole('option', { name: 'member_one' })).not.toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(4);
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(5);
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
@@ -737,7 +745,7 @@ describe('edit', () => {
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
     await screen.findByRole('form', { name: 'Add a person or thing' });
-    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(calls).toBe(3));
     await waitFor(() => expect(fake.requests.some((request) => request.method === 'GET' && request.path === `${base}/members`)).toBe(true));
     await userEvent.click(await screen.findByRole('link', { name: 'Back to home' }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
