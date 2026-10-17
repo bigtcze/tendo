@@ -199,7 +199,7 @@ test.describe('Tendo production journey', () => {
 
   test('h. People and things opens from home at /people and starts empty', async () => {
     await page.goto('/');
-    await page.getByRole('link', { name: en['home.people'] }).click();
+    await page.getByRole('link', { name: en['home.people'], exact: true }).click();
     await expect(page).toHaveURL(/\/people$/);
     expect(new URL(page.url()).pathname).toBe('/people');
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
@@ -377,7 +377,7 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('button', { name: 'English' }).click();
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
 
-    await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/');
   });
@@ -580,7 +580,7 @@ test.describe('Tendo production journey', () => {
       return (await response.json()) as ServerItem & { workflowState: string; archived: boolean };
     }
     async function backHome() {
-      await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+      await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
     }
 
@@ -693,7 +693,7 @@ test.describe('Tendo production journey', () => {
     expect(await serverCompletions(itemId)).toEqual(history);
     await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
 
-    await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
     await row(title).getByRole('button', { name: en['items.done'] }).click();
     await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(2);
     const after = await serverCompletions(itemId);
@@ -742,7 +742,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
     await expect(page.locator('ol').getByRole('listitem')).toContainText(en['itemDetail.historyDone'].replace('{date}', dateLabel('2025-10-31')));
 
-    await page.getByRole('link', { name: en['subjects.backHome'] }).click();
+    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
     await row(fixedTitle).getByRole('button', { name: en['items.done'] }).click();
     await expect.poll(async () => (await serverCompletions(fixed.id)).length).toBe(2);
@@ -778,7 +778,7 @@ test.describe('Tendo production journey', () => {
   test('n7. an owner invites a second person who joins as a member with member-only access', async ({ browser }) => {
     test.setTimeout(60_000);
     await page.goto('/');
-    await page.getByRole('link', { name: en['home.members'] }).click();
+    await page.getByRole('link', { name: en['home.members'], exact: true }).click();
     await expect(page).toHaveURL(/\/members$/);
     await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
     const ownerRow = page.getByRole('listitem').filter({ hasText: ownerLogin });
@@ -831,7 +831,7 @@ test.describe('Tendo production journey', () => {
       await expect(memberPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
       await expect(memberPage.locator('body')).not.toContainText(householdId);
 
-      await memberPage.getByRole('link', { name: en['home.members'] }).click();
+      await memberPage.getByRole('link', { name: en['home.members'], exact: true }).click();
       await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
       const memberRows = memberPage.getByRole('listitem');
       await expect(memberRows.filter({ hasText: ownerLogin })).toContainText(en['members.role.owner']);
@@ -989,7 +989,7 @@ test.describe('Tendo production journey', () => {
   test('n9. the owner connects the test identity provider from Account, then signs in with it; refusals are calm', async () => {
     const provider = 'OIDC Smoke Provider';
     await page.goto('/');
-    await page.getByRole('link', { name: en['home.account'] }).click();
+    await page.getByRole('link', { name: en['home.account'], exact: true }).click();
     await expect(page).toHaveURL(/\/account$/);
     await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
     const before = await page.request.get('/api/v1/auth/oidc/identity');
@@ -1303,16 +1303,16 @@ test.describe('Tendo production journey', () => {
       await searchInput.fill('vymena filtru skoda');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
       const accented = seeded.filter((item) => item.title.startsWith('Výměna filtru Škoda'));
-      await expect(page.getByRole('listitem')).toHaveCount(accented.length);
+      await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(accented.length);
       await expect(page).toHaveURL(/q=vymena\+filtru\+skoda/);
       await expect(page.getByRole('heading', { level: 2, name: `Showing 1–${accented.length} of ${accented.length}` })).toBeVisible();
 
       await searchInput.fill('All items seed');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
       await statusSelect.selectOption('done');
-      await expect(page.getByRole('listitem')).toHaveCount(10);
+      await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(10);
       await statusSelect.selectOption('archived');
-      await expect(page.getByRole('listitem')).toHaveCount(10);
+      await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(10);
       await statusSelect.selectOption('active');
       await searchInput.fill('');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
@@ -1325,7 +1325,7 @@ test.describe('Tendo production journey', () => {
       const expectedWalk = await apiWalk({ subjectId: subjects[0]!.id, recurring: 'false', archived: 'false', done: 'false', sort: 'attention_on', attentionDate: (await getSummary(filterQuery)).evaluatedOn });
       const filterTotal = filteredSummary.needsAttention + filteredSummary.inProgress + filteredSummary.waiting + filteredSummary.upcoming + filteredSummary.paused;
       expect(expectedWalk.length).toBe(filterTotal);
-      await expect(page.getByRole('listitem')).toHaveCount(Math.min(25, filterTotal));
+      await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(Math.min(25, filterTotal));
       const walkIds: string[] = [];
       const pageCount = Math.ceil(filterTotal / 25);
       for (let i = 0; i < pageCount; i++) {
@@ -1371,14 +1371,14 @@ test.describe('Tendo production journey', () => {
       // Archive one uniquely searched result through its detail screen, then verify the result/count update.
       await searchInput.fill('vymena filtru skoda 0000');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(page.getByRole('listitem')).toHaveCount(1);
+      await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(1);
       const archivedSearchItem = page.getByRole('link', { name: 'Výměna filtru Škoda 0000' });
       await archivedSearchItem.click();
       await page.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
       await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
       await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
       await statusSelect.selectOption('archived');
-      await expect(page.getByRole('listitem')).toHaveCount(1);
+      await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(1);
 
       for (const width of [360, 768]) {
         await page.setViewportSize({ width, height: 800 });

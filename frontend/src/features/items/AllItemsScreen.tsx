@@ -310,8 +310,6 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const pageKnown = !context.cursor || stack[0] === '';
   const selectedCount = summary ? countFor(context.status, summary) : 0;
   const anyFilters = Boolean(context.q || context.subjectId || context.responsibleUserId || context.recurring !== undefined);
-  const back = <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink">{t('subjects.backHome')}</NavLink>;
-
   function goToCursor(cursor: string | undefined, nextStack: string[]) {
     generation.current++;
     const next = { ...context, cursor };
@@ -324,8 +322,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle space-y-5">
-      {back}
-      <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('allItems.title')}</Heading>
+      <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
       <form role="search" onSubmit={submit} className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
           <label htmlFor="all-items-search" className="block text-sm font-medium">{t('allItems.search')}</label>
@@ -333,7 +330,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
             onChange={(event) => { setSearch(event.target.value); setSearchError(false); }}
             aria-invalid={searchError} aria-describedby={searchError ? 'all-items-search-error' : undefined}
             className="mt-1 min-h-11 w-full rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" />
-          {searchError ? <p id="all-items-search-error" className="mt-1 text-sm text-red-800">{t('allItems.searchTooLong')}</p> : null}
+          {searchError ? <p id="all-items-search-error" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p> : null}
         </div>
         <Button type="submit">{t('allItems.searchButton')}</Button>
       </form>

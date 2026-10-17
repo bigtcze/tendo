@@ -11,6 +11,9 @@
   --color-accent: #2f6b57;
   --color-accent-strong: #234f41;
   --color-danger: #a3342a;
+  --text-display: 2.25rem;
+  --text-h1: 1.875rem;
+  --text-small: 0.875rem;
 }
 
 html {
@@ -22,9 +25,7 @@ body {
   min-height: 100dvh;
   font-family: var(--font-sans);
   color: var(--color-ink);
-  background:
-    radial-gradient(60rem 30rem at 85% -10%, #e6efe6 0%, transparent 60%),
-    var(--color-paper);
+  background: var(--color-paper);
   -webkit-font-smoothing: antialiased;
 }
 

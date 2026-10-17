@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
-import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -26,9 +25,7 @@ const startErrorKeys: Record<StartFailure, MessageKey> = {
   unavailable: 'oidc.start.unavailable',
 };
 
-const linkClass = '-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-accent';
-
-export function AccountScreen({ login, outcome, onBack, onSignedOut }: { login: string; outcome: OidcOutcome | null; onBack: () => void; onSignedOut: () => void }) {
+export function AccountScreen({ login, outcome, onSignedOut }: { login: string; outcome: OidcOutcome | null; onSignedOut: () => void }) {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>({ kind: 'loading' });
   const [password, setPassword] = useState('');
@@ -93,8 +90,7 @@ export function AccountScreen({ login, outcome, onBack, onSignedOut }: { login: 
   return (
     <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
       <section className="settle">
-        <NavLink href="/" onNavigate={onBack} className={linkClass}>{t('account.backHome')}</NavLink>
-        <Heading className="mt-2 font-display text-3xl leading-tight sm:text-4xl">{t('account.title')}</Heading>
+        <Heading className="font-display text-h1 leading-tight">{t('account.title')}</Heading>
         <div role="status" className="mt-5 empty:mt-0">
           {outcomeText ? <p className="rounded-xl bg-sand px-4 py-3">{outcomeText}</p> : null}
         </div>

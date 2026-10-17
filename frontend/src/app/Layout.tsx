@@ -1,6 +1,7 @@
-import { useRef, type ReactNode } from 'react';
+import { useContext, useRef, type ReactNode } from 'react';
 import { Button } from '../components/ui/button';
 import { localeNames, useI18n, type Locale } from '../i18n';
+import { HouseholdNavigation, HouseholdNavigationContext } from './HouseholdNavigation';
 
 function LanguageSwitch() {
   const { locale, setLocale, t } = useI18n();
@@ -27,6 +28,7 @@ function LanguageSwitch() {
 export function Layout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
   const { t } = useI18n();
   const mainRef = useRef<HTMLElement>(null);
+  const navigationContext = useContext(HouseholdNavigationContext);
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-5 sm:px-8">
       <a
@@ -40,7 +42,8 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
         <span className="font-display text-xl tracking-tight">{t('app.name')}</span>
         {actions}
       </header>
-      <main id="main" ref={mainRef} tabIndex={-1} className="flex-1 py-10 sm:py-16">
+      {navigationContext ? <HouseholdNavigation /> : null}
+      <main id="main" ref={mainRef} tabIndex={-1} className="flex-1 py-4 sm:py-8">
         {children}
       </main>
       <footer className="flex justify-end py-4">

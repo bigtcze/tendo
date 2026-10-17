@@ -3,7 +3,6 @@ import { listMembers, type Member } from '../members/membersApi';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
-import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { SubjectForm, typeLabelKey, type SubjectValues, type SubmitOutcome } from './SubjectForm';
@@ -50,9 +49,6 @@ function replaceById(items: Subject[], subject: Subject): Subject[] {
   return items.map((s) => (s.id === subject.id ? subject : s));
 }
 
-const rowLink =
-  '-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-
 function idempotencyKey() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -63,13 +59,11 @@ export function SubjectsScreen({
   userId,
   householdId,
   login,
-  onBack,
   onSignedOut,
 }: {
   userId: string;
   householdId: string;
   login: string;
-  onBack: () => void;
   onSignedOut: () => void;
 }) {
   const { t } = useI18n();
@@ -429,10 +423,7 @@ export function SubjectsScreen({
   return (
     <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
       <section className="settle">
-        <NavLink href="/" onNavigate={onBack} className={rowLink}>
-          {t('subjects.backHome')}
-        </NavLink>
-        <Heading className="mt-2 font-display text-3xl leading-tight sm:text-4xl">{t('subjects.title')}</Heading>
+        <Heading className="font-display text-h1 leading-tight">{t('subjects.title')}</Heading>
         <p className="mt-2 text-muted">{t('subjects.subtitle')}</p>
 
         {showArchived && list.kind !== 'noHousehold' ? (

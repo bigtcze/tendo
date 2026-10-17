@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
-import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { createInvitation, listInvitations, listMembers, revokeInvitation, type Invitation, type Member } from './membersApi';
@@ -12,7 +11,7 @@ function newIdempotencyKey() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export function MembersScreen({ householdId, userId, login, onBack, onSignedOut }: { householdId: string; userId: string; login: string; onBack: () => void; onSignedOut: () => void }) {
+export function MembersScreen({ householdId, userId, login, onSignedOut }: { householdId: string; userId: string; login: string; onSignedOut: () => void }) {
   const { t, locale } = useI18n();
   const [members, setMembers] = useState<Member[]>([]);
   const [memberCursor, setMemberCursor] = useState<string | null>(null);
@@ -218,8 +217,7 @@ export function MembersScreen({ householdId, userId, login, onBack, onSignedOut 
   const formatDate = (date: string) => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date));
   const listReady = state === 'ready' && (owner !== true || invitationsLoaded);
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">{t('members.backHome')}</NavLink>
-    <Heading className="mt-2 font-display text-3xl leading-tight sm:text-4xl">{t('members.title')}</Heading>
+    <Heading className="font-display text-h1 leading-tight">{t('members.title')}</Heading>
     <div ref={noticeRef} tabIndex={-1} role="status" className="mt-5 outline-none empty:mt-0">{notice && state !== 'error' ? <p className="rounded-xl bg-sand px-4 py-3">{notice}</p> : null}</div>
     {state === 'loading' ? <p role="status" className="mt-8 text-muted">{t('members.loading')}</p> : null}
     {state === 'error' ? <div className="mt-8 space-y-3"><p className="text-muted">{notice && notice !== t('members.error.householdNotFound') && notice !== t('members.error.requestRefused') ? notice : notice ?? t('members.error.load')}</p><Button onClick={() => { setNotice(null); setAttempt((n) => n + 1); }}>{t('app.error.retry')}</Button></div> : null}

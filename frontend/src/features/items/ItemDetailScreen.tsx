@@ -281,10 +281,10 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   else if (item?.attention === 'upcoming') status = 'items.group.upcoming';
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    {backLink}
+    {backToAll ? backLink : null}
     {state === 'loading' ? <p role="status" className="mt-6 text-muted">{t('items.loading')}</p> : null}
     {state === 'error' ? <div className="mt-6 space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" onClick={() => setAttempt((n) => n + 1)}>{t('app.error.retry')}</Button></div> : null}
-    {state === 'gone' ? <div className="mt-6 space-y-3"><Heading className="font-display text-3xl">{t('itemDetail.gone')}</Heading><p className="text-muted">{t('itemDetail.goneBody')}</p></div> : null}
+    {state === 'gone' ? <div className="mt-6 space-y-3"><Heading className="font-display text-h1">{t('itemDetail.gone')}</Heading><p className="text-muted">{t('itemDetail.goneBody')}</p></div> : null}
     {state === 'ready' && item ? <>
       <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>
       <p className="mt-2 text-muted">{subjectOverride ?? (subjectName || t('items.subject.unknown'))}</p>
