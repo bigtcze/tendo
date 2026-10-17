@@ -1,0 +1,379 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { AccountActions } from '../../app/AccountActions';
+import { Heading } from '../../app/Heading';
+import { Layout } from '../../app/Layout';
+import { NavLink } from '../../app/NavLink';
+import { Button } from '../../components/ui/button';
+import { useI18n, type MessageKey } from '../../i18n';
+import { listMembers, type Member } from '../members/membersApi';
+import {
+  getFilteredItemsSummary,
+  listActiveSubjects,
+  listAllItems,
+  type AllItemsFilters,
+  type AllItemsStatus,
+  type Item,
+  type ItemSummary,
+  type Subject,
+} from './itemsApi';
+
+type Context = AllItemsFilters & { status: AllItemsStatus; cursor?: string };
+type FacetState = 'loading' | 'ready' | 'failed';
+const statuses: AllItemsStatus[] = ['active', 'needs', 'inProgress', 'waiting', 'upcoming', 'paused', 'done', 'archived'];
+const statusKeys: Record<AllItemsStatus, MessageKey> = {
+  active: 'allItems.status.active', needs: 'items.group.needs', inProgress: 'items.group.inProgress',
+  waiting: 'items.group.waiting', upcoming: 'items.group.upcoming', paused: 'items.group.paused',
+  done: 'itemDetail.state.done', archived: 'allItems.status.archived',
+};
+
+function buildQuery(context: Context): string {
+  const query = new URLSearchParams();
+  if (context.q) query.set('q', context.q);
+  if (context.status !== 'active') query.set('status', context.status);
+  if (context.subjectId) query.set('subject', context.subjectId);
+  if (context.responsibleUserId) query.set('responsible', context.responsibleUserId);
+  if (context.recurring !== undefined) query.set('recurring', String(context.recurring));
+  if (context.cursor) query.set('cursor', context.cursor);
+  return query.toString();
+}
+
+function readContext(): Context {
+  const query = new URLSearchParams(window.location.search);
+  const rawStatus = query.get('status');
+  const rawRecurring = query.get('recurring');
+  const context: Context = {
+    q: query.get('q')?.trim() || undefined,
+    status: statuses.includes(rawStatus as AllItemsStatus) ? rawStatus as AllItemsStatus : 'active',
+    subjectId: query.get('subject') || undefined,
+    responsibleUserId: query.get('responsible') || undefined,
+    recurring: rawRecurring === 'true' ? true : rawRecurring === 'false' ? false : undefined,
+    cursor: query.get('cursor') || undefined,
+  };
+  const normalized = buildQuery(context);
+  const location = `/items${normalized ? `?${normalized}` : ''}`;
+  if (`${window.location.pathname}${window.location.search}` !== location) {
+    window.history.replaceState(window.history.state, '', location);
+  }
+  return context;
+}
+
+function cursorStack(): string[] {
+  const state = window.history.state?.allItemsCursors;
+  return Array.isArray(state) ? state.filter((cursor: unknown): cursor is string => typeof cursor === 'string') : [];
+}
+
+function formatDate(value: string, locale: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function recurrenceKey(unit: NonNullable<Item['recurrence']>['intervalUnit'], count: number, locale: string): MessageKey {
+  const category = new Intl.PluralRules(locale).select(count);
+  const supported: Record<string, string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
+  return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
+}
+
+function countFor(status: AllItemsStatus, summary: ItemSummary): number {
+  switch (status) {
+    case 'active': return summary.needsAttention + summary.inProgress + summary.waiting + summary.upcoming + summary.paused;
+    case 'needs': return summary.needsAttention;
+    case 'inProgress': return summary.inProgress;
+    case 'waiting': return summary.waiting;
+    case 'upcoming': return summary.upcoming;
+    case 'paused': return summary.paused;
+    case 'done': return summary.done;
+    case 'archived': return summary.archived;
+  }
+}
+
+async function loadPagedSubjects(householdId: string, archived: boolean): Promise<Subject[]> {
+  const subjects: Subject[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const result = await listActiveSubjects(householdId, archived, cursor);
+    if (result.kind !== 'ok') throw result;
+    subjects.push(...result.subjects);
+    if (!result.nextCursor) return subjects;
+    cursor = result.nextCursor;
+  }
+  throw new Error('Subject page limit reached');
+}
+
+async function loadPagedMembers(householdId: string): Promise<Member[]> {
+  const members: Member[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const result = await listMembers(householdId, cursor);
+    if (result.kind !== 'ok') throw result;
+    members.push(...result.items);
+    if (!result.nextCursor) return members;
+    cursor = result.nextCursor;
+  }
+  throw new Error('Member page limit reached');
+}
+
+export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut, onOpenItem }: {
+  householdId: string;
+  login: string;
+  userId: string;
+  onBack: () => void;
+  onSignedOut: () => void;
+  onOpenItem: (itemId: string, returnTo: string) => void;
+}) {
+  const { t, locale } = useI18n();
+  const [context, setContext] = useState(readContext);
+  const [search, setSearch] = useState(context.q ?? '');
+  const [status, setStatus] = useState(context.status);
+  const [subjectId, setSubjectId] = useState(context.subjectId ?? '');
+  const [responsible, setResponsible] = useState(context.responsibleUserId ?? '');
+  const [recurring, setRecurring] = useState(context.recurring === undefined ? '' : String(context.recurring));
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [subjectState, setSubjectState] = useState<FacetState>('loading');
+  const [memberState, setMemberState] = useState<FacetState>('loading');
+  const [items, setItems] = useState<Item[]>([]);
+  const [summary, setSummary] = useState<ItemSummary | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [notice, setNotice] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const generation = useRef(0);
+  const mounted = useRef(false);
+  const focusResults = useRef(false);
+  const skipNextContextLoad = useRef(false);
+  const resultRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mounted.current = true;
+    const generationRef = generation;
+    return () => { mounted.current = false; generationRef.current++; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadPagedSubjects(householdId, false)
+      .then((active) => loadPagedSubjects(householdId, true).then((archived) => [...active, ...archived.filter((subject) => !active.some((entry) => entry.id === subject.id))]))
+      .then((allSubjects) => {
+        if (cancelled) return;
+        setSubjects(allSubjects);
+        setSubjectState('ready');
+      })
+      .catch((failure: { kind?: string }) => {
+        if (cancelled) return;
+        if (failure.kind === 'unauthenticated') onSignedOut();
+        if (failure.kind === 'noHousehold') setError(true);
+        setSubjectState('failed');
+      });
+    void loadPagedMembers(householdId)
+      .then((allMembers) => {
+        if (cancelled) return;
+        setMembers(allMembers);
+        setMemberState('ready');
+      })
+      .catch((failure: { kind?: string }) => {
+        if (cancelled) return;
+        if (failure.kind === 'unauthenticated') onSignedOut();
+        if (failure.kind === 'noHousehold') setError(true);
+        setMemberState('failed');
+      });
+    return () => { cancelled = true; };
+  }, [householdId, onSignedOut]);
+
+  const loadPage = useCallback(async (nextContext: Context) => {
+    const token = ++generation.current;
+    const isCurrent = () => mounted.current && token === generation.current;
+    setLoading(true);
+    setError(false);
+    setSearchError(false);
+
+    async function run(pageContext: Context, allowRestart: boolean): Promise<void> {
+      const activeFilters: AllItemsFilters = {
+        ...(pageContext.q ? { q: pageContext.q } : {}),
+        ...(pageContext.subjectId ? { subjectId: pageContext.subjectId } : {}),
+        ...(pageContext.responsibleUserId ? { responsibleUserId: pageContext.responsibleUserId } : {}),
+        ...(pageContext.recurring !== undefined ? { recurring: pageContext.recurring } : {}),
+      };
+      const summaryResult = await getFilteredItemsSummary(householdId, activeFilters);
+      if (!isCurrent()) return;
+      if (summaryResult.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (summaryResult.kind !== 'ok') { setError(true); setLoading(false); return; }
+
+      const pageResult = await listAllItems(householdId, pageContext.status, activeFilters, summaryResult.summary.evaluatedOn, pageContext.cursor);
+      if (!isCurrent()) return;
+      if (pageResult.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (pageResult.kind === 'invalidQuery') { setSearchError(true); setLoading(false); return; }
+      if (pageResult.kind === 'stale') {
+        if (allowRestart) {
+          setNotice(true);
+          const firstPage = { ...pageContext, cursor: undefined };
+          const query = buildQuery(firstPage);
+          window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: [] }, '', `/items${query ? `?${query}` : ''}`);
+          skipNextContextLoad.current = true;
+          setContext(firstPage);
+          await run(firstPage, false);
+          return;
+        }
+        setError(true);
+        setLoading(false);
+        return;
+      }
+      if (pageResult.kind !== 'ok') { setError(true); setLoading(false); return; }
+      setSummary(summaryResult.summary);
+      setItems(pageResult.items);
+      setNextCursor(pageResult.nextCursor);
+      setError(false);
+      setLoading(false);
+    }
+
+    await run(nextContext, true);
+  }, [householdId, onSignedOut]);
+
+  useEffect(() => {
+    if (skipNextContextLoad.current) {
+      skipNextContextLoad.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => { void loadPage(context); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadPage, context, attempt]);
+  useEffect(() => {
+    if (!loading && !error && focusResults.current) {
+      resultRef.current?.focus();
+      focusResults.current = false;
+    }
+  }, [loading, error, items]);
+  useEffect(() => {
+    const sync = () => {
+      const next = readContext();
+      setContext(next);
+      setSearch(next.q ?? '');
+      setStatus(next.status);
+      setSubjectId(next.subjectId ?? '');
+      setResponsible(next.responsibleUserId ?? '');
+      setRecurring(next.recurring === undefined ? '' : String(next.recurring));
+      setNotice(false);
+    };
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  function update(next: Partial<Context>) {
+    const value: Context = { ...context, ...next, cursor: undefined };
+    const query = buildQuery(value);
+    window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: [] }, '', `/items${query ? `?${query}` : ''}`);
+    setNotice(false);
+    setContext(value);
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const q = search.trim();
+    if (q.length > 200) { setSearchError(true); return; }
+    setSearchError(false);
+    update({ q: q || undefined });
+  }
+
+  const subjectNames = new Map(subjects.map((subject) => [subject.id, subject.name]));
+  const labelForItem = (item: Item) => t(item.archived ? 'allItems.status.archived'
+    : item.done ? 'itemDetail.state.done'
+      : item.workflowState === 'paused' ? 'items.group.paused'
+        : item.workflowState === 'in_progress' ? 'items.group.inProgress'
+          : item.workflowState === 'waiting' ? 'items.group.waiting'
+            : item.attention === 'upcoming' ? 'items.group.upcoming' : 'items.group.needs');
+  const stack = cursorStack();
+  const pageNumber = context.cursor ? stack.length + 1 : 1;
+  const selectedCount = summary ? countFor(context.status, summary) : 0;
+  const anyFilters = Boolean(context.q || context.subjectId || context.responsibleUserId || context.recurring !== undefined);
+  const back = <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink">{t('subjects.backHome')}</NavLink>;
+
+  function goToCursor(cursor: string | undefined, nextStack: string[]) {
+    const next = { ...context, cursor };
+    const query = buildQuery(next);
+    window.history.replaceState({ ...(window.history.state ?? {}), allItemsCursors: nextStack }, '', `/items${query ? `?${query}` : ''}`);
+    setNotice(false);
+    focusResults.current = true;
+    setContext(next);
+  }
+
+  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
+    <section className="settle space-y-5">
+      {back}
+      <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('allItems.title')}</Heading>
+      <form role="search" onSubmit={submit} className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <label htmlFor="all-items-search" className="block text-sm font-medium">{t('allItems.search')}</label>
+          <input id="all-items-search" type="search" value={search}
+            onChange={(event) => { setSearch(event.target.value); setSearchError(false); }}
+            aria-invalid={searchError} aria-describedby={searchError ? 'all-items-search-error' : undefined}
+            className="mt-1 min-h-11 w-full rounded-xl border border-line bg-white px-3" />
+          {searchError ? <p id="all-items-search-error" className="mt-1 text-sm text-red-800">{t('allItems.searchTooLong')}</p> : null}
+        </div>
+        <Button type="submit">{t('allItems.searchButton')}</Button>
+      </form>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="text-sm">{t('allItems.status.label')}
+          <select value={status} onChange={(event) => { const value = event.target.value as AllItemsStatus; setStatus(value); update({ status: value }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+            {statuses.map((id) => <option key={id} value={id}>{t(statusKeys[id])}{summary ? ` (${countFor(id, summary)})` : ''}</option>)}
+          </select>
+        </label>
+        {subjectState === 'ready' ? <label className="text-sm">{t('items.subject')}
+          <select value={subjectId} onChange={(event) => { setSubjectId(event.target.value); update({ subjectId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+            <option value="">{t('allItems.any')}</option>
+            {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}{subject.archived ? ` ${t('allItems.archivedSuffix')}` : ''}</option>)}
+            {subjectId && !subjectNames.has(subjectId) ? <option value={subjectId}>{t('allItems.unknown')}</option> : null}
+          </select>
+        </label> : null}
+        {memberState === 'ready' ? <label className="text-sm">{t('items.responsible.label')}
+          <select value={responsible} onChange={(event) => { setResponsible(event.target.value); update({ responsibleUserId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+            <option value="">{t('allItems.anyone')}</option><option value="unassigned">{t('items.responsible.none')}</option>
+            {members.map((member) => <option key={member.userId} value={member.userId}>{member.login}{member.userId === userId ? ` (${t('allItems.you')})` : ''}</option>)}
+            {responsible && responsible !== 'unassigned' && !members.some((member) => member.userId === responsible) ? <option value={responsible}>{t('allItems.unknown')}</option> : null}
+          </select>
+        </label> : null}
+        <label className="text-sm">{t('allItems.repeat')}
+          <select value={recurring} onChange={(event) => { setRecurring(event.target.value); update({ recurring: event.target.value === '' ? undefined : event.target.value === 'true' }); }} className="mt-1 block min-h-11 w-full rounded-xl border border-line bg-white px-3">
+            <option value="">{t('allItems.any')}</option><option value="true">{t('allItems.repeating')}</option><option value="false">{t('allItems.oneOff')}</option>
+          </select>
+        </label>
+      </div>
+      {notice ? <p role="status" aria-live="polite" className="rounded-xl bg-sand px-4 py-2">{t('allItems.stale')}</p> : null}
+      {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
+      {error ? <div><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => setAttempt((value) => value + 1)}>{t('app.error.retry')}</Button></div> : null}
+      {!loading && !error && summary && summary.total === 0 && !anyFilters
+        ? <div><p>{t('allItems.none')}</p><NavLink href="/" onNavigate={onBack} className="underline">{t('items.add')}</NavLink></div> : null}
+      {!loading && !error && summary && !items.length && (summary.total > 0 || anyFilters)
+        ? <div><p>{t('allItems.noMatch')}</p><Button type="button" variant="quiet" onClick={() => {
+          setSearch(''); setStatus('active'); setSubjectId(''); setResponsible(''); setRecurring(''); setSearchError(false);
+          update({ q: undefined, status: 'active', subjectId: undefined, responsibleUserId: undefined, recurring: undefined });
+        }}>{t('allItems.clear')}</Button></div> : null}
+      {!loading && !error && items.length > 0 ? <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
+        <h2 className="font-display text-xl">{t('allItems.range', {
+          from: String((pageNumber - 1) * 25 + 1), to: String((pageNumber - 1) * 25 + items.length), total: String(selectedCount),
+        })}</h2>
+        <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">
+          {items.map((item) => <li key={item.id} data-item-id={item.id} className="p-4">
+            <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)} className="inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg underline underline-offset-4">{item.title}</NavLink>
+            <p className="mt-1 text-sm text-muted">{subjectNames.get(item.subjectId) ?? t('items.subject.unknown')} · {labelForItem(item)}</p>
+            {item.attentionOn ? <p className="text-sm text-muted">{t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}</p> : null}
+            {item.recurrence ? <p className="text-sm text-muted">{t(recurrenceKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
+            {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown') })}</p> : null}
+          </li>)}
+        </ul>
+        <div className="flex flex-wrap gap-2">
+          {context.cursor ? <Button type="button" variant="quiet" onClick={() => {
+            const prior = [...cursorStack()];
+            const previous = prior.pop();
+            goToCursor(previous, prior);
+          }}>{stack.length ? t('allItems.previous') : t('allItems.first')}</Button> : null}
+          {nextCursor ? <Button type="button" variant="quiet" onClick={() => {
+            const prior = [...cursorStack(), ...(context.cursor ? [context.cursor] : [])];
+            goToCursor(nextCursor, prior);
+          }}>{t('allItems.next')}</Button> : null}
+        </div>
+      </section> : null}
+    </section>
+  </Layout>;
+}

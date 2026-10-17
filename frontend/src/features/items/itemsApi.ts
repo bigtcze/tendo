@@ -49,7 +49,32 @@ type Problem = { code?: string; field?: string; parameter?: string };
 type ConflictCode = 'item_done' | 'item_archived' | 'completion_not_latest' | 'unknown';
 export type ItemSummary = components['schemas']['ItemSummary'];
 export type ItemGroup = 'needs' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';
-export type ItemGroupPage = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale' } | Failure | { kind: 'noHousehold' };
+export type ItemGroupPage = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale'; parameter?: string } | Failure | { kind: 'noHousehold' };
+export type AllItemsFilters = { q?: string; subjectId?: string; responsibleUserId?: string; recurring?: boolean };
+export type AllItemsStatus = 'active' | 'needs' | 'inProgress' | 'waiting' | 'upcoming' | 'paused' | 'done' | 'archived';
+export type FilteredSummaryResult = { kind: 'ok'; summary: ItemSummary } | { kind: 'unauthenticated' | 'error' } | { kind: 'noHousehold' };
+export type AllItemsPageResult = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale'; parameter?: string } | { kind: 'invalidQuery' } | { kind: 'unauthenticated' | 'error' } | { kind: 'noHousehold' };
+export async function getFilteredItemsSummary(householdId: string, filters: AllItemsFilters): Promise<FilteredSummaryResult> {
+  try {
+    const { data, response } = await api.GET(summaryPath, { params: { path: { householdId }, query: { ...(filters.q ? { q: filters.q } : {}), ...(filters.subjectId ? { subjectId: filters.subjectId } : {}), ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}), ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' : 'false' } : {}) } } });
+    if (data && response.status === 200) return { kind: 'ok' as const, summary: data };
+    if (response.status === 401) return { kind: 'unauthenticated' as const };
+    if (response.status === 404) return { kind: 'noHousehold' as const };
+  } catch { /* network failure */ }
+  return { kind: 'error' as const };
+}
+export async function listAllItems(householdId: string, status: AllItemsStatus, filters: AllItemsFilters, attentionDate: string, cursor?: string): Promise<AllItemsPageResult> {
+  const query = { limit: 25 as const, sort: 'attention_on' as const, attentionDate, ...(filters.q ? { q: filters.q } : {}), ...(filters.subjectId ? { subjectId: filters.subjectId } : {}), ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}), ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' as const : 'false' as const } : {}), ...(status === 'active' ? { archived: false as const, done: false as const } : {}), ...(status === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}), ...(status === 'inProgress' ? { workflowState: 'in_progress' as const } : {}), ...(status === 'waiting' ? { workflowState: 'waiting' as const } : {}), ...(status === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}), ...(status === 'paused' ? { workflowState: 'paused' as const } : {}), ...(status === 'done' ? { done: true as const, archived: false as const } : {}), ...(status === 'archived' ? { archived: true as const } : {}), ...(cursor ? { cursor } : {}) };
+  try {
+    const { data, error, response } = await api.GET(listPath, { params: { path: { householdId }, query } });
+    if (data && response.status === 200) return { kind: 'ok' as const, items: data.items, nextCursor: data.nextCursor };
+    if (response.status === 401) return { kind: 'unauthenticated' as const };
+    if (response.status === 404) return { kind: 'noHousehold' as const };
+    if (response.status === 400 && ['attentionDate', 'cursor'].includes(((error ?? {}) as Problem).parameter ?? '')) return { kind: 'stale' as const, parameter: ((error ?? {}) as Problem).parameter };
+    if (response.status === 400 && ((error ?? {}) as Problem).parameter === 'q') return { kind: 'invalidQuery' as const };
+  } catch { /* network failure */ }
+  return { kind: 'error' as const };
+}
 const summaryPath = '/api/v1/households/{householdId}/items/summary';
 export async function getItemsSummary(householdId: string): Promise<{ kind: 'ok'; summary: ItemSummary } | { kind: 'noHousehold' } | Failure> {
   try {
