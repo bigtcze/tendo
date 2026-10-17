@@ -270,7 +270,9 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     }
   }
 
-  const backLink = <NavLink href="/" onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('subjects.backHome')}</NavLink>;
+  const returnTo = window.history.state?.returnTo;
+  const backToAll = typeof returnTo === 'string' && returnTo.startsWith('/items');
+  const backLink = <NavLink href={backToAll ? returnTo : '/'} onNavigate={onBack} className="-ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t(backToAll ? 'itemDetail.backAllItems' : 'subjects.backHome')}</NavLink>;
   let status: MessageKey = 'items.group.needs';
   if (item?.done) status = 'itemDetail.state.done';
   else if (item?.workflowState === 'in_progress') status = 'itemDetail.state.progress';

@@ -21,6 +21,7 @@ export function HomeScreen({
   onOpenPeople,
   onOpenMembers,
   onOpenAccount,
+  onOpenAllItems,
   onOpenItem,
 }: {
   session: Session;
@@ -28,6 +29,7 @@ export function HomeScreen({
   onOpenPeople: () => void;
   onOpenMembers: () => void;
   onOpenAccount: () => void;
+  onOpenAllItems: () => void;
   onOpenItem: (itemId: string) => void;
 }) {
   const { t } = useI18n();
@@ -85,6 +87,13 @@ export function HomeScreen({
           <div className="mt-8">
             <ItemsScreen userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onSignedOut={onSignedOut} />
           </div>
+          <NavLink
+            href="/items"
+            onNavigate={onOpenAllItems}
+            className="mt-3 -ml-3 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {t('home.allItems')}
+          </NavLink>
           <NavLink
             href="/people"
             onNavigate={onOpenPeople}

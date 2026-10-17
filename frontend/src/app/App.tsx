@@ -6,6 +6,7 @@ import { OnboardingScreen } from '../features/auth/OnboardingScreen';
 import { fetchSession, fetchSetupRequired, type Session } from '../features/auth/sessionApi';
 import { HomeScreen } from '../features/home/HomeScreen';
 import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
+import { AllItemsScreen } from '../features/items/AllItemsScreen';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { clearPendingItemCreates } from '../features/items/pendingItemCreate';
 import { clearPendingSubjectCreates } from '../features/subjects/pendingSubjectCreate';
@@ -22,7 +23,7 @@ const MEMBERS_PATH = '/members';
 const INVITE_PATH = '/invite';
 const LOGIN_PATH = '/login';
 const ACCOUNT_PATH = '/account';
-type Route = { kind: 'home' | 'people' | 'members' | 'invite' | 'login' | 'account' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
+type Route = { kind: 'home' | 'people' | 'members' | 'invite' | 'login' | 'account' | 'allItems' } | { kind: 'item'; itemId: string } | { kind: 'invalidItem' };
 function readRoute(): Route {
   const path = window.location.pathname;
   if (path === PEOPLE_PATH) return { kind: 'people' };
@@ -31,6 +32,7 @@ function readRoute(): Route {
   if (path === LOGIN_PATH) return { kind: 'login' };
   if (path === ACCOUNT_PATH) return { kind: 'account' };
   if (path === '/') return { kind: 'home' };
+  if (path === '/items') return { kind: 'allItems' };
   const match = /^\/items\/([^/]+)$/.exec(path);
   if (match) return /^[0-9a-f-]{36}$/i.test(match[1]!) ? { kind: 'item', itemId: match[1]! } : { kind: 'invalidItem' };
   return { kind: 'home' };
@@ -180,6 +182,11 @@ export function App() {
   }, []);
 
   // A small route value plus popstate keeps these few app screens navigable without a router.
+  const openAllItems = useCallback(() => {
+    transitioned.current = true;
+    window.history.pushState({ allItemsCursors: [] }, '', '/items');
+    setRoute({ kind: 'allItems' });
+  }, []);
   const openPeople = useCallback(() => {
     transitioned.current = true;
     window.history.pushState(null, '', PEOPLE_PATH);
@@ -203,6 +210,16 @@ export function App() {
     window.history.pushState(null, '', '/');
     setRoute({ kind: 'home' });
   }, []);
+  const goBackFromItem = useCallback(() => {
+    const returnTo = window.history.state?.returnTo;
+    if (typeof returnTo === 'string' && returnTo.startsWith('/items')) {
+      transitioned.current = true;
+      if (window.history.length > 1) window.history.back();
+      else { window.history.pushState(null, '', returnTo); setRoute({ kind: 'allItems' }); }
+      return;
+    }
+    goHome();
+  }, [goHome]);
   useEffect(() => {
     const onPop = () => {
       transitioned.current = true;
@@ -246,12 +263,14 @@ export function App() {
           <SubjectsScreen userId={state.session.userId} householdId={householdId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : route.kind === 'members' && householdId ? (
           <MembersScreen householdId={householdId} userId={state.session.userId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+        ) : route.kind === 'allItems' && householdId ? (
+          <AllItemsScreen householdId={householdId} login={state.session.login} userId={state.session.userId} onBack={goHome} onSignedOut={signedOut} onOpenItem={(itemId, returnTo) => { transitioned.current = true; window.history.pushState({ ...(window.history.state ?? {}), returnTo, fromAllItems: true }, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         ) : route.kind === 'item' && householdId ? (
-          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goBackFromItem} onSignedOut={signedOut} />
         ) : route.kind === 'invalidItem' && householdId ? (
           <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : (
-          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenMembers={openMembers} onOpenAccount={openAccount} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenMembers={openMembers} onOpenAccount={openAccount} onOpenAllItems={openAllItems} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
     );
