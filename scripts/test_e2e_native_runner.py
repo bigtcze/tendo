@@ -238,5 +238,26 @@ class ChildProcessTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "UUIDs"):
             runner.assert_foreign_seed_unchanged({}, "x'; DROP TABLE items; --", ids[1], ids[2])
 
+
+class FailureLogTests(unittest.TestCase):
+    def test_failure_log_tail_is_bounded_and_redacts_generated_credentials(self):
+        token = runner.generated_secret(32)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "process.log"
+            log.write_text("\n".join([f"line {n}" for n in range(300)] + [f"  1) failed fill password={token}", "  1 failed"]) + "\n")
+            with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+                runner.print_failure_log_tail(log, lines=5)
+            out = err.getvalue()
+        self.assertNotIn(token, out)
+        self.assertIn("password=[redacted]", out)
+        self.assertIn("  1 failed", out)
+        self.assertNotIn("line 296", out)
+        self.assertIn("line 297", out)
+
+    def test_missing_failure_log_is_reported_not_raised(self):
+        with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+            runner.print_failure_log_tail(pathlib.Path("/nonexistent/tendo/process.log"))
+        self.assertIn("E2E process log unavailable", err.getvalue())
+
 if __name__ == "__main__":
     unittest.main()
