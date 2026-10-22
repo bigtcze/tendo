@@ -46,5 +46,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test/setup.ts'],
+    // Whole-App journeys take ~1 s on a normal runner; a 5 s default failed run 39868344136 when every test ran 3–6x slower.
+    // 20 s still fails a genuine hang while tolerating slow shared CI runners.
+    testTimeout: 20_000,
   },
 });
