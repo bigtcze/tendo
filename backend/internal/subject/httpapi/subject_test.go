@@ -375,6 +375,10 @@ func TestListIDsRepeatedAndValidationPrecedence(t *testing.T) {
 		t.Fatalf("unauth invalid id status=%d body=%s", w.Code, w.Body)
 	}
 	f.denyUser = callerID
+	tooManyIDs := "?" + strings.Repeat("id="+subjectID+"&", 100) + "id=" + subjectID
+	if w := f.do("GET", base+tooManyIDs, "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"id"`) {
+		t.Fatalf("101 ids structural check precedes membership: status=%d body=%s", w.Code, w.Body)
+	}
 	if w := f.do("GET", base+"?id=malformed", "", nil); w.Code != 404 || !jsonEqual(t, w.Body.String(), problemBody(404, "Not Found", "not_found")) {
 		t.Fatalf("semantic validation must follow membership: status=%d body=%s", w.Code, w.Body)
 	}

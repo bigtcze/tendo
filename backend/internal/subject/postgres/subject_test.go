@@ -241,6 +241,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		hid := newHousehold("Batch IDs")
 		first := create(hid, "first", subject.TypeHome)
 		second := create(hid, "second", subject.TypePet)
+		third := create(hid, "third", subject.TypeCustom)
 		foreign := create(homeB, "foreign", subject.TypeCustom)
 		archived := true
 		gone, err := repo.Update(ctx, hid, second.ID, 1, subject.Patch{Archived: &archived})
@@ -250,6 +251,12 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		active, err := repo.ListByIDs(ctx, hid, false, []string{foreign.ID, second.ID, first.ID}, "00000000-0000-0000-0000-000000000000", 1)
 		if err != nil || len(active) != 1 || active[0].ID != first.ID {
 			t.Fatalf("active=%+v err=%v", active, err)
+		}
+		// Exercise the repository limit directly with more matching rows than
+		// requested; the service fetches limit+1 and may trim excess rows.
+		limited, err := repo.ListByIDs(ctx, hid, false, []string{first.ID, second.ID, third.ID, foreign.ID}, "00000000-0000-0000-0000-000000000000", 1)
+		if err != nil || len(limited) != 1 || limited[0].ID != first.ID {
+			t.Fatalf("repository limit/order: %+v err=%v", limited, err)
 		}
 		archivedRows, err := repo.ListByIDs(ctx, hid, true, []string{first.ID, gone.ID}, "00000000-0000-0000-0000-000000000000", 10)
 		if err != nil || len(archivedRows) != 1 || archivedRows[0].ID != gone.ID {
