@@ -266,6 +266,8 @@ export const en = {
   'items.fluid': 'Count the next repeat from when I complete this',
   'items.fluid.off': 'Keeps the planned dates, even if you finish late.',
   'items.fluid.on': 'The next one is counted from the day you finish.',
+  'items.repeatMode.fixed': 'keeps planned dates',
+  'items.repeatMode.fluid': 'counted from when it’s done',
   'items.historical.show': 'Add a previous completion',
   'items.historical.hide': 'Hide previous completion',
   'items.historical.label': 'Last completed on',
