@@ -260,12 +260,21 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     if (stage === '1200') {
       const actualActiveItems = await verifyList(false, false);
       const actualActiveTotal = actualActiveItems.length;
+      const homeSummaryResponse = await page.request.get(`/api/v1/households/${householdId}/items/summary`);
+      expect(homeSummaryResponse.status()).toBe(200);
+      const homeSummary = await homeSummaryResponse.json() as { needsAttention: number; inProgress: number; waiting: number; upcoming: number; paused: number };
+      const groupCounts = [homeSummary.needsAttention, homeSummary.inProgress, homeSummary.waiting, homeSummary.upcoming, homeSummary.paused];
+      const expectedInitial = groupCounts.reduce((total, count) => total + Math.min(count, 25), 0);
+      const expectedRows = groupCounts.reduce((total, count) => total + Math.min(count, 100), 0);
+      const expectedSeeAllLinks = groupCounts.filter((count) => count > 100).length;
       for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: 900 }); await page.goto('/');
         const clickMetrics: Array<Record<string, number>> = [];
         await page.getByRole('heading', { level: 1 }).first().waitFor({ state: 'visible' });
         // Each group is capped at 100 rows; then its complete count is available in All items.
         const groupMore = page.locator('main button[data-group-more]');
+        await expect(page.locator('main li[data-item-id]')).toHaveCount(expectedInitial);
+        if (groupCounts.some((count) => count > 25)) await expect(groupMore.first()).toBeVisible();
         for (let click = 1; click <= 200; click++) {
           const more = groupMore.first();
           if (!(await more.isVisible().catch(() => false))) break;
@@ -278,14 +287,9 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
           clickMetrics.push({ click, ...state, timeToRenderMs });
           await page.waitForLoadState('networkidle');
         }
-        const expectedRows = await page.locator('main section').evaluateAll(sections => sections.reduce((total, section) => {
-          const countText = section.querySelector('h2')?.textContent ?? '';
-          const count = Number(countText.match(/[0-9]+/)?.[0] ?? 0);
-          return total + Math.min(count, 100);
-        }, 0));
         expect(expectedRows, `capped rows cannot exceed active item count at ${width}px`).toBeLessThanOrEqual(actualActiveTotal);
         expect(await page.locator('main li[data-item-id]').count(), `expanded rows at ${width}px`).toBe(expectedRows);
-        expect(await page.locator('main a[data-group-all]').count()).toBeGreaterThan(0);
+        expect(await page.locator('main a[data-group-all]').count()).toBe(expectedSeeAllLinks);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`));

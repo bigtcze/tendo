@@ -75,11 +75,11 @@ const groups: { id: ItemGroup; key: MessageKey; count: GroupCount; quiet?: boole
   { id: 'paused', key: 'items.group.paused', count: 'paused', quiet: true },
 ];
 type GroupCount = 'needsAttention' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';
-type GroupData = { items: Item[]; cursor: string | null; loadingMore: boolean };
+type GroupData = { items: Item[]; cursor: string | null; loadingMore: boolean; overflow: boolean };
 
 export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onOpenAllItems, onSignedOut }: { userId: string; householdId: string; onOpenPeople: () => void; onOpenItem: (itemId: string) => void; onOpenAllItems: (status: ItemGroup) => void; onSignedOut: () => void }) {
   const { t, locale } = useI18n();
-  const emptyGroups = (): Record<ItemGroup, GroupData> => ({ needs: { items: [], cursor: null, loadingMore: false }, inProgress: { items: [], cursor: null, loadingMore: false }, waiting: { items: [], cursor: null, loadingMore: false }, upcoming: { items: [], cursor: null, loadingMore: false }, paused: { items: [], cursor: null, loadingMore: false } });
+  const emptyGroups = (): Record<ItemGroup, GroupData> => ({ needs: { items: [], cursor: null, loadingMore: false, overflow: false }, inProgress: { items: [], cursor: null, loadingMore: false, overflow: false }, waiting: { items: [], cursor: null, loadingMore: false, overflow: false }, upcoming: { items: [], cursor: null, loadingMore: false, overflow: false }, paused: { items: [], cursor: null, loadingMore: false, overflow: false } });
   const [groupData, setGroupData] = useState<Record<ItemGroup, GroupData>>(emptyGroups);
   const [summary, setSummary] = useState<ItemSummary | null>(null);
   const dataHousehold = useRef<string | null>(null);
@@ -155,7 +155,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     const started = ++generation.current;
     const current = () => mounted.current && started === generation.current;
     setLoading(true);
-    setGroupData((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, { ...value, loadingMore: false }])) as Record<ItemGroup, GroupData>);
+    setGroupData((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, { ...value, loadingMore: false, overflow: false }])) as Record<ItemGroup, GroupData>);
     showMoreInFlight.current.clear();
     async function load(allowRestart: boolean): Promise<void> {
       const summaryResult = await getItemsSummary(householdId);
@@ -172,7 +172,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
       }
       if (entries.some(([, result]) => result.kind !== 'ok')) { setError(true); setLoading(false); return; }
       const nextData = emptyGroups();
-      for (const [id, result] of entries) if (result.kind === 'ok') nextData[id] = { items: result.items, cursor: result.nextCursor, loadingMore: false };
+      for (const [id, result] of entries) if (result.kind === 'ok') nextData[id] = { items: result.items.slice(0, HOME_GROUP_ROW_CAP), cursor: result.nextCursor, loadingMore: false, overflow: result.items.length > HOME_GROUP_ROW_CAP };
       dataHousehold.current = householdId;
       setSummary(nextSummary);
       setGroupData(nextData);
@@ -431,8 +431,10 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
       setGroupData((current) => {
         const old = current[id];
         const seen = new Set(old.items.map((item) => item.id));
-        const items = [...old.items, ...result.items.filter((item) => !seen.has(item.id))].slice(0, HOME_GROUP_ROW_CAP);
-        return { ...current, [id]: { items, cursor: result.nextCursor, loadingMore: false } };
+        const merged = [...old.items, ...result.items.filter((item) => !seen.has(item.id))];
+        const overflow = old.overflow || merged.length > HOME_GROUP_ROW_CAP;
+        const items = merged.slice(0, HOME_GROUP_ROW_CAP);
+        return { ...current, [id]: { items, cursor: result.nextCursor, loadingMore: false, overflow } };
       });
     } else {
       setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: false } }));
@@ -559,7 +561,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     {!loading && summary ? groups.map((group) => {
       const state = groupData[group.id];
       if (!state.items.length) return null;
-      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? (labels.stateFor(item.subjectId) === 'queued' || labels.stateFor(item.subjectId) === 'loading' ? t('items.subjectLabels.loading') : t('items.subject.unknown'))} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor && state.items.length < HOME_GROUP_ROW_CAP ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}{state.items.length >= HOME_GROUP_ROW_CAP && (state.cursor || summary[group.count] > state.items.length) ? <NavLink href={`/items?status=${group.id}`} data-group-all={group.id} onNavigate={() => onOpenAllItems(group.id)} className="inline-flex min-h-11 items-center underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{t('items.group.seeAll', { count: String(summary[group.count]) })}</NavLink> : null}</section>;
+      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? (labels.stateFor(item.subjectId) === 'queued' || labels.stateFor(item.subjectId) === 'loading' ? t('items.subjectLabels.loading') : t('items.subject.unknown'))} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor && state.items.length < HOME_GROUP_ROW_CAP ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}{state.items.length >= HOME_GROUP_ROW_CAP && (state.cursor || state.overflow || summary[group.count] > state.items.length) ? <NavLink href={`/items?status=${group.id}`} data-group-all={group.id} onNavigate={() => onOpenAllItems(group.id)} className="inline-flex min-h-11 items-center underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{summary[group.count] > state.items.length ? t('items.group.seeAll', { count: String(summary[group.count]) }) : t('items.group.seeAllNoCount')}</NavLink> : null}</section>;
     }) : null}
   </div>;
 }

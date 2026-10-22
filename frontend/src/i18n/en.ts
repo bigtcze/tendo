@@ -296,6 +296,7 @@ export const en = {
   'items.group.count.other': '{count} items',
   'items.showMore': 'Show more ({count} remaining)',
   'items.group.seeAll': 'See all {count} in All items',
+  'items.group.seeAllNoCount': 'See all in All items',
   'items.moreLoading': 'Loading…',
   'items.retry': 'Try again',
   'items.notice.added': '“{title}” was added.',

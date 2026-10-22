@@ -559,6 +559,39 @@ describe('Home items', () => {
     expect(groupRequests).toHaveLength(4);
   });
 
+  it('keeps a no-count All items link when overlapping pages exceed the cap but terminate under summary', async () => {
+    const entries = Array.from({ length: 101 }, (_, index) => item({ id: `overlap-${index}`, title: `Overlap ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
+    const pages = [
+      { items: entries.slice(0, 25), nextCursor: 'page-1' },
+      { items: [entries[24]!, ...entries.slice(25, 49)], nextCursor: 'page-2' },
+      { items: [entries[48]!, ...entries.slice(49, 73)], nextCursor: 'page-3' },
+      { items: [entries[72]!, ...entries.slice(73, 99)], nextCursor: 'page-4' },
+      { items: entries.slice(99, 101), nextCursor: null },
+    ];
+    const fake = installFakeServer({
+      ...routes,
+      [subjectList]: subjects,
+      [memberList]: memberPage(),
+      [`GET ${base}/items/summary`]: json(200, { evaluatedOn: '2026-01-15', total: 100, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 100, paused: 0, done: 0, archived: 0 }),
+      [`GET ${base}/items`]: (request) => {
+        if (request.query.get('attention') !== 'upcoming') return json(200, { items: [], nextCursor: null });
+        const pageIndex = request.query.has('cursor') ? Number(request.query.get('cursor')!.replace('page-', '')) : 0;
+        return json(200, pages[pageIndex]!);
+      },
+    });
+    app();
+    await screen.findByText('Overlap 0');
+    const main = screen.getByRole('main');
+    const section = (await within(main).findByRole('heading', { level: 2, name: 'Coming up 100 items' })).closest('section')!;
+    while (within(section).queryByRole('button', { name: /Show more/ })) {
+      await userEvent.click(within(section).getByRole('button', { name: /Show more/ }));
+    }
+    expect(within(section).getAllByRole('listitem')).toHaveLength(100);
+    const link = within(section).getByRole('link', { name: 'See all in All items' });
+    expect(link).toHaveAttribute('href', '/items?status=upcoming');
+    expect(requestsOf(fake.requests, 'GET', `${base}/items`).filter((request) => request.query.get('attention') === 'upcoming')).toHaveLength(5);
+  });
+
   it('renders the see-all group label in Czech', async () => {
     const entries = Array.from({ length: 101 }, (_, index) => item({ id: `cs-cap-${index}`, title: `Nadcházející ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
     installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
