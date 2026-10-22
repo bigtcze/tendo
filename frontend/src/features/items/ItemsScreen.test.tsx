@@ -243,6 +243,18 @@ describe('item creation', () => {
     await waitFor(() => expect(document.activeElement).toBe(within(screen.getByText('People and things could not be loaded. Try again.').parentElement!).getByRole('button', { name: 'Try again' })));
   });
 
+  it('moves focus from a successful but empty Add catalogue retry to People and things', async () => {
+    let fail = true;
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => fail ? json(503) : json(200, { items: [], nextCursor: null }), [memberList]: memberPage() });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    const retry = within((await screen.findByText('People and things could not be loaded. Try again.')).parentElement!).getByRole('button', { name: 'Try again' });
+    fail = false;
+    await userEvent.click(retry);
+    const empty = await screen.findByText('Add a person or thing before adding an item.');
+    await waitFor(() => expect(document.activeElement).toBe(within(empty.parentElement!).getByRole('button', { name: 'People and things' })));
+  });
+
   it('moves focus from a successful Add catalogue retry into the form', async () => {
     let fail = true;
     let release!: (response: Response) => void;

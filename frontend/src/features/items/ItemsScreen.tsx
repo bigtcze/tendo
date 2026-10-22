@@ -117,6 +117,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const retryHadFocus = useRef(false);
   const labelRetryRef = useRef<HTMLButtonElement>(null);
   const catalogueRetryRef = useRef<HTMLButtonElement>(null);
+  const noSubjectsRef = useRef<HTMLButtonElement>(null);
   const catalogueRetryHadFocus = useRef(false);
   const [labelRetryPending, setLabelRetryPending] = useState(false);
   const sectionHeadingRefs = useRef(new Map<ItemGroup, HTMLHeadingElement>());
@@ -292,8 +293,9 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   useEffect(() => {
     if (subjectState === 'loading') return;
     if (catalogueRetryHadFocus.current && (document.activeElement === catalogueRetryRef.current || document.activeElement === document.body)) {
-      // A successful retry mounts ItemForm, which focuses its title field itself.
+      // A successful retry mounts ItemForm, which focuses its title field itself; an empty catalogue focuses its People and things action.
       if (subjectState === 'error') catalogueRetryRef.current?.focus();
+      else noSubjectsRef.current?.focus();
     }
     catalogueRetryHadFocus.current = false;
   }, [subjectState]);
@@ -549,7 +551,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     {!loading && !error && summary && groups.every((group) => summary[group.count] === 0) && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
     {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={openAddForm} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
     {adding && ((createUncertain && pendingCreate) || recoveryEditable || (subjectState === 'ready' && activeSubjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate || recoveryEditable ? recoverySubjects : activeSubjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : retryDraft} locked={createUncertain && !!pendingCreate} preserveDraftOnUnlock={recoveryEditable} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={cancelAddAndFocus} /> : null}
-    {adding && !(createUncertain && pendingCreate) && !recoveryEditable && subjectState === 'ready' && !activeSubjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { cancelAddForm(); addRef.current?.focus(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={cancelAddAndFocus}>{t('items.cancel')}</Button></div> : null}
+    {adding && !(createUncertain && pendingCreate) && !recoveryEditable && subjectState === 'ready' && !activeSubjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button ref={noSubjectsRef} type="button" variant="quiet" className="mt-3" onClick={() => { cancelAddForm(); addRef.current?.focus(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={cancelAddAndFocus}>{t('items.cancel')}</Button></div> : null}
     {adding && subjectLoading && !(createUncertain && pendingCreate) ? <Button type="button" variant="quiet" className="mt-3" onClick={cancelAddAndFocus}>{t('items.cancel')}</Button> : null}
     {!loading && summary ? groups.map((group) => {
       const state = groupData[group.id];
