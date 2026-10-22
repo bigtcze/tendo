@@ -31,9 +31,36 @@ def generated_secret(nbytes: int) -> str:
     return value
 
 
+def register_database_url(value: str):
+    """Register a database URL plus its encoded and decoded password for failure-log redaction."""
+    if not value:
+        return
+    SENSITIVE_VALUES.add(value)
+    password = urllib.parse.urlsplit(value).password
+    if password:
+        SENSITIVE_VALUES.add(password)
+        SENSITIVE_VALUES.add(urllib.parse.unquote(password))
+
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# Structural redaction for secrets the runner never sees by value: browser/API cookies, auth headers,
+# OIDC callback parameters, invitation fragments, and any credential-bearing URL.
+STRUCTURAL_PATTERNS = (
+    (re.compile(r"(?i)\b(set-cookie|cookie|authorization|proxy-authorization|x-csrf-token)(\s*[:=]\s*)[^\r\n]*"), r"\1\2[redacted]"),
+    (re.compile(r"(?i)\b(tendo_session[A-Za-z0-9_-]*)=[^;\s'\"`,)]+"), r"\1=[redacted]"),
+    (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
+    (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
+    (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
+    (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
+)
+
+
 def redact(text: str) -> str:
+    text = ANSI_ESCAPE.sub("", text)
     for value in sorted(SENSITIVE_VALUES, key=len, reverse=True):
         text = text.replace(value, "[redacted]")
+    for pattern, replacement in STRUCTURAL_PATTERNS:
+        text = pattern.sub(replacement, text)
     return text
 
 
@@ -463,12 +490,15 @@ def main():
     if args.screenshot and args.audit_dir:
         parser.error("--screenshot and --audit-dir are mutually exclusive")
     root = args.root.resolve()
+    for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
+        register_database_url(os.environ.get(key, ""))
     children = Children()
     artifact_dir = root / "frontend/test-results" / f"native-{uuid.uuid4().hex}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
     signal_seen = None
     previous_handlers = {}
     result_error = None
+    cleanup_error_seen = None
     def handle_signal(signum, _frame):
         nonlocal signal_seen
         signal_seen = signum
@@ -493,15 +523,18 @@ def main():
         try:
             children.close()
         except BaseException as cleanup_error:
-            if result_error is None:
-                raise
-            print(f"secondary E2E child cleanup failure: {cleanup_error}", file=sys.stderr)
+            cleanup_error_seen = cleanup_error
+            if result_error is not None:
+                print(f"secondary E2E child cleanup failure: {cleanup_error}", file=sys.stderr)
         finally:
             for signum, previous in previous_handlers.items():
                 signal.signal(signum, previous)
-        if result_error is not None:
+        # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
+        if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
             print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
+        if result_error is None and cleanup_error_seen is not None:
+            raise cleanup_error_seen
         if signal_seen is not None:
             # raise after cleanup rather than returning success on cancellation
             raise SystemExit(128 + signal_seen)
