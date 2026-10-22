@@ -31,7 +31,7 @@ function errorMessage(error: FormError | null, t: (key: MessageKey) => string): 
   return t('items.error.interval');
 }
 
-export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, mode = 'add', initialValues, notice, locked = false, retryLabel, submittingLabel }: { subjects: Subject[]; members: Member[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean; mode?: 'add' | 'edit'; initialValues?: Values; notice?: string; locked?: boolean; retryLabel?: string; submittingLabel?: string }) {
+export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, mode = 'add', initialValues, notice, locked = false, retryLabel, submittingLabel, preserveDraftOnUnlock = false }: { subjects: Subject[]; members: Member[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean; mode?: 'add' | 'edit'; initialValues?: Values; notice?: string; locked?: boolean; retryLabel?: string; submittingLabel?: string; preserveDraftOnUnlock?: boolean }) {
   const { t, locale } = useI18n();
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -54,6 +54,26 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
   const [showNotice, setShowNotice] = useState(Boolean(notice));
+  const draft = useRef<Values>({ title, subjectId, attentionOn, notes, recurrence: initialValues?.recurrence ?? null, responsibleUserId, historicalCompletedOn: initialValues?.historicalCompletedOn });
+  const wasLocked = useRef(locked);
+  useEffect(() => {
+    if (wasLocked.current && !locked && preserveDraftOnUnlock) {
+      setTitle(draft.current.title);
+      setSubjectId(draft.current.subjectId);
+      setAttentionOn(draft.current.attentionOn);
+      setNotes(draft.current.notes);
+      setResponsibleUserId(draft.current.responsibleUserId);
+      setHistoricalCompletedOn(draft.current.historicalCompletedOn ?? '');
+      if (draft.current.recurrence) {
+        setRepeat(true);
+        setFluid(draft.current.recurrence.mode === 'after_completion');
+        setInterval(String(draft.current.recurrence.intervalValue));
+        setUnit(draft.current.recurrence.intervalUnit);
+      }
+      setShowNotice(false);
+    }
+    wasLocked.current = locked;
+  }, [locked, preserveDraftOnUnlock]);
   const errorId = `${id}-error`;
   const field = error && 'field' in error ? error.field : error?.kind === 'empty' ? 'title' : null;
   useEffect(() => {
@@ -89,7 +109,9 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
     setError(null);
     let result: Outcome;
     try {
-      result = await onSubmit(locked && initialValues ? initialValues : { title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' : 'fixed' } : null, responsibleUserId, ...(mode === 'add' && repeat && historicalCompletedOn ? { historicalCompletedOn } : {}) });
+      const submitted: Values = locked && initialValues ? initialValues : { title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' as const : 'fixed' as const } : null, responsibleUserId, ...(mode === 'add' && repeat && historicalCompletedOn ? { historicalCompletedOn } : {}) };
+      draft.current = submitted;
+      result = await onSubmit(submitted);
     } catch { result = { kind: 'failed' }; }
     submitting.current = false;
     setPending(false);

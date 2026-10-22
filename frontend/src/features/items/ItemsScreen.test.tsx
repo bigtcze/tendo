@@ -190,7 +190,7 @@ describe('item creation', () => {
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(20);
     failWalk = true;
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await userEvent.click(within(screen.getByText('People and things could not be loaded. Try again.').parentElement!).getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(21);
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
@@ -233,6 +233,26 @@ describe('item creation', () => {
     await act(async () => { release(json(200, { items: [{ ...subject, name: 'Obsolete' }], nextCursor: null })); });
     expect(within(form).getByRole('option', { name: 'Anna' })).toBeInTheDocument();
     expect(within(form).queryByRole('option', { name: 'Obsolete' })).not.toBeInTheDocument();
+  });
+
+  it('ignores obsolete label success and unauthorized responses after navigating away and back', async () => {
+    for (const result of [json(200, { items: [{ ...subject, name: 'Obsolete labels' }], nextCursor: null }), json(401)]) {
+      let release!: (response: Response) => void;
+      const deferred = new Promise<Response>((resolve) => { release = resolve; });
+      let subjectCalls = 0;
+      const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => ++subjectCalls <= 2 ? deferred : json(200, { items: [subject], nextCursor: null }), [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+      const signedOut = vi.fn();
+      const view = render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+      await screen.findByText('Renew passport');
+      await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+      view.unmount();
+      render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+      await screen.findByText('Anna');
+      await act(async () => release(result));
+      expect(screen.queryByText('Obsolete labels')).not.toBeInTheDocument();
+      expect(signedOut).not.toHaveBeenCalled();
+      cleanup();
+    }
   });
 
   it('signs out on a current label 401 and ignores a stale response after unmount', async () => {
@@ -532,15 +552,110 @@ describe('Home items', () => {
     } });
     app();
     await screen.findByText('Known one');
-    expect(await screen.findByText('Couldn’t load some names. Try again')).toBeVisible();
+    expect(await screen.findByText('Couldn’t load some names.')).toBeVisible();
     expect(screen.getByText('Person or thing')).toBeVisible();
     expect(screen.queryByText('s-1')).not.toBeInTheDocument();
     const before = requestsOf(fake.requests, 'GET', `${base}/subjects`).length;
     failArchived = false;
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Retry names' }));
     await screen.findByText('Known two');
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(before + 2);
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).slice(before).every((request) => request.query.getAll('id').join() === 's-2')).toBe(true);
+  });
+
+  it('queues IDs discovered by Show more while the current label batch is pending, without losing or duplicating IDs', async () => {
+    let resolveActive!: (response: Response) => void;
+    let resolveArchived!: (response: Response) => void;
+    const activePending = new Promise<Response>((resolve) => { resolveActive = resolve; });
+    const archivedPending = new Promise<Response>((resolve) => { resolveArchived = resolve; });
+    const rows = Array.from({ length: 26 }, (_, index) => item({ id: `queued-${String(index).padStart(2, '0')}`, subjectId: `s-${index}`, title: `Queued ${index}`, workflowState: 'open', attention: 'needs_attention' }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, rows), [subjectList]: (request) => {
+      const ids = request.query.getAll('id');
+      if (request.query.get('archived') === 'true') return ids.includes('s-25') ? json(200, { items: [], nextCursor: null }) : archivedPending;
+      if (ids.length === 1 && ids.includes('s-25')) return json(200, { items: ids.map((id) => ({ ...subject, id, name: `Resolved ${id}` })), nextCursor: null });
+      return activePending;
+    } });
+    app();
+    await screen.findByText('Queued 0');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
+    const showMore = screen.getByRole('button', { name: /Show more/ });
+    await userEvent.click(showMore);
+    await screen.findByText('Queued 25');
+    await act(async () => {
+      resolveActive(json(200, { items: rows.slice(0, 25).map((entry) => ({ ...subject, id: entry.subjectId, name: `Resolved ${entry.subjectId}` })), nextCursor: null }));
+      resolveArchived(json(200, { items: [], nextCursor: null }));
+    });
+    await screen.findByText('Resolved s-0');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4));
+    const secondBatchCall = requestsOf(fake.requests, 'GET', `${base}/subjects`)[2]!;
+    expect(secondBatchCall.query.getAll('id')).toEqual(['s-25']);
+    await screen.findByText('Resolved s-25');
+    const calls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
+    const requestedSets = calls.map((request) => request.query.getAll('id'));
+    expect(requestedSets.slice(0, 2).map((values) => values.length)).toEqual([25, 25]);
+    expect(requestedSets.slice(2)).toEqual([['s-25'], ['s-25']]);
+    expect(new Set(requestedSets.flat()).size).toBe(26);
+  });
+
+  it('keeps names from later successful batches while earlier failed IDs stay retryable', async () => {
+    const firstIDs = Array.from({ length: 100 }, (_, index) => `fail-${String(index).padStart(2, '0')}`);
+    const allIDs = [...firstIDs, 'succeed-later'];
+    let failFirst = true;
+    const placement = (index: number): Partial<Item> => index === 100 ? { workflowState: 'open', attentionOn: '2026-12-01', attention: 'upcoming' } : { workflowState: (['open', 'in_progress', 'waiting', 'paused'] as const)[Math.floor(index / 25)], attention: 'needs_attention' };
+    const rows = allIDs.map((id, index) => item({ id: `batch-${String(index).padStart(3, '0')}`, subjectId: id, title: `Batch label ${index}`, ...placement(index) }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, rows), [subjectList]: (request) => {
+      const values = request.query.getAll('id');
+      if (values.includes('fail-00')) return failFirst ? json(503) : json(200, { items: [], nextCursor: null });
+      if (request.query.get('archived') === 'false') return json(200, { items: values.map((id) => ({ ...subject, id, name: `Found ${id}` })), nextCursor: null });
+      return json(200, { items: [], nextCursor: null });
+    } });
+    app();
+    const laterRow = (await screen.findByText('Batch label 100')).closest('li')!;
+    await waitFor(() => expect(laterRow).toHaveTextContent('Found succeed-later'));
+    const firstPass = requestsOf(fake.requests, 'GET', `${base}/subjects`);
+    expect(firstPass).toHaveLength(4);
+    expect(firstPass.map((request) => request.query.getAll('id').length).sort((a, b) => a - b)).toEqual([1, 1, 100, 100]);
+    expect(await screen.findByText('Couldn’t load some names.')).toBeVisible();
+    expect(screen.getByText('Batch label 0').closest('li')).toHaveTextContent('Person or thing');
+    failFirst = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry names' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(6));
+    const retryCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`).slice(4);
+    expect(retryCalls.every((request) => request.query.getAll('id').join() === firstIDs.join())).toBe(true);
+    expect(laterRow).toHaveTextContent('Found succeed-later');
+  });
+
+  it('does not re-request a conclusively missing label when Show more adds rows', async () => {
+    const rows = Array.from({ length: 26 }, (_, index) => item({ id: `miss-${String(index).padStart(2, '0')}`, subjectId: index === 0 ? 'gone' : `s-${index}`, title: `Missing case ${index}` }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, rows), [subjectList]: (request) => {
+      const ids = request.query.getAll('id').filter((id) => id !== 'gone');
+      return json(200, { items: request.query.get('archived') === 'true' ? [] : ids.map((id) => ({ ...subject, id, name: `Named ${id}` })), nextCursor: null });
+    } });
+    app();
+    const first = (await screen.findByText('Missing case 0')).closest('li')!;
+    await waitFor(() => expect(first).toHaveTextContent('Person or thing'));
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2);
+    await userEvent.click(within(screen.getByRole('main')).getByRole('button', { name: 'Show more (1 remaining)' }));
+    await screen.findByText('Named s-25');
+    const calls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
+    expect(calls).toHaveLength(4);
+    expect(calls.slice(2).map((request) => request.query.getAll('id'))).toEqual([['s-25'], ['s-25']]);
+  });
+
+  it('shows unknown for conclusive missing labels and retries the missing ID once without looping', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item({ subjectId: 'does-not-exist' })]), [subjectList]: json(200, { items: [], nextCursor: null }) });
+    app();
+    const row = await screen.findByText('Renew passport');
+    const containingRow = row.closest('li')!;
+    await waitFor(() => expect(containingRow).toHaveTextContent('Person or thing'));
+    expect(containingRow).not.toHaveTextContent('does-not-exist');
+    const initialCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`).length;
+    expect(initialCalls).toBe(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Retry names' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);
+    expect(containingRow).toHaveTextContent('Person or thing');
   });
 
   it('keeps home rows visible without assignee names when member loading fails', async () => {
@@ -645,7 +760,8 @@ describe('Home items', () => {
     app();
     const done = await screen.findByRole('button', { name: /Done:/ });
     await userEvent.click(done);
-    await screen.findByRole('button', { name: 'Try again' });
+    const completionNotice = (await screen.findByText('That didn’t work. Check your connection and try again.')).closest<HTMLElement>('[role="status"]')!;
+    expect(within(completionNotice).getByRole('button', { name: 'Try again' })).toBeEnabled();
     await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
     await screen.findByText('“Renew passport” is done.');
     const sentPosts = requestsOf(fake.requests, 'POST', donePath);
@@ -671,6 +787,44 @@ describe('Home items', () => {
     const posts = requestsOf(fake.requests, 'POST', donePath);
     expect(posts[0]!.headers.get('Idempotency-Key')).not.toBe(posts[1]!.headers.get('Idempotency-Key'));
     expect(posts.map((request) => request.headers.get('If-Match'))).toEqual(['"7"', '"8"']);
+  });
+
+  it('does not restart Add catalogue loading during a POST; draft and 422 validation survive a catalogue failure', async () => {
+    let resolvePost!: (response: Response) => void;
+    const post = new Promise<Response>((resolve) => { resolvePost = resolve; });
+    let subjectCalls = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => ++subjectCalls === 1 ? json(200, { items: [subject], nextCursor: null }) : json(503), [memberList]: memberPage(), [`POST ${base}/items`]: () => post });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Preserve my draft');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1));
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1);
+    await act(async () => resolvePost(json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' })));
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue('Preserve my draft');
+    expect(within(form).getByRole('alert')).toHaveTextContent('1 to 200 characters');
+    expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1);
+  });
+
+  it('failed recovery replay keeps the frozen form and stored body visible', async () => {
+    const key = 'b'.repeat(32);
+    const body = { title: 'Retry frozen payload', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(503), [memberList]: memberPage(), [`GET ${base}/subjects/missing`]: json(503), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' }) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    const title = within(form).getByLabelText('What needs doing?');
+    expect(title).toHaveValue(body.title);
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    const validation = await within(form).findByRole('alert');
+    expect(validation).toHaveTextContent('1 to 200 characters');
+    expect(await screen.findByRole('form', { name: 'Add an item' })).toBe(form);
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+    expect(within(form).getByLabelText('What needs doing?')).toBeEnabled();
+    expect(within(form).getByRole('button', { name: 'Add item' })).toBeEnabled();
+    const post = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    expect(post.headers.get('Idempotency-Key')).toBe(key);
+    expect(post.body).toBe(JSON.stringify(body));
   });
 
   it('keeps a completion key when the item GET fails during retry', async () => {
@@ -707,7 +861,7 @@ describe('Home items', () => {
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
     const key = requestsOf(fake.requests, 'POST', donePath)[0]!.headers.get('Idempotency-Key');
-    await screen.findByRole('button', { name: 'Try again' });
+    await screen.findByText('That didn’t work. Check your connection and try again.');
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
     await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
