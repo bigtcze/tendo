@@ -6,7 +6,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 
 | Component | Pinned | Newest checked | Status |
 | --- | --- | --- | --- |
-| Go toolchain (CI, Docker build, OIDC test provider) | 1.27.2 | 1.27.2 | Current |
+| Go toolchain (CI, Docker build, OIDC test provider) | 1.27.3 | 1.27.3 | Current |
 | `go` directive (`backend/go.mod`) | 1.26.0 | — | Minimum language version; builds use the pinned toolchain |
 | Node.js (CI, Docker web build) | 24.21.0 | 24.21.0 (LTS) | Current; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
@@ -34,7 +34,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 
 All direct and required indirect modules are at their latest releases. `go list -m -u all` lists only newer versions for module-graph entries that do not enter the build.
 
-`govulncheck` (x/vuln v1.8.0, Go 1.27.2): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
+`govulncheck` (x/vuln v1.8.0, Go 1.27.3): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
 
 ## Node packages
 
