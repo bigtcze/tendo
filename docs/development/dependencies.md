@@ -50,6 +50,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 | `frontend`: `react` / `react-dom` | 19.3.0 | |
 | `frontend`: `typescript` | 6.0.3 | Held; see below |
 | `frontend`: `typescript-eslint` | 8.71.1 | |
+| `frontend`: `@axe-core/playwright` (+ `axe-core`) | 4.14.0 | MPL-2.0; test-only, runs WCAG scans in production E2E, not shipped in the bundle |
 
 ## Upgrading a pin
 
