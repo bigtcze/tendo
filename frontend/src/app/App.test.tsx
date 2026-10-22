@@ -164,6 +164,28 @@ describe('signed in', () => {
     }
   });
 
+  it('opens the selected group in All items from the bounded Home link', async () => {
+    const base = `/api/v1/households/${HOUSEHOLD_ID}`;
+    const entries = Array.from({ length: 101 }, (_, index) => ({ id: `needs-${index}`, subjectId: 's-1', responsibleUserId: null, title: `Needs ${index}`, notes: null, attentionOn: null, recurrence: null, workflowState: 'open' as const, attention: 'needs_attention' as const, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }));
+    const fake = installFakeServer({ 'GET /api/v1/session': json(200, session()), [householdPath]: json(200, household), ...itemRoutes(base, entries), [`GET ${base}/members`]: json(200, { items: [], nextCursor: null }) });
+    renderApp();
+    await screen.findByText('Needs 0');
+    const main = screen.getByRole('main');
+    const group = within(main).getByRole('heading', { level: 2, name: 'Needs attention 101 items' }).closest('section')!;
+    for (const remaining of [76, 51, 26]) await userEvent.click(within(group).getByRole('button', { name: `Show more (${remaining} remaining)` }));
+    await userEvent.click(within(group).getByRole('link', { name: 'See all 101 in All items' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'All items' })).toHaveFocus();
+    expect(window.location.pathname + window.location.search).toBe('/items?status=needs');
+    const allMain = screen.getByRole('main');
+    expect(within(allMain).getByLabelText('Show')).toHaveValue('needs');
+    const navigation = screen.getByRole('navigation', { name: 'Household navigation' });
+    expect(within(navigation).getByRole('link', { name: 'All items' })).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/items` && request.query.get('attention') === 'needs_attention')).toHaveLength(5));
+    const latestListRequest = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/items`).at(-1)!;
+    expect(latestListRequest.query.get('attention')).toBe('needs_attention');
+    expect(latestListRequest.query.get('workflowState')).toBe('open');
+  });
+
   it('an existing session goes straight to home', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),

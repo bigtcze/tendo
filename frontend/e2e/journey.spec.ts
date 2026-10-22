@@ -1168,21 +1168,20 @@ test.describe('Tendo production journey', () => {
       await expect(more).toHaveAttribute('aria-disabled', 'false');
       await expect(more).toBeFocused();
       expect(homeRequests.filter((entry) => entry.startsWith('GET ') && entry.endsWith('/items')).length - beforePageRequestCount).toBe(1);
-      if (counts.upcoming > 50) {
-        await page.keyboard.press('Enter');
-        await expect(upcoming.getByRole('listitem')).toHaveCount(Math.min(75, counts.upcoming));
-        await expect(more).toHaveAttribute('aria-disabled', 'false');
-        await expect(more).toBeFocused();
-      }
-      const stableMore = upcoming.locator('[data-group-more="upcoming"]');
-      while (await stableMore.count()) {
+      while (await more.count()) {
         const before = await upcoming.getByRole('listitem').count();
         await page.keyboard.press('Enter');
-        const expected = Math.min(counts.upcoming, before + 25);
-        await expect(upcoming.getByRole('listitem')).toHaveCount(expected);
-        if (await stableMore.count()) await expect(stableMore).toHaveAttribute('aria-disabled', 'false');
+        await expect(upcoming.getByRole('listitem')).toHaveCount(Math.min(100, before + 25));
+        if (await more.count()) await expect(more).toHaveAttribute('aria-disabled', 'false');
       }
-      await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.groupHeading ?? '')).toBe('upcoming');
+      await expect(upcoming.getByRole('listitem')).toHaveCount(100);
+      const seeAll = upcoming.locator('[data-group-all="upcoming"]');
+      await expect(seeAll).toHaveText(`See all ${counts.upcoming} in All items`);
+      await expect(seeAll).toBeFocused();
+      await seeAll.click();
+      await expect(page).toHaveURL('/items?status=upcoming');
+      await expect(page.getByRole('main').getByLabel('Show')).toHaveValue('upcoming');
+      await expect(page.getByRole('main')).toContainText(`Showing 1–25 of ${counts.upcoming}`);
     } catch (error) { primaryFailure = error; }
     finally {
       page.off('request', requestListener);
