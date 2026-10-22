@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { ItemsScreen } from './ItemsScreen';
+import { HomeScreen } from '../home/HomeScreen';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Item, Subject } from './itemsApi';
@@ -55,6 +56,31 @@ describe('item creation', () => {
     expect(JSON.parse(post.body)).toEqual({ title: 'Renew passport', subjectId: 's-1', recurrence: null });
     expect(post.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
     expect(Object.hasOwn(JSON.parse(post.body), 'responsibleUserId')).toBe(false);
+  });
+
+  it('recovery 422 loads the catalogue, keeps the draft mounted, then corrects subject with a fresh key', async () => {
+    const key = 'b'.repeat(32);
+    const body = { title: 'Recover subject', subjectId: 'missing', recurrence: null };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify({ version: 1, key, body }));
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    let posts = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => pending, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => ++posts === 1 ? json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'subjectId', code: 'invalid_reference' }) : json(201, item({ title: JSON.parse(request.body).title, subjectId: JSON.parse(request.body).subjectId })) });
+    app();
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Choose a person or thing.');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
+    expect(screen.getByRole('form', { name: 'Add an item' })).toBe(form);
+    expect(within(form).getByLabelText('What needs doing?')).toHaveValue(body.title);
+    expect(within(form).getByRole('option', { name: 'Person or thing' })).toBeInTheDocument();
+    await act(async () => release(json(200, { items: [{ ...subject, id: 's-2', name: 'Garage' }], nextCursor: null })));
+    await userEvent.selectOptions(within(form).getByLabelText('For'), 's-2');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await screen.findByText('“Recover subject” was added.');
+    const postsSent = requestsOf(fake.requests, 'POST', `${base}/items`);
+    expect(postsSent.map((request) => request.headers.get('Idempotency-Key'))).toEqual([key, expect.not.stringMatching(new RegExp(`^${key}$`))]);
+    expect(JSON.parse(postsSent[1]!.body)).toEqual({ title: body.title, subjectId: 's-2', recurrence: null });
   });
 
   it('pending-create recovery renders immediately and retries unchanged despite failed subject fetches', async () => {
@@ -160,6 +186,26 @@ describe('item creation', () => {
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).map((request) => request.query.get('cursor'))).toEqual([null, 'subject-cursor']);
   });
 
+  it.each([json(401), json(200, { items: [{ ...subject, name: 'Obsolete household A' }], nextCursor: null })])('drops an old Add catalogue response after the home household changes in place', async (response) => {
+    let release!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { release = resolve; });
+    const householdB = { ...household, id: 'household-b', name: 'Household B' };
+    const baseB = '/api/v1/households/household-b';
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), ...itemRoutes(baseB, [item({ id: 'b-1', title: 'Household B row' })]), [subjectList]: (request) => request.query.has('id') ? json(200, { items: [subject], nextCursor: null }) : deferred, [memberList]: memberPage(), [`GET ${baseB}`]: json(200, householdB), [`GET ${baseB}/subjects`]: json(200, { items: [], nextCursor: null }), [`GET ${baseB}/members`]: memberPage() });
+    const signedOut = vi.fn();
+    const home = (householdId: string) => <I18nProvider><HomeScreen session={{ ...session(), defaultHouseholdId: householdId }} onSignedOut={signedOut} onOpenPeople={() => {}} onOpenItem={() => {}} /></I18nProvider>;
+    const view = render(home(HOUSEHOLD_ID));
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).filter((request) => !request.query.has('id'))).toHaveLength(1));
+    view.rerender(home(householdB.id));
+    await screen.findByText('Household B row');
+    await act(async () => release(response));
+    await act(async () => { await Promise.resolve(); });
+    expect(signedOut).not.toHaveBeenCalled();
+    expect(screen.queryByRole('option', { name: 'Obsolete household A' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+  });
+
   it('ignores older member pages resolved out of order', async () => {
     let resolveFirst!: (response: Response) => void;
     let resolveSecond!: (response: Response) => void;
@@ -194,6 +240,21 @@ describe('item creation', () => {
     expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(21);
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(within(screen.getByText('People and things could not be loaded. Try again.').parentElement!).getByRole('button', { name: 'Try again' })));
+  });
+
+  it('moves focus from a successful Add catalogue retry into the form', async () => {
+    let fail = true;
+    let release!: (response: Response) => void;
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => fail ? json(503) : new Promise<Response>((resolve) => { release = resolve; }), [memberList]: memberPage() });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    const retry = within((await screen.findByText('People and things could not be loaded. Try again.')).parentElement!).getByRole('button', { name: 'Try again' });
+    fail = false;
+    await userEvent.click(retry);
+    await act(async () => release(json(200, { items: [subject], nextCursor: null })));
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText('What needs doing?')));
   });
 
   it('withholds the chooser until the full active catalogue walk succeeds', async () => {
@@ -595,6 +656,37 @@ describe('Home items', () => {
     expect(requestedSets.slice(0, 2).map((values) => values.length)).toEqual([25, 25]);
     expect(requestedSets.slice(2)).toEqual([['s-25'], ['s-25']]);
     expect(new Set(requestedSets.flat()).size).toBe(26);
+  });
+
+  it('keeps Retry names mounted while its batch runs, then focuses the outcome', async () => {
+    let mode: 'fail' | 'defer' | 'ok' = 'fail';
+    const releases: Array<() => void> = [];
+    const respond = (request: RecordedRequest) => json(200, { items: request.query.get('archived') === 'true' ? [] : [{ ...subject, name: 'Retried name' }], nextCursor: null });
+    installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [memberList]: memberPage(), [subjectList]: (request) => {
+      if (mode === 'fail') return json(503);
+      if (mode === 'ok') return respond(request);
+      return new Promise<Response>((resolve) => { releases.push(() => resolve(mode === 'ok' ? respond(request) : json(503))); });
+    } });
+    app();
+    await screen.findByText('Renew passport');
+    const main = screen.getByRole('main');
+    expect(await within(main).findByText('Couldn’t load some names.')).toBeVisible();
+    const retry = await within(main).findByRole('button', { name: 'Retry names' });
+    mode = 'defer';
+    await userEvent.click(retry);
+    await waitFor(() => expect(releases).toHaveLength(2));
+    expect(within(main).getByRole('button', { name: 'Retry names' })).toHaveAttribute('aria-disabled', 'true');
+    expect(document.activeElement).toBe(within(main).getByRole('button', { name: 'Retry names' }));
+    await act(async () => { releases.splice(0).forEach((release) => release()); });
+    await waitFor(() => expect(within(main).getByRole('button', { name: 'Retry names' })).not.toHaveAttribute('aria-disabled', 'true'));
+    expect(document.activeElement).toBe(within(main).getByRole('button', { name: 'Retry names' }));
+    await userEvent.click(within(main).getByRole('button', { name: 'Retry names' }));
+    await waitFor(() => expect(releases).toHaveLength(2));
+    mode = 'ok';
+    await act(async () => { releases.splice(0).forEach((release) => release()); });
+    await within(main).findByText('Retried name');
+    expect(within(main).queryByRole('button', { name: 'Retry names' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(within(main).getByRole('heading', { name: /Needs attention/ }));
   });
 
   it('keeps names from later successful batches while earlier failed IDs stay retryable', async () => {

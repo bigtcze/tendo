@@ -390,6 +390,14 @@ func TestListIDsRepeatedAndValidationPrecedence(t *testing.T) {
 	if w := f.do("GET", base+"?id=", "", nil); w.Code != 400 {
 		t.Fatalf("empty structural id check precedes membership: status=%d body=%s", w.Code, w.Body)
 	}
+	// Transport limit checks precede the id checks and membership for non-members.
+	if w := f.do("GET", base+"?id=&limit=101", "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"limit"`) {
+		t.Fatalf("limit transport check precedes id and membership: status=%d body=%s", w.Code, w.Body)
+	}
+	// Semantic id and cursor problems stay concealed behind the uniform 404.
+	if w := f.do("GET", base+"?id=malformed&cursor=garbage", "", nil); w.Code != 404 {
+		t.Fatalf("semantic id and cursor checks follow membership: status=%d body=%s", w.Code, w.Body)
+	}
 }
 
 func TestPatchArchiveIncrementsStoredVersion(t *testing.T) {

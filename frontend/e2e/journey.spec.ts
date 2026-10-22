@@ -1495,10 +1495,9 @@ test.describe('Tendo production journey', () => {
 
       const beforeMore = subjectRequests.length;
       const more = main.locator('[data-group-more="inProgress"]');
-      if (await more.count()) {
-        await more.click();
-        await expect(main.getByRole('listitem').filter({ hasText: visibleTitles[25]! })).toBeVisible();
-      }
+      await expect(more).toHaveCount(1);
+      await more.click();
+      await expect(main.getByRole('listitem').filter({ hasText: visibleTitles[25]! })).toBeVisible();
       const allRenderedIDs = await main.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')!));
       const allRenderedItems = await Promise.all(allRenderedIDs.map(async (id) => {
         const response = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
@@ -1506,15 +1505,26 @@ test.describe('Tendo production journey', () => {
         return await response.json() as HomeItem;
       }));
       const newlySeen = [...new Set(allRenderedItems.map((item) => item.subjectId))].filter((id) => !initialUniqueSubjects.has(id));
+      expect(newlySeen).toContain(extraSubjectId);
       await expect.poll(() => subjectRequests.length).toBe(beforeMore + (newlySeen.length ? 2 : 0));
       for (const url of subjectRequests.slice(beforeMore)) {
         expect(url.searchParams.getAll('id').sort()).toEqual(newlySeen.sort());
         expect(url.searchParams.get('archived')).toMatch(/^(true|false)$/);
       }
 
-      const activeCatalog = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
-      expect(activeCatalog.status()).toBe(200);
-      const expectedActiveCount = (await activeCatalog.json() as { items: Array<{ id: string }> }).items.length;
+      const expectedActiveIDs: string[] = [];
+      for (let cursor: string | null = null, pages = 0; ; pages++) {
+        expect(pages).toBeLessThan(50);
+        const walk = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+        expect(walk.status()).toBe(200);
+        const body = await walk.json() as { items: Array<{ id: string }>; nextCursor: string | null };
+        expectedActiveIDs.push(...body.items.map((entry) => entry.id));
+        if (!body.nextCursor) break;
+        cursor = body.nextCursor;
+      }
+      expect(expectedActiveIDs).toContain(extraSubjectId);
+      expect(expectedActiveIDs).not.toContain(archivedSubjectId);
+      const expectedActiveCount = expectedActiveIDs.length;
       const beforeAdd = subjectRequests.length;
       await main.getByRole('button', { name: en['items.add'], exact: true }).click();
       await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
@@ -1523,6 +1533,9 @@ test.describe('Tendo production journey', () => {
       expect(activeCatalogueRequests).toHaveLength(Math.ceil(expectedActiveCount / 100));
       expect(activeCatalogueRequests.every((url) => !url.searchParams.has('id') && url.searchParams.get('archived') === 'false')).toBe(true);
       expect(subjectRequests.filter((url) => !url.searchParams.has('id') && url.searchParams.get('archived') === 'true')).toHaveLength(0);
+      const chooser = page.getByRole('form', { name: en['items.add.formLabel'] }).getByLabel(en['items.subject'], { exact: true });
+      const chooserIDs = await chooser.locator('option').evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
+      expect([...chooserIDs].sort()).toEqual([...expectedActiveIDs].sort());
       await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
     } catch (error) { primaryFailure = error; }
     finally {
