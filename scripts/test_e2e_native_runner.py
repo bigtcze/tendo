@@ -273,6 +273,21 @@ class FailureLogTests(unittest.TestCase):
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
 
+    def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "process.log"
+            report = ["  ✘  27 e2e/journey.spec.ts:1250:3 › n12 bounded pages", "    Expected: 25", "    Received: 24"]
+            access = [f"2026/10/23 01:55:14 INFO http request request_id={n} method=POST route=/api/v1/x status=201 duration=5ms" for n in range(500)]
+            failure = ["2026/10/23 01:55:15 INFO http request request_id=z method=GET route=/api/v1/x status=500 duration=5ms"]
+            log.write_text("\n".join(report + access + failure) + "\n")
+            with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+                runner.print_failure_log_tail(log, lines=10)
+            out = err.getvalue()
+        self.assertIn("n12 bounded pages", out)
+        self.assertIn("Received: 24", out)
+        self.assertIn("status=500", out)
+        self.assertIn("500 successful access-log lines omitted", out)
+
     def test_missing_failure_log_is_reported_not_raised(self):
         with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
             runner.print_failure_log_tail(pathlib.Path("/nonexistent/tendo/process.log"))

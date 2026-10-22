@@ -23,6 +23,7 @@ from pathlib import Path
 # Generated credentials are registered here so failure output can be redacted before printing.
 SENSITIVE_VALUES: set[str] = set()
 FAILURE_LOG_TAIL_LINES = 200
+ROUTINE_ACCESS_LINE = re.compile(r" INFO http request .* status=[23]\d\d ")
 
 
 def generated_secret(nbytes: int) -> str:
@@ -67,11 +68,15 @@ def redact(text: str) -> str:
 def print_failure_log_tail(log_path: Path, lines: int = FAILURE_LOG_TAIL_LINES):
     """CI keeps no runner files; surface Playwright/app output so a failure is diagnosable from the job log."""
     try:
-        tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+        all_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError as exc:
         print(f"E2E process log unavailable: {exc}", file=sys.stderr)
         return
-    print(f"---- last {len(tail)} lines of {log_path} (credentials redacted) ----", file=sys.stderr)
+    # Successful per-request access lines would otherwise push Playwright's failure report out of the tail.
+    kept = [line for line in all_lines if not ROUTINE_ACCESS_LINE.search(line)]
+    tail = kept[-lines:]
+    omitted = len(all_lines) - len(kept)
+    print(f"---- last {len(tail)} lines of {log_path} ({omitted} successful access-log lines omitted; credentials redacted) ----", file=sys.stderr)
     for line in tail:
         print(redact(line), file=sys.stderr)
     print("---- end of E2E process log ----", file=sys.stderr)
