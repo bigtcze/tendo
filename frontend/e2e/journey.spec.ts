@@ -1242,6 +1242,9 @@ test.describe('Tendo production journey', () => {
       const subjectEntries = (await subjectsResponse.json() as { items: Array<{ id: string; name: string }> }).items;
       const subjects = subjectEntries.slice(0, 2);
       expect(subjects.length).toBe(2);
+      const labelSubjectResponse = await page.request.post(`/api/v1/households/${householdId}/subjects`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-n12-home-archive-subject' }, data: { name: 'N12 archived home subject', type: 'home' } });
+      expect(labelSubjectResponse.status()).toBe(201);
+      const archivedHomeSubject = await labelSubjectResponse.json() as { id: string };
       const sessionResponse = await page.request.get('/api/v1/session');
       const ownerId = (await sessionResponse.json() as { userId: string }).userId;
 
@@ -1253,7 +1256,7 @@ test.describe('Tendo production journey', () => {
           const recurrence = repeated ? { intervalUnit: (['day', 'week', 'month', 'year'] as const)[index % 4], intervalValue: (index % 4) + 1, mode: (index % 2 ? 'fixed' : 'after_completion') as 'fixed' | 'after_completion' } : null;
           const payload = {
             title: index % 131 === 0 ? `Výměna filtru Škoda ${String(index).padStart(4, '0')}` : index === 17 ? `LongUnbreakableHouseholdItemTitle${'x'.repeat(150)}` : `All items seed ${String(index).padStart(4, '0')}`,
-            subjectId: subjects[index % 2]!.id,
+            subjectId: index % 100 === 0 ? archivedHomeSubject.id : subjects[index % 2]!.id,
             ...(index % 5 === 0 ? { responsibleUserId: ownerId } : {}),
             ...(index % 4 === 0 ? { attentionOn: '2025-01-10' } : index % 4 === 1 ? { attentionOn: '2027-01-10' } : {}),
             recurrence,
@@ -1270,6 +1273,10 @@ test.describe('Tendo production journey', () => {
       console.log(`n12 seeded ${seeded.length} items in ${seedDuration}ms`);
       for (let i = 0; i < 12; i++) await updateItem(seeded[100 + i]!.id, { workflowState: i % 2 ? 'paused' : 'in_progress' });
       for (let i = 0; i < 10; i++) await updateItem(seeded[200 + i]!.id, { archived: true });
+      const archiveSubjectCurrent = await page.request.get(`/api/v1/households/${householdId}/subjects/${archivedHomeSubject.id}`);
+      expect(archiveSubjectCurrent.status()).toBe(200);
+      const archiveSubjectResponse = await page.request.patch(`/api/v1/households/${householdId}/subjects/${archivedHomeSubject.id}`, { headers: { Origin: baseURL, 'If-Match': archiveSubjectCurrent.headers()['etag']! }, data: { archived: true } });
+      expect(archiveSubjectResponse.status()).toBe(200);
       const oneOffEntries = seeded.filter((item) => item.recurrence === null && !item.title.startsWith('Výměna')).slice(0, 10);
       for (let i = 0; i < oneOffEntries.length; i++) {
         const entry = oneOffEntries[i]!;
@@ -1408,6 +1415,148 @@ test.describe('Tendo production journey', () => {
             });
             if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive seeded item ${item.id}: ${archived.status()}`);
           }));
+        } catch (error) { cleanupFailure ??= error; }
+      }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
+  test('n13. home batch-loads labels only for rendered subjects, including archived references', async () => {
+    type HomeItem = { id: string; title: string; subjectId: string };
+    const itemIDs: string[] = [];
+    let archivedSubjectId = '';
+    let extraSubjectId = '';
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    const subjectRequests: URL[] = [];
+    const onSubjectRequest = (req: import('@playwright/test').Request) => {
+      const url = new URL(req.url());
+      if (req.method() === 'GET' && url.pathname === `/api/v1/households/${householdId}/subjects`) subjectRequests.push(url);
+    };
+    try {
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const activeResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
+      expect(activeResponse.status()).toBe(200);
+      const activeSubjects = (await activeResponse.json() as { items: Array<{ id: string; name: string }> }).items;
+      const subjects = activeSubjects.slice(0, 3);
+      expect(subjects).toHaveLength(3);
+      const extraSubjectResponse = await page.request.post(`/api/v1/households/${householdId}/subjects`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-n13-extra-subject' }, data: { name: 'N13 extra active subject', type: 'vehicle' } });
+      expect(extraSubjectResponse.status()).toBe(201);
+      const extraSubject = await extraSubjectResponse.json() as { id: string };
+      extraSubjectId = extraSubject.id;
+      const archiveResponse = await page.request.post(`/api/v1/households/${householdId}/subjects`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-n13-archived-subject' }, data: { name: 'N13 archived reference', type: 'home' } });
+      expect(archiveResponse.status()).toBe(201);
+      const archivedSubject = await archiveResponse.json() as { id: string; name: string };
+      archivedSubjectId = archivedSubject.id;
+
+      const sessionResponse = await page.request.get('/api/v1/session');
+      expect(sessionResponse.status()).toBe(200);
+      const ownerId = (await sessionResponse.json() as { userId: string }).userId;
+      const visibleTitles: string[] = [];
+      for (let index = 0; index < 30; index++) {
+        const subjectId = index === 0 ? archivedSubject.id : index === 25 ? extraSubject.id : subjects[index % subjects.length]!.id;
+        const title = `N13 rendered ${String(index).padStart(2, '0')}`;
+        const created = await page.request.post(`/api/v1/households/${householdId}/items`, { headers: { Origin: baseURL, 'Idempotency-Key': `e2e-n13-create-${index}` }, data: { title, subjectId, ...(index % 9 === 0 ? { responsibleUserId: ownerId } : {}) } });
+        expect(created.status()).toBe(201);
+        const createdItem = await created.json() as HomeItem;
+        itemIDs.push(createdItem.id);
+        visibleTitles.push(title);
+        const currentItem = await page.request.get(`/api/v1/households/${householdId}/items/${createdItem.id}`);
+        expect(currentItem.status()).toBe(200);
+        const moved = await page.request.patch(`/api/v1/households/${householdId}/items/${createdItem.id}`, { headers: { Origin: baseURL, 'If-Match': currentItem.headers()['etag']! }, data: { workflowState: 'in_progress' } });
+        expect(moved.status()).toBe(200);
+      }
+      const archiveSubjectCurrent = await page.request.get(`/api/v1/households/${householdId}/subjects/${archivedSubject.id}`);
+      expect(archiveSubjectCurrent.status()).toBe(200);
+      const archived = await page.request.patch(`/api/v1/households/${householdId}/subjects/${archivedSubject.id}`, { headers: { Origin: baseURL, 'If-Match': archiveSubjectCurrent.headers()['etag']! }, data: { archived: true } });
+      expect(archived.status()).toBe(200);
+
+      page.on('request', onSubjectRequest);
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const main = page.getByRole('main');
+      await expect(main.getByRole('listitem').filter({ hasText: visibleTitles[0]! })).toBeVisible();
+      const renderedSubjectIDs = await main.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')!));
+      const renderedItems = await Promise.all(renderedSubjectIDs.map(async (id) => {
+        const response = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
+        expect(response.status()).toBe(200);
+        return await response.json() as HomeItem;
+      }));
+      const initialUniqueSubjects = new Set(renderedItems.map((item) => item.subjectId));
+      expect(initialUniqueSubjects.size).toBe(4);
+      await expect(main.getByText(archivedSubject.name, { exact: true })).toBeVisible();
+      await expect.poll(() => subjectRequests.length).toBe(2 * Math.ceil(initialUniqueSubjects.size / 100));
+      expect(subjectRequests.every((url) => url.searchParams.has('id'))).toBe(true);
+      expect(subjectRequests.filter((url) => url.searchParams.get('archived') === 'true')).toHaveLength(Math.ceil(initialUniqueSubjects.size / 100));
+      expect(subjectRequests.filter((url) => url.searchParams.get('archived') === 'false')).toHaveLength(Math.ceil(initialUniqueSubjects.size / 100));
+      for (const url of subjectRequests) for (const id of url.searchParams.getAll('id')) expect(initialUniqueSubjects.has(id)).toBe(true);
+
+      const beforeMore = subjectRequests.length;
+      const more = main.locator('[data-group-more="inProgress"]');
+      await expect(more).toHaveCount(1);
+      await more.click();
+      await expect(main.getByRole('listitem').filter({ hasText: visibleTitles[25]! })).toBeVisible();
+      const allRenderedIDs = await main.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')!));
+      const allRenderedItems = await Promise.all(allRenderedIDs.map(async (id) => {
+        const response = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
+        expect(response.status()).toBe(200);
+        return await response.json() as HomeItem;
+      }));
+      const newlySeen = [...new Set(allRenderedItems.map((item) => item.subjectId))].filter((id) => !initialUniqueSubjects.has(id));
+      expect(newlySeen).toContain(extraSubjectId);
+      await expect.poll(() => subjectRequests.length).toBe(beforeMore + (newlySeen.length ? 2 : 0));
+      for (const url of subjectRequests.slice(beforeMore)) {
+        expect(url.searchParams.getAll('id').sort()).toEqual(newlySeen.sort());
+        expect(url.searchParams.get('archived')).toMatch(/^(true|false)$/);
+      }
+
+      const expectedActiveIDs: string[] = [];
+      for (let cursor: string | null = null, pages = 0; ; pages++) {
+        expect(pages).toBeLessThan(50);
+        const walk = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+        expect(walk.status()).toBe(200);
+        const body = await walk.json() as { items: Array<{ id: string }>; nextCursor: string | null };
+        expectedActiveIDs.push(...body.items.map((entry) => entry.id));
+        if (!body.nextCursor) break;
+        cursor = body.nextCursor;
+      }
+      expect(expectedActiveIDs).toContain(extraSubjectId);
+      expect(expectedActiveIDs).not.toContain(archivedSubjectId);
+      const expectedActiveCount = expectedActiveIDs.length;
+      const beforeAdd = subjectRequests.length;
+      await main.getByRole('button', { name: en['items.add'], exact: true }).click();
+      await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
+      await expect.poll(() => subjectRequests.length).toBe(beforeAdd + Math.ceil(expectedActiveCount / 100));
+      const activeCatalogueRequests = subjectRequests.slice(beforeAdd);
+      expect(activeCatalogueRequests).toHaveLength(Math.ceil(expectedActiveCount / 100));
+      expect(activeCatalogueRequests.every((url) => !url.searchParams.has('id') && url.searchParams.get('archived') === 'false')).toBe(true);
+      expect(subjectRequests.filter((url) => !url.searchParams.has('id') && url.searchParams.get('archived') === 'true')).toHaveLength(0);
+      const chooser = page.getByRole('form', { name: en['items.add.formLabel'] }).getByLabel(en['items.subject'], { exact: true });
+      const chooserIDs = await chooser.locator('option').evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
+      expect([...chooserIDs].sort()).toEqual([...expectedActiveIDs].sort());
+      await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+    } catch (error) { primaryFailure = error; }
+    finally {
+      page.off('request', onSubjectRequest);
+      for (const subjectId of [archivedSubjectId, extraSubjectId].filter(Boolean)) {
+        try {
+          const current = await page.request.get(`/api/v1/households/${householdId}/subjects/${subjectId}`);
+          if (current.status() === 200 && (await current.json() as { archived: boolean }).archived) {
+            const restored = await page.request.patch(`/api/v1/households/${householdId}/subjects/${subjectId}`, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: false } });
+            if (restored.status() !== 200) cleanupFailure ??= new Error(`Could not restore n13 subject ${subjectId}: ${restored.status()}`);
+          }
+        } catch (error) { cleanupFailure ??= error; }
+      }
+      for (const itemId of itemIDs) {
+        try {
+          const current = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+          if (current.status() !== 200) { cleanupFailure ??= new Error(`Could not read n13 item ${itemId}: ${current.status()}`); continue; }
+          const data = await current.json() as { archived: boolean };
+          if (data.archived) continue;
+          const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemId}`, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true } });
+          if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive n13 item ${itemId}: ${archived.status()}`);
         } catch (error) { cleanupFailure ??= error; }
       }
     }

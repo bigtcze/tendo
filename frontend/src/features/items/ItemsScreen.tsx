@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { NavLink } from '../../app/NavLink';
 import { useI18n, type MessageKey } from '../../i18n';
@@ -7,6 +7,8 @@ import { listMembers, type Member } from '../members/membersApi';
 import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
 import { clearPendingItemCreate, getPendingItemCreate, setPendingItemCreate, type PendingItemCreate } from './pendingItemCreate';
 import { completeItem, createItem, getItem, getItemsSummary, listActiveSubjects, listItemGroup, undoCompletion, type Completion, type Item, type ItemGroup, type ItemSummary, type Recurrence, type Subject } from './itemsApi';
+import { useSubjectLabels } from './useSubjectLabels';
+import { getSubject } from '../subjects/subjectsApi';
 
 type Notice = { text: string; completion?: Completion; itemId?: string; retryKey?: string; retryKind?: 'complete' | 'undo'; undoAvailable?: boolean };
 type SubjectState = 'loading' | 'error' | 'ready';
@@ -79,20 +81,25 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const emptyGroups = (): Record<ItemGroup, GroupData> => ({ needs: { items: [], cursor: null, loadingMore: false }, inProgress: { items: [], cursor: null, loadingMore: false }, waiting: { items: [], cursor: null, loadingMore: false }, upcoming: { items: [], cursor: null, loadingMore: false }, paused: { items: [], cursor: null, loadingMore: false } });
   const [groupData, setGroupData] = useState<Record<ItemGroup, GroupData>>(emptyGroups);
   const [summary, setSummary] = useState<ItemSummary | null>(null);
+  const dataHousehold = useRef<string | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectLoading, setSubjectLoading] = useState(false);
+  const [subjectScope, setSubjectScope] = useState(`${userId}:${householdId}`);
   const [members, setMembers] = useState<Member[]>([]);
   const [homeMembersState, setHomeMembersState] = useState<{ householdId: string; members: Member[] } | null>(null);
-  const subjectLoadBusy = useRef(false);
   const [subjectState, setSubjectState] = useState<SubjectState>('loading');
-  const [subjectRetry, setSubjectRetry] = useState(0);
-  const [subjectLoadingArchived, setSubjectLoadingArchived] = useState(false);
+  const subjectGeneration = useRef(0);
+  const catalogueLoaded = useRef(false);
+  const recoveryLookup = useRef(new Set<string>());
   const [loading, setLoading] = useState(true);
   const [itemsRequestComplete, setItemsRequestComplete] = useState(false);
   const [error, setError] = useState(false);
   const [pendingCreate, setPendingCreate] = useState<PendingItemCreate | undefined>(() => getPendingItemCreate(userId, householdId));
   const [createUncertain, setCreateUncertain] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
+  const [recoveryEditable, setRecoveryEditable] = useState(false);
+  const [recoverySubjectId, setRecoverySubjectId] = useState<string | null>(null);
   const [adding, setAdding] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
-  const addingRef = useRef(false);
+  const addingRef = useRef(Boolean(getPendingItemCreate(userId, householdId)));
   const [notice, setNotice] = useState<Notice | null>(null);
   const [createNotice, setCreateNotice] = useState<'uncertain' | 'reused' | null>(() => getPendingItemCreate(userId, householdId) ? 'uncertain' : null);
   const [busy, setBusy] = useState(false);
@@ -108,6 +115,11 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
   const returnFocus = useRef(false);
   const focusedRow = useRef(false);
   const retryHadFocus = useRef(false);
+  const labelRetryRef = useRef<HTMLButtonElement>(null);
+  const catalogueRetryRef = useRef<HTMLButtonElement>(null);
+  const noSubjectsRef = useRef<HTMLButtonElement>(null);
+  const catalogueRetryHadFocus = useRef(false);
+  const [labelRetryPending, setLabelRetryPending] = useState(false);
   const sectionHeadingRefs = useRef(new Map<ItemGroup, HTMLHeadingElement>());
   const showMoreButtons = useRef(new Map<ItemGroup, HTMLButtonElement>());
   const showMoreInFlight = useRef(new Set<ItemGroup>());
@@ -116,11 +128,27 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     for (const group of groups) if (groupData[group.id].items.some((item) => item.id === itemId)) return group.id;
     return null;
   }
-  const names = new Map(subjects.map((subject) => [subject.id, subject.name]));
+  const activeSubjects = useMemo(() => subjectScope === `${userId}:${householdId}` ? subjects : [], [subjectScope, userId, householdId, subjects]);
+  const visibleSubjectIDs = useMemo(() => [...new Set(Object.values(groupData).flatMap((group) => group.items.map((item) => item.subjectId)))], [groupData]);
+  const labels = useSubjectLabels(userId, householdId, visibleSubjectIDs, onSignedOut);
+  const labelSubjects = useMemo(() => [...labels.names].map(([id, name]) => ({ id, name, type: 'custom' as const, linkedUserId: null, archived: false, createdAt: '', updatedAt: '' })), [labels.names]);
+  const names = useMemo(() => new Map([...labels.names, ...activeSubjects.map((subject) => [subject.id, subject.name] as const)]), [labels.names, activeSubjects]);
+  const retryDraft = recoveryEditable && !createUncertain && pendingCreate ? {
+    title: pendingCreate.body.title,
+    subjectId: pendingCreate.body.subjectId,
+    attentionOn: pendingCreate.body.attentionOn ?? '',
+    notes: pendingCreate.body.notes ?? '',
+    recurrence: pendingCreate.body.recurrence ?? null,
+    responsibleUserId: pendingCreate.body.responsibleUserId ?? null,
+    ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}),
+  } : undefined;
   const recoverySubjects = pendingCreate ? [
-    ...subjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
-    subjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
-  ] : subjects.filter((subject) => !subject.archived);
+    ...activeSubjects.filter((subject) => !subject.archived && subject.id !== pendingCreate.body.subjectId),
+    activeSubjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? labelSubjects.find((subject) => subject.id === pendingCreate.body.subjectId) ?? { id: pendingCreate.body.subjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
+  ] : recoverySubjectId ? [
+    ...activeSubjects.filter((subject) => !subject.archived && subject.id !== recoverySubjectId),
+    activeSubjects.find((subject) => subject.id === recoverySubjectId) ?? labelSubjects.find((subject) => subject.id === recoverySubjectId) ?? { id: recoverySubjectId, name: t('items.subject.unknown'), type: 'custom' as const, linkedUserId: null, archived: true, createdAt: '', updatedAt: '' },
+  ] : activeSubjects.filter((subject) => !subject.archived);
 
   const loadHome = useCallback(async ({ allowStaleRestart }: { allowStaleRestart: boolean }) => {
     const started = ++generation.current;
@@ -144,6 +172,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
       if (entries.some(([, result]) => result.kind !== 'ok')) { setError(true); setLoading(false); return; }
       const nextData = emptyGroups();
       for (const [id, result] of entries) if (result.kind === 'ok') nextData[id] = { items: result.items, cursor: result.nextCursor, loadingMore: false };
+      dataHousehold.current = householdId;
       setSummary(nextSummary);
       setGroupData(nextData);
       setError(false);
@@ -189,14 +218,55 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     return () => { generationRef.current++; };
   }, [householdId, onSignedOut]);
 
+  async function loadAddSubjects(token: number) {
+    const scope = `${userId}:${householdId}`;
+    const isCurrent = () => mounted.current && token === subjectGeneration.current && addingRef.current;
+    if (!isCurrent()) return;
+    setSubjects([]);
+    setSubjectScope(scope);
+    setSubjectState('loading');
+    setSubjectLoading(true);
+    const collected: Subject[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_SUBJECT_PAGES; page++) {
+      const result = await listActiveSubjects(householdId, false, cursor);
+      if (!isCurrent()) return;
+      if (result.kind === 'unauthenticated') { setSubjectLoading(false); onSignedOut(); return; }
+      if (result.kind !== 'ok') {
+        setSubjects([]);
+        setSubjectLoading(false);
+        setSubjectState('error');
+        return;
+      }
+      collected.push(...result.subjects);
+      if (!result.nextCursor) {
+        setSubjects(collected);
+        catalogueLoaded.current = true;
+        setSubjectLoading(false);
+        setSubjectState('ready');
+        return;
+      }
+      cursor = result.nextCursor;
+    }
+    if (isCurrent()) { setSubjects([]); setSubjectLoading(false); setSubjectState('error'); }
+  }
+
   async function openAddForm() {
+    if (dataHousehold.current !== householdId) return;
     const token = ++memberLoadGeneration.current;
     addingRef.current = true;
     setAdding(true);
+    subjectGeneration.current++;
+    const catalogueToken = subjectGeneration.current;
     const pending = getPendingItemCreate(userId, householdId);
     setPendingCreate(pending);
+    if (!pending) { setSubjects([]); setSubjectScope(`${userId}:${householdId}`); setSubjectState('loading'); setSubjectLoading(true); }
+    else { setSubjectState('ready'); setSubjectLoading(false); }
     setCreateUncertain(Boolean(pending));
+    if (pending) setSubjectLoading(false);
     setCreateNotice(pending ? 'uncertain' : null);
+    setRecoveryEditable(false);
+    if (!pending) void loadAddSubjects(catalogueToken);
     setMembers([]);
     const collected: Member[] = [];
     let cursor: string | undefined;
@@ -212,48 +282,58 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     if (mounted.current && token === memberLoadGeneration.current && addingRef.current) setMembers([]);
   }
 
-  function closeAddForm() {
-    memberLoadGeneration.current++;
-    addingRef.current = false;
-    setAdding(false);
+  function retryAddSubjects() {
+    if (subjectLoading) return;
+    const token = ++subjectGeneration.current;
+    setSubjectState('loading');
+    setSubjectLoading(true);
+    void loadAddSubjects(token);
   }
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async (archived: boolean) => {
-      const collected: Subject[] = [];
-      let cursor: string | undefined;
-      for (let page = 0; page < MAX_SUBJECT_PAGES; page++) {
-        const result = await listActiveSubjects(householdId, archived, cursor);
-        if (result.kind !== 'ok') return result;
-        collected.push(...result.subjects);
-        if (!result.nextCursor) return { kind: 'ok' as const, subjects: collected };
-        cursor = result.nextCursor;
-      }
-      return { kind: 'error' as const };
-    };
-    subjectLoadBusy.current = true;
-    void load(false).then(async (active) => {
-      if (cancelled) return;
-      if (active.kind === 'unauthenticated') { subjectLoadBusy.current = false; onSignedOut(); return; }
-      if (active.kind !== 'ok') { subjectLoadBusy.current = false; setSubjectState('error'); return; }
-      setSubjects(active.subjects);
-      subjectLoadBusy.current = false;
-      setSubjectState('ready');
-      setSubjectLoadingArchived(true);
-      subjectLoadBusy.current = true;
-      const archived = await load(true);
-      if (cancelled) { subjectLoadBusy.current = false; setSubjectLoadingArchived(false); return; }
-      subjectLoadBusy.current = false;
-      setSubjectLoadingArchived(false);
-      if (archived.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (archived.kind === 'ok') {
-        const seen = new Set(active.subjects.map((subject) => subject.id));
-        setSubjects((current) => [...current, ...archived.subjects.filter((subject) => !seen.has(subject.id))]);
-      }
+    if (subjectState === 'loading') return;
+    if (catalogueRetryHadFocus.current && (document.activeElement === catalogueRetryRef.current || document.activeElement === document.body)) {
+      // A successful retry mounts ItemForm, which focuses its title field itself; an empty catalogue focuses its People and things action.
+      if (subjectState === 'error') catalogueRetryRef.current?.focus();
+      else noSubjectsRef.current?.focus();
+    }
+    catalogueRetryHadFocus.current = false;
+  }, [subjectState]);
+
+  function cancelAddForm() {
+    memberLoadGeneration.current++;
+    subjectGeneration.current++;
+    addingRef.current = false;
+    setAdding(false);
+    setSubjectLoading(false);
+    returnFocus.current = true;
+  }
+
+  useEffect(() => {
+    if (!pendingCreate || !adding || names.has(pendingCreate.body.subjectId) || recoveryLookup.current.has(pendingCreate.body.subjectId)) return;
+    const id = pendingCreate.body.subjectId;
+    const token = subjectGeneration.current;
+    const lookup = { active: true };
+    const lookupSet = recoveryLookup.current;
+    lookupSet.add(id);
+    void getSubject(householdId, id).then((result) => {
+      if (!lookup.active || !mounted.current || token !== subjectGeneration.current || !addingRef.current) return;
+      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (result.kind === 'ok') setSubjects((current) => [...current.filter((entry) => entry.id !== id), result.subject]);
     });
-    return () => { cancelled = true; };
-  }, [householdId, onSignedOut, subjectRetry]);
+    return () => { lookup.active = false; lookupSet.delete(id); };
+  }, [adding, pendingCreate, names, householdId, userId, onSignedOut]);
+
+  useEffect(() => {
+    if (!labelRetryPending || labels.loading) return;
+    // The retry control stays mounted while its batch runs; afterwards focus follows the outcome unless the user moved it.
+    if (document.activeElement === labelRetryRef.current || document.activeElement === document.body) {
+      if (labels.hasFailures) labelRetryRef.current?.focus();
+      else sectionHeadingRefs.current.get(groups.find((group) => groupData[group.id].items.length)?.id ?? 'needs')?.focus();
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- settle the retry once its batch completes.
+    setLabelRetryPending(false);
+  }, [labelRetryPending, labels.loading, labels.hasFailures, groupData]);
 
   useEffect(() => {
     if (createNotice === 'reused' || (notice && (focusedRow.current || retryHadFocus.current))) {
@@ -285,24 +365,39 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
 
   async function create(values: ItemFormValues) {
     if (!beginMutation()) return { kind: 'handled' as const };
+    const recoveryAttempt = createUncertain && !!pendingCreate;
     const hadFocus = document.activeElement === addRef.current;
     try {
-      const pending = pendingCreate ?? { version: 1 as const, key: idempotencyKey(), body: { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence, ...(values.responsibleUserId !== null ? { responsibleUserId: values.responsibleUserId } : {}), ...(values.recurrence && values.historicalCompletedOn ? { historicalCompletedOn: values.historicalCompletedOn } : {}) } };
+      const pending = pendingCreate && !recoveryEditable ? pendingCreate : { version: 1 as const, key: idempotencyKey(), body: { title: values.title, subjectId: values.subjectId, ...(values.attentionOn ? { attentionOn: values.attentionOn } : {}), ...(values.notes ? { notes: values.notes } : {}), recurrence: values.recurrence, ...(values.responsibleUserId !== null ? { responsibleUserId: values.responsibleUserId } : {}), ...(values.recurrence && values.historicalCompletedOn ? { historicalCompletedOn: values.historicalCompletedOn } : {}) } };
       if (!pendingCreate) { setPendingItemCreate(userId, householdId, pending); setPendingCreate(pending); }
       const result = await createItem(householdId, pending.body, pending.key);
       if (result.kind === 'unauthenticated') { clearPendingItemCreate(userId, householdId); setPendingCreate(undefined); onSignedOut(); return { kind: 'handled' as const }; }
       if (result.kind === 'invalid' || result.kind === 'definitive' || result.kind === 'reused') {
+        if (result.kind === 'invalid') {
+          clearPendingItemCreate(userId, householdId);
+          setCreateNotice(null);
+          setPendingCreate(undefined);
+          setCreateUncertain(false);
+          setRecoveryEditable(true);
+          setRecoverySubjectId(values.subjectId);
+          if (recoveryAttempt && !catalogueLoaded.current && !subjectLoading) {
+            const token = ++subjectGeneration.current;
+            void loadAddSubjects(token);
+          }
+          return result;
+        }
         clearPendingItemCreate(userId, householdId);
         setPendingCreate(undefined);
         setCreateUncertain(false);
-        if (result.kind === 'invalid') return result;
+        setRecoveryEditable(false);
         if (result.kind === 'reused') { setCreateNotice('reused'); return { kind: 'handled' as const }; }
         return { kind: 'failed' as const };
       }
-      if (result.kind === 'error') { setCreateUncertain(true); setCreateNotice('uncertain'); return { kind: 'handled' as const }; }
+      if (result.kind === 'error') { setCreateUncertain(true); setRecoveryEditable(false); setCreateNotice('uncertain'); return { kind: 'handled' as const }; }
       clearPendingItemCreate(userId, householdId);
       setPendingCreate(undefined);
       setCreateUncertain(false);
+      setRecoveryEditable(false);
       setCreateNotice(null);
       generation.current++;
       memberLoadGeneration.current++;
@@ -434,6 +529,11 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     } finally { endMutation(); }
   }
 
+  function cancelAddAndFocus() {
+    cancelAddForm();
+    requestAnimationFrame(() => addRef.current?.focus());
+  }
+
   async function retryNotice() {
     if (!notice) return;
     if (notice.retryKind === 'complete' && notice.itemId) await finish(notice.itemId);
@@ -444,15 +544,19 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onS
     <div ref={noticeRef} tabIndex={-1} className="outline-none">{createNotice === 'reused' ? <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2"><p>{t('items.create.reused')}</p></div> : notice ? <NoticeView notice={notice} busy={busy} onUndo={() => void undo()} onRetry={() => void retryNotice()} onRetryFocus={() => { retryHadFocus.current = true; }} /> : null}</div>
     {error ? <div className="space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button></div> : null}
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-    {subjectState === 'error' && !subjectLoadingArchived ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button type="button" variant="quiet" onClick={() => { subjectLoadBusy.current = true; setSubjectState('loading'); setSubjectRetry((value) => value + 1); }}>{t('app.error.retry')}</Button></div> : null}
+    {adding && subjectLoading && !(recoveryEditable && pendingCreate) ? <p role="status" className="text-muted">{t('items.subjects.loading')}</p> : null}
+    {adding && subjectState === 'error' && !(recoveryEditable && pendingCreate) ? <div className="space-y-3"><p className="text-muted">{t('items.subjects.error')}</p><Button ref={catalogueRetryRef} type="button" variant="quiet" disabled={subjectLoading} onClick={() => { catalogueRetryHadFocus.current = document.activeElement === catalogueRetryRef.current; retryAddSubjects(); }}>{t('app.error.retry')}</Button><Button type="button" variant="quiet" onClick={cancelAddAndFocus}>{t('items.cancel')}</Button></div> : null}
+    {labels.loading && visibleSubjectIDs.some((id) => !names.has(id)) ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p> : null}
+    {labels.hasFailures || labelRetryPending ? <div className="flex items-center gap-2"><p className="text-sm text-muted">{t('items.subjectLabels.error')}</p><Button ref={labelRetryRef} type="button" variant="quiet" data-action="subject-label-retry" aria-label={t('items.subjectLabels.retry')} aria-disabled={labelRetryPending} onClick={() => { if (labelRetryPending) return; setLabelRetryPending(true); labels.retry(); }}>{t('app.error.retry')}</Button></div> : null}
     {!loading && !error && summary && groups.every((group) => summary[group.count] === 0) && !adding ? <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10"><h2 className="font-display text-2xl">{t('home.empty.title')}</h2><p className="mt-3 text-muted">{t('home.empty.body')}</p></div> : null}
-    {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={() => { void openAddForm(); }} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
-    {adding && ((createUncertain && pendingCreate) || (subjectState === 'ready' && subjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate ? recoverySubjects : subjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : undefined} locked={createUncertain && !!pendingCreate} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={() => { returnFocus.current = true; closeAddForm(); }} /> : null}
-    {adding && !(createUncertain && pendingCreate) && subjectState === 'ready' && !subjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button type="button" variant="quiet" className="mt-3" onClick={() => { closeAddForm(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={closeAddForm}>{t('items.cancel')}</Button></div> : null}
+    {itemsRequestComplete && !adding ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={openAddForm} className="w-full sm:w-auto">{t('items.add')}</Button> : null}
+    {adding && ((createUncertain && pendingCreate) || recoveryEditable || (subjectState === 'ready' && activeSubjects.some((subject) => !subject.archived))) ? <ItemForm busy={busy} members={members} subjects={createUncertain && pendingCreate || recoveryEditable ? recoverySubjects : activeSubjects.filter((subject) => !subject.archived)} initialValues={createUncertain && pendingCreate ? { title: pendingCreate.body.title, subjectId: pendingCreate.body.subjectId, attentionOn: pendingCreate.body.attentionOn ?? '', notes: pendingCreate.body.notes ?? '', recurrence: pendingCreate.body.recurrence ?? null, responsibleUserId: pendingCreate.body.responsibleUserId ?? null, ...(pendingCreate.body.historicalCompletedOn ? { historicalCompletedOn: pendingCreate.body.historicalCompletedOn } : {}) } : retryDraft} locked={createUncertain && !!pendingCreate} preserveDraftOnUnlock={recoveryEditable} retryLabel={t('items.create.checkAgain')} submittingLabel={t('items.add.submitting')} notice={createUncertain ? t('items.create.uncertain') : undefined} onSubmit={create} onCancel={cancelAddAndFocus} /> : null}
+    {adding && !(createUncertain && pendingCreate) && !recoveryEditable && subjectState === 'ready' && !activeSubjects.some((subject) => !subject.archived) ? <div className="rounded-2xl border border-line bg-white/70 p-5"><p>{t('items.noSubjects')}</p><Button ref={noSubjectsRef} type="button" variant="quiet" className="mt-3" onClick={() => { cancelAddForm(); addRef.current?.focus(); onOpenPeople(); }}>{t('home.people')}</Button><Button type="button" variant="quiet" className="mt-3" onClick={cancelAddAndFocus}>{t('items.cancel')}</Button></div> : null}
+    {adding && subjectLoading && !(createUncertain && pendingCreate) ? <Button type="button" variant="quiet" className="mt-3" onClick={cancelAddAndFocus}>{t('items.cancel')}</Button> : null}
     {!loading && summary ? groups.map((group) => {
       const state = groupData[group.id];
       if (!state.items.length) return null;
-      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? t('items.subject.unknown')} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
+      return <section key={group.id} className={group.quiet ? 'border-t border-line pt-5' : ''}><h2 ref={(node) => { if (node) sectionHeadingRefs.current.set(group.id, node); else sectionHeadingRefs.current.delete(group.id); }} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>{t(group.key)} <span className="text-base font-normal text-muted">{t(countPluralKey(summary[group.count], locale), { count: String(summary[group.count]) })}</span></h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{state.items.map((item) => <ItemRow key={item.id} item={item} group={group.id} subjectName={names.get(item.subjectId) ?? (labels.stateFor(item.subjectId) === 'queued' || labels.stateFor(item.subjectId) === 'loading' ? t('items.subjectLabels.loading') : t('items.subject.unknown'))} locale={locale} userId={userId} members={homeMembers} membersLoaded={homeMembersLoaded} busy={busy} onDone={() => void finish(item.id)} onOpenItem={onOpenItem} />)}</ul>{state.cursor ? <Button ref={(node) => { if (node) showMoreButtons.current.set(group.id, node); else showMoreButtons.current.delete(group.id); }} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" onClick={() => { if (!state.loadingMore) void showMore(group.id); }}>{state.loadingMore ? t('items.moreLoading') : t('items.showMore', { count: String(Math.max(0, summary[group.count] - state.items.length)) })}</Button> : null}</section>;
     }) : null}
   </div>;
 }

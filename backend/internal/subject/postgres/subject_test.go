@@ -237,6 +237,88 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("batch ID list stays household scoped, archived, ordered and limited", func(t *testing.T) {
+		hid := newHousehold("Batch IDs")
+		first := create(hid, "first", subject.TypeHome)
+		second := create(hid, "second", subject.TypePet)
+		third := create(hid, "third", subject.TypeCustom)
+		foreign := create(homeB, "foreign", subject.TypeCustom)
+		archived := true
+		gone, err := repo.Update(ctx, hid, second.ID, 1, subject.Patch{Archived: &archived})
+		if err != nil {
+			t.Fatal(err)
+		}
+		active, err := repo.ListByIDs(ctx, hid, false, []string{foreign.ID, second.ID, first.ID}, "00000000-0000-0000-0000-000000000000", 1)
+		if err != nil || len(active) != 1 || active[0].ID != first.ID {
+			t.Fatalf("active=%+v err=%v", active, err)
+		}
+		// Exercise the repository limit directly with more matching rows than
+		// requested; the service fetches limit+1 and may trim excess rows.
+		limited, err := repo.ListByIDs(ctx, hid, false, []string{first.ID, second.ID, third.ID, foreign.ID}, "00000000-0000-0000-0000-000000000000", 1)
+		if err != nil || len(limited) != 1 || limited[0].ID != first.ID {
+			t.Fatalf("repository limit/order: %+v err=%v", limited, err)
+		}
+		archivedRows, err := repo.ListByIDs(ctx, hid, true, []string{first.ID, gone.ID}, "00000000-0000-0000-0000-000000000000", 10)
+		if err != nil || len(archivedRows) != 1 || archivedRows[0].ID != gone.ID {
+			t.Fatalf("archived=%+v err=%v", archivedRows, err)
+		}
+	})
+
+	t.Run("filtered pagination adversarial household and partition isolation", func(t *testing.T) {
+		a, b := newHousehold("Filtered A"), newHousehold("Filtered B")
+		aRows := []subject.Subject{}
+		bRows := []subject.Subject{}
+		for i := 0; i < 5; i++ {
+			aRows = append(aRows, create(a, "filtered-a-"+string(rune('a'+i)), subject.TypeCustom))
+			if i < 2 {
+				bRows = append(bRows, create(b, "filtered-b-"+string(rune('a'+i)), subject.TypeCustom))
+			}
+		}
+		archived := true
+		for _, idx := range []int{1} {
+			updated, err := repo.Update(ctx, b, bRows[idx].ID, bRows[idx].Version, subject.Patch{Archived: &archived})
+			if err != nil {
+				t.Fatal(err)
+			}
+			bRows[idx] = updated
+		}
+		updatedA, err := repo.Update(ctx, a, aRows[3].ID, aRows[3].Version, subject.Patch{Archived: &archived})
+		if err != nil {
+			t.Fatal(err)
+		}
+		aRows[3] = updatedA
+		requested := []string{aRows[0].ID, aRows[1].ID, aRows[2].ID, aRows[3].ID, bRows[0].ID, bRows[1].ID}
+		service := subject.NewService(repo, func(context.Context, string, string) error { return nil }, nil)
+		for _, partition := range []struct {
+			archived bool
+			want     []string
+		}{
+			{false, []string{aRows[0].ID, aRows[1].ID, aRows[2].ID}},
+			{true, []string{aRows[3].ID}},
+		} {
+			for _, limit := range []int{1, 2} {
+				var got []string
+				cursor := ""
+				for {
+					page, err := service.List(ctx, actorID, a, subject.ListQuery{IDs: requested, Archived: partition.archived, Limit: limit, Cursor: cursor})
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, item := range page.Items {
+						got = append(got, item.ID)
+					}
+					if page.NextCursor == nil {
+						break
+					}
+					cursor = *page.NextCursor
+				}
+				if strings.Join(got, ",") != strings.Join(partition.want, ",") {
+					t.Fatalf("archived=%v limit=%d got=%v want=%v", partition.archived, limit, got, partition.want)
+				}
+			}
+		}
+	})
+
 	t.Run("archived filter separation", func(t *testing.T) {
 		hid := newHousehold("Archive")
 		active := create(hid, "active", subject.TypeHome)
@@ -485,7 +567,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	t.Run("cross-household isolation", func(t *testing.T) {
 		b := create(homeB, "Bob's boat", subject.TypeVehicle)
 		listedB, err := repo.List(ctx, homeB, false, "00000000-0000-0000-0000-000000000000", 100)
-		if err != nil || len(listedB) != 2 || listedB[1].ID != b.ID {
+		if err != nil || len(listedB) != 3 || listedB[2].ID != b.ID {
 			t.Fatalf("household B list=%+v err=%v", listedB, err)
 		}
 		if _, err := repo.Get(ctx, homeA, b.ID); !errors.Is(err, subject.ErrNotFound) {

@@ -91,7 +91,21 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	query := subject.ListQuery{Archived: params.Archived, Limit: params.Limit, Cursor: params.Cursor}
+	var ids []string
+	if values, present := r.URL.Query()["id"]; present {
+		if len(values) == 0 || len(values) > 100 {
+			httpx.QueryProblemResponse(w, "id")
+			return
+		}
+		for _, value := range values {
+			if value == "" {
+				httpx.QueryProblemResponse(w, "id")
+				return
+			}
+		}
+		ids = values
+	}
+	query := subject.ListQuery{Archived: params.Archived, IDs: ids, Limit: params.Limit, Cursor: params.Cursor}
 	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), query)
 	if err != nil {
 		writeServiceError(w, err)

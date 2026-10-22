@@ -105,6 +105,29 @@ func (r *Repo) List(_ context.Context, hid string, archived bool, after string, 
 	}
 	return all, nil
 }
+func (r *Repo) ListByIDs(_ context.Context, hid string, archived bool, ids []string, after string, limit int) ([]subject.Subject, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Calls++
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	var all []subject.Subject
+	for _, s := range r.rows {
+		if s.HouseholdID == hid && s.Archived == archived && wanted[s.ID] && s.ID > after {
+			all = append(all, s)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
+}
 func (r *Repo) Update(_ context.Context, hid, sid string, expected int64, p subject.Patch) (subject.Subject, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

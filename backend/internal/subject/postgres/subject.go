@@ -146,6 +146,31 @@ func (r *Repository) List(ctx context.Context, householdID string, archived bool
 	return items, nil
 }
 
+func (r *Repository) ListByIDs(ctx context.Context, householdID string, archived bool, ids []string, afterID string, limit int) ([]subject.Subject, error) {
+	hid, ok1 := parseUUID(householdID)
+	after, ok2 := parseUUID(afterID)
+	if !ok1 || !ok2 {
+		return nil, subject.ErrNotFound
+	}
+	uids := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		u, ok := parseUUID(id)
+		if !ok {
+			return nil, subject.ErrNotFound
+		}
+		uids = append(uids, u)
+	}
+	rows, err := r.queries.ListSubjectsByIDs(ctx, dbgen.ListSubjectsByIDsParams{HouseholdID: hid, Archived: archived, Ids: uids, AfterID: after, RowLimit: int32(limit)})
+	if err != nil {
+		return nil, errPersistence
+	}
+	items := make([]subject.Subject, 0, len(rows))
+	for _, item := range rows {
+		items = append(items, toSubject(row{ID: item.ID, HouseholdID: item.HouseholdID, Type: item.Type, Name: item.Name, Archived: item.Archived, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, Version: item.Version, LinkedUserID: item.LinkedUserID}))
+	}
+	return items, nil
+}
+
 // Update applies the patch atomically when the stored version equals
 // expectedVersion. When no row matches, a household-scoped lookup tells a
 // missing subject from a stale version.

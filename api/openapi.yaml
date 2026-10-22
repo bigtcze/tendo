@@ -793,7 +793,7 @@ paths:
     get:
       operationId: listSubjects
       summary: List subjects
-      description: Returns subjects of the household in creation order (ascending id) using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. nextCursor is always present and is null on the last page. The cursor is opaque. Unknown query parameters are ignored.
+      description: Returns household subjects in ascending id order using keyset cursor pagination. The default page lists active subjects; archived=true lists archived subjects only. Repeated id parameters optionally restrict the result to those canonical UUIDs (case-insensitive); unknown or foreign-household IDs are omitted. When filtered, cursors are bound to household, archived partition, and the canonical ID set. nextCursor is null on the last page. Unknown query parameters are ignored. After authentication, transport query checks (limit syntax and range, cursor presence and cardinality, archived syntax, then id structure (empty values or more than 100 supplied values)) precede household membership authorization; UUID syntax and cursor decoding and binding follow membership authorization.
       tags: [Subjects]
       security:
         - SessionCookie: []
@@ -803,6 +803,14 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Archived'
+        - name: id
+          in: query
+          required: false
+          description: Repeated canonical UUID filter values, case-insensitive. At most 100 values may be supplied before deduplication.
+          style: form
+          explode: true
+          schema: { type: array, items: { type: string, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' }, maxItems: 100 }
+          example: [0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71]
       responses:
         '200':
           description: One page of subjects.
@@ -813,7 +821,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SubjectList' }
               example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70, type: vehicle, name: Octavia, linkedUserId: null, archived: false, createdAt: '2026-10-07T10:00:00Z', updatedAt: '2026-10-07T10:00:00Z' }], nextCursor: null }
-        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed, or archived/done is not true or false. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
+        '400': { description: 'A query parameter is invalid: limit is not an integer from 1 to 100, cursor is malformed or bound to another filter, archived is not true or false, or id is empty, malformed, or has more than 100 supplied values. The parameter extension names the offender. Trusted forwarded request metadata errors use the same status without a parameter.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: limit } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing, foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '404': { description: 'The household identifier is malformed, the household does not exist, or the caller is not a member. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: not_found } } } }
@@ -1675,7 +1683,7 @@ components:
         - $ref: '#/components/schemas/Problem'
         - type: object
           properties:
-            parameter: { type: string, enum: [limit, cursor, archived, done, subjectId, responsibleUserId, workflowState, attention, recurring, sort, attentionDate, q] }
+            parameter: { type: string, enum: [limit, cursor, archived, done, id, subjectId, responsibleUserId, workflowState, attention, recurring, sort, attentionDate, q] }
     SubjectValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'

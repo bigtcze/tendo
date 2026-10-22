@@ -344,6 +344,62 @@ func TestInvalidQueryNamesParameter(t *testing.T) {
 	}
 }
 
+func TestListIDsRepeatedAndValidationPrecedence(t *testing.T) {
+	f := newFixture(true)
+	second := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71"
+	f.repo.Seed(subject.Subject{ID: second, HouseholdID: householdID, Type: subject.TypeHome, Name: "Flat", CreatedAt: created, UpdatedAt: created, Version: 1})
+	w := f.do("GET", base+"?id="+second, "", nil)
+	var subset struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &subset); err != nil || w.Code != 200 || len(subset.Items) != 1 || subset.Items[0]["id"] != second {
+		t.Fatalf("strict subset id filter: %d %s err=%v", w.Code, w.Body, err)
+	}
+	w = f.do("GET", base+"?id="+strings.ToUpper(subjectID)+"&id="+second+"&id="+strings.ToUpper(subjectID), "", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), subjectID) || !strings.Contains(w.Body.String(), second) {
+		t.Fatalf("repeated id filter: %d %s", w.Code, w.Body)
+	}
+	duplicateQuery := "?" + strings.Repeat("id="+subjectID+"&", 100) + "id=" + subjectID
+	if w = f.do("GET", base+duplicateQuery, "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"id"`) {
+		t.Fatalf("101 duplicate valid ids: %d %s", w.Code, w.Body)
+	}
+	for _, value := range []string{"", "malformed"} {
+		w = f.do("GET", base+"?id="+value, "", nil)
+		want := `{"type":"about:blank","title":"Bad Request","status":400,"code":"invalid_query","parameter":"id"}`
+		if w.Code != 400 || !jsonEqual(t, w.Body.String(), want) {
+			t.Fatalf("id=%q: %d %s", value, w.Code, w.Body)
+		}
+	}
+	unauth := newFixture(false)
+	if w := unauth.do("GET", base+"?id=", "", nil); w.Code != 401 {
+		t.Fatalf("unauth invalid id status=%d body=%s", w.Code, w.Body)
+	}
+	f.denyUser = callerID
+	tooManyIDs := "?" + strings.Repeat("id="+subjectID+"&", 100) + "id=" + subjectID
+	if w := f.do("GET", base+tooManyIDs, "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"id"`) {
+		t.Fatalf("101 ids structural check precedes membership: status=%d body=%s", w.Code, w.Body)
+	}
+	if w := f.do("GET", base+"?id=malformed", "", nil); w.Code != 404 || !jsonEqual(t, w.Body.String(), problemBody(404, "Not Found", "not_found")) {
+		t.Fatalf("semantic validation must follow membership: status=%d body=%s", w.Code, w.Body)
+	}
+	f.denyUser = ""
+	if w := f.do("GET", base+"?id=malformed", "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"id"`) {
+		t.Fatalf("member malformed id: status=%d body=%s", w.Code, w.Body)
+	}
+	f.denyUser = callerID
+	if w := f.do("GET", base+"?id=", "", nil); w.Code != 400 {
+		t.Fatalf("empty structural id check precedes membership: status=%d body=%s", w.Code, w.Body)
+	}
+	// Transport limit checks precede the id checks and membership for non-members.
+	if w := f.do("GET", base+"?id=&limit=101", "", nil); w.Code != 400 || !strings.Contains(w.Body.String(), `"parameter":"limit"`) {
+		t.Fatalf("limit transport check precedes id and membership: status=%d body=%s", w.Code, w.Body)
+	}
+	// Semantic id and cursor problems stay concealed behind the uniform 404.
+	if w := f.do("GET", base+"?id=malformed&cursor=garbage", "", nil); w.Code != 404 {
+		t.Fatalf("semantic id and cursor checks follow membership: status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestPatchArchiveIncrementsStoredVersion(t *testing.T) {
 	f := newFixture(true)
 	w := f.do("PATCH", one, `{"name":"  Škoda  ","archived":true,"type":"custom"}`, ifMatch1)
