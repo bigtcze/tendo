@@ -15,7 +15,7 @@
   },
   "oapiCodegen": "v2.8.0",
   "openapiTypescript": "7.13.0",
-  "playwright": "1.64.0",
+  "playwright": "1.64.1",
   "images": {
     "goBuild": "golang:1.27.2-bookworm",
     "oidcProviderBuild": "golang:1.27.2",
