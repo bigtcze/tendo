@@ -19,11 +19,13 @@ export function HomeScreen({
   onSignedOut,
   onOpenPeople,
   onOpenItem,
+  onOpenAllItems,
 }: {
   session: Session;
   onSignedOut: () => void;
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
+  onOpenAllItems: (status: import('../items/itemsApi').ItemGroup) => void;
 }) {
   const { t } = useI18n();
   const householdId = session.defaultHouseholdId;
@@ -78,7 +80,7 @@ export function HomeScreen({
         <section className="settle">
           <Heading className="font-display text-display leading-tight">{household.name}</Heading>
           <div className="mt-5">
-            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onSignedOut={onSignedOut} />
+            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} />
           </div>
         </section>
       ) : null}

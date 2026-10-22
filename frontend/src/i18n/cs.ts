@@ -298,6 +298,8 @@ export const cs: Record<MessageKey, string> = {
   'items.group.count.few': '{count} položky',
   'items.group.count.other': '{count} položek',
   'items.showMore': 'Zobrazit další (zbývá {count})',
+  'items.group.seeAll': 'Zobrazit všech {count} ve Všech položkách',
+  'items.group.seeAllNoCount': 'Zobrazit všechny ve Všech položkách',
   'items.moreLoading': 'Načítám…',
   'items.retry': 'Zkusit znovu',
   'items.notice.added': 'Položka „{title}“ byla přidána.',

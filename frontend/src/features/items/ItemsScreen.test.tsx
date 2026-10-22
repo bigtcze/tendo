@@ -193,7 +193,7 @@ describe('item creation', () => {
     const baseB = '/api/v1/households/household-b';
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), ...itemRoutes(baseB, [item({ id: 'b-1', title: 'Household B row' })]), [subjectList]: (request) => request.query.has('id') ? json(200, { items: [subject], nextCursor: null }) : deferred, [memberList]: memberPage(), [`GET ${baseB}`]: json(200, householdB), [`GET ${baseB}/subjects`]: json(200, { items: [], nextCursor: null }), [`GET ${baseB}/members`]: memberPage() });
     const signedOut = vi.fn();
-    const home = (householdId: string) => <I18nProvider><HomeScreen session={{ ...session(), defaultHouseholdId: householdId }} onSignedOut={signedOut} onOpenPeople={() => {}} onOpenItem={() => {}} /></I18nProvider>;
+    const home = (householdId: string) => <I18nProvider><HomeScreen session={{ ...session(), defaultHouseholdId: householdId }} onSignedOut={signedOut} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} /></I18nProvider>;
     const view = render(home(HOUSEHOLD_ID));
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).filter((request) => !request.query.has('id'))).toHaveLength(1));
@@ -315,11 +315,11 @@ describe('item creation', () => {
       let subjectCalls = 0;
       const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => ++subjectCalls <= 2 ? deferred : json(200, { items: [subject], nextCursor: null }), [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
       const signedOut = vi.fn();
-      const view = render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+      const view = render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
       await screen.findByText('Renew passport');
       await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
       view.unmount();
-      render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+      render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
       await screen.findByText('Anna');
       await act(async () => release(result));
       expect(screen.queryByText('Obsolete labels')).not.toBeInTheDocument();
@@ -333,7 +333,7 @@ describe('item creation', () => {
     const deferred = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => deferred, [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     const signedOut = vi.fn();
-    render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+    render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
     cleanup();
     await act(async () => { release(json(401)); });
@@ -533,6 +533,84 @@ describe('Home items', () => {
     const labelCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
     expect(labelCalls.map((request) => request.query.getAll('id').length).sort((a, b) => a - b)).toEqual([25, 25, 100, 100]);
     expect(labelCalls.every((request) => request.query.get('limit') === '100' && request.query.get('cursor') === null)).toBe(true);
+  });
+
+  it('caps a group at 100 rows, links to All items, and moves focus to that link', async () => {
+    const entries = Array.from({ length: 130 }, (_, index) => item({ id: `cap-${index}`, title: `Upcoming cap ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
+    app();
+    await screen.findByText('Upcoming cap 0');
+    const main = screen.getByRole('main');
+    const group = (await within(main).findByRole('heading', { level: 2, name: 'Coming up 130 items' })).closest('section')!;
+    const more = within(group).getByRole('button', { name: 'Show more (105 remaining)' });
+    more.focus();
+    for (const remaining of [80, 55, 30]) {
+      await userEvent.keyboard('{Enter}');
+      await waitFor(() => expect(within(group).getAllByRole('listitem')).toHaveLength(130 - remaining));
+      if (remaining > 30) await waitFor(() => expect(within(group).getByRole('button', { name: `Show more (${remaining} remaining)` })).toHaveFocus());
+    }
+    expect(within(group).getAllByRole('listitem')).toHaveLength(100);
+    expect(within(group).queryByRole('button', { name: /Show more/ })).not.toBeInTheDocument();
+    const link = within(group).getByRole('link', { name: 'See all 130 in All items' });
+    expect(link).toHaveAttribute('href', '/items?status=upcoming');
+    expect(link).toHaveAttribute('data-group-all', 'upcoming');
+    await waitFor(() => expect(link).toHaveFocus());
+    const groupRequests = requestsOf(fake.requests, 'GET', `${base}/items`).filter((request) => request.query.get('attention') === 'upcoming');
+    expect(groupRequests).toHaveLength(4);
+  });
+
+  it('keeps a no-count All items link when overlapping pages exceed the cap but terminate under summary', async () => {
+    const entries = Array.from({ length: 101 }, (_, index) => item({ id: `overlap-${index}`, title: `Overlap ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
+    const pages = [
+      { items: entries.slice(0, 25), nextCursor: 'page-1' },
+      { items: [entries[24]!, ...entries.slice(25, 49)], nextCursor: 'page-2' },
+      { items: entries.slice(49, 74), nextCursor: 'page-3' },
+      { items: entries.slice(74, 99), nextCursor: 'page-4' },
+      { items: entries.slice(99, 101), nextCursor: null },
+    ];
+    const fake = installFakeServer({
+      ...routes,
+      [subjectList]: subjects,
+      [memberList]: memberPage(),
+      [`GET ${base}/items/summary`]: () => summaryFails ? json(503, { type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) : json(200, { evaluatedOn: '2026-01-15', total: 100, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 100, paused: 0, done: 0, archived: 0 }),
+      [`GET ${base}/items/overlap-0`]: json(404, { type: 'about:blank', title: 'Not found', status: 404, code: 'not_found' }),
+      [`GET ${base}/items`]: (request) => {
+        if (request.query.get('attention') !== 'upcoming') return json(200, { items: [], nextCursor: null });
+        const pageIndex = request.query.has('cursor') ? Number(request.query.get('cursor')!.replace('page-', '')) : 0;
+        return json(200, pages[pageIndex]!);
+      },
+    });
+    let summaryFails = false;
+    app();
+    await screen.findByText('Overlap 0');
+    const main = screen.getByRole('main');
+    const section = (await within(main).findByRole('heading', { level: 2, name: 'Coming up 100 items' })).closest('section')!;
+    while (within(section).queryByRole('button', { name: /Show more/ })) {
+      await userEvent.click(within(section).getByRole('button', { name: /Show more/ }));
+    }
+    expect(within(section).getAllByRole('listitem')).toHaveLength(100);
+    const link = within(section).getByRole('link', { name: 'See all in All items' });
+    expect(link).toHaveAttribute('href', '/items?status=upcoming');
+    expect(requestsOf(fake.requests, 'GET', `${base}/items`).filter((request) => request.query.get('attention') === 'upcoming')).toHaveLength(5);
+    // A refresh that fails keeps the rendered rows, so it must keep the overflow evidence and the link too.
+    summaryFails = true;
+    await userEvent.click(within(section).getAllByRole('button', { name: /^Done/ })[0]!);
+    await screen.findByText('Check your connection and try again.');
+    const refreshed = within(screen.getByRole('main')).getByRole('heading', { level: 2, name: 'Coming up 100 items' }).closest('section')!;
+    expect(within(refreshed).getAllByRole('listitem')).toHaveLength(100);
+    expect(within(refreshed).getByRole('link', { name: 'See all in All items' })).toHaveAttribute('href', '/items?status=upcoming');
+  });
+
+  it('renders the see-all group label in Czech', async () => {
+    const entries = Array.from({ length: 101 }, (_, index) => item({ id: `cs-cap-${index}`, title: `Nadcházející ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
+    installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
+    app();
+    await screen.findByText('Nadcházející 0');
+    const main = screen.getByRole('main');
+    for (const remaining of [76, 51, 26]) await userEvent.click(await within(main).findByRole('button', { name: `Show more (${remaining} remaining)` }));
+    const languageButton = screen.getByRole('button', { name: 'Čeština' });
+    await userEvent.click(languageButton);
+    expect(await within(main).findByRole('link', { name: 'Zobrazit všech 101 ve Všech položkách' })).toHaveAttribute('href', '/items?status=upcoming');
   });
 
   it('Show more requests only newly visible subject IDs and locale changes reuse labels', async () => {
@@ -1565,6 +1643,7 @@ describe('Home items', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Show more (1 remaining)' })).toHaveFocus());
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.queryByRole('link', { name: /See all/ })).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', `${base}/items`).filter((request) => request.query.has('cursor'))).toHaveLength(2);
   });
 

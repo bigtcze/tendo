@@ -7,6 +7,7 @@ import { fetchSession, fetchSetupRequired, type Session } from '../features/auth
 import { HomeScreen } from '../features/home/HomeScreen';
 import { ItemDetailScreen } from '../features/items/ItemDetailScreen';
 import { AllItemsScreen } from '../features/items/AllItemsScreen';
+import type { ItemGroup } from '../features/items/itemsApi';
 import { clearPendingCompletions } from '../features/items/pendingCompletions';
 import { clearPendingItemCreates } from '../features/items/pendingItemCreate';
 import { clearPendingSubjectCreates } from '../features/subjects/pendingSubjectCreate';
@@ -190,6 +191,12 @@ export function App() {
     setAllItemsVisit((visit) => visit + 1);
     setRoute({ kind: 'allItems' });
   }, []);
+  const openAllItemsForStatus = useCallback((status: ItemGroup) => {
+    transitioned.current = true;
+    window.history.pushState({ allItemsCursors: [] }, '', `/items?status=${status}`);
+    setAllItemsVisit((visit) => visit + 1);
+    setRoute({ kind: 'allItems' });
+  }, []);
   const openPeople = useCallback(() => {
     transitioned.current = true;
     window.history.pushState(null, '', PEOPLE_PATH);
@@ -279,7 +286,7 @@ export function App() {
         ) : route.kind === 'invalidItem' && householdId ? (
           <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : (
-          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenAllItems={openAllItemsForStatus} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
       </HouseholdNavigationContext>
