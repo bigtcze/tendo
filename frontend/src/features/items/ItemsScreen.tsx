@@ -155,7 +155,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     const started = ++generation.current;
     const current = () => mounted.current && started === generation.current;
     setLoading(true);
-    setGroupData((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, { ...value, loadingMore: false, overflow: false }])) as Record<ItemGroup, GroupData>);
+    setGroupData((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, { ...value, loadingMore: false }])) as Record<ItemGroup, GroupData>);
     showMoreInFlight.current.clear();
     async function load(allowRestart: boolean): Promise<void> {
       const summaryResult = await getItemsSummary(householdId);

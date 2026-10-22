@@ -564,21 +564,23 @@ describe('Home items', () => {
     const pages = [
       { items: entries.slice(0, 25), nextCursor: 'page-1' },
       { items: [entries[24]!, ...entries.slice(25, 49)], nextCursor: 'page-2' },
-      { items: [entries[48]!, ...entries.slice(49, 73)], nextCursor: 'page-3' },
-      { items: [entries[72]!, ...entries.slice(73, 99)], nextCursor: 'page-4' },
+      { items: entries.slice(49, 74), nextCursor: 'page-3' },
+      { items: entries.slice(74, 99), nextCursor: 'page-4' },
       { items: entries.slice(99, 101), nextCursor: null },
     ];
     const fake = installFakeServer({
       ...routes,
       [subjectList]: subjects,
       [memberList]: memberPage(),
-      [`GET ${base}/items/summary`]: json(200, { evaluatedOn: '2026-01-15', total: 100, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 100, paused: 0, done: 0, archived: 0 }),
+      [`GET ${base}/items/summary`]: () => summaryFails ? json(503, { type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) : json(200, { evaluatedOn: '2026-01-15', total: 100, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 100, paused: 0, done: 0, archived: 0 }),
+      [`GET ${base}/items/overlap-0`]: json(404, { type: 'about:blank', title: 'Not found', status: 404, code: 'not_found' }),
       [`GET ${base}/items`]: (request) => {
         if (request.query.get('attention') !== 'upcoming') return json(200, { items: [], nextCursor: null });
         const pageIndex = request.query.has('cursor') ? Number(request.query.get('cursor')!.replace('page-', '')) : 0;
         return json(200, pages[pageIndex]!);
       },
     });
+    let summaryFails = false;
     app();
     await screen.findByText('Overlap 0');
     const main = screen.getByRole('main');
@@ -590,6 +592,12 @@ describe('Home items', () => {
     const link = within(section).getByRole('link', { name: 'See all in All items' });
     expect(link).toHaveAttribute('href', '/items?status=upcoming');
     expect(requestsOf(fake.requests, 'GET', `${base}/items`).filter((request) => request.query.get('attention') === 'upcoming')).toHaveLength(5);
+    // A refresh that fails keeps the rendered rows, so it must keep the overflow evidence and the link too.
+    summaryFails = true;
+    await userEvent.click(within(section).getAllByRole('button', { name: /^Done/ })[0]!);
+    await screen.findByText('Check your connection and try again.');
+    expect(within(section).getAllByRole('listitem')).toHaveLength(100);
+    expect(within(section).getByRole('link', { name: 'See all in All items' })).toHaveAttribute('href', '/items?status=upcoming');
   });
 
   it('renders the see-all group label in Czech', async () => {
