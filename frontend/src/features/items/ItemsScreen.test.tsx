@@ -596,8 +596,9 @@ describe('Home items', () => {
     summaryFails = true;
     await userEvent.click(within(section).getAllByRole('button', { name: /^Done/ })[0]!);
     await screen.findByText('Check your connection and try again.');
-    expect(within(section).getAllByRole('listitem')).toHaveLength(100);
-    expect(within(section).getByRole('link', { name: 'See all in All items' })).toHaveAttribute('href', '/items?status=upcoming');
+    const refreshed = within(screen.getByRole('main')).getByRole('heading', { level: 2, name: 'Coming up 100 items' }).closest('section')!;
+    expect(within(refreshed).getAllByRole('listitem')).toHaveLength(100);
+    expect(within(refreshed).getByRole('link', { name: 'See all in All items' })).toHaveAttribute('href', '/items?status=upcoming');
   });
 
   it('renders the see-all group label in Czech', async () => {
