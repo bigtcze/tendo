@@ -1,6 +1,7 @@
 import { expect, request, test, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
+import { expectNoAxeViolations } from './a11y';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -99,6 +100,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('alert').filter({ hasText: en['onboarding.error.setupCode'] })).toBeVisible();
     await expect(page.getByLabel(en['onboarding.householdName'])).toHaveValue(householdName);
     await expect(page.locator('#onboarding-login')).toHaveValue(ownerLogin);
+    await expectNoAxeViolations(page, 'onboarding-error');
   });
 
   test('c. correcting the time zone and onboarding lands on the empty home, skipping login', async () => {
@@ -112,6 +114,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('combobox')).toHaveCount(0);
     await expect(page.getByRole('listbox')).toHaveCount(0);
     await expect(page.getByText(/switch household/i)).toHaveCount(0);
+    await expectNoAxeViolations(page, 'home-empty');
 
     const session = await page.request.get('/api/v1/session');
     expect(session.status()).toBe(200);
@@ -370,6 +373,7 @@ test.describe('Tendo production journey', () => {
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
     }
+    await expectNoAxeViolations(page, 'people-add-form');
 
     await page.getByRole('button', { name: 'Čeština' }).click();
     await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
@@ -792,6 +796,7 @@ test.describe('Tendo production journey', () => {
     expect(new URL(firstLink).hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
     const invitationList = page.getByRole('heading', { name: en['members.invitations.title'] }).locator('..');
     await expect(invitationList).toContainText(en['members.invitation.status.pending']);
+    await expectNoAxeViolations(page, 'members-owner-invite-link');
     const invitationPath = `/api/v1/households/${householdId}/invitations`;
     const beforeSecondInvite = (await (await page.request.get(invitationPath)).json()).items as Array<{ id: string }>;
 
@@ -825,6 +830,8 @@ test.describe('Tendo production journey', () => {
       await memberPage.goto(firstLink);
       expect(new URL(memberPage.url()).pathname).toBe('/invite');
       await expect(memberPage.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
+      await expect(memberPage.locator('#invite-login')).toBeVisible();
+      await expectNoAxeViolations(memberPage, 'invite-accept-new-account');
       await memberPage.locator('#invite-login').fill('member_e2e');
       await memberPage.locator('#invite-password').fill(`${ownerPassword}-member`);
       await memberPage.getByRole('button', { name: en['invite.create'] }).click();
@@ -1564,6 +1571,177 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n14. accessibility: WCAG scans, 200% zoom reflow and reduced motion across household screens', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const title = 'Accessibility check: water the balcony plants';
+    const noMatch = 'zz no item matches this accessibility search';
+    const expectNoOverflow = async (label: string) => {
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, `${label} horizontal overflow`).toBeLessThanOrEqual(0);
+    };
+    const setWidth = async (width: number, height: number) => {
+      await page.setViewportSize({ width, height });
+      expect(await page.evaluate(() => window.innerWidth)).toBe(width);
+    };
+    let itemId = '';
+    try {
+      await setWidth(1280, 800);
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await addItem({ title, subject: 'Anička', attentionOn: addDays(pragueToday(), -2), repeat: { value: '2', unit: 'week', fluid: true } });
+      itemId = (await serverItem(title)).id;
+      await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
+      await expectNoAxeViolations(page, 'home-populated-en');
+      // Keyboard: the skip link moves focus past the navigation, and each of the first sampled tab stops shows a visible focus indicator.
+      await page.reload();
+      await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('link', { name: en['app.skipToContent'] })).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#main')).toBeFocused();
+      const stops: string[] = [];
+      for (let index = 0; index < 12; index += 1) {
+        await page.keyboard.press('Tab');
+        // A focus indicator is real only if focusing changes the outline or shadow; a permanent shadow does not count.
+        const stop = await page.evaluate(() => {
+          const element = document.activeElement as HTMLElement | null;
+          if (!element || element === document.body) return null;
+          // Zero-width or fully transparent outlines are not visible indicators.
+          const ring = (style: CSSStyleDeclaration) => `${style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? '' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`}|${style.boxShadow}`;
+          const focused = ring(getComputedStyle(element));
+          return { name: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 40) ?? element.tagName, focused, inMain: !!element.closest('main') };
+        });
+        if (!stop) break;
+        const unfocused = await page.evaluate(() => {
+          const element = document.activeElement as HTMLElement;
+          element.blur();
+          const style = getComputedStyle(element);
+          const value = `${style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? '' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`}|${style.boxShadow}`;
+          element.focus({ preventScroll: true });
+          return value;
+        });
+        const visible = stop.focused !== unfocused && stop.focused !== '|none';
+        expect(visible, `focus indicator on ${stop.name}`).toBe(true);
+        stops.push(stop.inMain ? `main:${stop.name}` : stop.name);
+      }
+      expect(stops.length, 'sampled tab stops').toBeGreaterThanOrEqual(6);
+      expect(stops[0], 'first tab stop after skipping lands in main content').toMatch(/^main:/);
+
+      await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const addForm = page.getByRole('form', { name: en['items.add.formLabel'] });
+      await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await addForm.getByRole('button', { name: en['items.historical.show'] }).click();
+      await expect(addForm.getByLabel(en['items.historical.label'])).toBeVisible();
+      await expectNoAxeViolations(page, 'add-item-repeat-and-previous-completion');
+      // Reflow proxy: 200% zoom of a 1280 px window is a 640 px CSS viewport.
+      await setWidth(640, 400);
+      await expectNoOverflow('640px (200% zoom) add form');
+      await addForm.getByRole('button', { name: en['items.add.submit'] }).scrollIntoViewIfNeeded();
+      await expect(addForm.getByRole('button', { name: en['items.add.submit'] })).toBeInViewport();
+      await addForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(addForm).toHaveCount(0);
+      await expectNoOverflow('640px (200% zoom) home');
+      await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toBeVisible();
+      await setWidth(320, 640);
+      await expectNoOverflow('320px home');
+      await expectNoAxeViolations(page, 'home-populated-320');
+      await setWidth(1280, 800);
+
+      await row(title).getByRole('button', { name: en['items.done'] }).click();
+      await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
+      await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
+      await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
+      await expectNoAxeViolations(page, 'item-detail-with-history');
+      await setWidth(640, 400);
+      await expectNoOverflow('640px (200% zoom) item detail');
+      await expect(page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true })).toBeVisible();
+      await setWidth(1280, 800);
+      await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const editForm = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(editForm.getByLabel(en['items.title'])).toHaveValue(title);
+      await expectNoAxeViolations(page, 'item-edit-form');
+      await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(editForm).toHaveCount(0);
+
+      await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      await page.getByRole('searchbox').fill('balcony plants');
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await page.getByLabel(en['allItems.repeat']).selectOption('true');
+      await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: title })).toBeVisible();
+      await expectNoAxeViolations(page, 'all-items-search-and-filters');
+      await setWidth(640, 400);
+      await expectNoOverflow('640px (200% zoom) all items');
+      await expect(page.getByRole('button', { name: en['allItems.searchButton'], exact: true })).toBeVisible();
+      await setWidth(320, 640);
+      await expectNoOverflow('320px all items');
+      await expectNoAxeViolations(page, 'all-items-320');
+      await setWidth(1280, 800);
+      await page.getByRole('searchbox').fill(noMatch);
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
+      await expectNoAxeViolations(page, 'all-items-no-match');
+
+      await page.getByRole('link', { name: en['home.people'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+      await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', 'Anička') }).click();
+      await expect(page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') })).toBeVisible();
+      await expectNoAxeViolations(page, 'people-edit-form');
+      await page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') }).getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
+
+      await page.getByRole('link', { name: en['home.account'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      await expectNoAxeViolations(page, 'account');
+
+      await page.getByRole('button', { name: 'Čeština' }).click();
+      try {
+        await page.getByRole('link', { name: cs['nav.home'], exact: true }).click();
+        await expect(group(cs['items.group.needs'])).toBeVisible();
+        await expectNoAxeViolations(page, 'home-populated-cs');
+        await page.getByRole('link', { name: cs['home.allItems'], exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+        await expect(page.getByRole('main').getByRole('listitem').first()).toBeVisible();
+        await expectNoAxeViolations(page, 'all-items-cs');
+        await setWidth(320, 640);
+        await expectNoOverflow('320px all items cs');
+      } finally {
+        await setWidth(1280, 800);
+        await page.getByRole('button', { name: 'English' }).click();
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+      }
+
+      // Reduced motion: the app's media query must neutralise transitions and animations.
+      const reduced = await browser.newContext({ baseURL, locale: 'en-US', reducedMotion: 'reduce', storageState: await page.context().storageState() });
+      try {
+        const reducedPage = await reduced.newPage();
+        await reducedPage.goto('/');
+        await expect(reducedPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+        const durations = await reducedPage.evaluate(() => {
+          const longest = (value: string) => Math.max(...value.split(',').map((part) => parseFloat(part) * (part.trim().endsWith('ms') ? 1 : 1000)));
+          return [...document.querySelectorAll('a, button, .settle')].map((element) => {
+            const style = getComputedStyle(element);
+            return Math.max(longest(style.transitionDuration), longest(style.animationDuration));
+          });
+        });
+        expect(durations.length).toBeGreaterThan(0);
+        expect(Math.max(...durations), 'longest motion under reduced motion (ms)').toBeLessThanOrEqual(1);
+      } finally {
+        await reduced.close();
+      }
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      if (itemId) {
+        const current = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
+        if (current.status() === 200 && !(await current.json() as { archived: boolean }).archived) {
+          const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemId}`, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true } });
+          expect(archived.status()).toBe(200);
+        }
+      }
+    }
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
@@ -1583,6 +1761,7 @@ test.describe('Tendo production journey', () => {
     await signIn(page, 'definitely the wrong password');
     await expect(page.getByRole('alert').filter({ hasText: en['login.error.invalid'] })).toBeVisible();
     await expect(page.getByLabel(en['login.password'])).toHaveValue('');
+    await expectNoAxeViolations(page, 'login-error');
   });
 
   test('q. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
