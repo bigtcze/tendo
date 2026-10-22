@@ -630,6 +630,8 @@ describe('edit', () => {
     window.history.replaceState(null, '', '/people');
     renderApp();
     await screen.findByRole('heading', { level: 1, name: 'People and things' });
+    // The screen also loads members on mount; let that capped walk finish so the baseline cannot race it.
+    await waitFor(() => expect(capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length).toBe(20));
     const beforeAdd = capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length;
     await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
     const capForm = await screen.findByRole('form', { name: 'Add a person or thing' });
