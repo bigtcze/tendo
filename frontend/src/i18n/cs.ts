@@ -269,6 +269,8 @@ export const cs: Record<MessageKey, string> = {
   'items.fluid': 'Počítat další opakování od chvíle, kdy to dokončím',
   'items.fluid.off': 'Plánované termíny zůstanou stejné, i když to dokončíte později.',
   'items.fluid.on': 'Další termín se počítá ode dne, kdy položku dokončíte.',
+  'items.repeatMode.fixed': 'drží plánované termíny',
+  'items.repeatMode.fluid': 'počítá se od dokončení',
   'items.historical.show': 'Přidat předchozí dokončení',
   'items.historical.hide': 'Skrýt předchozí dokončení',
   'items.historical.label': 'Naposledy dokončeno dne',

@@ -7,6 +7,7 @@ import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import { listMembers, type Member } from '../members/membersApi';
+import { repeatSummary } from './repeatSummary';
 import {
   getFilteredItemsSummary,
   listActiveSubjects,
@@ -67,12 +68,6 @@ function formatDate(value: string, locale: string): string {
   const [year, month, day] = value.split('-').map(Number);
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' })
     .format(new Date(Date.UTC(year, month - 1, day)));
-}
-
-function recurrenceKey(unit: NonNullable<Item['recurrence']>['intervalUnit'], count: number, locale: string): MessageKey {
-  const category = new Intl.PluralRules(locale).select(count);
-  const supported: Record<string, string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
-  return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
 }
 
 function countKey(count: number, locale: string): MessageKey {
@@ -380,7 +375,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
             <p className="mt-1 text-sm text-muted">{subjectNames.get(item.subjectId) ?? t('items.subject.unknown')}</p>
             <p className="text-sm font-medium text-accent-strong">{labelForItem(item)}</p>
             {item.attentionOn ? <p className="text-sm text-muted">{t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}</p> : null}
-            {item.recurrence ? <p className="text-sm text-muted">{t(recurrenceKey(item.recurrence.intervalUnit, item.recurrence.intervalValue, locale), { count: String(item.recurrence.intervalValue) })}</p> : null}
+            {item.recurrence ? <p className="text-sm text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
             {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown') })}</p> : null}
           </li>)}
         </ul>

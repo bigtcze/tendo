@@ -736,6 +736,7 @@ test.describe('Tendo production journey', () => {
     expect(await serverCompletions(fixed.id)).toHaveLength(1);
     expect(await serverCompletions(fixed.id)).toMatchObject([{ completedOn: '2025-10-31', cycleAttentionOn: null, nextAttentionOn: '2025-11-30', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' }, undoneAt: null }]);
     await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: fixedTitle })).toBeVisible();
+    await expect(row(fixedTitle)).toContainText(`${en['items.every.month.one'].replace('{count}', '1')} · ${en['items.repeatMode.fixed']}`);
 
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', fixedTitle) }).click();
     await expect(page.getByRole('heading', { level: 1, name: fixedTitle })).toBeVisible();
@@ -760,6 +761,8 @@ test.describe('Tendo production journey', () => {
     const fluid = await serverItem(fluidTitle);
     expect(fluid).toMatchObject({ attentionOn: '2025-11-30', lastCompletedOn: '2025-10-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'after_completion' } });
     expect(await serverCompletions(fluid.id)).toHaveLength(1);
+    await expect(row(fluidTitle)).toContainText(`${en['items.every.month.one'].replace('{count}', '1')} · ${en['items.repeatMode.fluid']}`);
+    await expect(row(fixedTitle)).not.toContainText(en['items.repeatMode.fluid']);
     await row(fluidTitle).getByRole('button', { name: en['items.done'] }).click();
     await expect.poll(async () => (await serverCompletions(fluid.id)).length).toBe(2);
     expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: '2026-02-15', lastCompletedOn: expectedCompletionDate });
