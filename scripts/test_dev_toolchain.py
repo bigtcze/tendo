@@ -293,7 +293,12 @@ class ExecutableResolutionTests(TempDirTest):
 
 
 class PlaywrightTests(TempDirTest):
-    def repo(self, test_version="1.64.0", core_version="1.64.0", integrity="sha512-frontend") -> Path:
+    # Fixtures follow the manifest pin so a routine Playwright bump needs no test edit.
+    PIN = json.loads((ROOT / "toolchain.json").read_text())["playwright"]
+
+    def repo(self, test_version=None, core_version=None, integrity="sha512-frontend") -> Path:
+        test_version = test_version or self.PIN
+        core_version = core_version or self.PIN
         repo = self.tmp / "repo"
         (repo / "frontend").mkdir(parents=True, exist_ok=True)
         packages = {"node_modules/@playwright/test": {"version": test_version, "integrity": "sha512-test"},
@@ -304,11 +309,11 @@ class PlaywrightTests(TempDirTest):
     def fake_node(self, integrity: str, chromium="1248", shell="1248") -> Path:
         node_bin = self.tmp / "node/bin"
         browsers = json.dumps({"browsers": [{"name": "chromium", "revision": chromium}, {"name": "chromium-headless-shell", "revision": shell}]})
-        lock = json.dumps({"packages": {"node_modules/playwright-core": {"version": "1.64.0", "integrity": integrity}}})
+        lock = json.dumps({"packages": {"node_modules/playwright-core": {"version": self.PIN, "integrity": integrity}}})
         executable(node_bin / "npm", f"""\
             echo "npm $*" >> {self.tmp}/calls.log
             mkdir -p node_modules/playwright-core
-            echo '{{"version": "1.64.0"}}' > node_modules/playwright-core/package.json
+            echo '{{"version": "{self.PIN}"}}' > node_modules/playwright-core/package.json
             echo '{browsers}' > node_modules/playwright-core/browsers.json
             echo '{lock}' > package-lock.json
             """)
@@ -327,7 +332,7 @@ class PlaywrightTests(TempDirTest):
         self.assertTrue((browsers / "chromium_headless_shell-1248/INSTALLATION_COMPLETE").is_file())
         calls = (self.tmp / "calls.log").read_text()
         self.assertIn("--ignore-scripts", calls)
-        self.assertIn("playwright-core@1.64.0", calls)
+        self.assertIn(f"playwright-core@{self.PIN}", calls)
         self.assertIn("install chromium " + str(browsers), calls)
         self.provision(self.repo(), self.fake_node("sha512-frontend"))
         self.assertEqual((self.tmp / "calls.log").read_text(), calls, "cached package and browsers must be reused")
@@ -337,7 +342,7 @@ class PlaywrightTests(TempDirTest):
             self.provision(self.repo(), self.fake_node("sha512-other"))
 
     def test_lockfile_and_manifest_disagreement_fails_before_install(self):
-        for repo in (self.repo(test_version="1.65.0"), self.repo(core_version="1.63.0")):
+        for repo in (self.repo(test_version="999.0.0"), self.repo(core_version="0.0.1")):
             with self.subTest(repo=json.loads((repo / "frontend/package-lock.json").read_text())), self.assertRaisesRegex(dt.ToolchainError, "!= toolchain.json"):
                 self.provision(repo, self.fake_node("sha512-frontend"))
         self.assertFalse((self.tmp / "calls.log").exists())

@@ -45,7 +45,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 | `api`: `@redocly/cli` | 2.62.1 | |
 | `api`: `openapi-typescript` | 7.13.0 | Generated TypeScript is type-identical to 7.6.1; only JSDoc/comments changed |
 | `api`: `ajv` / `ajv-formats` / `yaml` | 8.20.0 / 3.0.1 / 2.9.1 | |
-| `frontend`: `@playwright/test` | 1.64.0 | Browser revision installed via `npx --no-install playwright install chromium` |
+| `frontend`: `@playwright/test` | 1.64.1 | Browser revision installed via `npx --no-install playwright install chromium` |
 | `frontend`: `vite` / `vitest` | 8.3.4 / 5.0.5 | |
 | `frontend`: `react` / `react-dom` | 19.3.0 | |
 | `frontend`: `typescript` | 6.0.3 | Held; see below |
