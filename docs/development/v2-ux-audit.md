@@ -37,10 +37,15 @@ members and one or two batched subject-label requests; the count no longer grows
 every group at 1200 items takes 13 Show more clicks and stops at 389 rows / 3261 DOM elements (was 1071 rows /
 8041+): Needs attention (505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
 
-Route captures: 115 production-build screenshots (onboarding, login and login error, invitation acceptance,
-home at every stage, add form, item detail incl. done and archived, item edit, All items unfiltered, search
-with filter, done, no match, Czech, People and things, Members with invite link, Account) at 320, 390, 768 and
-1440 px with Czech at 390/1440; none has horizontal overflow (asserted by the harness).
+Route captures: 147 production-build screenshots (115 full-page plus 32 viewport-fold captures of home), all
+taken through one helper that records horizontal overflow (the run fails on any overflow; none overflowed).
+People and things, Members and Account are captured only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after setup, login and login
+error, invitation acceptance, home at every stage (full page and fold), add form, item detail, item edit, All
+items unfiltered, search with filter, done and no match, People and things, Members and Members with invite
+link, Account. Narrower coverage: done and archived item detail at 390/1440 only; fully expanded 1200-item home
+at 390/1440; 640 px reflow proxy for the 1200-item home. Czech: add form and item detail at all four widths;
+home at 390/1440 (plus 320 for empty and 30 items); All items at 390/1440; login and invitation acceptance at
+390 only.
 
 Designer re-review of the full capture set: consistent restrained design language across all routes, no
 clipped actions at the captured widths (200 % zoom not evidenced by screenshots); open items listed as R1–R4
@@ -73,7 +78,7 @@ P0 = blocks a V2 DoD item; P1 = significant usability or quality problem; P2 = p
 |---|---|---|---|
 | R1 | P1 | Expanded Needs attention at 1200 items is still a long stream that pushes later groups far down. | `home-1200-en-390-expanded.png` |
 | R2 | P2 | Item edit shows History directly below the form. | `audit-item-edit-en-390.png` |
-| R3 | P2 | Account shows only the signed-in name and link status; looks sparse. | `audit-account-en-390.png` |
+| R3 | P2 | Account with OIDC disabled (as captured) shows only the heading and the signed-in name; looks sparse. The OIDC link-status variants were not captured. | `audit-account-en-390.png` |
 | R4 | P1 | Home and All items rows say "Repeats every …" but not whether the next date follows the plan or the completion (Repeat vs Fluid). | `home-1200-en-390-fold.png`, `audit-all-items-en-390.png` |
 
 Observed without problems in the captured screens only: empty and 1-item homes at all widths; Czech strings

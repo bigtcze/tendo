@@ -301,10 +301,17 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['subjects.title'] })).toBeVisible();
+        await expect(page.getByText(en['subjects.loading'], { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('main').getByText('Anna Nováková', { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').getByText('Škoda Octavia', { exact: true })).toBeVisible();
         await capture(page, join(dir, `audit-people-things-en-${width}.png`));
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.members'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['members.title'] })).toBeVisible();
+        await expect(page.getByText(en['members.loading'], { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('main').getByText(`audit_owner (${en['members.you']})`, { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').getByText('audit_member', { exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
         await capture(page, join(dir, `audit-members-en-${width}.png`));
         await page.getByRole('button', { name: 'Create invite link' }).click();
         await expect(page.getByLabel('Invitation link')).toBeVisible();
@@ -312,6 +319,8 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.account'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['account.title'] })).toBeVisible();
+        await expect(page.getByText(en['account.signedInAs'].replace('{login}', 'audit_owner'), { exact: true })).toBeVisible();
+        await expect(page.getByText(en['account.oidc.loading'], { exact: true })).toHaveCount(0);
         await capture(page, join(dir, `audit-account-en-${width}.png`));
       }
       await page.setViewportSize({ width: 640, height: 900 }); await page.goto('/');
@@ -357,8 +366,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       });
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
-      await expect(targetPage.getByRole('heading', { level: 1 }).first()).toBeVisible();
-      await targetPage.screenshot({ path: join(dir, `${file}-fold.png`) });
+      await capture(targetPage, join(dir, `${file}-fold.png`), false);
       metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, showMoreVisible: await targetPage.locator('button[data-group-more]').first().isVisible().catch(() => false) };
       metrics.listPageSizes.push(...pageSizes);
       targetPage.off('response', responseListener);
