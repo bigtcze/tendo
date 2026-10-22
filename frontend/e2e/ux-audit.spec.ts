@@ -11,8 +11,25 @@ test.describe.configure({ mode: 'serial' });
 test.use({ reducedMotion: 'reduce' });
 test.setTimeout(1_800_000);
 
+const routeOverflow: Record<string, boolean> = {};
+const routeOverflowElements: Record<string, Array<{ tag: string; text: string; right: number }>> = {};
+
 async function capture(page: Page, path: string, fullPage = true) {
+  const width = page.viewportSize()?.width;
+  if (!width) throw new Error(`Capture requires a viewport: ${path}`);
+  await page.setViewportSize({ width, height: 900 });
+  expect(await page.evaluate(() => window.innerWidth), `viewport width for ${path}`).toBe(width);
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+  const file = path.split('/').pop()!;
+  const overflow = await page.evaluate(() => {
+    const clientWidth = document.documentElement.clientWidth;
+    return {
+      overflow: document.documentElement.scrollWidth > clientWidth,
+      offenders: [...document.querySelectorAll<HTMLElement>('*')].filter(element => element.getBoundingClientRect().right > clientWidth + 0.5).slice(0, 10).map(element => ({ tag: element.tagName.toLowerCase(), text: (element.innerText || element.textContent || '').trim().slice(0, 80), right: element.getBoundingClientRect().right })),
+    };
+  });
+  routeOverflow[file] = overflow.overflow;
+  if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
   await page.screenshot({ path, fullPage });
 }
 
@@ -54,6 +71,42 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   expect(accept.status(), 'accept member invitation').toBe(201);
   const invited = await accept.json() as { userId: string };
   const ownerUserId = (await session.json() as { userId: string }).userId;
+  const auditInviteResponse = await api(page, 'post', `${root}/invitations`, {}, { 'Idempotency-Key': key() });
+  expect(auditInviteResponse.status(), 'create audit acceptance invitation').toBe(201);
+  const auditInvite = await auditInviteResponse.json() as { token: string };
+  for (const width of [320, 390, 768, 1440]) {
+    const context = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
+    const signedOut = await context.newPage();
+    await signedOut.goto('/');
+    await expect(signedOut.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+    await capture(signedOut, join(dir, `audit-login-en-${width}.png`));
+    await signedOut.getByLabel(en['login.login'], { exact: true }).fill('audit_missing_user');
+    await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-audit-password');
+    await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();
+    await expect(signedOut.getByRole('alert')).toHaveText(en['login.error.invalid']);
+    await capture(signedOut, join(dir, `audit-login-error-en-${width}.png`));
+    if (width === 390) {
+      await signedOut.goto('/');
+      await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+      await signedOut.reload();
+      await expect(signedOut.getByRole('heading', { level: 1, name: cs['login.title'] })).toBeVisible();
+      await capture(signedOut, join(dir, 'audit-login-cs-390.png'));
+    }
+    await signedOut.goto('/');
+    await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+    await signedOut.reload();
+    await signedOut.goto(`/invite#${auditInvite.token}`);
+    await expect(signedOut.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
+    await capture(signedOut, join(dir, `audit-invite-accept-en-${width}.png`));
+    if (width === 390) {
+      await signedOut.goto('/');
+      await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+      await signedOut.goto(`/invite#${auditInvite.token}`);
+      await expect(signedOut.getByRole('heading', { level: 1, name: cs['invite.title'] })).toBeVisible();
+      await capture(signedOut, join(dir, 'audit-invite-accept-cs-390.png'));
+    }
+    await context.close();
+  }
   const subjects: string[] = [];
   const activeSubjects: string[] = [];
   for (const subject of [
@@ -158,14 +211,55 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       const tall = createdItems.find(item => item.recurrence?.mode === 'fixed' && !item.archived);
       expect(tall, 'recurring item fixture').toBeTruthy();
       const recurringHistoryItemId = tall!.id;
-      for (let cycle = 0; cycle < 2; cycle++) {
+      let doneDetailFixture: { id: string } | undefined;
+      let archivedDetailFixture: { id: string } | undefined;
+      for (const candidate of createdItems.filter(item => item.recurrence === null)) {
+        const current = await api(page, 'get', `${root}/items/${candidate.id}`);
+        expect(current.status()).toBe(200);
+        const detail = await current.json() as { done: boolean; archived: boolean };
+        if (detail.done && !doneDetailFixture) doneDetailFixture = candidate;
+        if (detail.archived && !archivedDetailFixture) archivedDetailFixture = candidate;
+        if (doneDetailFixture && archivedDetailFixture) break;
+      }
+      expect(doneDetailFixture, 'done one-off detail fixture').toBeTruthy();
+      expect(archivedDetailFixture, 'archived detail fixture').toBeTruthy();
+      for (const cycle of [0, 1]) {
         const current = await api(page, 'get', `${root}/items/${recurringHistoryItemId}`);
         expect(current.status(), 'read recurring history fixture').toBe(200);
         const complete = await api(page, 'post', `${root}/items/${recurringHistoryItemId}/completions`, {}, { 'Idempotency-Key': key(), 'If-Match': current.headers()['etag']! });
         expect(complete.status(), `complete recurring cycle ${cycle + 1}`).toBe(201);
       }
-      for (const width of [390, 1440]) {
-        await page.setViewportSize({ width, height: 900 }); await page.goto('/');
+      for (const width of [320, 390, 768, 1440]) {
+        await page.setViewportSize({ width, height: 900 }); await page.goto('/items');
+        const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
+        await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
+        await capture(page, join(dir, `audit-all-items-en-${width}.png`));
+        await page.getByLabel(en['allItems.search'], { exact: true }).fill('nejneobhospodařovávatelnějšího');
+        await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+        await page.getByLabel(en['allItems.status.label']).selectOption('active');
+        await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
+        await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
+        await capture(page, join(dir, `audit-all-items-search-en-${width}.png`));
+        await page.getByLabel(en['allItems.search'], { exact: true }).fill('');
+        await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+        await page.getByLabel(en['allItems.status.label']).selectOption('done');
+        await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
+        await capture(page, join(dir, `audit-all-items-done-en-${width}.png`));
+        await page.getByLabel(en['allItems.search'], { exact: true }).fill('audit-no-such-item-xyz');
+        await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+        await expect(page.getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+        await capture(page, join(dir, `audit-all-items-nomatch-en-${width}.png`));
+        if (width === 390 || width === 1440) {
+          const csItemsContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+          await csItemsContext.addCookies(await page.context().cookies());
+          const csItemsPage = await csItemsContext.newPage();
+          await csItemsPage.goto('/'); await csItemsPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csItemsPage.goto('/items');
+          const csRange = new RegExp(cs['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
+          await expect(csItemsPage.getByRole('main').getByRole('heading', { name: csRange })).toBeVisible();
+          await capture(csItemsPage, join(dir, `audit-all-items-cs-${width}.png`));
+          await csItemsContext.close();
+        }
+        await page.goto('/');
         await page.getByRole('button', { name: en['items.add'] }).click();
         await expect(page.getByRole('switch', { name: en['items.repeat'] })).toBeVisible();
         await page.getByRole('switch', { name: en['items.repeat'] }).check();
@@ -185,6 +279,16 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await expect(csPage.getByRole('main').locator('ol li')).toHaveCount(2);
         await capture(csPage, join(dir, `audit-item-detail-cs-${width}.png`));
         await csContext.close();
+        if (width === 390 || width === 1440) {
+          await page.goto(`/items/${doneDetailFixture!.id}`);
+          await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+          await expect(page.getByText(en['itemDetail.state.done'], { exact: true })).toBeVisible();
+          await capture(page, join(dir, `audit-item-detail-done-en-${width}.png`));
+          await page.goto(`/items/${archivedDetailFixture!.id}`);
+          await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+          await expect(page.getByRole('main').getByText(/Archived\./)).toBeVisible();
+          await capture(page, join(dir, `audit-item-detail-archived-en-${width}.png`));
+        }
         await page.goto(`/items/${recurringHistoryItemId}`);
         await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
         const history = page.getByRole('main').getByRole('list').filter({ has: page.getByText(new RegExp(en['itemDetail.historyDone'].replace('{date}', ''))) });
@@ -197,14 +301,26 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['subjects.title'] })).toBeVisible();
+        await expect(page.getByText(en['subjects.loading'], { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('main').getByText('Anna Nováková', { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').getByText('Škoda Octavia', { exact: true })).toBeVisible();
         await capture(page, join(dir, `audit-people-things-en-${width}.png`));
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.members'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['members.title'] })).toBeVisible();
+        await expect(page.getByText(en['members.loading'], { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('main').getByText(`audit_owner (${en['members.you']})`, { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').getByText('audit_member', { exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
         await capture(page, join(dir, `audit-members-en-${width}.png`));
+        await page.getByRole('button', { name: 'Create invite link' }).click();
+        await expect(page.getByLabel('Invitation link')).toBeVisible();
+        await capture(page, join(dir, `audit-members-invite-en-${width}.png`));
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.account'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['account.title'] })).toBeVisible();
+        await expect(page.getByText(en['account.signedInAs'].replace('{login}', 'audit_owner'), { exact: true })).toBeVisible();
+        await expect(page.getByText(en['account.oidc.loading'], { exact: true })).toHaveCount(0);
         await capture(page, join(dir, `audit-account-en-${width}.png`));
       }
       await page.setViewportSize({ width: 640, height: 900 }); await page.goto('/');
@@ -250,8 +366,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       });
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
-      await expect(targetPage.getByRole('heading', { level: 1 }).first()).toBeVisible();
-      await targetPage.screenshot({ path: join(dir, `${file}-fold.png`) });
+      await capture(targetPage, join(dir, `${file}-fold.png`), false);
       metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, showMoreVisible: await targetPage.locator('button[data-group-more]').first().isVisible().catch(() => false) };
       metrics.listPageSizes.push(...pageSizes);
       targetPage.off('response', responseListener);
@@ -302,5 +417,9 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   const serverStates = activeItems.reduce<Record<string, number>>((counts, item) => { counts[item.workflowState] = (counts[item.workflowState] ?? 0) + 1; return counts; }, {});
   metrics.seededStateCounts = { ...serverStates, done: doneItems.length, archived: archivedItems.length, activeUndone: activeItems.length };
   expect(activeItems.length + doneItems.length + archivedItems.length).toBe(1200);
+  metrics.stages.routeOverflow = routeOverflow;
+  metrics.stages.routeOverflowElements = routeOverflowElements;
   writeFileSync(join(dir, 'metrics.json'), JSON.stringify(metrics, null, 2));
+  const overflowFiles = Object.entries(routeOverflow).filter(([, overflow]) => overflow).map(([file]) => file);
+  expect(overflowFiles, `route captures with horizontal overflow: ${overflowFiles.join(', ') || 'none'}`).toEqual([]);
  });

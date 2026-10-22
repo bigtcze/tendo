@@ -20,22 +20,36 @@ API page walk: 882 open, 76 in progress, 56 waiting, 57 paused, 69 done, 60 arch
 
 ## Measurements (home, en)
 
+Re-run 2026-10-22 on main `8e4423a` (after slices 2–10a), same dataset and clock; replaces the baseline table.
 Time to content = navigation start until the first item row or the empty state is visible (local loopback,
 single run, indicative only).
 
 | Stage | Width | API requests | Response bytes | Time to content | DOM elements | Rows rendered | Horizontal overflow |
 |---|---:|---:|---:|---:|---:|---:|---|
-| empty | 390 | 5 | 3.4 kB | 52 ms | 35 | 0 | no |
-| 30 | 390 | 5 | 14 kB | 53 ms | 222 | 24 | yes |
-| 500 | 390 | 5 | 49 kB | 84 ms | 791 | 100 | yes |
-| 1200 | 390 | 5 | 49 kB | 78 ms | 791 | 100 | yes |
-| 1200 | 1440 | 5 | 49 kB | 117 ms | 791 | 100 | no |
+| empty | 390 | 4 | 0.6 kB | 71 ms | 44 | 0 | no |
+| 30 | 390 | 11 | 14 kB | 72 ms | 249 | 24 | no |
+| 500 | 390 | 11 | 59 kB | 102 ms | 1051 | 121 | no |
+| 1200 | 390 | 11 | 62 kB | 226 ms | 1086 | 125 | no |
+| 1200 | 1440 | 11 | 62 kB | 224 ms | 1086 | 125 | no |
 
-"Show more" at 1200 items (390 px): 10 clicks to reach all 1071 active rows; DOM grows from 791 to 8041
-elements and the page from ~12 000 to ~128 000 px; click-to-rows-rendered 99–252 ms. In the English captures
-with this fixed subject dataset each home load made 5 requests at every stage (session, household, one
-item page of 100, active and archived subject pages); Czech captures recorded 5–8 because the locale switch
-overlaps navigation.
+A populated home makes one summary request, one 25-item page per non-empty group (5), session, household,
+members and one or two batched subject-label requests; the count no longer grows with the backlog. Expanding
+every group at 1200 items takes 13 Show more clicks and stops at 389 rows / 3261 DOM elements (was 1071 rows /
+8041+): Needs attention (505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
+
+Route captures: 147 production-build screenshots (115 full-page plus 32 viewport-fold captures of home), all
+taken through one helper that records horizontal overflow (the run fails on any overflow; none overflowed).
+People and things, Members and Account are captured only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after setup, login and login
+error, invitation acceptance, home at every stage (full page and fold), add form, item detail, item edit, All
+items unfiltered, search with filter, done and no match, People and things, Members and Members with invite
+link, Account. Narrower coverage: done and archived item detail at 390/1440 only; fully expanded 1200-item home
+at 390/1440; 640 px reflow proxy for the 1200-item home. Czech: add form and item detail at all four widths;
+home at 390/1440 (plus 320 for empty and 30 items); All items at 390/1440; login and invitation acceptance at
+390 only.
+
+Designer re-review of the full capture set: consistent restrained design language across all routes, no
+clipped actions at the captured widths (200 % zoom not evidenced by screenshots); open items listed as R1–R4
+below.
 
 ## Findings (prioritized)
 
@@ -57,6 +71,15 @@ P0 = blocks a V2 DoD item; P1 = significant usability or quality problem; P2 = p
 | F12 | P2 | Page structure differs between People & things, Members and Account (width, heading, action placement). | `audit-*-1440.png` |
 | F13 | P2 | Group headings carry no counts; "Show more" does not say how much remains. | home screenshots |
 | F14 | P2 | No automated accessibility scan exists; focus and contrast are covered only by targeted unit/E2E assertions. Keyboard, contrast and 200 % zoom have not been reviewed for V2 yet (the 640 px capture is only a reflow proxy). | `frontend/e2e` |
+
+### Re-review findings (2026-10-22)
+
+| ID | Pri | Finding | Evidence |
+|---|---|---|---|
+| R1 | P1 | Expanded Needs attention at 1200 items is still a long stream that pushes later groups far down. | `home-1200-en-390-expanded.png` |
+| R2 | P2 | Item edit shows History directly below the form. | `audit-item-edit-en-390.png` |
+| R3 | P2 | Account with OIDC disabled (as captured) shows only the heading and the signed-in name; looks sparse. The OIDC link-status variants were not captured. | `audit-account-en-390.png` |
+| R4 | P1 | Home and All items rows say "Repeats every …" but not whether the next date follows the plan or the completion (Repeat vs Fluid). | `home-1200-en-390-fold.png`, `audit-all-items-en-390.png` |
 
 Observed without problems in the captured screens only: empty and 1-item homes at all widths; Czech strings
 at 320 px on empty and 30-item homes apart from F5. Screenshots do not prove behaviour or accessibility.
