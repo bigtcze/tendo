@@ -16,6 +16,8 @@ Turn on **Repeat** and choose an interval. With **Count the next repeat from whe
 
 Turn that second switch on to count from the day you finish instead. In the same example, finishing on 20 September 2026 makes the next date 20 September 2027. Repeat is off by default, so an ordinary one-off item needs no recurrence settings. When adding a repeating item, you can open **Add a previous completion** and enter a past date you know. Tendo uses that date to set the first attention date; it does not guess one. This is only available when adding an item, not when editing it.
 
+In lists, a repeating item shows its interval and which kind it is: **keeps planned dates** or **counted from when it’s done** (in Czech: *drží plánované termíny* or *počítá se od dokončení*).
+
 ## Mark done and undo
 
 Choose **Done** on an item. A repeating item stays in the list with its next attention date; a one-off item leaves the active list. The confirmation immediately after marking it done offers **Undo**, which can undo only the latest completion. If a connection problem interrupts completion, retrying the same attempt will not mark it done twice.

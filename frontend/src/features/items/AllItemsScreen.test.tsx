@@ -134,6 +134,16 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
   });
 
+  it('shows the repeat mode next to the interval on result rows', async () => {
+    await openAllItems([
+      makeItem(1, { title: 'Fixed result', recurrence: { intervalUnit: 'week', intervalValue: 2, mode: 'fixed' } }),
+      makeItem(2, { title: 'Fluid result', recurrence: { intervalUnit: 'day', intervalValue: 1, mode: 'after_completion' } }),
+    ]);
+    const main = screen.getByRole('main');
+    expect(within(within(main).getByText('Fixed result').closest('li')!).getByText('Repeats every 2 weeks · keeps planned dates')).toBeVisible();
+    expect(within(within(main).getByText('Fluid result').closest('li')!).getByText('Repeats every 1 day · counted from when it’s done')).toBeVisible();
+  });
+
   it('sends all combined filter values to both summary and list', async () => {
     const item = makeItem(1, { title: 'Café care', responsibleUserId: member.userId, recurrence: { intervalUnit: 'month', intervalValue: 1, mode: 'fixed' } });
     const fake = await openAllItems([item]);

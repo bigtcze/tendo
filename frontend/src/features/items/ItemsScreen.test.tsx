@@ -694,6 +694,24 @@ describe('Home items', () => {
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
   });
 
+  it.each([
+    { locale: 'en', fixed: 'Repeats every 1 year · keeps planned dates', fluid: 'Repeats every 3 months · counted from when it’s done' },
+    { locale: 'cs', fixed: 'Opakuje se každý 1 rok · drží plánované termíny', fluid: 'Opakuje se každé 3 měsíce · počítá se od dokončení' },
+  ])('says on each repeating row whether the next date keeps the plan or follows completion ($locale)', async ({ locale, fixed, fluid }) => {
+    if (locale === 'cs') localStorage.setItem('tendo.locale', 'cs');
+    const entries = [
+      item({ id: 'fixed', title: 'Fixed repeat', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } }),
+      item({ id: 'fluid', title: 'Fluid repeat', workflowState: 'waiting', recurrence: { intervalValue: 3, intervalUnit: 'month', mode: 'after_completion' } }),
+      item({ id: 'once', title: 'One-off', attention: 'upcoming' }),
+    ];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
+    app();
+    const fixedRow = (await screen.findByText('Fixed repeat')).closest('li')!;
+    expect(within(fixedRow).getByText(fixed)).toBeVisible();
+    expect(within(screen.getByText('Fluid repeat').closest('li')!).getByText(fluid)).toBeVisible();
+    expect(screen.getByText('One-off').closest('li')!.textContent).not.toMatch(/Repeats|Opakuje|planned|plánované|done ·|dokončení/);
+  });
+
   it('retries only failed label IDs while retaining names from the successful partition', async () => {
     let failArchived = true;
     const two = [item({ id: 'label-one', subjectId: 's-1' }), item({ id: 'label-two', subjectId: 's-2', workflowState: 'in_progress' })];
