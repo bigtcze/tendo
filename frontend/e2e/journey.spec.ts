@@ -1592,7 +1592,7 @@ test.describe('Tendo production journey', () => {
       itemId = (await serverItem(title)).id;
       await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
       await expectNoAxeViolations(page, 'home-populated-en');
-      // Keyboard: the skip link moves focus past the navigation, and every tab stop shows a visible focus indicator.
+      // Keyboard: the skip link moves focus past the navigation, and each of the first sampled tab stops shows a visible focus indicator.
       await page.reload();
       await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -1607,7 +1607,8 @@ test.describe('Tendo production journey', () => {
         const stop = await page.evaluate(() => {
           const element = document.activeElement as HTMLElement | null;
           if (!element || element === document.body) return null;
-          const ring = (style: CSSStyleDeclaration) => `${style.outlineStyle === 'none' ? '' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`}|${style.boxShadow}`;
+          // Zero-width or fully transparent outlines are not visible indicators.
+          const ring = (style: CSSStyleDeclaration) => `${style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? '' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`}|${style.boxShadow}`;
           const focused = ring(getComputedStyle(element));
           return { name: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 40) ?? element.tagName, focused, inMain: !!element.closest('main') };
         });
@@ -1616,7 +1617,7 @@ test.describe('Tendo production journey', () => {
           const element = document.activeElement as HTMLElement;
           element.blur();
           const style = getComputedStyle(element);
-          const value = `${style.outlineStyle === 'none' ? '' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`}|${style.boxShadow}`;
+          const value = `${style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? '' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`}|${style.boxShadow}`;
           element.focus({ preventScroll: true });
           return value;
         });
@@ -1624,6 +1625,7 @@ test.describe('Tendo production journey', () => {
         expect(visible, `focus indicator on ${stop.name}`).toBe(true);
         stops.push(stop.inMain ? `main:${stop.name}` : stop.name);
       }
+      expect(stops.length, 'sampled tab stops').toBeGreaterThanOrEqual(6);
       expect(stops[0], 'first tab stop after skipping lands in main content').toMatch(/^main:/);
 
       await page.getByRole('button', { name: en['items.add'], exact: true }).click();
@@ -1632,7 +1634,7 @@ test.describe('Tendo production journey', () => {
       await addForm.getByRole('button', { name: en['items.historical.show'] }).click();
       await expect(addForm.getByLabel(en['items.historical.label'])).toBeVisible();
       await expectNoAxeViolations(page, 'add-item-repeat-and-previous-completion');
-      // 200% zoom of a 1280 px window is a 640 px CSS viewport.
+      // Reflow proxy: 200% zoom of a 1280 px window is a 640 px CSS viewport.
       await setWidth(640, 400);
       await expectNoOverflow('640px (200% zoom) add form');
       await addForm.getByRole('button', { name: en['items.add.submit'] }).scrollIntoViewIfNeeded();

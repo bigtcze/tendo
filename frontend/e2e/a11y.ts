@@ -16,8 +16,10 @@ export async function expectNoAxeViolations(page: Page, label: string) {
     help: violation.help,
     targets: violation.nodes.map((node) => `${node.target.join(' ')} :: ${node.any[0]?.message ?? node.failureSummary ?? ''}`),
   }));
+  // Keep incomplete results (needs manual review, e.g. contrast over images) and passing rule ids as evidence.
+  const incomplete = results.incomplete.map((rule) => ({ id: rule.id, targets: rule.nodes.map((node) => node.target.join(' ')) }));
   await test.info().attach(`axe-${label}.json`, {
-    body: JSON.stringify({ url: page.url(), violations: summary }, null, 2),
+    body: JSON.stringify({ url: page.url(), violations: summary, incomplete, passes: results.passes.map((rule) => rule.id) }, null, 2),
     contentType: 'application/json',
   });
   // Guard against a scan that silently checked nothing.
