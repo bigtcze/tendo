@@ -4,7 +4,7 @@ Items keep household obligations in view without needing an exact date. From Hom
 
 ## Home
 
-Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each item shows who or what it is for, its attention date when it has one, when it was last done, and who is looking after it. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Home loads up to 100 items per group, then offers **See all … in All items** for the complete, paged list. Empty groups are not shown. Home also links to **All items**, where you can search and filter the full household list.
+Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each item shows who or what it is for, its attention date when it has one, when it was last done, and who is looking after it. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Home loads up to 100 items per group, then offers **See all … in All items** for the complete, paged list. Empty groups are not shown. When at least two groups have items, **Group overview** links at the top jump straight to each group. Home also links to **All items**, where you can search and filter the full household list.
 
 ## Finding items
 
@@ -30,7 +30,7 @@ Starting, waiting, pausing, or resuming never changes the next attention date. O
 
 ## Editing an item
 
-On the item screen, choose **Edit** to change the title, the person or thing it is for, the attention date, notes, or the repeat settings, then choose **Save changes**. Clearing the attention date makes the item need attention now.
+On the item screen, choose **Edit** to change the title, the person or thing it is for, the attention date, notes, or the repeat settings, then choose **Save changes**. History is tucked away while you edit and returns when you finish or cancel. Clearing the attention date makes the item need attention now.
 
 Changing repeat settings applies from the next time you mark the item done. It does not move the current attention date and does not change past completions. Turning **Repeat** off keeps the history; the next **Done** then finishes the item instead of starting a new cycle.
 

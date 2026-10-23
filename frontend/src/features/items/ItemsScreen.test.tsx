@@ -1449,6 +1449,37 @@ describe('Home items', () => {
     else expect(body).not.toHaveProperty('attentionOn');
   });
 
+  it('shows a named overview with only populated groups and summary counts; links focus their headings', async () => {
+    const entries = [item({ id: 'overview-needs', title: 'Overview needs' }), item({ id: 'overview-progress', title: 'Overview progress', workflowState: 'in_progress' }), item({ id: 'overview-upcoming', title: 'Overview upcoming', attention: 'upcoming', attentionOn: '2027-01-01' })];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
+    app();
+    await screen.findByText('Overview needs');
+    const nav = screen.getByRole('navigation', { name: 'Group overview' });
+    expect(within(nav).getByRole('link', { name: 'Needs attention 1' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'In progress 1' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'Coming up 1' })).toBeVisible();
+    expect(within(nav).queryByRole('link', { name: 'Waiting' })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole('link', { name: 'Paused' })).not.toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole('link', { name: 'In progress 1' }));
+    expect(screen.getByRole('heading', { level: 2, name: 'In progress 1 item' })).toHaveFocus();
+  });
+
+  it('localizes the group overview landmark label to Czech', async () => {
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['cs-CZ']);
+    const entries = [item({ id: 'overview-cs-needs' }), item({ id: 'overview-cs-upcoming', attention: 'upcoming', attentionOn: '2027-01-01' })];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
+    app();
+    await screen.findByRole('navigation', { name: 'Přehled skupin' });
+    expect(screen.getByRole('navigation', { name: 'Přehled skupin' })).toBeVisible();
+  });
+
+  it('hides the group overview when fewer than two groups are populated', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'overview-only' })], { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
+    app();
+    await screen.findByText('Renew passport');
+    expect(screen.queryByRole('navigation', { name: 'Group overview' })).not.toBeInTheDocument();
+  });
+
   it('shows server summary counts and requests only populated groups with exact attention query params', async () => {
     const entries = Array.from({ length: 101 }, (_, index) => item({ id: `old-${index}`, title: `Created ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
     entries.push(item({ id: 'late-needs', title: 'Late needs item', attention: 'needs_attention', attentionOn: null }));

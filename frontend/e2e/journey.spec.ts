@@ -1150,7 +1150,7 @@ test.describe('Tendo production journey', () => {
       }
       const summaryResponse = await page.request.get(`/api/v1/households/${householdId}/items/summary`);
       expect(summaryResponse.status()).toBe(200);
-      const counts = await summaryResponse.json() as { upcoming: number };
+      const counts = await summaryResponse.json() as { needsAttention: number; inProgress: number; waiting: number; upcoming: number; paused: number };
       page.on('request', requestListener);
       await page.goto('/');
       const needs = group(en['items.group.needs']);
@@ -1158,11 +1158,19 @@ test.describe('Tendo production journey', () => {
       const upcoming = group(en['items.group.upcoming']);
       const heading = upcoming.getByRole('heading', { level: 2 });
       await expect(heading).toContainText(String(counts.upcoming));
+      const overview = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
+      await expect(overview.getByRole('link')).toHaveCount([counts.needsAttention, counts.inProgress, counts.waiting, counts.upcoming, counts.paused].filter(count => count > 0).length);
+      await expect(overview.getByRole('link', { name: `Coming up ${counts.upcoming}` })).toBeVisible();
+      await expectNoAxeViolations(page, 'home-group-overview');
+      await overview.getByRole('link', { name: `Coming up ${counts.upcoming}` }).click();
+      await expect(heading).toBeFocused();
       const initialItems = await upcoming.getByRole('listitem').count();
       expect(initialItems).toBe(Math.min(25, counts.upcoming));
       expect(homeRequests.length).toBeLessThanOrEqual(6);
-      await page.setViewportSize({ width: 360, height: 740 });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 740 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `no horizontal overflow at ${width}px`).toBeLessThanOrEqual(0);
+      }
       const more = upcoming.locator('[data-group-more="upcoming"]');
       await more.focus();
       const beforePageRequestCount = homeRequests.filter((entry) => entry.startsWith('GET ') && entry.endsWith('/items')).length;
