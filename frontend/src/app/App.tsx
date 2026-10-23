@@ -76,6 +76,13 @@ function createInviteVisitId(): string {
 export function App() {
   const { t } = useI18n();
   const [state, setState] = useState<BootState>({ kind: 'loading' });
+  const [sessionGeneration, setSessionGeneration] = useState(0);
+  const sessionGenerationRef = useRef(0);
+  const advanceSessionGeneration = useCallback(() => {
+    const next = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = next;
+    setSessionGeneration(next);
+  }, []);
   const [attempt, setAttempt] = useState(0);
   const [route, setRoute] = useState(() => readRoute());
   const [allItemsVisit, setAllItemsVisit] = useState(0);
@@ -143,12 +150,15 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     boot().then((next) => {
-      if (!cancelled) setState(next);
+      if (!cancelled) {
+        if (next.kind === 'signedIn') advanceSessionGeneration();
+        setState(next);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, advanceSessionGeneration]);
 
   const retry = useCallback(() => {
     transitioned.current = true;
@@ -157,6 +167,7 @@ export function App() {
   }, []);
 
   const inviteSignedOut = useCallback(() => {
+    advanceSessionGeneration();
     clearPendingCompletions();
     clearPendingSubjectCreates();
     clearPendingItemCreates();
@@ -166,8 +177,9 @@ export function App() {
     setRoute({ kind: 'invite' });
     setInviteFocusLogin(true);
     setState({ kind: 'signedOut' });
-  }, []);
+  }, [advanceSessionGeneration]);
   const accountReady = useCallback(() => {
+    advanceSessionGeneration();
     transitioned.current = true;
     window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
@@ -175,8 +187,9 @@ export function App() {
     setSessionEndedNotice(false);
     setAccountReadyNotice(true);
     setState({ kind: 'signedOut' });
-  }, []);
+  }, [advanceSessionGeneration]);
   const signedOut = useCallback(() => {
+    advanceSessionGeneration();
     clearPendingCompletions();
     clearPendingSubjectCreates();
     clearPendingItemCreates();
@@ -186,8 +199,10 @@ export function App() {
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
     setState({ kind: 'signedOut' });
-  }, []);
+  }, [advanceSessionGeneration]);
   const sessionEnded = useCallback(() => {
+    if (sessionGenerationRef.current !== sessionGeneration || state.kind !== 'signedIn') return;
+    advanceSessionGeneration();
     clearPendingCompletions();
     clearPendingSubjectCreates();
     clearPendingItemCreates();
@@ -197,7 +212,7 @@ export function App() {
     setRoute({ kind: 'home' });
     setState({ kind: 'signedOut' });
     setSessionEndedNotice(true);
-  }, []);
+  }, [advanceSessionGeneration, sessionGeneration, state.kind]);
 
   // A small route value plus popstate keeps these few app screens navigable without a router.
   const openAllItems = useCallback(() => {
@@ -267,6 +282,7 @@ export function App() {
     if (signedInOnLogin) window.history.replaceState(null, '', '/');
   }, [signedInOnLogin]);
   const signedIn = useCallback((session: Session) => {
+    advanceSessionGeneration();
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
@@ -275,7 +291,7 @@ export function App() {
     setSessionEndedNotice(false);
     setInviteFocusLogin(false);
     setState({ kind: 'signedIn', session });
-  }, []);
+  }, [advanceSessionGeneration]);
 
   if (state.kind === 'signedIn') {
     const householdId = state.session.defaultHouseholdId;
