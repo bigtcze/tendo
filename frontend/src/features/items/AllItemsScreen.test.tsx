@@ -144,6 +144,25 @@ describe('All items', () => {
     expect(within(within(main).getByText('Fluid result').closest('li')!).getByText('Repeats every 1 day · counted from when it’s done')).toBeVisible();
   });
 
+  it('names the search landmark and the results region', async () => {
+    await openAllItems([makeItem(1, { title: 'Named result' })]);
+    const search = screen.getByRole('search', { name: 'Search items' });
+    expect(within(search).getByRole('searchbox')).toBeVisible();
+    expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
+  });
+
+  it('words the attention date by state, never repeating "Needs attention" without "since"', async () => {
+    await openAllItems([
+      makeItem(1, { title: 'Overdue result', attentionOn: '2025-11-18', attention: 'needs_attention' }),
+      makeItem(2, { title: 'Upcoming result', attentionOn: '2026-02-15', attention: 'upcoming' }),
+      makeItem(3, { title: 'Paused result', attentionOn: '2026-03-01', attention: 'upcoming', workflowState: 'paused' }),
+    ]);
+    const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
+    expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
+    expect(row('Upcoming result').getByText('Needs attention Feb 15, 2026')).toBeVisible();
+    expect(row('Paused result').getByText('Attention date Mar 1, 2026')).toBeVisible();
+  });
+
   it('sends all combined filter values to both summary and list', async () => {
     const item = makeItem(1, { title: 'Café care', responsibleUserId: member.userId, recurrence: { intervalUnit: 'month', intervalValue: 1, mode: 'fixed' } });
     const fake = await openAllItems([item]);

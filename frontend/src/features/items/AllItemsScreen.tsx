@@ -299,6 +299,9 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
         : item.workflowState === 'in_progress' ? 'items.group.inProgress'
           : item.workflowState === 'waiting' ? 'items.group.waiting'
             : item.attention === 'upcoming' ? 'items.group.upcoming' : 'items.group.needs');
+  // Same wording as Home rows: only an open item can be due on or overdue since its date.
+  const attentionKeyForItem = (item: Item): MessageKey => item.archived || item.done || item.workflowState !== 'open' ? 'items.rowAttentionDate'
+    : item.attention === 'upcoming' ? 'items.attentionOn' : 'items.needsSince';
   const stack = cursorStack();
   const pageNumber = context.cursor ? stack.length + 1 : 1;
   // After a reload on a later page the earlier cursors are gone, so the page position is unknown.
@@ -318,7 +321,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle space-y-5">
       <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
-      <form role="search" onSubmit={submit} className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
+      <form role="search" aria-label={t('allItems.search')} onSubmit={submit} className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
           <label htmlFor="all-items-search" className="block text-sm font-medium">{t('allItems.search')}</label>
           <input id="all-items-search" type="search" value={search}
@@ -374,7 +377,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
             <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)} className="inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg leading-snug underline decoration-line underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{item.title}</NavLink>
             <p className="mt-1 text-sm text-muted">{subjectNames.get(item.subjectId) ?? t('items.subject.unknown')}</p>
             <p className="text-sm font-medium text-accent-strong">{labelForItem(item)}</p>
-            {item.attentionOn ? <p className="text-sm text-muted">{t('items.attentionOn', { date: formatDate(item.attentionOn, locale) })}</p> : null}
+            {item.attentionOn ? <p className="text-sm text-muted">{t(attentionKeyForItem(item), { date: formatDate(item.attentionOn, locale) })}</p> : null}
             {item.recurrence ? <p className="text-sm text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
             {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown') })}</p> : null}
           </li>)}
