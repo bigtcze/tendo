@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
@@ -28,11 +28,19 @@ const startErrorKeys: Record<StartFailure, MessageKey> = {
 export function AccountScreen({ login, outcome, onSignedOut }: { login: string; outcome: OidcOutcome | null; onSignedOut: () => void }) {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  const [showRetry, setShowRetry] = useState(false);
   const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<StartFailure | null>(null);
   const pendingRef = useRef(false);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const signedInRef = useRef<HTMLParagraphElement>(null);
+  // Set when a load settles while the Retry button still has focus; the settled content takes focus
+  // so keyboard users are not dropped to the document when Retry unmounts.
+  const moveFocusAfterRetry = useRef(false);
   const onSignedOutRef = useRef(onSignedOut);
   useEffect(() => {
     onSignedOutRef.current = onSignedOut;
@@ -40,23 +48,38 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
 
   useEffect(() => {
     let cancelled = false;
+    const settle = (next: Section) => {
+      moveFocusAfterRetry.current = next.kind !== 'error' && document.activeElement !== null && document.activeElement === retryRef.current;
+      setSection(next);
+    };
     (async () => {
-      const status = await fetchOidcStatus();
-      if (cancelled) return;
-      if (status.kind === 'disabled') return setSection({ kind: 'hidden' });
-      if (status.kind === 'error') return setSection({ kind: 'error', provider: null });
-      const identity = await fetchOidcIdentity();
-      if (cancelled) return;
-      if (identity.kind === 'unauthenticated') return onSignedOutRef.current();
-      if (identity.kind === 'disabled') return setSection({ kind: 'hidden' });
-      if (identity.kind === 'linked') return setSection({ kind: 'linked', provider: status.displayName });
-      if (identity.kind === 'notLinked') return setSection({ kind: 'notLinked', provider: status.displayName });
-      setSection({ kind: 'error', provider: status.displayName });
+      try {
+        const status = await fetchOidcStatus();
+        if (cancelled) return;
+        if (status.kind === 'disabled') return settle({ kind: 'hidden' });
+        if (status.kind === 'error') return settle({ kind: 'error', provider: null });
+        const identity = await fetchOidcIdentity();
+        if (cancelled) return;
+        if (identity.kind === 'unauthenticated') return onSignedOutRef.current();
+        if (identity.kind === 'disabled') return settle({ kind: 'hidden' });
+        if (identity.kind === 'linked') return settle({ kind: 'linked', provider: status.displayName });
+        if (identity.kind === 'notLinked') return settle({ kind: 'notLinked', provider: status.displayName });
+        settle({ kind: 'error', provider: status.displayName });
+      } catch {
+        if (!cancelled) setSection({ kind: 'error', provider: null });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
+
+  useLayoutEffect(() => {
+    if (!moveFocusAfterRetry.current) return;
+    moveFocusAfterRetry.current = false;
+    if (section.kind === 'linked' || section.kind === 'notLinked') sectionHeadingRef.current?.focus();
+    else if (section.kind === 'hidden') signedInRef.current?.focus();
+  }, [section]);
 
   async function connect(event: FormEvent) {
     event.preventDefault();
@@ -94,18 +117,23 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
         <div role="status" className="mt-5 empty:mt-0">
           {outcomeText ? <p className="rounded-xl bg-sand px-4 py-3">{outcomeText}</p> : null}
         </div>
-        <p className="mt-6 break-words text-lg text-muted">{t('account.signedInAs', { login })}</p>
+        <p ref={signedInRef} tabIndex={-1} className="mt-6 break-words text-lg text-muted outline-none">{t('account.signedInAs', { login })}</p>
         {section.kind === 'loading' ? <p role="status" className="mt-8 text-muted">{t('account.oidc.loading')}</p> : null}
-        {section.kind === 'error' ? <p className="mt-8 text-muted">{t('account.oidc.loadError')}</p> : null}
+        {section.kind === 'error' ? <p role="status" className="mt-8 text-muted">{t('account.oidc.loadError')}</p> : null}
+        {section.kind === 'error' || (showRetry && section.kind === 'loading') ? (
+          <Button ref={retryRef} type="button" variant="quiet" className="mt-3" onClick={() => { setShowRetry(true); setSection({ kind: 'loading' }); setAttempt((n) => n + 1); }}>
+            {t('app.error.retry')}
+          </Button>
+        ) : null}
         {section.kind === 'linked' ? (
           <section className="mt-8 border-t border-line pt-6">
-            <h2 className="font-display text-2xl break-words">{t('account.oidc.title', { provider: section.provider })}</h2>
+            <h2 ref={sectionHeadingRef} tabIndex={-1} className="font-display text-2xl break-words outline-none">{t('account.oidc.title', { provider: section.provider })}</h2>
             <p className="mt-2 text-muted">{t('account.oidc.linked', { provider: section.provider })}</p>
           </section>
         ) : null}
         {section.kind === 'notLinked' ? (
           <section className="mt-8 border-t border-line pt-6">
-            <h2 className="font-display text-2xl break-words">{t('account.oidc.title', { provider: section.provider })}</h2>
+            <h2 ref={sectionHeadingRef} tabIndex={-1} className="font-display text-2xl break-words outline-none">{t('account.oidc.title', { provider: section.provider })}</h2>
             <p className="mt-2 text-muted">{t('account.oidc.intro', { provider: section.provider })}</p>
             <form onSubmit={connect} className="mt-5 space-y-5" noValidate>
               <div className="space-y-2">

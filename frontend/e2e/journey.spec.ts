@@ -1752,6 +1752,191 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  test('n15. responsive: every household route fits 320, 390, 768 and 1440 px without horizontal overflow or clipped primary actions', async () => {
+    const title = 'Responsive route evidence item';
+    const widths = [320, 390, 768, 1440];
+    await page.goto('/');
+    await addItem({ title, subject: 'Anička' });
+    const created = await serverItem(title);
+    const main = page.getByRole('main');
+    const expectInViewport = async (locator: Locator, label: string) => {
+      await expect(locator, label).toBeVisible();
+      const box = await locator.boundingBox();
+      expect(box, `${label} has a bounding box`).not.toBeNull();
+      expect(box!.x, `${label} left edge`).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width, `${label} right edge`).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+    };
+    const expectNoHorizontalOverflow = async (label: string) => {
+      const state = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.scrollingElement!.scrollWidth }));
+      expect(state.scrollWidth, `${label} scrollWidth ${state.scrollWidth} <= innerWidth ${state.width}`).toBeLessThanOrEqual(state.width);
+    };
+    // Readiness first: each route's loaded content/actions must be visible before overflow is measured,
+    // so rows or sections rendered after the heading cannot escape the overflow assertion.
+    const check = async (label: string, primary: Locator[], ready: Locator[] = []) => {
+      for (const [index, content] of ready.entries()) await expect(content, `${label} loaded content ${index + 1}`).toBeVisible();
+      for (const [index, action] of primary.entries()) await expectInViewport(action, `${label} primary action ${index + 1}`);
+      await expectNoHorizontalOverflow(label);
+    };
+
+    try {
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 800 });
+        expect(await page.evaluate(() => window.innerWidth), `requested viewport ${width}`).toBe(width);
+        await page.goto('/');
+        await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+        await check(`Home ${width}`, [main.getByRole('button', { name: en['items.add'], exact: true })], [main.getByRole('listitem').filter({ hasText: title }).first()]);
+
+        await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+        const search = main.getByRole('searchbox');
+        await search.fill('Responsive route evidence');
+        await main.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+        await expect(main.getByRole('listitem').filter({ hasText: title })).toBeVisible();
+        await check(`All items with search ${width}`, [main.getByRole('button', { name: en['allItems.searchButton'], exact: true }), main.getByRole('link', { name: title, exact: true })]);
+
+        await main.getByRole('link', { name: title, exact: true }).click();
+        await expect(page).toHaveURL(new RegExp(`/items/${created.id}`));
+        await check(`Item detail ${width}`, [main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true })]);
+        await main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+        const editForm = main.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+        await check(`Item edit ${width}`, [editForm.getByRole('button', { name: en['itemDetail.save'], exact: true })]);
+
+        await page.goto('/people');
+        await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+        await check(`People and things ${width}`, [main.getByRole('button', { name: en['subjects.add'], exact: true })], [main.getByRole('listitem').filter({ hasText: 'Anička' }).first()]);
+        await page.goto('/members');
+        await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+        await check(`Members ${width}`, [main.getByRole('button', { name: en['members.invite.action'], exact: true })], [main.getByRole('listitem').filter({ hasText: ownerLogin }).first()]);
+        await page.goto('/account');
+        await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+        // n9 already linked the owner, so Account has no primary action: assert the linked section content instead.
+        await check(`Account ${width}`, [], [main.getByRole('heading', { level: 2, name: en['account.oidc.title'].replace('{provider}', 'OIDC Smoke Provider') }), main.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))]);
+      }
+
+      await page.setViewportSize({ width: 320, height: 800 });
+      await page.getByRole('button', { name: 'Čeština' }).click();
+      await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
+      await page.goto('/');
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await check('Home 320 Czech', [page.getByRole('main').getByRole('button', { name: cs['items.add'], exact: true })], [page.getByRole('main').getByRole('listitem').filter({ hasText: title }).first()]);
+      await page.goto(`/items/${created.id}`);
+      await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      await check('Item detail 320 Czech', [page.getByRole('main').getByRole('button', { name: cs['itemDetail.edit.button'], exact: true })]);
+      await page.goto('/items');
+      await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+      const czechMain = page.getByRole('main');
+      await czechMain.getByRole('searchbox').fill('Responsive route evidence');
+      await czechMain.getByRole('button', { name: cs['allItems.searchButton'], exact: true }).click();
+      await expect(czechMain.getByRole('listitem').filter({ hasText: title })).toBeVisible();
+      await check('All items 320 Czech', [czechMain.getByRole('button', { name: cs['allItems.searchButton'], exact: true }), czechMain.getByRole('link', { name: title, exact: true })]);
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      if (await page.locator('html').getAttribute('lang') === 'cs') {
+        await page.goto('/');
+        await page.getByRole('button', { name: 'English' }).click();
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+      }
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+  });
+
+  test('n16. keyboard only: add, complete, undo, open, edit and save an item', async () => {
+    const originalTitle = 'Keyboard journey unique item';
+    const savedTitle = 'Keyboard journey renamed item';
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const pressTabUntil = async (predicate: (name: string) => boolean, description: string) => {
+      for (let i = 0; i < 200; i += 1) {
+        const active = await page.evaluate(() => {
+          const element = document.activeElement as HTMLElement | null;
+          return element ? (element.getAttribute('aria-label') || element.innerText || element.getAttribute('title') || element.tagName).trim() : '';
+        });
+        if (predicate(active)) return;
+        await page.keyboard.press('Tab');
+      }
+      throw new Error(`Could not tab to ${description} within 200 stops`);
+    };
+
+    await pressTabUntil((name) => name === en['items.add'], 'Add item');
+    await page.keyboard.press('Enter');
+    const main0 = () => page.getByRole('main');
+    const form = main0().getByRole('form', { name: en['items.add.formLabel'] });
+    await expect(form.getByLabel(en['items.title'])).toBeFocused();
+    await page.keyboard.type(originalTitle);
+    await page.keyboard.press('Tab'); // subject select
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Tab'); // next form control: responsible select or submit
+    // Focus the submit button by tabbing the remaining controls, without DOM focus helpers.
+    for (let i = 0; i < 12; i += 1) {
+      const active = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement as HTMLElement | null)?.innerText?.trim() || '');
+      if (active === en['items.add.submit']) break;
+      await page.keyboard.press('Tab');
+    }
+    const activeSubmit = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement as HTMLElement | null)?.innerText?.trim() || '');
+    expect(activeSubmit).toContain(en['items.add.submit']);
+    await page.keyboard.press('Enter');
+    await expect(form).toHaveCount(0);
+    await expect(main0().getByRole('button', { name: en['items.add'], exact: true })).toBeFocused();
+    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: originalTitle })).toBeVisible();
+
+    const main = page.getByRole('main');
+    const itemRow = main.getByRole('listitem').filter({ hasText: originalTitle });
+    const tabToRowButton = async (name: string) => {
+      for (let i = 0; i < 200; i += 1) {
+        const activeName = await page.evaluate(() => {
+          const element = document.activeElement as HTMLElement | null;
+          return element ? (element.getAttribute('aria-label') || element.innerText || element.getAttribute('title') || '').trim() : '';
+        });
+        if (activeName === name || activeName.includes(name)) return;
+        await page.keyboard.press('Tab');
+      }
+      throw new Error(`Could not tab to ${name}`);
+    };
+    await tabToRowButton(en['items.done.label'].replace('{title}', originalTitle));
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('status').filter({ hasText: originalTitle })).toContainText(en['items.notice.done'].replace('{title}', originalTitle));
+    // The notice container (tabindex -1 wrapper around the status) receives focus so Undo is the next Tab stop.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.querySelector('[role="status"]')?.textContent ?? '')).toContain(en['items.notice.done'].replace('{title}', originalTitle));
+    await pressTabUntil((name) => name === en['items.undo'], 'Undo');
+    await page.keyboard.press('Enter');
+    await expect(itemRow).toBeVisible();
+    await expect(itemRow.getByRole('button', { name: en['items.done.label'].replace('{title}', originalTitle) })).toBeFocused();
+
+    const titleLink = main.getByRole('link', { name: en['itemDetail.open'].replace('{title}', originalTitle), exact: true });
+    for (let i = 0; i < 200 && !(await titleLink.evaluate((element) => element === document.activeElement)); i += 1) await page.keyboard.press('Tab');
+    await expect(titleLink).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { level: 1, name: originalTitle })).toBeFocused();
+    await pressTabUntil((name) => name === en['itemDetail.edit.button'], 'Edit');
+    await page.keyboard.press('Enter');
+    const editForm = page.getByRole('main').getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+    const titleInput = editForm.getByLabel(en['items.title']);
+    await expect(titleInput).toBeFocused();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type(savedTitle);
+    await expect(titleInput).toBeFocused();
+    await expect(titleInput).toHaveValue(savedTitle);
+    // Save is reached through the form's normal tab order; submitting with Enter is equivalent to activating the focused submit.
+    await page.keyboard.press('Tab');
+    for (let i = 0; i < 16; i += 1) {
+      const name = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement as HTMLElement | null)?.innerText?.trim() || '');
+      if (name === en['itemDetail.save']) break;
+      await page.keyboard.press('Tab');
+    }
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement as HTMLElement | null)?.innerText?.trim() || '')).toContain(en['itemDetail.save']);
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { level: 1, name: savedTitle })).toBeVisible();
+    await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['itemDetail.updated'] })).toBeFocused();
+
+    const saved = await serverItem(savedTitle);
+    expect(saved.done).toBe(false);
+    const completions = await serverCompletions(saved.id);
+    expect(completions).toHaveLength(1);
+    expect(completions[0]!.undoneAt).not.toBeNull();
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();

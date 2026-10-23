@@ -150,6 +150,157 @@ describe('account screen', () => {
     expect(JSON.parse(start.body)).toEqual({ purpose: 'link', currentPassword: 'correct horse battery' });
   });
 
+  it('retries a status network failure and shows the connect form', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      'GET /api/v1/auth/oidc': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? Promise.reject(new TypeError('network failure')) : json(200, { enabled: true, displayName: 'Pocket ID' });
+      },
+      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByLabelText('Current password')).toBeInTheDocument();
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(1);
+  });
+
+  it('retries an identity 503 and shows the linked state', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return json(count === 1 ? 503 : 200, count === 1 ? { title: 'unavailable' } : { linked: true });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument();
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2);
+  });
+
+  it('ignores an earlier retry response that arrives after a newer retry', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        if (count === 1) return problem(503, 'unavailable');
+        if (count === 2) return delayed;
+        return json(200, { linked: true });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await screen.findByText('Couldn’t check the connection right now.');
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    await userEvent.click(retry);
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
+    await userEvent.click(retry);
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(3));
+    expect(await screen.findByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument();
+    release(json(200, { linked: false }));
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(3));
+    await waitFor(() => expect(screen.getByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument());
+    expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument();
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(3);
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(3);
+  });
+
+  it('keeps focus on Retry during a retry and after a subsequent failure', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : count === 2 ? delayed : json(200, { linked: false });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(retry);
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
+    expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
+    release(problem(503, 'unavailable'));
+    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
+  });
+
+  it('moves focus from Retry to the loaded section after a successful retry', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : json(200, { linked: true });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it('moves focus to the signed-in line when a retry finds sign-in links turned off', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      'GET /api/v1/auth/oidc': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : json(200, { enabled: false });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument());
+    expect(screen.getByText(/You’re signed in as/)).toHaveFocus();
+  });
+
+  it('does not take focus after a retry when the user has moved elsewhere', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : delayed;
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
+    const signOut = screen.getByRole('button', { name: 'Sign out' });
+    signOut.focus();
+    release(json(200, { linked: true }));
+    await screen.findByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' });
+    expect(signOut).toHaveFocus();
+  });
+
+  it('renders the Retry label in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ ...signedIn, 'GET /api/v1/auth/oidc': problem(503) });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    expect(await screen.findByRole('button', { name: 'Zkusit znovu' })).toBeInTheDocument();
+  });
+
   it('a wrong current password marks the field, clears it, and focuses it', async () => {
     installFakeServer({
       ...signedIn,
