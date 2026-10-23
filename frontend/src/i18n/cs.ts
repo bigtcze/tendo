@@ -49,6 +49,7 @@ export const cs: Record<MessageKey, string> = {
   'onboarding.error.rateLimited': 'Příliš mnoho pokusů. Zkuste to za chvíli.',
   'onboarding.error.unavailable': 'S Tendem se teď nedaří spojit. Zkuste to znovu.',
   'login.title': 'Přihlášení do Tenda',
+  'login.sessionEnded': 'Byli jste odhlášeni. Pro pokračování se znovu přihlaste.',
   'login.login': 'Přihlašovací jméno',
   'login.password': 'Heslo',
   'login.submit': 'Přihlásit se',

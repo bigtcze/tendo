@@ -31,6 +31,7 @@ const n17ExpectedFailurePaths = new Set<string>();
 const allowedFailedResponses = ['GET /api/v1/session 401', 'PUT /api/v1/auth/setup 401', 'POST /api/v1/session 401'];
 const expectedFailedPaths = new Set(['/api/v1/session', '/api/v1/auth/setup']);
 const expectedForeignDetailPath = new RegExp(`^/api/v1/households/[0-9a-f-]{36}/items/${foreignItemId}$`);
+const expectedSessionEndedPath = /^\/api\/v1\/households\/[0-9a-f-]{36}\/(?:items\/summary|subjects|members)$/;
 const wrongSetupCode = 'A'.repeat(43) + '=';
 
 function watch(page: Page) {
@@ -42,6 +43,7 @@ function watch(page: Page) {
     // The response check below asserts the exact expected HTTP failures.
     if (expectedFailedPaths.has(path)) return;
     if (expectedForeignDetailPath.test(path) && /status of 404/.test(message.text())) return;
+    if (expectedSessionEndedPath.test(path) && /status of 401/.test(message.text())) return;
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
@@ -2281,6 +2283,33 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n19. an ended session explains the sign-out on the login screen', async () => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    const cookies = await page.context().cookies();
+    const sessionCookie = cookies.find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session');
+    expect(sessionCookie).toBeDefined();
+
+    const fresh = await request.newContext({ baseURL });
+    try {
+      const revoked = await fresh.delete('/api/v1/session', {
+        headers: { Cookie: `${sessionCookie!.name}=${sessionCookie!.value}`, Origin: baseURL },
+      });
+      expect(revoked.status()).toBe(204);
+    } finally {
+      await fresh.dispose();
+    }
+
+    await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+    await expect(page.getByRole('status')).toHaveText(en['login.sessionEnded']);
+    await expectNoAxeViolations(page, 'login-session-ended');
+    await signIn(page, ownerPassword);
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session')?.value ?? '';
+    expect(sessionToken).not.toBe('');
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
@@ -2338,7 +2367,12 @@ test.describe('Tendo production journey', () => {
     const subjectConflict = `PATCH /api/v1/households/${householdId}/subjects/${vehicleId} 412`;
     const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
     const n17FailedResponses = [`GET /api/v1/households/${householdId}/items/summary 503`, `GET /api/v1/households/${householdId}/members 403`];
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound].sort());
+    const sessionEnded401 = [
+      `GET /api/v1/households/${householdId}/items/summary 401`,
+      `GET /api/v1/households/${householdId}/subjects 401`,
+      `GET /api/v1/households/${householdId}/members 401`,
+    ];
+    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, ...sessionEnded401].sort());
     expect(problems).toEqual([]);
   });
 });

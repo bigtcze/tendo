@@ -244,6 +244,7 @@ describe('signed in', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
     expect(fake.requests.some((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toBe(true);
     expect(screen.queryByText('Veselí')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'You were signed out. Sign in again to continue.' })).not.toBeInTheDocument();
   });
 
   it('failed sign out keeps the signed-in state and says so', async () => {
@@ -259,16 +260,27 @@ describe('signed in', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
   });
 
-  it('401 on household fetch returns to login', async () => {
+  it('401 on household fetch explains the ended session, then deliberate sign out has no notice', async () => {
+    let householdCalls = 0;
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
-      [householdPath]: problem(401),
+      [householdPath]: () => (++householdCalls === 1 ? problem(401) : json(200, household)),
       'GET /api/v1/auth/setup': json(200, { required: false }),
+      'POST /api/v1/session': json(201, session()),
+      'DELETE /api/v1/session': json(204),
     });
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue.');
     expect(screen.queryByRole('heading', { name: 'Veselí' })).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('other household failures show a retryable error', async () => {

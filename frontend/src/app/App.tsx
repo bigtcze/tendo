@@ -16,6 +16,7 @@ import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { useI18n } from '../i18n';
 import { ScreenTransitionContext } from './Heading';
+import { SignOutContext } from './SignOutContext';
 import { HouseholdNavigationContext, type HouseholdRoute } from './HouseholdNavigation';
 import { Layout } from './Layout';
 import { ErrorScreen, LoadingScreen } from './StatusScreens';
@@ -89,6 +90,7 @@ export function App() {
     return hash.startsWith('#') ? hash.slice(1) || null : null;
   });
   const [accountReadyNotice, setAccountReadyNotice] = useState(false);
+  const [sessionEndedNotice, setSessionEndedNotice] = useState(false);
   // The OIDC callback reports its result in a fixed fragment on /login or /account. Read it once,
   // keep it in memory only, and scrub it from the address bar so reload/share never repeats it.
   const [oidcOutcome, setOidcOutcome] = useState<OidcOutcome | null>(() => {
@@ -170,6 +172,7 @@ export function App() {
     window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
     setOidcOutcome(null);
+    setSessionEndedNotice(false);
     setAccountReadyNotice(true);
     setState({ kind: 'signedOut' });
   }, []);
@@ -178,10 +181,22 @@ export function App() {
     clearPendingSubjectCreates();
     clearPendingItemCreates();
     setOidcOutcome(null);
+    setSessionEndedNotice(false);
     transitioned.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
     setState({ kind: 'signedOut' });
+  }, []);
+  const sessionEnded = useCallback(() => {
+    clearPendingCompletions();
+    clearPendingSubjectCreates();
+    clearPendingItemCreates();
+    setOidcOutcome(null);
+    transitioned.current = true;
+    if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
+    setRoute({ kind: 'home' });
+    setState({ kind: 'signedOut' });
+    setSessionEndedNotice(true);
   }, []);
 
   // A small route value plus popstate keeps these few app screens navigable without a router.
@@ -257,6 +272,7 @@ export function App() {
     setRoute({ kind: 'home' });
     setOidcOutcome(null);
     setAccountReadyNotice(false);
+    setSessionEndedNotice(false);
     setInviteFocusLogin(false);
     setState({ kind: 'signedIn', session });
   }, []);
@@ -267,29 +283,31 @@ export function App() {
     const navigationActions = { home: goHome, allItems: openAllItems, people: openPeople, members: openMembers, account: openAccount };
     if (route.kind === 'invite') {
       return <ScreenTransitionContext value={transitioned}>
-        <InviteScreen key={inviteVisit} token={inviteToken} session={state.session} onSignedIn={signedIn} onSignedOut={inviteSignedOut} onAccountReady={accountReady} onJoinedSignedOut={signedOut} />
+        <InviteScreen key={inviteVisit} token={inviteToken} session={state.session} onSignedIn={signedIn} onSignedOut={inviteSignedOut} onAccountReady={accountReady} onJoinedSignedOut={sessionEnded} />
       </ScreenTransitionContext>;
     }
     return (
+      <SignOutContext value={signedOut}>
       <HouseholdNavigationContext value={{ route: navRoute, actions: navigationActions, household: Boolean(householdId) }}>
       <ScreenTransitionContext value={transitioned}>
         {route.kind === 'account' ? (
-          <AccountScreen login={state.session.login} outcome={oidcOutcome} onSignedOut={signedOut} />
+          <AccountScreen login={state.session.login} outcome={oidcOutcome} onSignedOut={sessionEnded} />
         ) : route.kind === 'people' && householdId ? (
-          <SubjectsScreen userId={state.session.userId} householdId={householdId} login={state.session.login} onSignedOut={signedOut} />
+          <SubjectsScreen userId={state.session.userId} householdId={householdId} login={state.session.login} onSignedOut={sessionEnded} />
         ) : route.kind === 'members' && householdId ? (
-          <MembersScreen householdId={householdId} userId={state.session.userId} login={state.session.login} onSignedOut={signedOut} />
+          <MembersScreen householdId={householdId} userId={state.session.userId} login={state.session.login} onSignedOut={sessionEnded} />
         ) : route.kind === 'allItems' && householdId ? (
-          <AllItemsScreen key={allItemsVisit} householdId={householdId} login={state.session.login} userId={state.session.userId} onBack={goHome} onSignedOut={signedOut} onOpenItem={(itemId, returnTo) => { transitioned.current = true; window.history.pushState({ ...(window.history.state ?? {}), returnTo, fromAllItems: true }, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <AllItemsScreen key={allItemsVisit} householdId={householdId} login={state.session.login} userId={state.session.userId} onBack={goHome} onSignedOut={sessionEnded} onOpenItem={(itemId, returnTo) => { transitioned.current = true; window.history.pushState({ ...(window.history.state ?? {}), returnTo, fromAllItems: true }, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         ) : route.kind === 'item' && householdId ? (
-          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goBackFromItem} onSignedOut={signedOut} />
+          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goBackFromItem} onSignedOut={sessionEnded} />
         ) : route.kind === 'invalidItem' && householdId ? (
-          <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
+          <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={sessionEnded} />
         ) : (
-          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenAllItems={openAllItemsForStatus} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <HomeScreen session={state.session} onSignedOut={sessionEnded} onOpenPeople={openPeople} onOpenAllItems={openAllItemsForStatus} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
       </HouseholdNavigationContext>
+      </SignOutContext>
     );
   }
 
@@ -299,7 +317,7 @@ export function App() {
       {state.kind === 'loading' ? <LoadingScreen message={t('app.loading')} /> : null}
       {state.kind === 'error' ? <ErrorScreen onRetry={retry} /> : null}
       {state.kind === 'setupRequired' ? <OnboardingScreen onSignedIn={signedIn} onSetupComplete={signedOut} /> : null}
-      {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} notice={accountReadyNotice ? t('invite.error.accountReady') : oidcOutcome?.kind === 'error' ? t(`oidc.error.${oidcOutcome.code}`) : undefined} /> : null}
+      {state.kind === 'signedOut' ? <LoginScreen onSignedIn={signedIn} notice={accountReadyNotice ? t('invite.error.accountReady') : oidcOutcome?.kind === 'error' ? t(`oidc.error.${oidcOutcome.code}`) : sessionEndedNotice ? t('login.sessionEnded') : undefined} /> : null}
     </Layout>}
     </ScreenTransitionContext>
   );
