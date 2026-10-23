@@ -1,6 +1,6 @@
 # Your account and sign-in
 
-Open **Your account** from the home screen to see which login you are signed in with. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
+Choose **Account** in the navigation at the top of every household screen to open **Your account** and see which login you are signed in with. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
 
 ## Sign in with your identity provider
 
@@ -9,7 +9,7 @@ Some households set up a shared sign-in service, such as Pocket ID. When the adm
 Before the button works for you, connect it to your Tendo account once:
 
 1. Sign in with your Tendo login and password.
-2. Open **Your account** from the home screen.
+2. Choose **Account** in the navigation to open **Your account**.
 3. Enter your current Tendo password and select **Connect …**.
 4. Approve the request at the identity provider. You come back to **Your account**, which now says your account is connected.
 

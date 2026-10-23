@@ -8,7 +8,7 @@ Home shows active items in groups: **Needs attention** first, then **In progress
 
 ## Finding items
 
-Open **All items** from the link on Home to find items across your household. Search for words in an item's title or notes, then choose **Search**. Narrow the results by status, person or thing, who is looking after it, and whether it repeats. The counts beside each status show how many matching items are in that group. Use the page buttons to move through results. Choose **Done** or **Archived** to find completed or archived items.
+Open **All items** from the navigation at the top of every household screen, or from the link on Home, to find items across your household. Search for words in an item's title or notes, then choose **Search**. Narrow the results by status, person or thing, who is looking after it, and whether it repeats. The counts beside each status show how many matching items are in that group. Use the page buttons to move through results. Choose **Done** or **Archived** to find completed or archived items.
 
 ## Repeat an item
 
@@ -24,7 +24,7 @@ Choose **Done** on an item. A repeating item stays in the list with its next att
 
 ## Opening and updating an item
 
-Select an item's title on the home screen to see its details, notes, current status, next attention date, and history. Use **Start** when you begin, **Waiting** when something else must happen first, and **Pause** when you want to set it aside. Choose **Resume** to bring a paused item back.
+Select an item's title on Home or in All items to see its details, notes, current status, next attention date, and history. Use **Start** when you begin, **Waiting** when something else must happen first, and **Pause** when you want to set it aside. Choose **Resume** to bring a paused item back.
 
 Starting, waiting, pausing, or resuming never changes the next attention date. Only marking an item **Done** moves a repeating item to its next date.
 
