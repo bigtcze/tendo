@@ -1875,6 +1875,19 @@ describe('Home items', () => {
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
     app();
     expect(await screen.findByText('Nothing needs attention right now.')).toBeVisible();
+    const main = screen.getByRole('main');
+    expect(within(main).getByText(/Use Add item to get started\./)).toBeVisible();
+    expect(within(main).getAllByRole('button', { name: 'Add item' })).toHaveLength(1);
+  });
+
+  it('shows the empty-home add guidance in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    const main = screen.getByRole('main');
+    expect(await within(main).findByText(/Začněte tlačítkem Přidat položku\./)).toBeVisible();
+    expect(within(main).getAllByRole('button', { name: 'Přidat položku' })).toHaveLength(1);
   });
 
   it.each([{ count: 1, expected: '1 položka' }, { count: 3, expected: '3 položky' }, { count: 5, expected: '5 položek' }])('pluralizes Czech summary count $count', async ({ count, expected }) => {

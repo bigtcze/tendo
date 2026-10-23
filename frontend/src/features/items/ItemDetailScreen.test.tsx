@@ -57,6 +57,18 @@ describe('item details', () => {
     await act(async () => release(members.clone()));
   });
 
+  it('lets the Czech Back to all items link wrap on a narrow screen', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    window.history.replaceState({ returnTo: '/items' }, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${base}/members`]: members }));
+    app();
+    await screen.findByRole('heading', { level: 1, name: 'Renew passport' });
+    const main = screen.getByRole('main');
+    const link = await within(main).findByRole('link', { name: 'Zpět na všechny položky' });
+    expect(link).toHaveClass('whitespace-normal', 'max-w-full');
+  });
+
   it('opens from a home title, starts with a fresh ETag and shows detail content', async () => {
     let etag = 1;
     const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, item(), { ETag: `"${etag++}"` }), [`PATCH ${path}`]: (req) => json(200, item({ workflowState: JSON.parse(req.body).workflowState }), { ETag: '"3"' }) }));
@@ -523,6 +535,19 @@ describe('item details', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
     expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ recurrence: null });
+  });
+
+  it('announces politely while edit details are loading', async () => {
+    let release!: (response: Response) => void;
+    const subjectsPending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer(common({ [`GET ${base}/subjects`]: () => subjectsPending }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const main = screen.getByRole('main');
+    expect(within(main).getAllByRole('status').some((status) => status.textContent === 'Loading…')).toBe(true);
+    expect(within(main).getByRole('button', { name: 'Edit' })).toBeDisabled();
+    await act(async () => release(json(200, { items: [subject], nextCursor: null })));
+    expect(await screen.findByRole('form', { name: 'Edit item' })).toBeVisible();
   });
 
   it('locks workflow and archive actions while edit subjects are loading', async () => {

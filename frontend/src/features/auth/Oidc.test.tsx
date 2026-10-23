@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -128,6 +128,24 @@ describe('callback results', () => {
 });
 
 describe('account screen', () => {
+  it('explains where to change language in English and Czech when sign-in linking is unavailable', async () => {
+    for (const [locale, title, body] of [
+      ['en', 'Language', 'Switch between English and Czech at the bottom of any page.'],
+      ['cs', 'Jazyk', 'Mezi češtinou a angličtinou přepnete dole na každé stránce.'],
+    ]) {
+      localStorage.setItem('tendo.locale', locale);
+      window.history.replaceState(null, '', '/account');
+      installFakeServer({ ...signedIn, 'GET /api/v1/auth/oidc': json(200, { enabled: false }) });
+      window.history.replaceState(null, '', '/account');
+      renderApp();
+      await waitFor(() => expect(screen.getByRole('main').querySelector('h1')?.textContent).toBe(locale === 'cs' ? 'Váš účet' : 'Your account'));
+      const main = screen.getByRole('main');
+      expect(await within(main).findByRole('heading', { name: title })).toBeVisible();
+      expect(within(main).getByText(body)).toBeVisible();
+      cleanup();
+      localStorage.removeItem('tendo.locale');
+    }
+  });
   it('opens from home, explains, and links with exactly {purpose:"link",currentPassword}', async () => {
     const fake = installFakeServer({
       ...signedIn,
@@ -381,7 +399,8 @@ describe('account screen', () => {
     renderApp();
     expect(await screen.findByText('You’re signed in as anna.')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Checking…')).not.toBeInTheDocument());
-    expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Language' })).toBeVisible();
     expect(fake.requests.some((r) => r.path === '/api/v1/auth/oidc/identity')).toBe(false);
   });
 

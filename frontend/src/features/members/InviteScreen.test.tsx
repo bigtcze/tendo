@@ -177,6 +177,15 @@ describe('invitation acceptance', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toBeVisible(); expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1); expect(screen.getByText('Your account is ready. Sign in.')).toBeVisible(); expect(location.pathname).toBe('/');
   });
 
+  it('lets the Czech join button wrap on a narrow screen', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    window.history.replaceState(null, '', `/invite#${token}`);
+    installFakeServer(signedInRoutes({ 'POST /api/v1/invitations/accept': json(201, {}) }));
+    renderApp();
+    const button = await screen.findByRole('button', { name: 'Připojit se k domácnosti' });
+    expect(button).toHaveClass('whitespace-normal', 'w-full');
+  });
+
   it('signed-in Join posts once, then uses the refreshed session to load home', async () => {
     window.history.replaceState(null, '', `/invite#${token}`);
     let sessionReads = 0;
