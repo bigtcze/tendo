@@ -22,6 +22,10 @@ const householdName = 'Veselí';
 
 const problems: string[] = [];
 const failedResponses = new Set<string>();
+let n17OfflineActive = false;
+let n17FailurePhaseActive = false;
+const n17OfflineExpectedResources: RegExp[] = [];
+const n17ExpectedFailurePaths = new Set<string>();
 // Browser-initiated expected failures: anonymous session/setup/login attempts, deliberate stale save,
 // and the foreign detail deep-link lookup. page.request calls are not reported.
 const allowedFailedResponses = ['GET /api/v1/session 401', 'PUT /api/v1/auth/setup 401', 'POST /api/v1/session 401'];
@@ -32,9 +36,10 @@ const wrongSetupCode = 'A'.repeat(43) + '=';
 function watch(page: Page) {
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return;
-    // Chromium logs a generic console error for each failed fetch; the response check below
-    // asserts exactly which failures happened, so only the session/setup endpoints and the foreign item deep link are skipped.
     const path = new URL(message.location().url || 'about:blank').pathname;
+    if (n17OfflineActive && message.text().includes('Failed to load resource') && message.text().includes('ERR_INTERNET_DISCONNECTED') && n17OfflineExpectedResources.some((expected) => expected.test(message.location().url))) return;
+    if (n17FailurePhaseActive && n17ExpectedFailurePaths.has(path) && message.text().includes('Failed to load resource')) return;
+    // The response check below asserts the exact expected HTTP failures.
     if (expectedFailedPaths.has(path)) return;
     if (expectedForeignDetailPath.test(path) && /status of 404/.test(message.text())) return;
     problems.push(`console: ${message.text()}`);
@@ -1937,6 +1942,210 @@ test.describe('Tendo production journey', () => {
     expect(completions[0]!.undoneAt).not.toBeNull();
   });
 
+  test('n17. network failure and server errors show recoverable states', async () => {
+    const main = page.getByRole('main');
+    const homeLink = page.getByRole('link', { name: en['nav.home'], exact: true });
+    const allItemsPath = '/api/v1/households/' + householdId + '/items/summary';
+    const membersRoute = `**/api/v1/households/${householdId}/members*`;
+    const ownedRoutes: Array<{ url: string; handler: (route: import('@playwright/test').Route) => void | Promise<void> }> = [];
+    const ownRoute = async (url: string, handler: (route: import('@playwright/test').Route) => void | Promise<void>) => {
+      ownedRoutes.push({ url, handler });
+      await page.route(url, handler);
+    };
+    let switchedToCzech = false;
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    try {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto('/');
+      await expect(main.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+    // Offline failures are induced by in-app navigation, keeping the production SPA shell loaded.
+    n17OfflineExpectedResources.length = 0;
+    const offlineHouseholdResource = new URL(`/api/v1/households/${householdId}/`, baseURL).href;
+    n17OfflineExpectedResources.push(
+      new RegExp(`^${escapeRegExp(offlineHouseholdResource)}items/summary$`),
+      new RegExp(`^${escapeRegExp(offlineHouseholdResource)}subjects\\?limit=100&archived=(?:false|true)(?:&id=[0-9a-f-]{36})*$`),
+      new RegExp(`^${escapeRegExp(offlineHouseholdResource)}members\\?limit=50$`),
+    );
+    n17OfflineActive = true;
+    await page.context().setOffline(true);
+    try {
+      await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+      await expect(main.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+      await page.setViewportSize({ width: 320, height: 720 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px offline horizontal overflow').toBeLessThanOrEqual(0);
+      await expectNoAxeViolations(page, 'n17-offline-error');
+    } finally {
+      await page.context().setOffline(false);
+      n17OfflineActive = false;
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+    await main.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+    await expect(main.getByText(en['app.error.body'], { exact: true })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toHaveCount(0);
+    await expect(main.getByRole('link', { name: 'Water the plants', exact: true })).toBeVisible();
+
+    // A real API problem response produces the same recoverable list state.
+    await homeLink.click();
+    const summaryRoute = async (route: import('@playwright/test').Route) => route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
+    n17ExpectedFailurePaths.add(allItemsPath);
+    n17FailurePhaseActive = true;
+    await ownRoute(`**${allItemsPath}`, summaryRoute);
+    await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+    await expect(main.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+    await page.unroute(`**${allItemsPath}`, summaryRoute);
+    ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === summaryRoute), 1);
+    n17ExpectedFailurePaths.delete(allItemsPath);
+    n17FailurePhaseActive = false;
+    await main.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+    await expect(main.getByText(en['app.error.body'], { exact: true })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toHaveCount(0);
+    await expect(main.getByRole('link', { name: 'Water the plants', exact: true })).toBeVisible();
+
+    // A lost completion response keeps the same completion key and does not advance the item until retry.
+    const failureTitle = 'N17 recoverable completion unique';
+    await homeLink.click();
+    await addItem({ title: failureTitle, subject: 'Anička' });
+    const itemBeforeFailure = await serverItem(failureTitle);
+    const completionPath = `/api/v1/households/${householdId}/items/${itemBeforeFailure.id}/completions`;
+    n17ExpectedFailurePaths.add(completionPath);
+    n17FailurePhaseActive = true;
+    const abortCompletion = (route: import('@playwright/test').Route) => route.abort();
+    await ownRoute(`**${completionPath}`, abortCompletion);
+    const failureRow = main.getByRole('listitem').filter({ hasText: failureTitle });
+    await failureRow.getByRole('button', { name: en['items.done.label'].replace('{title}', failureTitle), exact: true }).click();
+    await expect(main.getByRole('status').getByText(en['items.notice.retry'], { exact: true })).toBeVisible();
+    const itemAfterFailure = await page.request.get(`/api/v1/households/${householdId}/items/${itemBeforeFailure.id}`);
+    expect(itemAfterFailure.status()).toBe(200);
+    expect(await itemAfterFailure.json()).toMatchObject({ attentionOn: itemBeforeFailure.attentionOn, done: false });
+    await expect(failureRow).toBeVisible();
+    await page.unroute(`**${completionPath}`, abortCompletion);
+    ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === abortCompletion), 1);
+    await main.getByRole('status').getByRole('button', { name: en['items.retry'], exact: true }).click();
+    await expect(main.getByRole('status').getByText(en['items.notice.done'].replace('{title}', failureTitle), { exact: true })).toBeVisible();
+    const completedFailureItem = await page.request.get(`/api/v1/households/${householdId}/items/${itemBeforeFailure.id}`);
+    expect(completedFailureItem.status()).toBe(200);
+    expect(await completedFailureItem.json()).toMatchObject({ done: true });
+    expect(await serverCompletions(itemBeforeFailure.id)).toHaveLength(1);
+    n17ExpectedFailurePaths.delete(completionPath);
+    n17FailurePhaseActive = false;
+
+    // The server commits this second completion but the response is lost. Retrying must replay
+    // the same idempotency key and return the existing receipt without creating another one.
+    const lostResponseTitle = 'N17 lost completion response unique';
+    await homeLink.click();
+    await addItem({ title: lostResponseTitle, subject: 'Anička' });
+    const itemBeforeLostResponse = await serverItem(lostResponseTitle);
+    const lostResponsePath = `/api/v1/households/${householdId}/items/${itemBeforeLostResponse.id}/completions`;
+    n17ExpectedFailurePaths.add(lostResponsePath);
+    n17FailurePhaseActive = true;
+    const completionKeys: string[] = [];
+    let loseFirstResponse = true;
+    const loseCompletionResponse = async (route: import('@playwright/test').Route) => {
+      completionKeys.push((await route.request().allHeaders())['idempotency-key'] ?? '');
+      if (loseFirstResponse) {
+        loseFirstResponse = false;
+        await route.fetch();
+        await route.abort();
+      } else {
+        expect((await route.request().allHeaders())['idempotency-key']).toBe(completionKeys[0]);
+        await route.continue();
+      }
+    };
+    await ownRoute(`**${lostResponsePath}`, loseCompletionResponse);
+    const lostResponseRow = main.getByRole('listitem').filter({ hasText: lostResponseTitle });
+    await lostResponseRow.getByRole('button', { name: en['items.done.label'].replace('{title}', lostResponseTitle), exact: true }).click();
+    await expect(main.getByRole('status').getByText(en['items.notice.retry'], { exact: true })).toBeVisible();
+    const itemAfterLostResponse = await page.request.get(`/api/v1/households/${householdId}/items/${itemBeforeLostResponse.id}`);
+    expect(itemAfterLostResponse.status()).toBe(200);
+    expect(await itemAfterLostResponse.json()).toMatchObject({ done: true });
+    const receiptBeforeRetry = await serverCompletions(itemBeforeLostResponse.id);
+    expect(receiptBeforeRetry).toHaveLength(1);
+    const receiptIdBeforeRetry = receiptBeforeRetry[0]!.id;
+    expect(completionKeys).toHaveLength(1);
+    expect(completionKeys[0]).toMatch(/^[0-9a-f-]{32,}$/i);
+    await main.getByRole('status').getByRole('button', { name: en['items.retry'], exact: true }).click();
+    await expect(main.getByRole('status').getByText(en['items.notice.done'].replace('{title}', lostResponseTitle), { exact: true })).toBeVisible();
+    expect(completionKeys).toHaveLength(2);
+    expect(completionKeys[1]).toBe(completionKeys[0]);
+    const receiptAfterRetry = await serverCompletions(itemBeforeLostResponse.id);
+    expect(receiptAfterRetry).toHaveLength(1);
+    expect(receiptAfterRetry[0]!.id).toBe(receiptIdBeforeRetry);
+    await page.unroute(`**${lostResponsePath}`, loseCompletionResponse);
+    ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === loseCompletionResponse), 1);
+    n17ExpectedFailurePaths.delete(lostResponsePath);
+    n17FailurePhaseActive = false;
+
+    // Member list 403 is a refused request, regardless of the problem code, and retries in place.
+    const membersPath = `/api/v1/households/${householdId}/members`;
+    const membersForbidden = (route: import('@playwright/test').Route) => route.fulfill({ status: 403, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Forbidden', status: 403, code: 'owner_required' }) });
+    n17ExpectedFailurePaths.add(membersPath);
+    n17FailurePhaseActive = true;
+    await ownRoute(membersRoute, membersForbidden);
+    await page.getByRole('link', { name: en['members.title'], exact: true }).click();
+    await expect(main.getByText(en['members.error.requestRefused'], { exact: true })).toBeVisible();
+    await page.unroute(membersRoute);
+    ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === membersForbidden), 1);
+    n17ExpectedFailurePaths.delete(membersPath);
+    n17FailurePhaseActive = false;
+    await main.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+    await expect(main.getByText(en['members.error.requestRefused'], { exact: true })).toHaveCount(0);
+    await expect(main.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+    await expect(main.getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
+
+    // Repeat the list failure in Czech to verify localized recovery copy, then restore English.
+    await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+    switchedToCzech = true;
+    await page.goto('/');
+    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    n17OfflineExpectedResources.length = 0;
+    const czechOfflineHouseholdResource = new URL(`/api/v1/households/${householdId}/`, baseURL).href;
+    n17OfflineExpectedResources.push(
+      new RegExp(`^${escapeRegExp(czechOfflineHouseholdResource)}items/summary$`),
+      new RegExp(`^${escapeRegExp(czechOfflineHouseholdResource)}subjects\\?limit=100&archived=(?:false|true)(?:&id=[0-9a-f-]{36})*$`),
+      new RegExp(`^${escapeRegExp(czechOfflineHouseholdResource)}members\\?limit=50$`),
+    );
+    n17OfflineActive = true;
+    await page.context().setOffline(true);
+    try {
+      await page.getByRole('link', { name: cs['nav.allItems'], exact: true }).click();
+      await expect(page.getByRole('main').getByText(cs['app.error.body'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('button', { name: cs['app.error.retry'], exact: true })).toBeVisible();
+    } finally {
+      await page.context().setOffline(false);
+      n17OfflineActive = false;
+    }
+    await page.getByRole('button', { name: 'English', exact: true }).click();
+    switchedToCzech = false;
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await page.goto('/');
+    } catch (error) {
+      primaryFailure = error;
+    } finally {
+      n17OfflineActive = false;
+      n17OfflineExpectedResources.length = 0;
+      n17FailurePhaseActive = false;
+      n17ExpectedFailurePaths.clear();
+      const cleanup = async (operation: () => Promise<unknown>) => {
+        try { await operation(); } catch (error) { cleanupFailure ??= error; }
+      };
+      for (const route of ownedRoutes) await cleanup(() => page.unroute(route.url, route.handler));
+      ownedRoutes.length = 0;
+      await cleanup(() => page.context().setOffline(false));
+      await cleanup(() => page.setViewportSize({ width: 1280, height: 720 }));
+      await cleanup(async () => {
+        if (switchedToCzech && await page.getByRole('button', { name: 'English', exact: true }).count()) {
+          await page.getByRole('button', { name: 'English', exact: true }).click();
+        }
+      });
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
@@ -1993,7 +2202,8 @@ test.describe('Tendo production journey', () => {
     expect(assetResponse.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
     const subjectConflict = `PATCH /api/v1/households/${householdId}/subjects/${vehicleId} 412`;
     const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, subjectConflict, foreignDetailNotFound].sort());
+    const n17FailedResponses = [`GET /api/v1/households/${householdId}/items/summary 503`, `GET /api/v1/households/${householdId}/members 403`];
+    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound].sort());
     expect(problems).toEqual([]);
   });
 });
