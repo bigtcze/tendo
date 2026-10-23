@@ -240,6 +240,59 @@ describe('account screen', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
   });
 
+  it('moves focus from Retry to the loaded section after a successful retry', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : json(200, { linked: true });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it('moves focus to the signed-in line when a retry finds sign-in links turned off', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      'GET /api/v1/auth/oidc': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : json(200, { enabled: false });
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument());
+    expect(screen.getByText(/You’re signed in as/)).toHaveFocus();
+  });
+
+  it('does not take focus after a retry when the user has moved elsewhere', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? problem(503, 'unavailable') : delayed;
+      },
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
+    const signOut = screen.getByRole('button', { name: 'Sign out' });
+    signOut.focus();
+    release(json(200, { linked: true }));
+    await screen.findByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' });
+    expect(signOut).toHaveFocus();
+  });
+
   it('renders the Retry label in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...signedIn, 'GET /api/v1/auth/oidc': problem(503) });

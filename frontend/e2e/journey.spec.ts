@@ -1770,9 +1770,12 @@ test.describe('Tendo production journey', () => {
       const state = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.scrollingElement!.scrollWidth }));
       expect(state.scrollWidth, `${label} scrollWidth ${state.scrollWidth} <= innerWidth ${state.width}`).toBeLessThanOrEqual(state.width);
     };
-    const check = async (label: string, primary: Locator[]) => {
-      await expectNoHorizontalOverflow(label);
+    // Readiness first: each route's loaded content/actions must be visible before overflow is measured,
+    // so rows or sections rendered after the heading cannot escape the overflow assertion.
+    const check = async (label: string, primary: Locator[], ready: Locator[] = []) => {
+      for (const [index, content] of ready.entries()) await expect(content, `${label} loaded content ${index + 1}`).toBeVisible();
       for (const [index, action] of primary.entries()) await expectInViewport(action, `${label} primary action ${index + 1}`);
+      await expectNoHorizontalOverflow(label);
     };
 
     try {
@@ -1781,7 +1784,7 @@ test.describe('Tendo production journey', () => {
         expect(await page.evaluate(() => window.innerWidth), `requested viewport ${width}`).toBe(width);
         await page.goto('/');
         await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
-        await check(`Home ${width}`, [main.getByRole('button', { name: en['items.add'], exact: true })]);
+        await check(`Home ${width}`, [main.getByRole('button', { name: en['items.add'], exact: true })], [main.getByRole('listitem').filter({ hasText: title }).first()]);
 
         await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
         await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
@@ -1800,14 +1803,14 @@ test.describe('Tendo production journey', () => {
 
         await page.goto('/people');
         await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
-        await check(`People and things ${width}`, [main.getByRole('button', { name: en['subjects.add'], exact: true })]);
+        await check(`People and things ${width}`, [main.getByRole('button', { name: en['subjects.add'], exact: true })], [main.getByRole('listitem').filter({ hasText: 'Anička' }).first()]);
         await page.goto('/members');
         await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
-        await check(`Members ${width}`, [main.getByRole('button', { name: en['members.invite.action'], exact: true })]);
+        await check(`Members ${width}`, [main.getByRole('button', { name: en['members.invite.action'], exact: true })], [main.getByRole('listitem').filter({ hasText: ownerLogin }).first()]);
         await page.goto('/account');
         await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
-        // n9 already linked the owner, so Account shows the linked section rather than the connect form.
-        await check(`Account ${width}`, [main.getByRole('heading', { level: 2 })]);
+        // n9 already linked the owner, so Account has no primary action: assert the linked section content instead.
+        await check(`Account ${width}`, [], [main.getByRole('heading', { level: 2, name: en['account.oidc.title'].replace('{provider}', 'OIDC Smoke Provider') }), main.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))]);
       }
 
       await page.setViewportSize({ width: 320, height: 800 });
@@ -1815,7 +1818,7 @@ test.describe('Tendo production journey', () => {
       await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
       await page.goto('/');
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
-      await check('Home 320 Czech', [page.getByRole('main').getByRole('button', { name: cs['items.add'], exact: true })]);
+      await check('Home 320 Czech', [page.getByRole('main').getByRole('button', { name: cs['items.add'], exact: true })], [page.getByRole('main').getByRole('listitem').filter({ hasText: title }).first()]);
       await page.goto(`/items/${created.id}`);
       await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
       await check('Item detail 320 Czech', [page.getByRole('main').getByRole('button', { name: cs['itemDetail.edit.button'], exact: true })]);
@@ -1855,14 +1858,11 @@ test.describe('Tendo production journey', () => {
       }
       throw new Error(`Could not tab to ${description} within 200 stops`);
     };
-    const expectMeaningfulFocus = async (label: string) => {
-      const focused = await page.evaluate(() => document.activeElement !== document.body && document.activeElement !== null);
-      expect(focused, `${label} leaves meaningful focus`).toBe(true);
-    };
 
     await pressTabUntil((name) => name === en['items.add'], 'Add item');
     await page.keyboard.press('Enter');
-    const form = page.getByRole('main').getByRole('form', { name: en['items.add.formLabel'] });
+    const main0 = () => page.getByRole('main');
+    const form = main0().getByRole('form', { name: en['items.add.formLabel'] });
     await expect(form.getByLabel(en['items.title'])).toBeFocused();
     await page.keyboard.type(originalTitle);
     await page.keyboard.press('Tab'); // subject select
@@ -1878,7 +1878,7 @@ test.describe('Tendo production journey', () => {
     expect(activeSubmit).toContain(en['items.add.submit']);
     await page.keyboard.press('Enter');
     await expect(form).toHaveCount(0);
-    await expectMeaningfulFocus('item creation');
+    await expect(main0().getByRole('button', { name: en['items.add'], exact: true })).toBeFocused();
     await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: originalTitle })).toBeVisible();
 
     const main = page.getByRole('main');
@@ -1897,18 +1897,18 @@ test.describe('Tendo production journey', () => {
     await tabToRowButton(en['items.done.label'].replace('{title}', originalTitle));
     await page.keyboard.press('Enter');
     await expect(page.getByRole('status').filter({ hasText: originalTitle })).toContainText(en['items.notice.done'].replace('{title}', originalTitle));
-    await expectMeaningfulFocus('completion');
+    // The notice container (tabindex -1 wrapper around the status) receives focus so Undo is the next Tab stop.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.querySelector('[role="status"]')?.textContent ?? '')).toContain(en['items.notice.done'].replace('{title}', originalTitle));
     await pressTabUntil((name) => name === en['items.undo'], 'Undo');
     await page.keyboard.press('Enter');
     await expect(itemRow).toBeVisible();
-    await expectMeaningfulFocus('undo');
+    await expect(itemRow.getByRole('button', { name: en['items.done.label'].replace('{title}', originalTitle) })).toBeFocused();
 
     const titleLink = main.getByRole('link', { name: en['itemDetail.open'].replace('{title}', originalTitle), exact: true });
     for (let i = 0; i < 200 && !(await titleLink.evaluate((element) => element === document.activeElement)); i += 1) await page.keyboard.press('Tab');
     await expect(titleLink).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('heading', { level: 1, name: originalTitle })).toBeVisible();
-    await expectMeaningfulFocus('opening item detail');
+    await expect(page.getByRole('heading', { level: 1, name: originalTitle })).toBeFocused();
     await pressTabUntil((name) => name === en['itemDetail.edit.button'], 'Edit');
     await page.keyboard.press('Enter');
     const editForm = page.getByRole('main').getByRole('form', { name: en['itemDetail.edit.formLabel'] });
@@ -1916,7 +1916,8 @@ test.describe('Tendo production journey', () => {
     await expect(titleInput).toBeFocused();
     await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.type(savedTitle);
-    await expectMeaningfulFocus('editing title');
+    await expect(titleInput).toBeFocused();
+    await expect(titleInput).toHaveValue(savedTitle);
     // Save is reached through the form's normal tab order; submitting with Enter is equivalent to activating the focused submit.
     await page.keyboard.press('Tab');
     for (let i = 0; i < 16; i += 1) {
@@ -1927,7 +1928,7 @@ test.describe('Tendo production journey', () => {
     expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement as HTMLElement | null)?.innerText?.trim() || '')).toContain(en['itemDetail.save']);
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { level: 1, name: savedTitle })).toBeVisible();
-    await expectMeaningfulFocus('saving item');
+    await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['itemDetail.updated'] })).toBeFocused();
 
     const saved = await serverItem(savedTitle);
     expect(saved.done).toBe(false);
