@@ -20,6 +20,68 @@ import urllib.request
 from pathlib import Path
 
 
+# Generated credentials are registered here so failure output can be redacted before printing.
+SENSITIVE_VALUES: set[str] = set()
+FAILURE_LOG_TAIL_LINES = 200
+ROUTINE_ACCESS_LINE = re.compile(r" INFO http request .* status=[23]\d\d ")
+
+
+def generated_secret(nbytes: int) -> str:
+    value = base64.b64encode(secrets.token_bytes(nbytes)).decode("ascii")
+    SENSITIVE_VALUES.add(value)
+    return value
+
+
+def register_database_url(value: str):
+    """Register a database URL plus its encoded and decoded password for failure-log redaction."""
+    if not value:
+        return
+    SENSITIVE_VALUES.add(value)
+    password = urllib.parse.urlsplit(value).password
+    if password:
+        SENSITIVE_VALUES.add(password)
+        SENSITIVE_VALUES.add(urllib.parse.unquote(password))
+
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# Structural redaction for secrets the runner never sees by value: browser/API cookies, auth headers,
+# OIDC callback parameters, invitation fragments, and any credential-bearing URL.
+STRUCTURAL_PATTERNS = (
+    (re.compile(r"(?i)\b(set-cookie|cookie|authorization|proxy-authorization|x-csrf-token)(\s*[:=]\s*)[^\r\n]*"), r"\1\2[redacted]"),
+    (re.compile(r"(?i)\b(tendo_session[A-Za-z0-9_-]*)=[^;\s'\"`,)]+"), r"\1=[redacted]"),
+    (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
+    (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
+    (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
+    (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
+)
+
+
+def redact(text: str) -> str:
+    text = ANSI_ESCAPE.sub("", text)
+    for value in sorted(SENSITIVE_VALUES, key=len, reverse=True):
+        text = text.replace(value, "[redacted]")
+    for pattern, replacement in STRUCTURAL_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def print_failure_log_tail(log_path: Path, lines: int = FAILURE_LOG_TAIL_LINES):
+    """CI keeps no runner files; surface Playwright/app output so a failure is diagnosable from the job log."""
+    try:
+        all_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        print(f"E2E process log unavailable: {exc}", file=sys.stderr)
+        return
+    # Successful per-request access lines would otherwise push Playwright's failure report out of the tail.
+    kept = [line for line in all_lines if not ROUTINE_ACCESS_LINE.search(line)]
+    tail = kept[-lines:]
+    omitted = len(all_lines) - len(kept)
+    print(f"---- last {len(tail)} lines of {log_path} ({omitted} successful access-log lines omitted; credentials redacted) ----", file=sys.stderr)
+    for line in tail:
+        print(redact(line), file=sys.stderr)
+    print("---- end of E2E process log ----", file=sys.stderr)
+
+
 def port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -301,7 +363,7 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
 
     host_port = port()
     app_origin = f"http://localhost:{host_port}"
-    setup_token = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+    setup_token = generated_secret(32)
     env.update({
         "DATABASE_URL": inherited["TEST_DATABASE_URL"],
         "TENDO_PUBLIC_URL": app_origin,
@@ -318,7 +380,7 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
     base.update({
         "E2E_BASE_URL": app_origin,
         "E2E_SETUP_TOKEN": setup_token,
-        "E2E_OWNER_PASSWORD": base64.b64encode(secrets.token_bytes(24)).decode("ascii"),
+        "E2E_OWNER_PASSWORD": generated_secret(24),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
     })
     if audit_dir is not None:
@@ -360,13 +422,14 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     app_origin = f"http://localhost:{host_port}"
     issuer = f"http://127.0.0.1:{issuer_port}"
     client, secret = "tendo-oidc-smoke", "tendo-oidc-smoke-secret"
+    SENSITIVE_VALUES.add(secret)
     if "INTERRUPT_MARKERS" in inherited:
         env["INTERRUPT_MARKERS"] = inherited["INTERRUPT_MARKERS"]
     env.update({
         "DATABASE_URL": inherited["TEST_DATABASE_URL"],
         "TENDO_PUBLIC_URL": app_origin,
         "TENDO_LISTEN_ADDR": f"127.0.0.1:{host_port}",
-        "TENDO_SETUP_TOKEN": base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
+        "TENDO_SETUP_TOKEN": generated_secret(32),
         "TENDO_TEST_CLOCK_NOW": "2026-01-15T22:59:59Z",
         "TENDO_TEST_CLOCK_ACK": "isolated-e2e-only",
         "TENDO_OIDC_ISSUER": issuer,
@@ -398,7 +461,7 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     base.update({
         "E2E_BASE_URL": app_origin,
         "E2E_SETUP_TOKEN": env["TENDO_SETUP_TOKEN"],
-        "E2E_OWNER_PASSWORD": base64.b64encode(secrets.token_bytes(24)).decode("ascii"),
+        "E2E_OWNER_PASSWORD": generated_secret(24),
         "E2E_OIDC_ISSUER": issuer,
         "E2E_CLOCK_NOW": "2026-01-15T22:59:59Z",
         "E2E_CLOCK_FIXTURE_PATH": str(artifact_dir / "attention-clock.json"),
@@ -432,12 +495,15 @@ def main():
     if args.screenshot and args.audit_dir:
         parser.error("--screenshot and --audit-dir are mutually exclusive")
     root = args.root.resolve()
+    for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
+        register_database_url(os.environ.get(key, ""))
     children = Children()
     artifact_dir = root / "frontend/test-results" / f"native-{uuid.uuid4().hex}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
     signal_seen = None
     previous_handlers = {}
     result_error = None
+    cleanup_error_seen = None
     def handle_signal(signum, _frame):
         nonlocal signal_seen
         signal_seen = signum
@@ -462,14 +528,18 @@ def main():
         try:
             children.close()
         except BaseException as cleanup_error:
-            if result_error is None:
-                raise
-            print(f"secondary E2E child cleanup failure: {cleanup_error}", file=sys.stderr)
+            cleanup_error_seen = cleanup_error
+            if result_error is not None:
+                print(f"secondary E2E child cleanup failure: {cleanup_error}", file=sys.stderr)
         finally:
             for signum, previous in previous_handlers.items():
                 signal.signal(signum, previous)
-        if result_error is not None:
+        # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
+        if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
+            print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
+        if result_error is None and cleanup_error_seen is not None:
+            raise cleanup_error_seen
         if signal_seen is not None:
             # raise after cleanup rather than returning success on cancellation
             raise SystemExit(128 + signal_seen)
