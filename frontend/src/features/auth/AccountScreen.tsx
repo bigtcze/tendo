@@ -28,6 +28,8 @@ const startErrorKeys: Record<StartFailure, MessageKey> = {
 export function AccountScreen({ login, outcome, onSignedOut }: { login: string; outcome: OidcOutcome | null; onSignedOut: () => void }) {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  const [showRetry, setShowRetry] = useState(false);
   const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<StartFailure | null>(null);
@@ -41,22 +43,26 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const status = await fetchOidcStatus();
-      if (cancelled) return;
-      if (status.kind === 'disabled') return setSection({ kind: 'hidden' });
-      if (status.kind === 'error') return setSection({ kind: 'error', provider: null });
-      const identity = await fetchOidcIdentity();
-      if (cancelled) return;
-      if (identity.kind === 'unauthenticated') return onSignedOutRef.current();
-      if (identity.kind === 'disabled') return setSection({ kind: 'hidden' });
-      if (identity.kind === 'linked') return setSection({ kind: 'linked', provider: status.displayName });
-      if (identity.kind === 'notLinked') return setSection({ kind: 'notLinked', provider: status.displayName });
-      setSection({ kind: 'error', provider: status.displayName });
+      try {
+        const status = await fetchOidcStatus();
+        if (cancelled) return;
+        if (status.kind === 'disabled') return setSection({ kind: 'hidden' });
+        if (status.kind === 'error') return setSection({ kind: 'error', provider: null });
+        const identity = await fetchOidcIdentity();
+        if (cancelled) return;
+        if (identity.kind === 'unauthenticated') return onSignedOutRef.current();
+        if (identity.kind === 'disabled') return setSection({ kind: 'hidden' });
+        if (identity.kind === 'linked') return setSection({ kind: 'linked', provider: status.displayName });
+        if (identity.kind === 'notLinked') return setSection({ kind: 'notLinked', provider: status.displayName });
+        setSection({ kind: 'error', provider: status.displayName });
+      } catch {
+        if (!cancelled) setSection({ kind: 'error', provider: null });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   async function connect(event: FormEvent) {
     event.preventDefault();
@@ -96,7 +102,12 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
         </div>
         <p className="mt-6 break-words text-lg text-muted">{t('account.signedInAs', { login })}</p>
         {section.kind === 'loading' ? <p role="status" className="mt-8 text-muted">{t('account.oidc.loading')}</p> : null}
-        {section.kind === 'error' ? <p className="mt-8 text-muted">{t('account.oidc.loadError')}</p> : null}
+        {section.kind === 'error' ? <p role="status" className="mt-8 text-muted">{t('account.oidc.loadError')}</p> : null}
+        {section.kind === 'error' || (showRetry && section.kind === 'loading') ? (
+          <Button type="button" variant="quiet" className="mt-3" onClick={() => { setShowRetry(true); setSection({ kind: 'loading' }); setAttempt((n) => n + 1); }}>
+            {t('app.error.retry')}
+          </Button>
+        ) : null}
         {section.kind === 'linked' ? (
           <section className="mt-8 border-t border-line pt-6">
             <h2 className="font-display text-2xl break-words">{t('account.oidc.title', { provider: section.provider })}</h2>
