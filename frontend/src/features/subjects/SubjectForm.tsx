@@ -224,7 +224,7 @@ export function SubjectForm({
       </div>
       <div className="flex flex-wrap gap-2">
         {locked ? (
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending} className="w-full whitespace-normal text-center sm:w-auto">
             {pending && pendingAttempt ? pendingLabel : retryLabel ?? submitLabel}
           </Button>
         ) : (

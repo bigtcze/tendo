@@ -78,7 +78,7 @@ P0 = blocks a V2 DoD item; P1 = significant usability or quality problem; P2 = p
 |---|---|---|---|
 | R1 | P1 | Expanded Needs attention at 1200 items is still a long stream that pushes later groups far down. | Fixed in this slice: a compact overview links to every populated group heading. |
 | R2 | P2 | Item edit shows History directly below the form. | Fixed in this slice: History is hidden during editing and restored without refetching. |
-| R3 | P2 | Account with OIDC disabled (as captured) shows only the heading and the signed-in name; looks sparse. The OIDC link-status variants were not captured. | `audit-account-en-390.png` |
+| R3 | P2 | Account with OIDC disabled (as captured) shows only the heading and the signed-in name; looks sparse. The OIDC link-status variants were not captured. | Fixed: Account always ends with a quiet Language section pointing to the existing language switch at the bottom of every page; no new settings or capabilities. |
 | R4 | P1 | Home and All items rows say "Repeats every …" but not whether the next date follows the plan or the completion (Repeat vs Fluid). Fixed in slice R4: rows append “keeps planned dates” / “counted from when it’s done”. | `home-1200-en-390-fold.png`, `audit-all-items-en-390.png` |
 
 Observed without problems in the captured screens only: empty and 1-item homes at all widths; Czech strings

@@ -25,6 +25,15 @@ describe('members and invitations', () => {
     expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members`)).toBe(true);
   });
 
+  it('lets the long Czech invite action wrap on a narrow screen', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer(defaults());
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Členové domácnosti' }));
+    const main = screen.getByRole('main');
+    const action = await within(main).findByRole('button', { name: 'Vytvořit odkaz s pozvánkou' });
+    expect(action).toHaveClass('whitespace-normal', 'w-full');
+  });
+
   it('creates links with unique idempotency keys, empty body, and copies the exact URL', async () => {
     const token = 'a'.repeat(43); const fake = installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: json(201, { token }) });
     const writeText = vi.fn().mockResolvedValue(undefined); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });

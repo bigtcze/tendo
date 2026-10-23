@@ -160,6 +160,10 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
             </form>
           </section>
         ) : null}
+        <section className="mt-8 border-t border-line pt-6">
+          <h2 className="font-display text-2xl">{t('account.preferences.title')}</h2>
+          <p className="mt-2 text-muted">{t('account.preferences.body')}</p>
+        </section>
       </section>
     </Layout>
   );

@@ -2146,6 +2146,141 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n18. loading states, no-match recovery, Account language and Czech phone labels on household routes', async () => {
+    test.setTimeout(60_000);
+    const main = page.getByRole('main');
+    const ownedRoutes: Array<{ url: string | RegExp; handler: (route: import('@playwright/test').Route) => void | Promise<void> }> = [];
+    const releases: Array<() => void> = [];
+    let switchedToCzech = false;
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    const ownRoute = async (url: string | RegExp, handler: (route: import('@playwright/test').Route) => void | Promise<void>) => {
+      ownedRoutes.push({ url, handler });
+      await page.route(url, handler);
+    };
+    const holdRequest = async (url: string | RegExp) => {
+      let markHit!: () => void;
+      let release!: () => void;
+      const hit = new Promise<void>((resolve) => { markHit = resolve; });
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      releases.push(release);
+      const handler = async (route: import('@playwright/test').Route) => {
+        markHit();
+        await held;
+        await route.continue();
+      };
+      await ownRoute(url, handler);
+      return { url, hit, release, handler };
+    };
+    const expectLoading = async (text: string) => {
+      await expect(main.getByRole('status').filter({ hasText: text })).toBeVisible();
+    };
+    const expectNoHorizontalOverflow = async (label: string) => {
+      const state = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.scrollingElement!.scrollWidth }));
+      expect(state.scrollWidth, `${label} scrollWidth ${state.scrollWidth} <= innerWidth ${state.width}`).toBeLessThanOrEqual(state.width);
+    };
+
+    try {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto('/account');
+      await expect(main.getByRole('heading', { level: 2, name: 'Language', exact: true })).toBeVisible();
+      await expect(main.getByText('Switch between English and Czech at the bottom of any page.', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+      switchedToCzech = true;
+      await expect(main.getByRole('heading', { level: 2, name: 'Jazyk', exact: true })).toBeVisible();
+      await expect(main.getByText('Mezi češtinou a angličtinou přepnete dole na každé stránce.', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'English', exact: true }).click();
+      switchedToCzech = false;
+
+      const waterItem = await serverItem('Water the plants');
+      const itemPath = `/api/v1/households/${householdId}/items/${waterItem.id}`;
+      await page.goto(`/items/${waterItem.id}`);
+      await expect(main.getByRole('heading', { level: 1, name: 'Water the plants' })).toBeVisible();
+      const editHold = await holdRequest(`**${itemPath}`);
+      await main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      await editHold.hit;
+      await expectLoading(en['itemDetail.edit.loading']);
+      await expect(main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true })).toBeDisabled();
+      editHold.release();
+      await expect(main.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toBeVisible();
+      await main.getByRole('form', { name: en['itemDetail.edit.formLabel'] }).getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(main.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toHaveCount(0);
+      await page.unroute(`**${itemPath}`, editHold.handler);
+      ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === editHold.handler), 1);
+
+      const itemsListPath = `/api/v1/households/${householdId}/items`;
+      const allItemsHold = await holdRequest(new RegExp(`^${escapeRegExp(new URL(itemsListPath, baseURL).href)}\\?[^#]*$`));
+      await page.goto('/items');
+      await allItemsHold.hit;
+      await expectLoading(en['items.loading']);
+      allItemsHold.release();
+      await expect(main.getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
+      await page.unroute(allItemsHold.url, allItemsHold.handler);
+      ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === allItemsHold.handler), 1);
+
+      await main.getByRole('searchbox').fill('N18 no matching household item query');
+      await main.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await expect(main.getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+      await main.getByRole('button', { name: en['allItems.clear'], exact: true }).click();
+      await expect(main.getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
+
+      const peopleListUrl = new URL(`/api/v1/households/${householdId}/subjects`, baseURL).href;
+      const peopleHold = await holdRequest(new RegExp(`^${escapeRegExp(peopleListUrl)}\\?[^#]*archived=false(?:&|$)`));
+      await page.goto('/people');
+      await peopleHold.hit;
+      await expectLoading(en['subjects.loading']);
+      peopleHold.release();
+      await expect(main.getByRole('listitem').filter({ hasText: 'Anička' })).toBeVisible();
+      await page.unroute(peopleHold.url, peopleHold.handler);
+      ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === peopleHold.handler), 1);
+
+      const membersListUrl = new URL(`/api/v1/households/${householdId}/members`, baseURL).href;
+      const membersHold = await holdRequest(new RegExp(`^${escapeRegExp(membersListUrl)}\\?limit=50$`));
+      await page.goto('/members');
+      await membersHold.hit;
+      await expectLoading(en['members.loading']);
+      membersHold.release();
+      await expect(main.getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
+      await page.unroute(membersHold.url, membersHold.handler);
+      ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === membersHold.handler), 1);
+
+      await page.setViewportSize({ width: 320, height: 740 });
+      await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+      switchedToCzech = true;
+      const inviteAction = main.getByRole('button', { name: cs['members.invite.action'], exact: true });
+      await expect(inviteAction).toBeVisible();
+      await expectNoHorizontalOverflow('Czech Members invite action at 320px');
+      const inviteBox = await inviteAction.boundingBox();
+      expect(inviteBox, 'Czech invite action has a box').not.toBeNull();
+      expect(inviteBox!.x + inviteBox!.width, 'Czech invite action stays inside the 320px viewport').toBeLessThanOrEqual(320);
+      await page.goto('/items');
+      await expect(main.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+      await main.getByRole('link', { name: 'Water the plants', exact: true }).click();
+      const itemDetailBack = main.getByRole('link', { name: cs['itemDetail.backAllItems'], exact: true });
+      await expect(itemDetailBack).toBeVisible();
+      await expectNoHorizontalOverflow('Czech item detail back link at 320px');
+      const backBox = await itemDetailBack.boundingBox();
+      expect(backBox!.x + backBox!.width, 'Czech back link stays inside the 320px viewport').toBeLessThanOrEqual(320);
+      await page.getByRole('button', { name: 'English', exact: true }).click();
+      switchedToCzech = false;
+    } catch (error) {
+      primaryFailure = error;
+    } finally {
+      for (const release of releases) release();
+      for (const route of ownedRoutes) {
+        try { await page.unroute(route.url, route.handler); } catch (error) { cleanupFailure ??= error; }
+      }
+      await page.setViewportSize({ width: 1280, height: 720 }).catch((error) => { cleanupFailure ??= error; });
+      try {
+        if (switchedToCzech && await page.getByRole('button', { name: 'English', exact: true }).count()) {
+          await page.getByRole('button', { name: 'English', exact: true }).click();
+        }
+      } catch (error) { cleanupFailure ??= error; }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('o. sign out returns to login and revokes the session server-side', async () => {
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
