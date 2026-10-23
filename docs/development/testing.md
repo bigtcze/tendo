@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-The complete local gate targets Go 1.27.2, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 24.21.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium browser. Repository-pinned JavaScript tools include oapi-codegen v2.8.0, openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 24.21.0. See [dependency and toolchain inventory](dependencies.md); `toolchain.json` is the canonical pin list.
+The complete local gate targets Go 1.27.3, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 24.21.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium browser. Repository-pinned JavaScript tools include oapi-codegen v2.8.0, openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 24.21.0. See [dependency and toolchain inventory](dependencies.md); `toolchain.json` is the canonical pin list.
 
 ## Pinned toolchain wrapper
 
@@ -86,8 +86,8 @@ The required workflow retains one stable branch-protection aggregate check named
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.2/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all seven smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior), `scripts/test_quickstart_docs.py` (shell extraction, section fences, ordered README consistency); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
-| `api` | Go 1.27.2, Node 24.21.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
+| `backend` | Go 1.27.3/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all seven smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior), `scripts/test_quickstart_docs.py` (shell extraction, section fences, ordered README consistency); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
+| `api` | Go 1.27.3, Node 24.21.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 24.21.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.31.1 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |
 | `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 24.21.0, frontend `npm ci`, Playwright 1.64.1 Chromium install, full native production-build E2E |
