@@ -1206,7 +1206,7 @@ describe('Home items', () => {
     let done = false;
     let holdItemRead = action === 'complete';
     let releaseRead: (() => void) | undefined;
-    const completion = (undoneAt: string | null) => json(action === 'complete' || undoneAt ? 200 : 201, { id: 'c-hold', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt, undoneByUserId: undoneAt ? 'u-1' : null });
+    const completion = (undoneAt: string | null) => json(undoneAt ? 200 : 201, { id: 'c-hold', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt, undoneByUserId: undoneAt ? 'u-1' : null });
     const fake = installFakeServer({
       ...routes,
       ...itemRoutes(base, () => [item({ done })]),
