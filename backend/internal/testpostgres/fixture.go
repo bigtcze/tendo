@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -72,7 +75,7 @@ func CreateDatabase(t *testing.T, ctx context.Context, admin *pgxpool.Pool) stri
 			t.Errorf("refusing to drop fixture %s: database ownership changed (owner oid %d, expected %d, lookup error %v)", dbName, ownerOID, migratorOID, err)
 			return
 		}
-		if _, err := cleanupAdmin.Exec(cleanupCtx, `DROP DATABASE `+pgx.Identifier{dbName}.Sanitize()+` WITH (FORCE)`); err != nil {
+		if err := dropOwnedDatabase(cleanupCtx, cleanupAdmin, dbName); err != nil {
 			t.Errorf("drop owned fixture %s failed: %v", dbName, err)
 		}
 	})
@@ -88,6 +91,50 @@ func CreateDatabase(t *testing.T, ctx context.Context, admin *pgxpool.Pool) stri
 	}
 	fixture.Close()
 	return dbName
+}
+
+// dropOwnedDatabase drops a fixture database owned by the non-superuser
+// migrator. DROP ... WITH (FORCE) refuses with 42501 when an autovacuum worker
+// (which runs as the bootstrap superuser) is connected to the fixture, because
+// a non-superuser may not terminate superuser processes. Plain DROP DATABASE
+// cancels autovacuum workers itself and waits briefly for other sessions, so it
+// is used as the fallback; while the database is still in use (55006) the
+// attempt is retried until the context deadline.
+func dropOwnedDatabase(ctx context.Context, admin execer, dbName string) error {
+	name := pgx.Identifier{dbName}.Sanitize()
+	for {
+		_, err := admin.Exec(ctx, `DROP DATABASE `+name+` WITH (FORCE)`)
+		if err == nil {
+			return nil
+		}
+		if sqlState(err) == "42501" {
+			// Only FORCE's superuser-termination refusal is retried; a
+			// permission error from plain DROP is a real failure.
+			if _, err = admin.Exec(ctx, `DROP DATABASE `+name); err == nil {
+				return nil
+			}
+		}
+		if sqlState(err) != "55006" {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w (last error: %v)", ctx.Err(), err)
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+type execer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func sqlState(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
 }
 
 func PoolConfigForDatabase(t *testing.T, url, database string) *pgxpool.Config {
