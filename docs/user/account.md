@@ -31,3 +31,4 @@ After that, **Sign in with …** takes you straight to your household.
 | That sign-in attempt expired or was already used. | Start again from the sign-in or account screen. |
 | You signed in or out in another tab while this was in progress. | Start again in one tab. |
 | … can't be reached right now. | The identity provider is unavailable. Use your password. |
+| Other sign-in options couldn't be loaded. | Tendo couldn't check for the **Sign in with …** button. Choose **Try again**, or use your password. |

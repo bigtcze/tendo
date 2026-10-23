@@ -27,20 +27,45 @@ const startErrorKeys: Record<StartFailure, MessageKey> = {
 export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Session) => void; notice?: string }) {
   const { t } = useI18n();
   const [provider, setProvider] = useState<string | null>(null);
+  const [oidcStatus, setOidcStatus] = useState<'loading' | 'enabled' | 'disabled' | 'error'>('loading');
+  const [oidcStatusPending, setOidcStatusPending] = useState(false);
+  const statusGeneration = useRef(0);
+  const statusRetryRef = useRef<HTMLButtonElement>(null);
+  const moveFocusAfterStatus = useRef(false);
   const [oidcPending, setOidcPending] = useState(false);
   const [oidcError, setOidcError] = useState<StartFailure | null>(null);
   const oidcPendingRef = useRef(false);
   const oidcButtonRef = useRef<HTMLButtonElement>(null);
 
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const statusMounted = useRef(false);
+
+  async function loadOidcStatus() {
+    const generation = ++statusGeneration.current;
+    setOidcStatusPending(true);
+    const status = await fetchOidcStatus();
+    if (!statusMounted.current || generation !== statusGeneration.current) return;
+    moveFocusAfterStatus.current = document.activeElement === statusRetryRef.current;
+    setProvider(status.kind === 'enabled' ? status.displayName : null);
+    setOidcStatus(status.kind);
+    setOidcStatusPending(false);
+  }
+
   useEffect(() => {
-    let cancelled = false;
-    fetchOidcStatus().then((status) => {
-      if (!cancelled && status.kind === 'enabled') setProvider(status.displayName);
-    });
+    statusMounted.current = true;
+    void Promise.resolve().then(loadOidcStatus);
     return () => {
-      cancelled = true;
+      statusMounted.current = false;
+      statusGeneration.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (!moveFocusAfterStatus.current || oidcStatusPending) return;
+    moveFocusAfterStatus.current = false;
+    if (oidcStatus === 'enabled') oidcButtonRef.current?.focus();
+    else if (oidcStatus === 'disabled') passwordRef.current?.focus();
+  }, [oidcStatus, oidcStatusPending]);
 
   async function signInWithProvider() {
     if (oidcPendingRef.current || pending) return;
@@ -64,7 +89,6 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
   const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<keyof typeof errorKeys | null>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -126,7 +150,22 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
           {pending ? t('login.submitting') : t('login.submit')}
         </Button>
       </form>
-      {provider ? (
+      {oidcStatus === 'error' ? (
+        <div className="mt-8">
+          <p role="status" className="text-sm text-muted">{t('login.oidc.loadError')}</p>
+          <Button
+            ref={statusRetryRef}
+            type="button"
+            variant="quiet"
+            size="small"
+            aria-disabled={oidcStatusPending}
+            className="mt-2"
+            onClick={() => { if (!oidcStatusPending) void loadOidcStatus(); }}
+          >
+            {t('app.error.retry')}
+          </Button>
+        </div>
+      ) : provider ? (
         <div className="mt-8">
           <div className="flex items-center gap-3 text-sm text-muted" aria-hidden="true">
             <span className="h-px flex-1 bg-line" />
