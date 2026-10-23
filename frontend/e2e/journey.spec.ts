@@ -2307,10 +2307,6 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
       await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeFocused();
       await expect(page.getByRole('status')).toHaveText(en['login.sessionEnded']);
-      const expectedN19Failures = [`GET /api/v1/households/${householdId}/items/summary 401`, `GET /api/v1/households/${householdId}/subjects 401`, `GET /api/v1/households/${householdId}/members 401`];
-      // Which of the three household reads reach the server before sign-in replaces the screen is timing-dependent.
-      expect(n19FailedResponses).toContain(expectedN19Failures[0]);
-      expect(n19FailedResponses.filter((entry) => !expectedN19Failures.includes(entry)), 'n19 failures must be only session-ended household 401s').toEqual([]);
       await expectNoAxeViolations(page, 'login-session-ended');
       await signIn(page, ownerPassword);
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
@@ -2318,6 +2314,11 @@ test.describe('Tendo production journey', () => {
       n19PhaseActive = false;
       await fresh.dispose();
     }
+    // Checked after the phase ends so every failure recorded during it is examined.
+    const expectedN19Failures = [`GET /api/v1/households/${householdId}/items/summary 401`, `GET /api/v1/households/${householdId}/subjects 401`, `GET /api/v1/households/${householdId}/members 401`];
+    // Which of the three household reads reach the server before sign-in replaces the screen is timing-dependent.
+    expect(n19FailedResponses).toContain(expectedN19Failures[0]);
+    expect(n19FailedResponses.filter((entry) => !expectedN19Failures.includes(entry)), 'n19 failures must be only session-ended household 401s').toEqual([]);
     sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session')?.value ?? '';
     expect(sessionToken).not.toBe('');
   });
