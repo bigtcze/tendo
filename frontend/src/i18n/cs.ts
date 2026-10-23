@@ -60,6 +60,7 @@ export const cs: Record<MessageKey, string> = {
   'login.or': 'nebo',
   'login.oidc.submit': 'Přihlásit se přes {provider}',
   'login.oidc.submitting': 'Otevírám {provider}…',
+  'login.oidc.loadError': 'Další možnosti přihlášení se nepodařilo načíst.',
   'oidc.error.cancelled': 'Přihlášení bylo zrušeno. Můžete to zkusit znovu nebo použít heslo.',
   'oidc.error.invalid_flow': 'Tento pokus o přihlášení vypršel nebo už byl použit. Začněte prosím znovu.',
   'oidc.error.identity_not_linked': 'Toto přihlášení zatím není propojené s účtem v Tendu. Přihlaste se heslem a propojte ho v sekci Účet.',

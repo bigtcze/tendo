@@ -25,7 +25,9 @@ const failedResponses = new Set<string>();
 let n17OfflineActive = false;
 let n17FailurePhaseActive = false;
 let n19PhaseActive = false;
+let n20OidcFailureActive = false;
 const n19FailedResponses: string[] = [];
+const n20FailedResponses: string[] = [];
 const n17OfflineExpectedResources: RegExp[] = [];
 const n17ExpectedFailurePaths = new Set<string>();
 // Browser-initiated expected failures: anonymous session/setup/login attempts, deliberate stale save,
@@ -46,6 +48,7 @@ function watch(page: Page) {
     if (expectedFailedPaths.has(path)) return;
     if (expectedForeignDetailPath.test(path) && /status of 404/.test(message.text())) return;
     if (n19PhaseActive && expectedSessionEndedPaths.some((expected) => expected(path)) && message.text().includes('status of 401')) return;
+    if (n20OidcFailureActive && path === '/api/v1/auth/oidc' && message.text().includes('status of 503')) return;
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
@@ -53,6 +56,7 @@ function watch(page: Page) {
     if (response.status() >= 400) {
       const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
       if (n19PhaseActive) n19FailedResponses.push(failure);
+      else if (n20OidcFailureActive && failure === 'GET /api/v1/auth/oidc 503') n20FailedResponses.push(failure);
       else failedResponses.add(failure);
     }
   });
@@ -2364,6 +2368,46 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByLabel(en['login.password'])).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+  });
+
+  test('n20. login recovers from a temporary sign-in options outage', async ({ browser }) => {
+    const context = await browser.newContext({ baseURL, locale: 'en-US' });
+    const loginPage = await context.newPage();
+    watch(loginPage);
+    let oidcRequests = 0;
+    await loginPage.route(`${baseURL}/api/v1/auth/oidc`, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      oidcRequests += 1;
+      if (oidcRequests === 1) {
+        n20OidcFailureActive = true;
+        await route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'unavailable', status: 503 }) });
+      } else {
+        await route.continue();
+      }
+    });
+    try {
+      await loginPage.goto('/');
+      await expect(loginPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await expect(loginPage.getByRole('status')).toHaveText(en['login.oidc.loadError']);
+      await expect(loginPage.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', 'OIDC Smoke Provider'), exact: true })).toHaveCount(0);
+      await expectNoAxeViolations(loginPage, 'login-oidc-recovery');
+      await loginPage.getByRole('button', { name: 'Čeština', exact: true }).click();
+      await expect(loginPage.getByRole('heading', { level: 1, name: cs['login.title'] })).toBeVisible();
+      await expect(loginPage.getByRole('status')).toHaveText(cs['login.oidc.loadError']);
+      await loginPage.setViewportSize({ width: 320, height: 740 });
+      const overflow = await loginPage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, '320px horizontal overflow on Czech login').toBeLessThanOrEqual(0);
+
+      await loginPage.getByRole('button', { name: cs['app.error.retry'], exact: true }).click();
+      const providerButton = loginPage.getByRole('button', { name: cs['login.oidc.submit'].replace('{provider}', 'OIDC Smoke Provider'), exact: true });
+      await expect(providerButton).toBeVisible();
+      await expect(providerButton).toBeFocused();
+      expect(oidcRequests).toBe(2);
+    } finally {
+      n20OidcFailureActive = false;
+      await context.close();
+    }
+    expect(n20FailedResponses).toEqual(['GET /api/v1/auth/oidc 503']);
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {

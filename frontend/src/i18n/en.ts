@@ -57,6 +57,7 @@ export const en = {
   'login.or': 'or',
   'login.oidc.submit': 'Sign in with {provider}',
   'login.oidc.submitting': 'Opening {provider}…',
+  'login.oidc.loadError': 'Other sign-in options couldn’t be loaded.',
   'oidc.error.cancelled': 'Sign-in was cancelled. You can try again or use your password.',
   'oidc.error.invalid_flow': 'That sign-in attempt expired or was already used. Please start again.',
   'oidc.error.identity_not_linked': 'This sign-in isn’t connected to a Tendo account yet. Sign in with your password, then connect it from Account.',

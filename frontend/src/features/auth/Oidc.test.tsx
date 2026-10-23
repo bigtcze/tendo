@@ -1,4 +1,5 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -39,12 +40,141 @@ describe('sign in with the configured provider', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 
-  it('is hidden when the status check fails', async () => {
-    installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': problem(503) });
+  it('shows a quiet recovery notice after a 503 while password sign-in still works', async () => {
+    const fake = installFakeServer({
+      ...signedOut,
+      'GET /api/v1/auth/oidc': problem(503),
+      'POST /api/v1/session': json(201, session()),
+      [`GET /api/v1/households/${HOUSEHOLD_ID}`]: json(200, household),
+      ...emptyHome,
+    });
+    renderApp();
+    const noticeText = await screen.findByText('Other sign-in options couldn’t be loaded.');
+    const notice = noticeText.closest('[role="status"]');
+    expect(notice).not.toBeNull();
+    expect(notice).not.toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument();
+    const signIn = screen.getByRole('button', { name: /^Sign in$/ });
+    expect(signIn).toBeEnabled();
+    await userEvent.type(screen.getByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Password'), 'password');
+    await userEvent.click(signIn);
+    await waitFor(() => expect(fake.requests.some((request) => request.path === '/api/v1/session' && request.method === 'POST')).toBe(true));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeInTheDocument();
+  });
+
+  it('retries a network failure, shows the provider, and moves focus from Retry', async () => {
+    const fake = installFakeServer({
+      ...signedOut,
+      'GET /api/v1/auth/oidc': () => fake.requests.filter((request) => request.path === '/api/v1/auth/oidc').length === 1
+        ? Promise.reject(new TypeError('network failure'))
+        : json(200, { enabled: true, displayName: 'Pocket ID' }),
+    });
+    renderApp();
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(retry);
+    const providerButton = await screen.findByRole('button', { name: 'Sign in with Pocket ID' });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    await waitFor(() => expect(providerButton).toHaveFocus());
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
+  });
+
+  it('does not steal focus when Retry settles after focus moved to Password', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const holder: { fake?: ReturnType<typeof installFakeServer> } = {};
+    const fake = installFakeServer({
+      ...signedOut,
+      'GET /api/v1/auth/oidc': () => holder.fake!.requests.filter((request) => request.path === '/api/v1/auth/oidc').length === 1
+        ? problem(503)
+        : delayed,
+    });
+    holder.fake = fake;
+    renderApp();
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(retry);
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
+    const password = screen.getByLabelText('Password');
+    password.focus();
+    await act(async () => { release(json(200, { enabled: true, displayName: 'Pocket ID' })); });
+    const providerButton = await screen.findByRole('button', { name: 'Sign in with Pocket ID' });
+    expect(password).toHaveFocus();
+    expect(providerButton).toBeVisible();
+  });
+
+  it('does not send another request when Retry is activated while a retry is pending', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const holder: { fake?: ReturnType<typeof installFakeServer> } = {};
+    const fake = installFakeServer({
+      ...signedOut,
+      'GET /api/v1/auth/oidc': () => holder.fake!.requests.filter((request) => request.path === '/api/v1/auth/oidc').length === 1
+        ? problem(503)
+        : delayed,
+    });
+    holder.fake = fake;
+    renderApp();
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(retry);
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
+    expect(retry).toHaveAttribute('aria-disabled', 'true');
+    expect(retry).toHaveFocus();
+    await userEvent.click(retry);
+    await userEvent.keyboard('{Enter}');
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
+    expect(retry).toHaveFocus();
+    await act(async () => { release(problem(503)); });
+    expect(await screen.findByText('Other sign-in options couldn’t be loaded.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
+  });
+
+  it('retry hides the notice when the provider is disabled', async () => {
+    const fake = installFakeServer({
+      ...signedOut,
+      'GET /api/v1/auth/oidc': () => fake.requests.filter((request) => request.path === '/api/v1/auth/oidc').length === 1
+        ? Promise.reject(new TypeError('network failure'))
+        : json(200, { enabled: false }),
+    });
+    renderApp();
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Password')).toHaveFocus();
+  });
+
+  it('does not show a notice when provider sign-in is disabled', async () => {
+    installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': json(200, { enabled: false }) });
     renderApp();
     await screen.findByLabelText('Login');
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
-    expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('ignores a stale initial status response after a newer StrictMode request', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const holder: { fake?: ReturnType<typeof installFakeServer> } = {};
+    const fake = installFakeServer({
+      ...signedOut,
+      'GET /api/v1/auth/oidc': () => holder.fake!.requests.filter((request) => request.path === '/api/v1/auth/oidc').length === 1
+        ? delayed
+        : json(200, { enabled: false }),
+    });
+    holder.fake = fake;
+    render(<I18nProvider><StrictMode><App /></StrictMode></I18nProvider>);
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
+    await act(async () => { release(json(200, { enabled: true, displayName: 'Stale Provider' })); });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument());
+    expect(screen.queryByText('Other sign-in options couldn’t be loaded.')).not.toBeInTheDocument();
+  });
+
+  it('renders the status recovery notice in Czech', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': problem(503) });
+    renderApp();
+    expect(await screen.findByText('Další možnosti přihlášení se nepodařilo načíst.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zkusit znovu' })).toBeInTheDocument();
   });
 
   it('posts exactly {purpose:"login"} once and navigates to the provider', async () => {

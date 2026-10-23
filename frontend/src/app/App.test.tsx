@@ -237,6 +237,7 @@ describe('signed in', () => {
       [householdPath]: json(200, household),
       'DELETE /api/v1/session': json(204),
       'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
     });
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
@@ -267,6 +268,7 @@ describe('signed in', () => {
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
       [householdPath]: () => (++householdCalls === 1 ? problem(401) : json(200, household)),
       'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
       'POST /api/v1/session': json(201, session()),
       'DELETE /api/v1/session': json(204),
     });
@@ -297,6 +299,7 @@ describe('signed in', () => {
       [`POST ${base}/items/${item.id}/completions`]: () => held,
       'DELETE /api/v1/session': json(204),
       'GET /api/v1/auth/setup': json(200, { required: false }),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
     });
     renderApp();
     const itemTitle = await screen.findByText('Delayed item');
