@@ -49,16 +49,20 @@ describe('item write barrier', () => {
 
   it('stops waiting for a hung write after the bound so lists still load', async () => {
     vi.useFakeTimers();
+    const hung = deferred();
     const fake = installFakeServer({
-      [`PATCH ${base}/items/${itemId}`]: () => new Promise<Response>(() => {}),
+      [`PATCH ${base}/items/${itemId}`]: () => hung.promise,
       [`GET ${base}/items/summary`]: json(200, summary),
     });
-    void patchItem(HOUSEHOLD_ID, itemId, '"1"', { archived: true });
+    const write = patchItem(HOUSEHOLD_ID, itemId, '"1"', { archived: true });
     const summaryRead = getItemsSummary(HOUSEHOLD_ID);
     await vi.advanceTimersByTimeAsync(itemWriteWaitLimitMs - 1);
     expect(reads(fake.requests)).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
     expect((await summaryRead).kind).toBe('ok');
     expect(reads(fake.requests)).toHaveLength(1);
+    // Settle the write so no tracked promise leaks into later tests.
+    hung.resolve(json(200, { ...item, archived: true }, { ETag: '"2"' }));
+    await write;
   });
 });

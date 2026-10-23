@@ -14,10 +14,12 @@ const completionPath = '/api/v1/households/{householdId}/items/{itemId}/completi
 const undoPath = '/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}';
 
 // Item writes that are still in flight. List and summary reads wait for them, so a list opened while a
-// write from another screen is pending (e.g. Archive, then Back before the response) never shows the
-// pre-write state: navigation unmounts the writing screen, so nothing else could refresh that list later.
+// write from another screen is pending (e.g. Archive, then Back before the response) loads post-write data:
+// navigation unmounts the writing screen, so nothing else would refresh that list later. Callers that read a
+// fresh ETag before writing track the read and write together. The wait is bounded per read (fail-open): a
+// write slower than the bound can still leave a list stale until it is reloaded.
 const pendingItemWrites = new Set<Promise<unknown>>();
-function trackItemWrite<T>(write: Promise<T>): Promise<T> {
+export function trackItemWrite<T>(write: Promise<T>): Promise<T> {
   pendingItemWrites.add(write);
   const done = () => { pendingItemWrites.delete(write); };
   write.then(done, done);

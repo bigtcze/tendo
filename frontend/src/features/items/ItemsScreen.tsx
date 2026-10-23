@@ -6,7 +6,7 @@ import { ItemForm, type ItemFormValues } from './ItemForm';
 import { listMembers, type Member } from '../members/membersApi';
 import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
 import { clearPendingItemCreate, getPendingItemCreate, setPendingItemCreate, type PendingItemCreate } from './pendingItemCreate';
-import { completeItem, createItem, getItem, getItemsSummary, listActiveSubjects, listItemGroup, undoCompletion, type Completion, type Item, type ItemGroup, type ItemSummary, type Subject } from './itemsApi';
+import { completeItem, createItem, getItem, getItemsSummary, listActiveSubjects, listItemGroup, trackItemWrite, undoCompletion, type Completion, type Item, type ItemGroup, type ItemRead, type ItemSummary, type Subject } from './itemsApi';
 import { repeatSummary } from './repeatSummary';
 import { useSubjectLabels } from './useSubjectLabels';
 import { getSubject } from '../subjects/subjectsApi';
@@ -443,6 +443,16 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     }
   }
 
+  // The fresh-ETag read and the write form one tracked item write, so a list opened elsewhere while the
+  // read is still in flight waits for the write too. Tracking ends before this screen's own refresh.
+  function readThenWrite<R>(itemId: string, write: (etag: string) => Promise<R>): Promise<{ current: ItemRead; result?: R }> {
+    return trackItemWrite((async () => {
+      const current = await getItem(householdId, itemId);
+      if (current.kind !== 'ok' || !current.etag) return { current };
+      return { current, result: await write(current.etag) };
+    })());
+  }
+
   async function finish(itemId: string) {
     const focusedControl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focused = focusedControl?.dataset.action === 'done' || focusedControl?.dataset.action === 'completion-trigger';
@@ -450,7 +460,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     const attemptKey = getPendingCompletion(userId, householdId, itemId) ?? idempotencyKey();
     setPendingCompletion(userId, householdId, itemId, attemptKey);
     try {
-      const current = await getItem(householdId, itemId);
+      const { current, result } = await readThenWrite(itemId, (etag) => completeItem(householdId, itemId, etag, attemptKey));
       if (current.kind === 'unauthenticated') { onSignedOut(); return; }
       if (current.kind === 'notFound') {
         clearPendingCompletion(userId, householdId, itemId);
@@ -458,12 +468,11 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
         setNotice({ text: t('items.notice.gone') });
         return;
       }
-      if (current.kind !== 'ok' || !current.etag) {
+      if (current.kind !== 'ok' || !result) {
         await refresh();
         setNotice({ text: t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action'), itemId, retryKey: attemptKey, retryKind: 'complete' });
         return;
       }
-      const result = await completeItem(householdId, itemId, current.etag, attemptKey);
       if (result.kind === 'unauthenticated') { onSignedOut(); return; }
       if (result.kind === 'ok') {
         if (result.completion.undoneAt) {
@@ -501,15 +510,14 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     const itemId = notice.itemId;
     const completion = notice.completion;
     try {
-      const current = await getItem(householdId, itemId);
+      const { current, result } = await readThenWrite(itemId, (etag) => undoCompletion(householdId, itemId, completion.id, etag));
       if (current.kind === 'unauthenticated') { onSignedOut(); return; }
       if (current.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); return; }
-      if (current.kind !== 'ok' || !current.etag) {
+      if (current.kind !== 'ok' || !result) {
         await refresh();
         setNotice({ ...previous, text: t('items.notice.changed'), undoAvailable: true });
         return;
       }
-      const result = await undoCompletion(householdId, itemId, completion.id, current.etag);
       if (result.kind === 'unauthenticated') { onSignedOut(); return; }
       if (result.kind === 'ok') {
         setNotice(null);
