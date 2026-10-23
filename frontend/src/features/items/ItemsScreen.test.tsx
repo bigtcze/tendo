@@ -478,6 +478,16 @@ describe('item creation', () => {
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);
   });
 
+  it('renders Repeat and Fluid switches at least 24px square', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage() });
+    app();
+    const form = await openForm();
+    const repeat = within(form).getByRole('switch', { name: 'Repeat' });
+    expect(repeat).toHaveClass('size-6');
+    await userEvent.click(repeat);
+    expect(within(form).getByRole('switch', { name: /count the next repeat/i })).toHaveClass('size-6');
+  });
+
   it('maps a 422 title error to a focused accessible field', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'title', code: 'invalid_length' }) });
     app();

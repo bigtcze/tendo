@@ -1608,6 +1608,65 @@ test.describe('Tendo production journey', () => {
       await page.setViewportSize({ width, height });
       expect(await page.evaluate(() => window.innerWidth)).toBe(width);
     };
+    const zoomMeasurements: Array<{ route: string; percent: number; cssWidth: number; dpr: number; bodyFontPx: number; bodyFontDevicePx: number; overflow: number }> = [];
+    // Emulate Chrome page zoom on the live page, so the measured state is the one the test opened
+    // (form, edit, filters). 1280 device px at 200% gives a 640 CSS px layout viewport and DPR 2;
+    // at 400% 320 CSS px and DPR 4. A 16px body font therefore occupies 32/64 device px.
+    // `check` runs while zoomed and must assert the state's own controls.
+    const atPageZoom = async (route: string, check: (percent: 200 | 400) => Promise<void>) => {
+      const zoomCDP = await page.context().newCDPSession(page);
+      try {
+        for (const percent of [200, 400] as const) {
+          const width = 1280 / (percent / 100);
+          await zoomCDP.send('Emulation.setDeviceMetricsOverride', { width, height: 400, deviceScaleFactor: percent / 100, mobile: false });
+          const measured = await page.evaluate(() => ({ width: window.innerWidth, dpr: window.devicePixelRatio, fontSize: parseFloat(getComputedStyle(document.body).fontSize), overflow: document.documentElement.scrollWidth - window.innerWidth }));
+          expect(measured.width, `${route} ${percent}% layout width`).toBe(width);
+          expect(measured.dpr, `${route} ${percent}% DPR`).toBe(percent / 100);
+          expect(measured.fontSize * measured.dpr).toBeGreaterThanOrEqual(32);
+          expect(measured.overflow, `${route} ${percent}% overflow`).toBeLessThanOrEqual(0);
+          zoomMeasurements.push({ route, percent, cssWidth: measured.width, dpr: measured.dpr, bodyFontPx: measured.fontSize, bodyFontDevicePx: measured.fontSize * measured.dpr, overflow: measured.overflow });
+          await check(percent);
+          await expectNoOverflow(`${route} ${percent}% after checking its controls`);
+        }
+      } finally {
+        // Drop this session's override, then make Playwright re-send its own viewport emulation
+        // (setViewportSize to an unchanged size is a no-op, so change it first).
+        await zoomCDP.send('Emulation.clearDeviceMetricsOverride');
+        await zoomCDP.detach();
+        await page.setViewportSize({ width: 1281, height: 800 });
+        await page.setViewportSize({ width: 1280, height: 800 });
+        expect(await page.evaluate(() => [window.innerWidth, window.devicePixelRatio]), `${route} zoom restored`).toEqual([1280, 1]);
+      }
+    };
+    // A real 320 CSS px viewport (not emulated zoom): overflow and axe on the current state.
+    const at320 = async (label: string, check: () => Promise<void>) => {
+      await setWidth(320, 640);
+      try {
+        await expectNoOverflow(`320px ${label}`);
+        await check();
+        await expectNoAxeViolations(page, `${label}-320`);
+      } finally {
+        await setWidth(1280, 800);
+      }
+    };
+    const snapshot = async (label: string) => {
+      const value = await page.locator('body').ariaSnapshot();
+      await test.info().attach(`aria-${label}.txt`, { body: value, contentType: 'text/plain' });
+      return value;
+    };
+    // Targets are compared with a 1/64 px tolerance: Chrome lays out in 1/64 px units, so a 24 px
+    // min-height can measure 23.99998 px at some vertical offsets.
+    const checkTargets = async (label: string) => {
+      const small = await page.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((elements) => elements.filter((element) => {
+        if (element.matches('.sr-only') && !element.matches(':focus')) return false; // revealed only while focused
+        const box = element.getBoundingClientRect();
+        const label = element.closest('label');
+        const hitBox = label ? label.getBoundingClientRect() : box;
+        return box.width > 0 && box.height > 0 && (hitBox.width < 24 - 1 / 64 || hitBox.height < 24 - 1 / 64);
+      }).map((element) => { const target = element.closest('label') ?? element; return { tag: element.tagName, name: element.getAttribute('aria-label') || element.textContent?.trim() || element.getAttribute('type'), width: Math.round(target.getBoundingClientRect().width), height: Math.round(target.getBoundingClientRect().height) }; }));
+      await test.info().attach(`targets-${label}.json`, { body: JSON.stringify(small, null, 2), contentType: 'application/json' });
+      expect(small, `${label} interactive targets >=24 CSS px`).toEqual([]);
+    };
     let itemId = '';
     try {
       await setWidth(1280, 800);
@@ -1616,9 +1675,23 @@ test.describe('Tendo production journey', () => {
       await addItem({ title, subject: 'Anička', attentionOn: addDays(pragueToday(), -2), repeat: { value: '2', unit: 'week', fluid: true } });
       itemId = (await serverItem(title)).id;
       await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
+      const homeSnapshot = await snapshot('home-populated-en');
+      expect(homeSnapshot).toContain('navigation');
+      expect(homeSnapshot).toContain('main');
+      await checkTargets('home-populated-en');
       await expectNoAxeViolations(page, 'home-populated-en');
+      await atPageZoom('home populated', async (percent) => {
+        await expect(page.getByRole('button', { name: en['items.add'], exact: true }), `Add item at ${percent}%`).toBeVisible();
+        const homeRow = group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title });
+        await homeRow.getByRole('button', { name: en['items.done'] }).scrollIntoViewIfNeeded();
+        await expect(homeRow.getByRole('button', { name: en['items.done'] }), `Done at ${percent}%`).toBeInViewport();
+      });
+      await at320('home-populated', async () => {
+        await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toBeVisible();
+      });
       // Keyboard: the skip link moves focus past the navigation, and each of the first sampled tab stops shows a visible focus indicator.
-      await page.reload();
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto('/');
       await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await page.keyboard.press('Tab');
@@ -1658,35 +1731,60 @@ test.describe('Tendo production journey', () => {
       await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
       await addForm.getByRole('button', { name: en['items.historical.show'] }).click();
       await expect(addForm.getByLabel(en['items.historical.label'])).toBeVisible();
+      const addSnapshot = await snapshot('add-item-repeat-and-previous-completion');
+      expect(addSnapshot).toContain(en['items.repeat']);
+      expect(addSnapshot).toContain(en['items.fluid']);
+      await checkTargets('add-item-repeat-and-previous-completion');
       await expectNoAxeViolations(page, 'add-item-repeat-and-previous-completion');
-      // Reflow proxy: 200% zoom of a 1280 px window is a 640 px CSS viewport.
-      await setWidth(640, 400);
-      await expectNoOverflow('640px (200% zoom) add form');
-      await addForm.getByRole('button', { name: en['items.add.submit'] }).scrollIntoViewIfNeeded();
-      await expect(addForm.getByRole('button', { name: en['items.add.submit'] })).toBeInViewport();
+      const addFormControls = async (where: string) => {
+        await expect(addForm, `add form open ${where}`).toBeVisible();
+        await expect(addForm.getByLabel(en['items.historical.label']), `previous completion ${where}`).toBeVisible();
+        for (const name of [en['items.add.submit'], en['items.cancel']]) {
+          const control = addForm.getByRole('button', { name, exact: true });
+          await control.scrollIntoViewIfNeeded();
+          await expect(control, `${name} in add form ${where}`).toBeInViewport();
+        }
+      };
+      await atPageZoom('add form', (percent) => addFormControls(`at ${percent}%`));
+      await at320('add-item-form', () => addFormControls('at 320px'));
       await addForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
       await expect(addForm).toHaveCount(0);
-      await expectNoOverflow('640px (200% zoom) home');
-      await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toBeVisible();
-      await setWidth(320, 640);
-      await expectNoOverflow('320px home');
-      await expectNoAxeViolations(page, 'home-populated-320');
-      await setWidth(1280, 800);
 
       await row(title).getByRole('button', { name: en['items.done'] }).click();
       await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
       await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
       await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
       await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
+      const detailSnapshot = await snapshot('item-detail-with-history');
+      expect(detailSnapshot).toContain('heading');
+      await checkTargets('item-detail-with-history');
       await expectNoAxeViolations(page, 'item-detail-with-history');
-      await setWidth(640, 400);
-      await expectNoOverflow('640px (200% zoom) item detail');
-      await expect(page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true })).toBeVisible();
-      await setWidth(1280, 800);
+      const detailControls = async (where: string) => {
+        await expect(page.getByRole('heading', { level: 1, name: title }), `detail heading ${where}`).toBeVisible();
+        const edit = page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true });
+        await edit.scrollIntoViewIfNeeded();
+        await expect(edit, `Edit ${where}`).toBeInViewport();
+      };
+      await atPageZoom('item detail', (percent) => detailControls(`at ${percent}%`));
+      await at320('item-detail', () => detailControls('at 320px'));
       await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
       const editForm = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       await expect(editForm.getByLabel(en['items.title'])).toHaveValue(title);
+      const editSnapshot = await snapshot('item-edit-form');
+      expect(editSnapshot).toContain(en['items.title']);
+      await checkTargets('item-edit-form');
       await expectNoAxeViolations(page, 'item-edit-form');
+      const editControls = async (where: string) => {
+        await expect(editForm.getByLabel(en['items.title']), `edit title ${where}`).toHaveValue(title);
+        for (const name of [en['itemDetail.save'], en['items.cancel']]) {
+          const control = editForm.getByRole('button', { name, exact: true });
+          await control.scrollIntoViewIfNeeded();
+          await expect(control, `${name} in edit form ${where}`).toBeInViewport();
+        }
+      };
+      await atPageZoom('item edit', (percent) => editControls(`at ${percent}%`));
+      await at320('item-edit-form', () => editControls('at 320px'));
+      await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).scrollIntoViewIfNeeded();
       await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
       await expect(editForm).toHaveCount(0);
 
@@ -1696,14 +1794,21 @@ test.describe('Tendo production journey', () => {
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
       await page.getByLabel(en['allItems.repeat']).selectOption('true');
       await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: title })).toBeVisible();
+      const allItemsSnapshot = await snapshot('all-items-search-and-filters');
+      expect(allItemsSnapshot).toContain('searchbox');
+      expect(allItemsSnapshot).toContain(en['allItems.repeat']);
+      await checkTargets('all-items-search-and-filters');
       await expectNoAxeViolations(page, 'all-items-search-and-filters');
-      await setWidth(640, 400);
-      await expectNoOverflow('640px (200% zoom) all items');
-      await expect(page.getByRole('button', { name: en['allItems.searchButton'], exact: true })).toBeVisible();
-      await setWidth(320, 640);
-      await expectNoOverflow('320px all items');
-      await expectNoAxeViolations(page, 'all-items-320');
-      await setWidth(1280, 800);
+      const allItemsControls = async (where: string) => {
+        await expect(page.getByRole('searchbox'), `search kept ${where}`).toHaveValue('balcony plants');
+        await expect(page.getByLabel(en['allItems.repeat']), `repeat filter kept ${where}`).toHaveValue('true');
+        for (const control of [page.getByRole('button', { name: en['allItems.searchButton'], exact: true }), page.getByRole('main').getByRole('link', { name: title, exact: true })]) {
+          await control.scrollIntoViewIfNeeded();
+          await expect(control, `All items control ${where}`).toBeInViewport();
+        }
+      };
+      await atPageZoom('All items', (percent) => allItemsControls(`at ${percent}%`));
+      await at320('all-items-search-and-filters', () => allItemsControls('at 320px'));
       await page.getByRole('searchbox').fill(noMatch);
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
       await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
@@ -1713,13 +1818,37 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
       await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', 'Anička') }).click();
       await expect(page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') })).toBeVisible();
+      const peopleSnapshot = await snapshot('people-edit-form');
+      expect(peopleSnapshot).toContain(en['subjects.name']);
+      await checkTargets('people-edit-form');
       await expectNoAxeViolations(page, 'people-edit-form');
+      const peopleForm = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') });
+      const peopleControls = async (where: string) => {
+        await expect(peopleForm.getByLabel(en['subjects.name']), `name field ${where}`).toBeVisible();
+        for (const name of [en['subjects.save'], en['subjects.cancel']]) {
+          const control = peopleForm.getByRole('button', { name, exact: true });
+          await control.scrollIntoViewIfNeeded();
+          await expect(control, `${name} in People edit ${where}`).toBeInViewport();
+        }
+      };
+      await atPageZoom('People and things edit', (percent) => peopleControls(`at ${percent}%`));
+      await at320('people-edit-form', () => peopleControls('at 320px'));
       await page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') }).getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
 
       await page.getByRole('link', { name: en['home.account'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      const accountSnapshot = await snapshot('account');
+      expect(accountSnapshot).toContain(en['account.title']);
+      await checkTargets('account');
       await expectNoAxeViolations(page, 'account');
-
+      const accountControls = async (where: string) => {
+        await expect(page.getByRole('heading', { level: 1, name: en['account.title'] }), `Account heading ${where}`).toBeVisible();
+        const czech = page.getByRole('button', { name: 'Čeština' });
+        await czech.scrollIntoViewIfNeeded();
+        await expect(czech, `language switch ${where}`).toBeInViewport();
+      };
+      await atPageZoom('Account', (percent) => accountControls(`at ${percent}%`));
+      await at320('account', () => accountControls('at 320px'));
       await page.getByRole('button', { name: 'Čeština' }).click();
       try {
         await page.getByRole('link', { name: cs['nav.home'], exact: true }).click();
@@ -1729,8 +1858,9 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
         await expect(page.getByRole('main').getByRole('listitem').first()).toBeVisible();
         await expectNoAxeViolations(page, 'all-items-cs');
-        await setWidth(320, 640);
-        await expectNoOverflow('320px all items cs');
+        await at320('all-items-cs', async () => {
+          await expect(page.getByRole('button', { name: cs['allItems.searchButton'], exact: true })).toBeVisible();
+        });
       } finally {
         await setWidth(1280, 800);
         await page.getByRole('button', { name: 'English' }).click();
@@ -1756,6 +1886,8 @@ test.describe('Tendo production journey', () => {
         await reduced.close();
       }
     } finally {
+      console.log(`zoom-measurements-n14 ${JSON.stringify(zoomMeasurements)}`);
+      await test.info().attach('zoom-measurements-n14.json', { body: JSON.stringify(zoomMeasurements, null, 2), contentType: 'application/json' });
       await page.setViewportSize({ width: 1280, height: 720 });
       if (itemId) {
         const current = await page.request.get(`/api/v1/households/${householdId}/items/${itemId}`);
@@ -2307,11 +2439,27 @@ test.describe('Tendo production journey', () => {
         headers: { Cookie: `${sessionCookie!.name}=${sessionCookie!.value}`, Origin: baseURL },
       });
       expect(revoked.status()).toBe(204);
-      await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+      const allItemsLink = page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.allItems'], exact: true });
+      await expect(allItemsLink).toBeVisible();
+      await page.evaluate(() => {
+        const link = [...document.querySelectorAll<HTMLAnchorElement>('nav a')].find((candidate) => candidate.getAttribute('href') === '/items');
+        if (!link) throw new Error('All items navigation link is missing');
+        link.click();
+      });
       await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
       await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeFocused();
       await expect(page.getByRole('status')).toHaveText(en['login.sessionEnded']);
       await expectNoAxeViolations(page, 'login-session-ended');
+      const loginZoom = await page.context().newCDPSession(page);
+      for (const [percent, width] of [[200, 640], [400, 320]] as const) {
+        await loginZoom.send('Emulation.setDeviceMetricsOverride', { width, height: 400, deviceScaleFactor: percent / 100, mobile: false });
+        const measured = await page.evaluate(() => ({ width: window.innerWidth, dpr: window.devicePixelRatio, overflow: document.documentElement.scrollWidth - window.innerWidth }));
+        expect(measured.width).toBe(width);
+        expect(measured.dpr).toBe(percent / 100);
+        expect(measured.overflow, `${percent}% zoom login`).toBeLessThanOrEqual(0);
+      }
+      await loginZoom.send('Emulation.clearDeviceMetricsOverride');
+      await loginZoom.detach();
       await signIn(page, ownerPassword);
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
     } finally {
@@ -2394,6 +2542,15 @@ test.describe('Tendo production journey', () => {
       await loginPage.getByRole('button', { name: 'Čeština', exact: true }).click();
       await expect(loginPage.getByRole('heading', { level: 1, name: cs['login.title'] })).toBeVisible();
       await expect(loginPage.getByRole('status')).toHaveText(cs['login.oidc.loadError']);
+      const cdp = await context.newCDPSession(loginPage);
+      for (const [percent, width] of [[200, 640], [400, 320]] as const) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 400, deviceScaleFactor: percent / 100, mobile: false });
+        const measured = await loginPage.evaluate(() => ({ cssWidth: window.innerWidth, dpr: window.devicePixelRatio, overflow: document.documentElement.scrollWidth - window.innerWidth }));
+        expect(measured.cssWidth).toBe(width);
+        expect(measured.dpr).toBe(percent / 100);
+        expect(measured.overflow, `login ${percent}% overflow`).toBeLessThanOrEqual(0);
+      }
+      await cdp.detach();
       await loginPage.setViewportSize({ width: 320, height: 740 });
       const overflow = await loginPage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow, '320px horizontal overflow on Czech login').toBeLessThanOrEqual(0);
@@ -2408,6 +2565,180 @@ test.describe('Tendo production journey', () => {
       await context.close();
     }
     expect(n20FailedResponses).toEqual(['GET /api/v1/auth/oidc 503']);
+  });
+
+  test('n21. exploratory accessibility evidence: route semantics, target sizing, and zoom layouts', async ({ browser }) => {
+    test.setTimeout(90_000);
+    const routes: Array<{ path: string; name: string; heading: string; content: (target: Page) => Locator }> = [
+      { path: '/', name: 'home', heading: householdName, content: (target) => target.getByRole('main').getByRole('button', { name: en['items.add'], exact: true }) },
+      { path: '/items', name: 'all-items', heading: en['allItems.title'], content: (target) => target.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem').first() },
+      { path: '/people', name: 'people', heading: en['subjects.title'], content: (target) => target.getByRole('main').getByRole('listitem').first() },
+      { path: '/members', name: 'members', heading: en['members.title'], content: (target) => target.getByRole('main').getByRole('listitem').first() },
+      { path: '/account', name: 'account', heading: en['account.title'], content: (target) => target.getByRole('main').getByRole('heading', { level: 2, name: en['account.preferences.title'] }) },
+    ];
+    // A route is ready when its h1 and route-specific content are shown and no loading status remains.
+    const loadingTexts = [...new Set([en['app.loading'], en['home.loading'], en['items.loading'], en['members.loading'], en['subjects.loading'], en['account.oidc.loading']])];
+    const expectReady = async (target: Page, route: { name: string; heading: string; content: (target: Page) => Locator }) => {
+      await expect(target.getByRole('heading', { level: 1, name: route.heading }), `${route.name} heading`).toBeVisible();
+      await expect(route.content(target), `${route.name} content`).toBeVisible();
+      for (const text of loadingTexts) await expect(target.getByText(text, { exact: true }), `${route.name} still loading`).toHaveCount(0);
+    };
+    const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
+    const context = await browser.newContext({ baseURL, locale: 'en-US', storageState: await page.context().storageState() });
+    const auditPage = await context.newPage();
+    const signedOutContext = await browser.newContext({ baseURL, locale: 'en-US' });
+    const signedOut = await signedOutContext.newPage();
+    const runAxe = async (target: Page, label: string) => {
+      await expectNoAxeViolations(target, label);
+    };
+    const auditZoom = async (route: (typeof routes)[number], percent: 200 | 400) => {
+      const width = 1280 / (percent / 100);
+      const zoomContext = await browser.newContext({ baseURL, locale: 'en-US', viewport: { width: 1280, height: 800 }, storageState: await context.storageState() });
+      const zoomPage = await zoomContext.newPage();
+      const cdp = await zoomContext.newCDPSession(zoomPage);
+      try {
+        await zoomPage.goto(route.path);
+        await expectReady(zoomPage, route);
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 400, deviceScaleFactor: percent / 100, mobile: false });
+        const metrics = await zoomPage.evaluate(() => ({ cssWidth: window.innerWidth, dpr: window.devicePixelRatio, bodyFont: parseFloat(getComputedStyle(document.body).fontSize), overflow: document.documentElement.scrollWidth - window.innerWidth }));
+        expect(metrics.cssWidth).toBe(width);
+        expect(metrics.dpr).toBe(percent / 100);
+        expect(metrics.overflow, `${route.name} ${percent}% overflow`).toBeLessThanOrEqual(0);
+        measured.push({ route: route.name, zoom: percent, ...metrics });
+      } finally {
+        await zoomContext.close();
+      }
+    };
+    // Keyboard sweep: Tab through the whole page from the top. Each stop is identified by a
+    // stable per-element id, so reachability compares identities (not counts) and a revisit
+    // before the footer is reported as a loop. A focus indicator counts only if the element's
+    // outline or box shadow differs from its unfocused style, so a permanent shadow does not
+    // pass. Each stop must be unobscured at its centre (2.4.11 proxy), every visible enabled
+    // control in main must be reached, and the sweep must end on the footer language switch
+    // (no keyboard trap, 2.1.2).
+    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true) => {
+      const expectedMain = await target.evaluate(() => {
+        let next = 0;
+        const ids: string[] = [];
+        for (const element of document.querySelectorAll<HTMLElement>('main a[href], main button:not([disabled]), main input:not([disabled]), main select:not([disabled]), main textarea:not([disabled]), main [tabindex]:not([tabindex="-1"])')) {
+          const box = element.getBoundingClientRect();
+          if (box.width === 0 || box.height === 0 || element.closest('[inert],[hidden]') || getComputedStyle(element).visibility === 'hidden') continue;
+          if (element.matches('input[type="radio"]') && !(element as HTMLInputElement).checked && document.querySelector(`input[type="radio"][name="${CSS.escape((element as HTMLInputElement).name)}"]:checked`)) continue; // one tab stop per radio group
+          element.dataset.sweepId = `main-${next += 1}`;
+          ids.push(element.dataset.sweepId);
+        }
+        return ids;
+      });
+      await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean }> = [];
+      let loop = '';
+      for (let index = 0; index < 150; index += 1) {
+        await target.keyboard.press('Tab');
+        const stop = await target.evaluate((position) => {
+          const element = document.activeElement as HTMLElement | null;
+          if (!element || element === document.body) return null;
+          element.dataset.sweepId ??= `other-${position}`;
+          const indicator = () => {
+            const style = getComputedStyle(element);
+            const outline = style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? 'none' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
+            return `${outline}|${style.boxShadow}`;
+          };
+          const focused = indicator();
+          const box = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
+          element.blur();
+          const unfocused = indicator();
+          element.focus({ preventScroll: true });
+          const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
+          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured };
+        }, index);
+        if (!stop) break;
+        if (stops.some((entry) => entry.id === stop.id)) { loop = `${stop.region}:${stop.name}`; break; }
+        stops.push(stop);
+        if (stop.region === 'footer' && stops.filter((entry) => entry.region === 'footer').length >= 2) break;
+      }
+      console.log(`keyboard-sweep ${label} ${JSON.stringify(stops.map((stop) => `${stop.region}:${stop.name}`))}`);
+      expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
+      expect(stops.filter((stop) => stop.focused === stop.unfocused || stop.focused === 'none|none').map((stop) => `${stop.name} [${stop.focused}]`), `${label} stops whose focus does not change the outline or shadow`).toEqual([]);
+      expect(stops.filter((stop) => !stop.unobscured).map((stop) => stop.name), `${label} obscured focus`).toEqual([]);
+      const reachedMain = stops.filter((stop) => stop.region === 'main').map((stop) => stop.id);
+      // Guards against an empty identity set making reachability vacuous.
+      if (mainControlsExpected) expect(expectedMain.length, `${label} has controls in main`).toBeGreaterThan(0);
+      else expect(expectedMain, `${label} has no controls in main`).toEqual([]);
+      expect([...reachedMain].sort(), `${label} reaches every visible control in main, each once`).toEqual([...expectedMain].sort());
+      expect(stops.filter((stop) => stop.region === 'footer').length, `${label} reaches the footer (no trap)`).toBe(2);
+      const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
+      expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+    };
+    try {
+      for (const route of routes) {
+        await auditPage.setViewportSize({ width: 1280, height: 800 });
+        await auditPage.goto(route.path);
+        await expectReady(auditPage, route);
+        const aria = await auditPage.locator('body').ariaSnapshot();
+        console.log(`aria-snapshot ${route.name}\n${aria}`);
+        await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
+        expect(aria, `${route.name} has main landmark`).toContain('main');
+        const tooSmall = await auditPage.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
+          if (node.matches('.sr-only')) return false;
+          const rect = node.getBoundingClientRect();
+          const hit = node.closest('label')?.getBoundingClientRect() ?? rect;
+          return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
+        }).map((node) => ({ text: node.textContent?.trim(), label: node.getAttribute('aria-label'), rect: (node.closest('label') ?? node).getBoundingClientRect().toJSON() })));
+        await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(tooSmall, null, 2), contentType: 'application/json' });
+        expect(tooSmall, `${route.name} WCAG 2.5.8 target-size review`).toEqual([]);
+        await runAxe(auditPage, `${route.name}-default`);
+        // Account's main is read-only for a password-only owner; its language switch lives in the footer.
+        await keyboardSweep(auditPage, route.name, route.name !== 'account');
+        for (const zoom of [200, 400] as const) await auditZoom(route, zoom);
+      }
+      // Readiness includes asynchronously loaded content: login's OIDC provider button.
+      const signedOutRoutes: Array<{ path: string; name: string; findTitle: string; content: (target: Page) => Locator }> = [
+        { path: '/', name: 'login', findTitle: en['login.title'], content: (target) => target.getByRole('button', { name: /^Sign in with / }) },
+        { path: '/invite#' + 'A'.repeat(43), name: 'invitation-acceptance', findTitle: en['invite.title'], content: (target) => target.getByRole('button', { name: en['invite.create'], exact: true }) },
+      ];
+      for (const route of signedOutRoutes) {
+        await signedOut.goto(route.path);
+        await expect(signedOut.getByRole('main')).toBeVisible();
+        await expect(signedOut.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
+        await expect(route.content(signedOut), `${route.name} content`).toBeVisible();
+        const aria = await signedOut.locator('body').ariaSnapshot();
+        console.log(`aria-snapshot ${route.name}\n${aria}`);
+        await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
+        const targets = await signedOut.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
+          if (node.matches('.sr-only')) return false;
+          const box = node.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && (box.width < 24 - 1 / 64 || box.height < 24 - 1 / 64);
+        }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim(), rect: node.getBoundingClientRect().toJSON() })));
+        await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(targets, null, 2), contentType: 'application/json' });
+        expect(targets, `${route.name} target size >=24`).toEqual([]);
+        await runAxe(signedOut, `${route.name}-default`);
+        await keyboardSweep(signedOut, route.name);
+        for (const percent of [200, 400] as const) {
+          const width = 1280 / (percent / 100);
+          const zoomContext = await browser.newContext({ baseURL, viewport: { width: 1280, height: 800 } });
+          const zoomPage = await zoomContext.newPage();
+          const zoomCDP = await zoomContext.newCDPSession(zoomPage);
+          try {
+            await zoomPage.goto(route.path);
+            await expect(zoomPage.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
+            await zoomCDP.send('Emulation.setDeviceMetricsOverride', { width, height: 400, deviceScaleFactor: percent / 100, mobile: false });
+            const metrics = await zoomPage.evaluate(() => ({ cssWidth: window.innerWidth, dpr: window.devicePixelRatio, bodyFont: parseFloat(getComputedStyle(document.body).fontSize), overflow: document.documentElement.scrollWidth - window.innerWidth }));
+            expect(metrics.cssWidth).toBe(width);
+            expect(metrics.dpr).toBe(percent / 100);
+            expect(metrics.overflow, `${route.name} ${percent}% overflow`).toBeLessThanOrEqual(0);
+            measured.push({ route: route.name, zoom: percent, ...metrics });
+          } finally { await zoomContext.close(); }
+        }
+      }
+      console.log(`zoom-measurements ${JSON.stringify(measured)}`);
+      await test.info().attach('all-route-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
+    } finally {
+      await signedOutContext.close();
+      await context.close();
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {

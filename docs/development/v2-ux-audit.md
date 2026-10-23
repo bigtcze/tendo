@@ -125,3 +125,70 @@ route.
    - 10a (this PR): Home caps each group at 100 rows (4 pages of 25); once a group has more, Show more is replaced by a link to All items filtered to that group (with the complete count, or count-free if the summary is stale), which receives focus when Show more had it. The opt-in audit now expects capped expansion (at most 500 Home rows) derived from server counts — closes the remaining unbounded-DOM path on Home (F4).
 
 The audit is re-run after slices 6–8 and the measurements above are replaced, not appended.
+
+## Accessibility review (2026-10-23)
+
+Agent review on the production build (production binary with embedded frontend, real PostgreSQL 18, Playwright
+Chromium) through the required `scripts/e2e-smoke.sh` journey. The review is mostly encoded as journey **n21**
+so it stays in required CI. The other evidence comes from n14 (axe scans, sampled focus, zoom, reduced motion),
+n15 (widths), n16 (keyboard-only item workflow), n17–n20 (error, loading, session-ended and sign-in states),
+plus Vitest focus and error-association tests. n21 prints its zoom measurements, keyboard sequences and any axe
+`incomplete` results to the runner's process log.
+
+### What n21 checks on every route
+
+The routes are Home, All items, People and things, Members, Account, login and invitation acceptance. A route
+counts as ready only when its `h1` and a route-specific element (Add item, a result row, a list row, the
+preferences heading, the OIDC sign-in button, the join button) are visible (and, on household routes, no loading status remains). n21 checks:
+
+- **ARIA snapshot** of the whole page (`ariaSnapshot()`), printed and attached for an agent to read. The
+  snapshots show one `h1` per route; skip link, banner, household navigation, main and footer landmarks; a
+  search landmark named "Search items" and a "Results" region in All items (Vitest-asserted); row actions named
+  after their item (`Done: …`, `Edit …`, `Archive …`); status regions for notices; a login `alert` region for
+  errors; and the language switch as a named group with `pressed` state. Only the `main` landmark is asserted
+  in E2E; the rest is reading, not assertion.
+- **Keyboard sweep**: Tab from the top of the page to the end. Each stop is tagged with a per-element id. A
+  stop passes only if its outline or box shadow differs between focused and blurred (2.4.7), so a permanent
+  shadow does not count; its centre must not be covered by another element (a 2.4.11 proxy). Revisiting a
+  stop before the footer fails as a loop. The set of reached `main` ids must equal the set of visible, enabled
+  controls in `main` (one per radio group), each once; a route other than Account must have at least one.
+  The footer language switch must be the last two stops (no trap, 2.1.2). Recorded order: skip link → Sign
+  out → navigation → main in reading order → language. Account's `main` has no controls for a password-only
+  owner. Mutation-checked: a permanent shadow with focus outline removed, and `tabIndex={-1}` on Members'
+  Create invite link, each fail n21.
+- **Target size**: every visible interactive element (or the label that wraps it) is at least 24×24 CSS px
+  (2.5.8).
+- **axe** WCAG 2.0/2.1/2.2 A+AA: no violations. In the recorded run, axe reported no `incomplete` results in
+  n14 or n21; any future ones are printed to the process log as `axe-incomplete`. axe passing is not a manual
+  contrast review.
+- **Zoom** at 200 % and 400 %, emulated as page zoom with CDP `Emulation.setDeviceMetricsOverride` on a window
+  1280 device px wide: 640 CSS px at DPR 2, 320 CSS px at DPR 4. `setPageScaleFactor` is pinch zoom and is not
+  used. On every route entry: `innerWidth` 640/320, `devicePixelRatio` 2/4, body text 16 CSS px (32/64 device
+  px), horizontal overflow 0.
+
+n14 applies the same zoom emulation to the live page, so the measured state is the one it opened: Home with
+items, the add form with Repeat and Previous completion open, item detail, the item edit form, All items with a
+search and the Repeat filter applied, the People and things edit form, and Account. While zoomed it asserts that
+state is still shown (form open, values kept) and scrolls its own controls into view (Add item/Cancel, Save
+changes/Cancel, Save/Cancel, Search and the result link, Edit, Done), then re-checks overflow. Each of these
+states, plus Czech All items, also gets a real 320 CSS px viewport with an overflow check, the same control
+checks and an axe scan.
+
+### Findings
+
+| ID | WCAG SC | Finding | Fix |
+|---|---|---|---|
+| A1 | 2.5.8 | The Repeat and Fluid switch inputs were 20×20 CSS px. | 24×24 (`size-6`); Vitest regression; n14 target scan of the add form with Repeat on. |
+| A2 | 1.3.1 / plain language | In All items, overdue rows read "Needs attention" and then "Needs attention Nov 18, 2024". The state was repeated, and the date did not say it was the start of the overdue period. | Rows now use the same wording as Home: "Needs attention since …" for overdue items, "Needs attention …" for coming-up items and "Attention date …" for paused, waiting, in-progress, done and archived items. Vitest regression (mutation-checked). |
+| A3 | 1.3.1 / 2.4.6 | The All items search form had `role="search"` but no name. | Named "Search items" / "Hledat položky" from the existing label key; Vitest regression (fails without the name). |
+
+No other defect was found in the snapshots, keyboard sequences, target scans, axe results or zoom measurements.
+
+### Limits
+
+This is an agent review. No human screen-reader user took part, and ARIA snapshots do not prove what a screen
+reader says. The keyboard sweep checks reachability, visible focus and order on route entry. Behaviour inside
+forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase, is covered by n16 and the
+Vitest focus tests, not by n21. Focus-indicator contrast is not measured. Onboarding is checked by n14 (axe, error focus) and the opt-in audit (widths)
+because setup has already finished when n21 runs. Zoom is emulated in headless Chromium, not set through the
+browser's zoom control. None of this is a WCAG conformance certification.

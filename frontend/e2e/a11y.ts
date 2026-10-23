@@ -17,11 +17,13 @@ export async function expectNoAxeViolations(page: Page, label: string) {
     targets: violation.nodes.map((node) => `${node.target.join(' ')} :: ${node.any[0]?.message ?? node.failureSummary ?? ''}`),
   }));
   // Keep incomplete results (needs manual review, e.g. contrast over images) and passing rule ids as evidence.
-  const incomplete = results.incomplete.map((rule) => ({ id: rule.id, targets: rule.nodes.map((node) => node.target.join(' ')) }));
+  const incomplete = results.incomplete.map((rule) => ({ id: rule.id, impact: rule.impact, help: rule.help, nodes: rule.nodes.map((node) => ({ target: node.target.join(' '), any: node.any.map((check) => check.message), all: node.all.map((check) => check.message), none: node.none.map((check) => check.message) })) }));
   await test.info().attach(`axe-${label}.json`, {
     body: JSON.stringify({ url: page.url(), violations: summary, incomplete, passes: results.passes.map((rule) => rule.id) }, null, 2),
     contentType: 'application/json',
   });
+  // Printed so the evidence survives in the runner's process log (attachments are not kept for passing runs).
+  if (incomplete.length) console.log(`axe-incomplete ${label} ${JSON.stringify(incomplete)}`);
   // Guard against a scan that silently checked nothing.
   expect(results.passes.length, `axe ran no passing rules on ${label}`).toBeGreaterThan(0);
   expect(summary, `axe WCAG violations on ${label}`).toEqual([]);
