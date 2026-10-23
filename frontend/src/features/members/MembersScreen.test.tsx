@@ -128,6 +128,19 @@ describe('members and invitations', () => {
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
 
+  it.each(['owner_required', 'forbidden'])('a members-list 403 (%s) shows the refused-request notice and can retry', async (code) => {
+    let failing = true;
+    const fake = installFakeServer({ ...defaults(), [`GET ${base}/members`]: () => failing ? problem(403, { code }) : page(members()) });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.')).toBeVisible();
+    failing = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('heading', { name: 'Members' })).toBeVisible();
+    expect(within(screen.getByRole('main')).getAllByRole('listitem')).toHaveLength(2);
+    expect(fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('a list 404 shows the household-specific not-found message', async () => {
     installFakeServer({ ...defaults(), [`GET ${base}/members`]: problem(404) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));

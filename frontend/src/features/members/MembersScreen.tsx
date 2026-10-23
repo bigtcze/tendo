@@ -83,7 +83,7 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
         if (cancelled || memberGeneration.current !== generation) return;
         if (page.kind === 'unauthenticated') { if (mounted.current) onSignedOutRef.current(); return; }
         if (page.kind === 'notFound') { setState('error'); setNotice(tRef.current('members.error.householdNotFound')); return; }
-        if (page.kind === 'rejected') { setState('error'); setNotice(tRef.current('members.error.requestRefused')); return; }
+        if (page.kind === 'rejected' || page.kind === 'forbidden') { setState('error'); setNotice(tRef.current('members.error.requestRefused')); return; }
         if (page.kind !== 'ok') { setState('error'); setNotice(null); return; }
         all = [...all, ...page.items];
         next = page.nextCursor;
