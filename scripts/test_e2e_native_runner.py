@@ -238,5 +238,114 @@ class ChildProcessTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "UUIDs"):
             runner.assert_foreign_seed_unchanged({}, "x'; DROP TABLE items; --", ids[1], ids[2])
 
+
+class FailureLogTests(unittest.TestCase):
+    def test_failure_log_tail_is_bounded_and_redacts_generated_credentials(self):
+        token = runner.generated_secret(32)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "process.log"
+            log.write_text("\n".join([f"line {n}" for n in range(300)] + [f"  1) failed fill password={token}", "  1 failed"]) + "\n")
+            with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+                runner.print_failure_log_tail(log, lines=5)
+            out = err.getvalue()
+        self.assertNotIn(token, out)
+        self.assertIn("password=[redacted]", out)
+        self.assertIn("  1 failed", out)
+        self.assertNotIn("line 296", out)
+        self.assertIn("line 297", out)
+
+    def test_structural_redaction_covers_cookies_oidc_invites_db_urls_and_ansi(self):
+        runner.register_database_url("postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e")
+        lines = [
+            "\x1b[31m    Cookie: tendo_session=abcSESSION123; other=1\x1b[39m",
+            "set-cookie: tendo_session=zzzSESSION999; HttpOnly",
+            "  - navigated to \"http://localhost:1234/api/v1/auth/oidc/callback?code=CODE777&state=STATE888\"",
+            "  expect(page).toHaveURL(http://127.0.0.1:9/authorize?nonce=NONCE555&client_id=x)",
+            "Received: \"http://localhost:1234/invite#INVITEsecretfragment0123456789abcdefghijklmn\"",
+            "headers: { Cookie: `tendo_session=${'TOKENVALUE42'}` }",
+            "dial postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e failed",
+            "auth failed for password p@ss-W0rd",
+            "  1) e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4",
+        ]
+        out = "\n".join(runner.redact(line) for line in lines)
+        for leaked in ("abcSESSION123", "zzzSESSION999", "CODE777", "STATE888", "NONCE555", "INVITEsecretfragment", "TOKENVALUE42", "p%40ss-W0rd", "p@ss-W0rd", "\x1b["):
+            self.assertNotIn(leaked, out)
+        self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
+        self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
+
+    def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "process.log"
+            report = ["  ✘  27 e2e/journey.spec.ts:1250:3 › n12 bounded pages", "    Expected: 25", "    Received: 24"]
+            access = [f"2026/10/23 01:55:14 INFO http request request_id={n} method=POST route=/api/v1/x status=201 duration=5ms" for n in range(500)]
+            failure = ["2026/10/23 01:55:15 INFO http request request_id=z method=GET route=/api/v1/x status=500 duration=5ms"]
+            log.write_text("\n".join(report + access + failure) + "\n")
+            with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+                runner.print_failure_log_tail(log, lines=10)
+            out = err.getvalue()
+        self.assertIn("n12 bounded pages", out)
+        self.assertIn("Received: 24", out)
+        self.assertIn("status=500", out)
+        self.assertIn("500 successful access-log lines omitted", out)
+
+    def test_missing_failure_log_is_reported_not_raised(self):
+        with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+            runner.print_failure_log_tail(pathlib.Path("/nonexistent/tendo/process.log"))
+        self.assertIn("E2E process log unavailable", err.getvalue())
+
+
+class FailureReportingLifecycleTests(unittest.TestCase):
+    def _main(self, argv_extra=(), suite=None, close=None, env=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            with (mock.patch.dict("os.environ", env or {}, clear=True),
+                  mock.patch.object(runner, "Children") as children_cls,
+                  mock.patch.object(runner, "run_suite", side_effect=suite) as _suite,
+                  mock.patch.object(runner, "run_screenshot", side_effect=suite) as _shot,
+                  mock.patch.object(runner, "print_failure_log_tail") as tail,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), *argv_extra])):
+                if close is not None:
+                    children_cls.return_value.close.side_effect = close
+                error = None
+                try:
+                    runner.main()
+                except BaseException as exc:
+                    error = exc
+                return error, tail.call_count
+
+    def test_success_prints_no_failure_log(self):
+        error, tails = self._main()
+        self.assertIsNone(error); self.assertEqual(tails, 0)
+
+    def test_suite_failure_prints_log_and_keeps_primary_error(self):
+        error, tails = self._main(suite=RuntimeError("Playwright exited with status 1"))
+        self.assertIsInstance(error, RuntimeError); self.assertIn("Playwright", str(error)); self.assertEqual(tails, 1)
+
+    def test_screenshot_and_audit_failures_print_log(self):
+        for extra in (["--screenshot", "/tmp/never.png"], ["--audit-dir", "/tmp/never-audit"]):
+            error, tails = self._main(argv_extra=extra, suite=RuntimeError("capture failed"))
+            self.assertIsInstance(error, RuntimeError); self.assertEqual(tails, 1)
+
+    def test_cleanup_only_failure_prints_log_and_fails(self):
+        error, tails = self._main(close=RuntimeError("process group survived"))
+        self.assertIsInstance(error, RuntimeError); self.assertIn("survived", str(error)); self.assertEqual(tails, 1)
+
+    def test_cleanup_failure_after_suite_failure_keeps_primary_error(self):
+        error, tails = self._main(suite=RuntimeError("primary"), close=RuntimeError("secondary"))
+        self.assertEqual(str(error), "primary"); self.assertEqual(tails, 1)
+
+    def test_cancellation_after_suite_returns_prints_log_and_exits_nonzero(self):
+        def cancelled(*_args, **_kwargs):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        error, tails = self._main(suite=cancelled)
+        self.assertIsInstance(error, SystemExit); self.assertEqual(error.code, 128 + signal.SIGTERM); self.assertEqual(tails, 1)
+
+    def test_database_credentials_are_registered_before_children_start(self):
+        runner.SENSITIVE_VALUES.clear()
+        self._main(env={"TEST_DATABASE_URL": "postgresql://r:runtime%2Fpw@db/app", "TEST_DATABASE_ADMIN_URL": "postgresql://m:adminpw@db/postgres"})
+        self.assertNotIn("runtime/pw", runner.redact("x runtime/pw y"))
+        self.assertNotIn("adminpw", runner.redact("x adminpw y"))
+
 if __name__ == "__main__":
     unittest.main()
