@@ -244,6 +244,7 @@ describe('signed in', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
     expect(fake.requests.some((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toBe(true);
     expect(screen.queryByText('Veselí')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('failed sign out keeps the signed-in state and says so', async () => {
@@ -259,16 +260,54 @@ describe('signed in', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
   });
 
-  it('401 on household fetch returns to login', async () => {
+  it('401 on household fetch explains the ended session, then deliberate sign out has no notice', async () => {
+    let householdCalls = 0;
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
-      [householdPath]: problem(401),
+      [householdPath]: () => (++householdCalls === 1 ? problem(401) : json(200, household)),
       'GET /api/v1/auth/setup': json(200, { required: false }),
+      'POST /api/v1/session': json(201, session()),
+      'DELETE /api/v1/session': json(204),
     });
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue.');
     expect(screen.queryByRole('heading', { name: 'Veselí' })).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('ignores a delayed mutation 401 after deliberate sign out', async () => {
+    const base = `/api/v1/households/${HOUSEHOLD_ID}`;
+    const item = { id: '0198a2f0-0000-7000-8000-000000000002', subjectId: 's-1', responsibleUserId: null, title: 'Delayed item', notes: null, attentionOn: null, recurrence: null, workflowState: 'open' as const, attention: 'needs_attention' as const, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      ...itemRoutes(base, [item]),
+      [householdPath]: json(200, household),
+      [`GET ${base}/items/${item.id}`]: json(200, { ...item, attention: 'needs_attention', version: 1 }, { ETag: '"1"' }),
+      [`POST ${base}/items/${item.id}/completions`]: () => held,
+      'DELETE /api/v1/session': json(204),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+    });
+    renderApp();
+    const itemTitle = await screen.findByText('Delayed item');
+    const row = within(itemTitle.closest('li')!);
+    await userEvent.click(row.getByRole('button', { name: 'Done: Delayed item' }));
+    await waitFor(() => expect(fake.requests.some((r) => r.method === 'POST' && r.path === `${base}/items/${item.id}/completions`)).toBe(true));
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+    release(problem(401));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('other household failures show a retryable error', async () => {

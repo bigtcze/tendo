@@ -1,6 +1,6 @@
 # Your account and sign-in
 
-Open **Your account** from the home screen to see which login you are signed in with.
+Open **Your account** from the home screen to see which login you are signed in with. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
 
 ## Sign in with your identity provider
 

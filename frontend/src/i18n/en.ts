@@ -46,6 +46,7 @@ export const en = {
   'onboarding.error.rateLimited': 'Too many attempts. Try again in a moment.',
   'onboarding.error.unavailable': 'Tendo can’t be reached right now. Try again.',
   'login.title': 'Sign in to Tendo',
+  'login.sessionEnded': 'You were signed out. Sign in again to continue.',
   'login.login': 'Login',
   'login.password': 'Password',
   'login.submit': 'Sign in',

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
+import { SignOutContext } from './SignOutContext';
 import { Button } from '../components/ui/button';
 import { logout } from '../features/auth/sessionApi';
 import { useI18n } from '../i18n';
@@ -6,6 +7,7 @@ import { useI18n } from '../i18n';
 /** Header content for signed-in screens: who is signed in, and sign out. */
 export function AccountActions({ login, onSignedOut }: { login: string; onSignedOut: () => void }) {
   const { t } = useI18n();
+  const contextSignOut = useContext(SignOutContext);
   const [signingOut, setSigningOut] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -14,7 +16,7 @@ export function AccountActions({ login, onSignedOut }: { login: string; onSigned
     setFailed(false);
     const result = await logout();
     if (result === 'ok') {
-      onSignedOut();
+      (contextSignOut ?? onSignedOut)();
       return;
     }
     setSigningOut(false);

@@ -24,6 +24,8 @@ const problems: string[] = [];
 const failedResponses = new Set<string>();
 let n17OfflineActive = false;
 let n17FailurePhaseActive = false;
+let n19PhaseActive = false;
+const n19FailedResponses: string[] = [];
 const n17OfflineExpectedResources: RegExp[] = [];
 const n17ExpectedFailurePaths = new Set<string>();
 // Browser-initiated expected failures: anonymous session/setup/login attempts, deliberate stale save,
@@ -31,6 +33,7 @@ const n17ExpectedFailurePaths = new Set<string>();
 const allowedFailedResponses = ['GET /api/v1/session 401', 'PUT /api/v1/auth/setup 401', 'POST /api/v1/session 401'];
 const expectedFailedPaths = new Set(['/api/v1/session', '/api/v1/auth/setup']);
 const expectedForeignDetailPath = new RegExp(`^/api/v1/households/[0-9a-f-]{36}/items/${foreignItemId}$`);
+let expectedSessionEndedPaths: Array<(path: string) => boolean> = [];
 const wrongSetupCode = 'A'.repeat(43) + '=';
 
 function watch(page: Page) {
@@ -42,12 +45,15 @@ function watch(page: Page) {
     // The response check below asserts the exact expected HTTP failures.
     if (expectedFailedPaths.has(path)) return;
     if (expectedForeignDetailPath.test(path) && /status of 404/.test(message.text())) return;
+    if (n19PhaseActive && expectedSessionEndedPaths.some((expected) => expected(path)) && message.text().includes('status of 401')) return;
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
   page.on('response', (response) => {
     if (response.status() >= 400) {
-      failedResponses.add(`${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`);
+      const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
+      if (n19PhaseActive) n19FailedResponses.push(failure);
+      else failedResponses.add(failure);
     }
   });
 }
@@ -2279,6 +2285,42 @@ test.describe('Tendo production journey', () => {
     }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
+  });
+
+  test('n19. an ended session explains the sign-out on the login screen', async () => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    const cookies = await page.context().cookies();
+    const sessionCookie = cookies.find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session');
+    expect(sessionCookie).toBeDefined();
+
+    const fresh = await request.newContext({ baseURL });
+    n19FailedResponses.length = 0;
+    expectedSessionEndedPaths = ['/items/summary', '/subjects', '/members'].map((suffix) => (path) => path === `/api/v1/households/${householdId}${suffix}`);
+    n19PhaseActive = true;
+    try {
+      const revoked = await fresh.delete('/api/v1/session', {
+        headers: { Cookie: `${sessionCookie!.name}=${sessionCookie!.value}`, Origin: baseURL },
+      });
+      expect(revoked.status()).toBe(204);
+      await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeFocused();
+      await expect(page.getByRole('status')).toHaveText(en['login.sessionEnded']);
+      await expectNoAxeViolations(page, 'login-session-ended');
+      await signIn(page, ownerPassword);
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    } finally {
+      n19PhaseActive = false;
+      await fresh.dispose();
+    }
+    // Checked after the phase ends so every failure recorded during it is examined.
+    const expectedN19Failures = [`GET /api/v1/households/${householdId}/items/summary 401`, `GET /api/v1/households/${householdId}/subjects 401`, `GET /api/v1/households/${householdId}/members 401`];
+    // Which of the three household reads reach the server before sign-in replaces the screen is timing-dependent.
+    expect(n19FailedResponses).toContain(expectedN19Failures[0]);
+    expect(n19FailedResponses.filter((entry) => !expectedN19Failures.includes(entry)), 'n19 failures must be only session-ended household 401s').toEqual([]);
+    sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session')?.value ?? '';
+    expect(sessionToken).not.toBe('');
   });
 
   test('o. sign out returns to login and revokes the session server-side', async () => {
