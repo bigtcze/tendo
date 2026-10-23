@@ -78,8 +78,6 @@ export function App() {
   const [attempt, setAttempt] = useState(0);
   const [route, setRoute] = useState(() => readRoute());
   const [allItemsVisit, setAllItemsVisit] = useState(0);
-  const [itemDataRevision, setItemDataRevision] = useState(0);
-  const itemChanged = useCallback(() => setItemDataRevision((revision) => revision + 1), []);
   const [inviteVisit, setInviteVisit] = useState<string | null>(() => {
     const initialVisit = window.history.state?.inviteVisit;
     return typeof initialVisit === 'string' ? initialVisit : null;
@@ -282,13 +280,13 @@ export function App() {
         ) : route.kind === 'members' && householdId ? (
           <MembersScreen householdId={householdId} userId={state.session.userId} login={state.session.login} onSignedOut={signedOut} />
         ) : route.kind === 'allItems' && householdId ? (
-          <AllItemsScreen key={`${allItemsVisit}:${itemDataRevision}`} householdId={householdId} login={state.session.login} userId={state.session.userId} onBack={goHome} onSignedOut={signedOut} onOpenItem={(itemId, returnTo) => { transitioned.current = true; window.history.pushState({ ...(window.history.state ?? {}), returnTo, fromAllItems: true }, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <AllItemsScreen key={allItemsVisit} householdId={householdId} login={state.session.login} userId={state.session.userId} onBack={goHome} onSignedOut={signedOut} onOpenItem={(itemId, returnTo) => { transitioned.current = true; window.history.pushState({ ...(window.history.state ?? {}), returnTo, fromAllItems: true }, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         ) : route.kind === 'item' && householdId ? (
-          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goBackFromItem} onSignedOut={signedOut} onItemChanged={itemChanged} />
+          <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={state.session.login} onBack={goBackFromItem} onSignedOut={signedOut} />
         ) : route.kind === 'invalidItem' && householdId ? (
-          <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} onItemChanged={itemChanged} />
+          <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={state.session.login} onBack={goHome} onSignedOut={signedOut} />
         ) : (
-          <HomeScreen key={`${state.session.userId}:${householdId}:${itemDataRevision}`} session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenAllItems={openAllItemsForStatus} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
+          <HomeScreen session={state.session} onSignedOut={signedOut} onOpenPeople={openPeople} onOpenAllItems={openAllItemsForStatus} onOpenItem={(itemId) => { transitioned.current = true; window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`); setRoute({ kind: 'item', itemId }); }} />
         )}
       </ScreenTransitionContext>
       </HouseholdNavigationContext>

@@ -250,7 +250,7 @@ describe('All items', () => {
     expect(fake.requests.length).toBeGreaterThan(0);
   });
 
-  it('refreshes a filtered All items view when an archive completes after navigating Back', async () => {
+  it('holds the filtered All items reads until an archive in flight on detail settles, then shows the post-archive list', async () => {
     const archivedItem = makeItem(90, { title: 'Unique archive target' });
     let isArchived = false;
     let releasePatch!: () => void;
@@ -268,39 +268,50 @@ describe('All items', () => {
     await userEvent.click(await screen.findByRole('link', { name: 'Unique archive target' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(releasePatch).toBeDefined());
+    const readsBeforeBack = fake.requests.length;
     await userEvent.click(await screen.findByRole('link', { name: 'Back to all items' }));
-    expect(await screen.findByText('Unique archive target')).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'All items' });
     const filteredUrl = window.location.pathname + window.location.search;
     expect(filteredUrl).toContain('q=Unique+archive+target');
-    expect(isArchived).toBe(false);
+    // No list or summary read may leave while the archive is pending, and the pre-archive row never appears.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.requests.slice(readsBeforeBack).filter((request) => request.path === `${base}/items` || request.path === `${base}/items/summary`)).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: 'Unique archive target' })).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox')).toHaveValue('Unique archive target');
 
     await act(async () => releasePatch());
     expect(await screen.findByText('No items match.')).toBeInTheDocument();
     expect(window.location.pathname + window.location.search).toBe(filteredUrl);
     expect(screen.getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
-    expect(fake.requests.some((request) => request.method === 'GET' && request.path === `${base}/items/summary` && request.query.get('q') === 'Unique archive target')).toBe(true);
+    expect(fake.requests.slice(readsBeforeBack).some((request) => request.path === `${base}/items/summary` && request.query.get('q') === 'Unique archive target')).toBe(true);
+    expect(screen.queryByRole('link', { name: 'Unique archive target' })).not.toBeInTheDocument();
   });
 
-  it('refreshes Home when an archive completes after navigating there', async () => {
+  it('holds Home reads until an archive in flight on detail settles, so the archived item never reappears', async () => {
     const archivedItem = makeItem(91, { title: 'Home archive target' });
     let isArchived = false;
     let releasePatch!: () => void;
     const routes = itemRoutes(base, () => [{ ...archivedItem, archived: isArchived }]);
-    installFakeServer({ ...bootRoutes, ...routes,
+    const fake = installFakeServer({ ...bootRoutes, ...routes,
       [`GET ${base}/items/${archivedItem.id}`]: () => json(200, { ...archivedItem, archived: isArchived }, { ETag: '"1"' }),
       [`GET ${base}/items/${archivedItem.id}/completions`]: json(200, { items: [], nextCursor: null }),
       [`GET ${base}/subjects/s-1`]: json(200, subject),
       [`PATCH ${base}/items/${archivedItem.id}`]: () => new Promise<Response>((resolve) => { releasePatch = () => { isArchived = true; resolve(json(200, { ...archivedItem, archived: true }, { ETag: '"2"' })); }; }),
     });
     app();
-    expect(await screen.findByRole('link', { name: 'Open item Home archive target' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('link', { name: 'Open item Home archive target' }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Open item Home archive target' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(releasePatch).toBeDefined());
+    const readsBeforeHome = fake.requests.length;
     await userEvent.click(screen.getByRole('link', { name: 'Home' }));
-    expect(await screen.findByRole('link', { name: 'Open item Home archive target' })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.requests.slice(readsBeforeHome).filter((request) => request.path === `${base}/items` || request.path === `${base}/items/summary`)).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: 'Open item Home archive target' })).not.toBeInTheDocument();
+
     await act(async () => releasePatch());
-    await waitFor(() => expect(screen.queryByRole('link', { name: 'Open item Home archive target' })).not.toBeInTheDocument());
+    await waitFor(() => expect(fake.requests.slice(readsBeforeHome).some((request) => request.path === `${base}/items/summary`)).toBe(true));
+    await waitFor(() => expect(screen.queryByRole('status', { name: /Loading/ })).not.toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: 'Open item Home archive target' })).not.toBeInTheDocument();
   });
 
   it('returns from detail to the exact filtered second page and restores its rows', async () => {

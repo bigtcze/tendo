@@ -77,16 +77,6 @@ describe('item details', () => {
     expect(await screen.findByText('Item updated.')).toHaveFocus();
   });
 
-  it('keeps the detail mounted and notice focused after a successful write', async () => {
-    const fake = installFakeServer(common({ [`PATCH ${path}`]: () => json(200, item({ workflowState: 'in_progress' }), { ETag: '"3"' }), [`GET ${base}/members`]: members }));
-    window.history.replaceState(null, '', `/items/${itemId}`); app();
-    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
-    const notice = await screen.findByText('Item updated.');
-    expect(notice).toHaveFocus();
-    expect(screen.getByRole('heading', { level: 1, name: 'Renew passport' })).toBeInTheDocument();
-    expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(2);
-  });
-
   it('pauses, resumes, and waits with only workflow state changes', async () => {
     let state: Item['workflowState'] = 'open';
     const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, item({ workflowState: state }), { ETag: `"${state === 'open' ? 1 : 2}"` }), [`PATCH ${path}`]: (req) => { const body = JSON.parse(req.body); state = body.workflowState; return json(200, item({ workflowState: state }), { ETag: '"3"' }); } }));
