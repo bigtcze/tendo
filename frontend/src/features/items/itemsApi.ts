@@ -13,6 +13,29 @@ const itemPath = '/api/v1/households/{householdId}/items/{itemId}';
 const completionPath = '/api/v1/households/{householdId}/items/{itemId}/completions';
 const undoPath = '/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}';
 
+// Item writes that are still in flight. List and summary reads wait for them, so a list opened while a
+// write from another screen is pending (e.g. Archive, then Back before the response) loads post-write data:
+// navigation unmounts the writing screen, so nothing else would refresh that list later. Callers that read a
+// fresh ETag before writing track the read and write together. The wait is bounded per read (fail-open): a
+// write slower than the bound can still leave a list stale until it is reloaded.
+const pendingItemWrites = new Set<Promise<unknown>>();
+export function trackItemWrite<T>(write: Promise<T>): Promise<T> {
+  pendingItemWrites.add(write);
+  const done = () => { pendingItemWrites.delete(write); };
+  write.then(done, done);
+  return write;
+}
+// Bounded so a hung write (fetch has no timeout) delays a list at most this long instead of blocking it.
+export const itemWriteWaitLimitMs = 10_000;
+async function afterItemWrites(): Promise<void> {
+  if (!pendingItemWrites.size) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<void>((resolve) => { timer = setTimeout(resolve, itemWriteWaitLimitMs); });
+  const settled = (async () => { while (pendingItemWrites.size) await Promise.allSettled([...pendingItemWrites]); })();
+  await Promise.race([settled, limit]);
+  clearTimeout(timer);
+}
+
 export type CompletionPage = { kind: 'ok'; completions: Completion[]; nextCursor: string | null } | Failure | { kind: 'notFound' };
 export async function listCompletions(householdId: string, itemId: string, cursor?: string): Promise<CompletionPage> {
   try {
@@ -25,7 +48,10 @@ export async function listCompletions(householdId: string, itemId: string, curso
 }
 
 export type ItemPatch = { kind: 'ok'; item: Item } | { kind: 'notFound' | 'changed' } | { kind: 'invalid'; field: string; code: string } | Failure;
-export async function patchItem(householdId: string, itemId: string, etag: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
+export function patchItem(householdId: string, itemId: string, etag: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
+  return trackItemWrite(sendPatchItem(householdId, itemId, etag, body));
+}
+async function sendPatchItem(householdId: string, itemId: string, etag: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
   try {
     const { data, error, response } = await api.PATCH(itemPath, { params: { path: { householdId, itemId }, header: { 'If-Match': etag } }, body });
     if (data && response.status === 200) return { kind: 'ok', item: data };
@@ -37,7 +63,11 @@ export async function patchItem(householdId: string, itemId: string, etag: strin
   return { kind: 'error' };
 }
 
-export async function changeItem(householdId: string, itemId: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
+export function changeItem(householdId: string, itemId: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
+  // Tracked from the ETag read onward, so a list opened between the read and the PATCH also waits.
+  return trackItemWrite(readThenPatchItem(householdId, itemId, body));
+}
+async function readThenPatchItem(householdId: string, itemId: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
   const current = await getItem(householdId, itemId);
   if (current.kind === 'unauthenticated' || current.kind === 'error') return current;
   if (current.kind === 'notFound') return { kind: 'notFound' };
@@ -55,6 +85,7 @@ export type AllItemsStatus = 'active' | 'needs' | 'inProgress' | 'waiting' | 'up
 export type FilteredSummaryResult = { kind: 'ok'; summary: ItemSummary } | { kind: 'unauthenticated' | 'error' } | { kind: 'noHousehold' };
 export type AllItemsPageResult = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale'; parameter?: string } | { kind: 'invalidQuery' } | { kind: 'unauthenticated' | 'error' } | { kind: 'noHousehold' };
 export async function getFilteredItemsSummary(householdId: string, filters: AllItemsFilters): Promise<FilteredSummaryResult> {
+  await afterItemWrites();
   try {
     const { data, response } = await api.GET(summaryPath, { params: { path: { householdId }, query: { ...(filters.q ? { q: filters.q } : {}), ...(filters.subjectId ? { subjectId: filters.subjectId } : {}), ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}), ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' : 'false' } : {}) } } });
     if (data && response.status === 200) return { kind: 'ok' as const, summary: data };
@@ -64,6 +95,7 @@ export async function getFilteredItemsSummary(householdId: string, filters: AllI
   return { kind: 'error' as const };
 }
 export async function listAllItems(householdId: string, status: AllItemsStatus, filters: AllItemsFilters, attentionDate: string, cursor?: string): Promise<AllItemsPageResult> {
+  await afterItemWrites();
   const common = {
     sort: 'attention_on' as const,
     attentionDate,
@@ -124,6 +156,7 @@ export async function listAllItems(householdId: string, status: AllItemsStatus, 
 }
 const summaryPath = '/api/v1/households/{householdId}/items/summary';
 export async function getItemsSummary(householdId: string): Promise<{ kind: 'ok'; summary: ItemSummary } | { kind: 'noHousehold' } | Failure> {
+  await afterItemWrites();
   try {
     const { data, response } = await api.GET(summaryPath, { params: { path: { householdId } } });
     if (data && response.status === 200) return { kind: 'ok', summary: data };
@@ -133,6 +166,7 @@ export async function getItemsSummary(householdId: string): Promise<{ kind: 'ok'
   return { kind: 'error' };
 }
 export async function listItemGroup(householdId: string, group: ItemGroup, attentionDate: string, cursor?: string): Promise<ItemGroupPage> {
+  await afterItemWrites();
   const query = {
     limit: 25 as const, sort: 'attention_on' as const, attentionDate,
     ...(group === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}),
@@ -178,7 +212,10 @@ export async function listActiveSubjects(householdId: string, archived = false, 
 }
 
 export type CreateResult = { kind: 'ok'; item: Item } | Invalid | { kind: 'reused' } | { kind: 'definitive' } | Failure;
-export async function createItem(householdId: string, body: components['schemas']['CreateItemRequest'], idempotencyKey: string): Promise<CreateResult> {
+export function createItem(householdId: string, body: components['schemas']['CreateItemRequest'], idempotencyKey: string): Promise<CreateResult> {
+  return trackItemWrite(sendCreateItem(householdId, body, idempotencyKey));
+}
+async function sendCreateItem(householdId: string, body: components['schemas']['CreateItemRequest'], idempotencyKey: string): Promise<CreateResult> {
   try {
     const { data, error, response } = await api.POST(listPath, { params: { path: { householdId }, header: { 'Idempotency-Key': idempotencyKey } }, body });
     if (data && response.status === 201) return { kind: 'ok', item: data };
@@ -216,7 +253,10 @@ export type CompleteResult =
   | { kind: 'invalid'; code: string }
   | { kind: 'unavailable'; code: string }
   | Failure;
-export async function completeItem(householdId: string, itemId: string, etag: string, key: string): Promise<CompleteResult> {
+export function completeItem(householdId: string, itemId: string, etag: string, key: string): Promise<CompleteResult> {
+  return trackItemWrite(sendCompleteItem(householdId, itemId, etag, key));
+}
+async function sendCompleteItem(householdId: string, itemId: string, etag: string, key: string): Promise<CompleteResult> {
   try {
     const { data, error, response } = await api.POST(completionPath, {
       params: { path: { householdId, itemId }, header: { 'If-Match': etag, 'Idempotency-Key': key } },
@@ -243,7 +283,10 @@ export type UndoResult =
   | { kind: 'changed' }
   | { kind: 'unavailable'; code: string }
   | Failure;
-export async function undoCompletion(householdId: string, itemId: string, completionId: string, etag: string): Promise<UndoResult> {
+export function undoCompletion(householdId: string, itemId: string, completionId: string, etag: string): Promise<UndoResult> {
+  return trackItemWrite(sendUndoCompletion(householdId, itemId, completionId, etag));
+}
+async function sendUndoCompletion(householdId: string, itemId: string, completionId: string, etag: string): Promise<UndoResult> {
   try {
     const { data, error, response } = await api.PATCH(undoPath, {
       params: { path: { householdId, itemId, completionId }, header: { 'If-Match': etag } },

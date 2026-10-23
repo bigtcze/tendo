@@ -1202,6 +1202,47 @@ describe('Home items', () => {
     expect(patch.headers.get('If-Match')).toBe('"8"');
   });
 
+  it.each(['complete', 'undo'] as const)('holds All items reads while a Home %s is still reading its fresh ETag', async (action) => {
+    let done = false;
+    let holdItemRead = action === 'complete';
+    let releaseRead: (() => void) | undefined;
+    const completion = (undoneAt: string | null) => json(undoneAt ? 200 : 201, { id: 'c-hold', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt, undoneByUserId: undoneAt ? 'u-1' : null });
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => [item({ done })]),
+      [subjectList]: subjects,
+      [memberList]: memberPage(),
+      [`GET ${base}/items/i-1`]: () => holdItemRead
+        ? new Promise<Response>((resolve) => { releaseRead = () => resolve(json(200, item({ done }), { ETag: '"1"' })); })
+        : json(200, item({ done }), { ETag: '"1"' }),
+      [`POST ${donePath}`]: () => { done = true; return completion(null); },
+      [`PATCH ${donePath}/c-hold`]: () => { done = false; return completion('2026-01-01T00:00:00Z'); },
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    if (action === 'undo') {
+      await screen.findByRole('button', { name: 'Undo' });
+      holdItemRead = true;
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    }
+    await waitFor(() => expect(releaseRead).toBeDefined());
+    const before = fake.requests.length;
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
+    await screen.findByRole('heading', { name: 'All items' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.requests.slice(before).filter((request) => request.path === `${base}/items` || request.path === `${base}/items/summary`)).toHaveLength(0);
+
+    await act(async () => releaseRead!());
+    await waitFor(() => expect(fake.requests.slice(before).some((request) => request.path === `${base}/items/summary`)).toBe(true));
+    const firstRead = fake.requests.slice(before).findIndex((request) => request.path === `${base}/items/summary`);
+    const write = fake.requests.slice(before).findIndex((request) => action === 'complete' ? request.method === 'POST' : request.method === 'PATCH');
+    expect(write).toBeGreaterThanOrEqual(0);
+    expect(write).toBeLessThan(firstRead);
+    expect(done).toBe(action === 'complete');
+    if (action === 'complete') expect(await screen.findByText('No items match.')).toBeInTheDocument();
+    else expect(await screen.findByRole('link', { name: 'Renew passport' })).toBeInTheDocument();
+  });
+
   it('completes with fresh ETag and one idempotency key; retry reuses the key after network failure', async () => {
     let postCalls = 0;
     let itemReads = 0;
