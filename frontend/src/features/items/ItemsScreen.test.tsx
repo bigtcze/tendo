@@ -1451,17 +1451,28 @@ describe('Home items', () => {
 
   it('shows a named overview with only populated groups and summary counts; links focus their headings', async () => {
     const entries = [item({ id: 'overview-needs', title: 'Overview needs' }), item({ id: 'overview-progress', title: 'Overview progress', workflowState: 'in_progress' }), item({ id: 'overview-upcoming', title: 'Overview upcoming', attention: 'upcoming', attentionOn: '2027-01-01' })];
-    installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
+    installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
     await screen.findByText('Overview needs');
     const nav = screen.getByRole('navigation', { name: 'Group overview' });
-    expect(within(nav).getByRole('link', { name: 'Needs attention 1' })).toBeVisible();
-    expect(within(nav).getByRole('link', { name: 'In progress 1' })).toBeVisible();
-    expect(within(nav).getByRole('link', { name: 'Coming up 1' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'Needs attention 1 item' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'In progress 1 item' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'Coming up 1 item' })).toBeVisible();
     expect(within(nav).queryByRole('link', { name: 'Waiting' })).not.toBeInTheDocument();
     expect(within(nav).queryByRole('link', { name: 'Paused' })).not.toBeInTheDocument();
-    await userEvent.click(within(nav).getByRole('link', { name: 'In progress 1' }));
+    const progressLink = within(nav).getByRole('link', { name: 'In progress 1 item' });
+    expect(progressLink).toHaveAttribute('href', '#group-inProgress');
+    const modified = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true, button: 0 });
+    progressLink.dispatchEvent(modified);
+    expect(modified.defaultPrevented).toBe(false);
+    expect(screen.getByRole('heading', { level: 2, name: 'In progress 1 item' })).not.toHaveFocus();
+    await userEvent.click(progressLink);
     expect(screen.getByRole('heading', { level: 2, name: 'In progress 1 item' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const addForm = await screen.findByRole('form', { name: 'Add an item' });
+    expect(screen.queryByRole('navigation', { name: 'Group overview' })).not.toBeInTheDocument();
+    await userEvent.click(within(addForm).getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('navigation', { name: 'Group overview' })).toBeVisible();
   });
 
   it('localizes the group overview landmark label to Czech', async () => {
@@ -1469,8 +1480,8 @@ describe('Home items', () => {
     const entries = [item({ id: 'overview-cs-needs' }), item({ id: 'overview-cs-upcoming', attention: 'upcoming', attentionOn: '2027-01-01' })];
     installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
     app();
-    await screen.findByRole('navigation', { name: 'Přehled skupin' });
-    expect(screen.getByRole('navigation', { name: 'Přehled skupin' })).toBeVisible();
+    const nav = await screen.findByRole('navigation', { name: 'Přehled skupin' });
+    expect(within(nav).getByRole('link', { name: 'Vyžaduje pozornost 1 položka' })).toBeVisible();
   });
 
   it('hides the group overview when fewer than two groups are populated', async () => {

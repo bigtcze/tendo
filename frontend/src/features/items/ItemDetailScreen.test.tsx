@@ -541,17 +541,20 @@ describe('item details', () => {
   });
 
   it('hides loaded history during editing and restores it after cancel/save without refetching on cancel', async () => {
-    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => json(200, item({ title: JSON.parse(request.body).title })) }));
+    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`GET ${historyPath}`]: json(200, { items: [completion('kept-history', '2025-04-02')], nextCursor: null }), [`PATCH ${path}`]: (request) => json(200, item({ title: JSON.parse(request.body).title })) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     const historyHeading = () => screen.queryByRole('heading', { name: 'History' });
     const edit = await screen.findByRole('button', { name: 'Edit' });
     expect(await screen.findByRole('heading', { name: 'History' })).toBeVisible();
+    const historyEntry = await screen.findByText('Done Apr 2, 2025');
     expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(1);
     await userEvent.click(edit);
     const form = await screen.findByRole('form', { name: 'Edit item' });
     expect(historyHeading()).not.toBeInTheDocument();
+    expect(screen.queryByText('Done Apr 2, 2025')).not.toBeInTheDocument();
     await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
     expect(await screen.findByRole('heading', { name: 'History' })).toBeVisible();
+    expect(screen.getByText('Done Apr 2, 2025').textContent).toBe(historyEntry.textContent);
     expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const formAgain = await screen.findByRole('form', { name: 'Edit item' });
@@ -560,6 +563,7 @@ describe('item details', () => {
     await userEvent.type(within(formAgain).getByLabelText('What needs doing?'), 'Edited title');
     await userEvent.click(within(formAgain).getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByRole('heading', { name: 'History' })).toBeVisible();
+    expect(screen.getByText('Done Apr 2, 2025').textContent).toBe(historyEntry.textContent);
     expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(1);
   });
 

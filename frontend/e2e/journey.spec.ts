@@ -1160,9 +1160,9 @@ test.describe('Tendo production journey', () => {
       await expect(heading).toContainText(String(counts.upcoming));
       const overview = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
       await expect(overview.getByRole('link')).toHaveCount([counts.needsAttention, counts.inProgress, counts.waiting, counts.upcoming, counts.paused].filter(count => count > 0).length);
-      await expect(overview.getByRole('link', { name: `Coming up ${counts.upcoming}` })).toBeVisible();
+      await expect(overview.getByRole('link', { name: `Coming up ${counts.upcoming} items` })).toBeVisible();
       await expectNoAxeViolations(page, 'home-group-overview');
-      await overview.getByRole('link', { name: `Coming up ${counts.upcoming}` }).click();
+      await overview.getByRole('link', { name: `Coming up ${counts.upcoming} items` }).click();
       await expect(heading).toBeFocused();
       const initialItems = await upcoming.getByRole('listitem').count();
       expect(initialItems).toBe(Math.min(25, counts.upcoming));
