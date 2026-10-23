@@ -327,7 +327,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await capture(page, join(dir, 'home-1200-en-640-reflow-proxy.png'));
     }
     const widths = [320, 390, 768, 1440];
-    for (const width of widths) for (const locale of (width === 390 || width === 1440 || ((stage === 'empty' || stage === '30') && width === 320) ? ['en', 'cs'] : ['en'])) {
+    for (const width of widths) for (const locale of ['en', 'cs']) {
       const context = locale === 'cs' ? await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } }) : null;
       if (context) await context.addCookies(await page.context().cookies());
       const targetPage = context ? await context.newPage() : page;
@@ -356,6 +356,8 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await expect.poll(async () => (await row.isVisible().catch(() => false)) || (await empty.isVisible().catch(() => false)), { timeout: 10_000 }).toBe(true);
       const timeToContentMs = Date.now() - started;
       await targetPage.waitForLoadState('networkidle');
+      const overview = targetPage.getByRole('main').getByRole('navigation', { name: (locale === 'cs' ? cs : en)['items.group.overview'] });
+      if (stage === '1200') await expect(overview).toBeVisible();
       const actualViewport = targetPage.viewportSize();
       const innerWidth = await targetPage.evaluate(() => window.innerWidth);
       expect(innerWidth, `${locale} viewport width`).toBe(width);
