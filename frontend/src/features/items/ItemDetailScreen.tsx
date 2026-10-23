@@ -34,7 +34,7 @@ function pluralKey(unit: Recurrence['intervalUnit'], count: number, locale: stri
   return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
 }
 type LoadState = 'loading' | 'error' | 'gone' | 'ready';
-export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedOut }: { householdId: string; itemId: string; login: string; onBack: () => void; onSignedOut: () => void }) {
+export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedOut, onItemChanged }: { householdId: string; itemId: string; login: string; onBack: () => void; onSignedOut: () => void; onItemChanged: () => void }) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<LoadState>('loading');
   const [item, setItem] = useState<Item | null>(null);
@@ -196,6 +196,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     const token = generation.current;
     try {
       const result = await patchItem(householdId, itemId, editing.etag, body);
+      if (result.kind === 'ok') onItemChanged();
       if (!current(token)) return { kind: 'handled' as const };
       if (result.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' as const }; }
       if (result.kind === 'notFound') { setState('gone'); setEditing(null); return { kind: 'handled' as const }; }
@@ -247,6 +248,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     const token = generation.current;
     try {
       const result = await changeItem(householdId, itemId, body);
+      if (result.kind === 'ok') onItemChanged();
       if (!current(token)) return;
       if (result.kind === 'unauthenticated') { onSignedOut(); return; }
       if (result.kind === 'notFound') { setState('gone'); return; }

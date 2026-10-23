@@ -250,6 +250,59 @@ describe('All items', () => {
     expect(fake.requests.length).toBeGreaterThan(0);
   });
 
+  it('refreshes a filtered All items view when an archive completes after navigating Back', async () => {
+    const archivedItem = makeItem(90, { title: 'Unique archive target' });
+    let isArchived = false;
+    let releasePatch!: () => void;
+    const routes = itemRoutes(base, () => [{ ...archivedItem, archived: isArchived }]);
+    const fake = installFakeServer({ ...bootRoutes, ...routes,
+      [`GET ${base}/items/${archivedItem.id}`]: () => json(200, { ...archivedItem, archived: isArchived }, { ETag: '"1"' }),
+      [`GET ${base}/items/${archivedItem.id}/completions`]: json(200, { items: [], nextCursor: null }),
+      [`GET ${base}/subjects/s-1`]: json(200, subject),
+      [`PATCH ${base}/items/${archivedItem.id}`]: () => new Promise<Response>((resolve) => { releasePatch = () => { isArchived = true; resolve(json(200, { ...archivedItem, archived: true }, { ETag: '"2"' })); }; }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    await userEvent.type(screen.getByRole('searchbox'), 'Unique archive target');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Unique archive target' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(releasePatch).toBeDefined());
+    await userEvent.click(await screen.findByRole('link', { name: 'Back to all items' }));
+    expect(await screen.findByText('Unique archive target')).toBeInTheDocument();
+    const filteredUrl = window.location.pathname + window.location.search;
+    expect(filteredUrl).toContain('q=Unique+archive+target');
+    expect(isArchived).toBe(false);
+
+    await act(async () => releasePatch());
+    expect(await screen.findByText('No items match.')).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search).toBe(filteredUrl);
+    expect(screen.getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
+    expect(fake.requests.some((request) => request.method === 'GET' && request.path === `${base}/items/summary` && request.query.get('q') === 'Unique archive target')).toBe(true);
+  });
+
+  it('refreshes Home when an archive completes after navigating there', async () => {
+    const archivedItem = makeItem(91, { title: 'Home archive target' });
+    let isArchived = false;
+    let releasePatch!: () => void;
+    const routes = itemRoutes(base, () => [{ ...archivedItem, archived: isArchived }]);
+    installFakeServer({ ...bootRoutes, ...routes,
+      [`GET ${base}/items/${archivedItem.id}`]: () => json(200, { ...archivedItem, archived: isArchived }, { ETag: '"1"' }),
+      [`GET ${base}/items/${archivedItem.id}/completions`]: json(200, { items: [], nextCursor: null }),
+      [`GET ${base}/subjects/s-1`]: json(200, subject),
+      [`PATCH ${base}/items/${archivedItem.id}`]: () => new Promise<Response>((resolve) => { releasePatch = () => { isArchived = true; resolve(json(200, { ...archivedItem, archived: true }, { ETag: '"2"' })); }; }),
+    });
+    app();
+    expect(await screen.findByRole('link', { name: 'Open item Home archive target' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'Open item Home archive target' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(releasePatch).toBeDefined());
+    await userEvent.click(screen.getByRole('link', { name: 'Home' }));
+    expect(await screen.findByRole('link', { name: 'Open item Home archive target' })).toBeInTheDocument();
+    await act(async () => releasePatch());
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Open item Home archive target' })).not.toBeInTheDocument());
+  });
+
   it('returns from detail to the exact filtered second page and restores its rows', async () => {
     const items = Array.from({ length: 60 }, (_, index) => makeItem(index + 1));
     const fake = await openAllItems(items);

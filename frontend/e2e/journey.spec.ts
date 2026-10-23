@@ -1399,6 +1399,8 @@ test.describe('Tendo production journey', () => {
       const archivedSearchItem = page.getByRole('link', { name: 'Výměna filtru Škoda 0000' });
       await archivedSearchItem.click();
       await page.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
+      // Wait for the archive to succeed before leaving; the unit suite covers leaving while it is still in flight.
+      await expect(page.getByText(en['itemDetail.archived'], { exact: true })).toBeVisible();
       await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
       await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
       await statusSelect.selectOption('archived');
