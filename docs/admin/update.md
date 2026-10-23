@@ -43,6 +43,17 @@ Run every command from the directory that holds Tendo's `compose.yaml` and `.env
 
 5. Compare the release's [`example.env`](https://github.com/bigtcze/tendo/releases/latest/download/example.env) with your `.env` and add any new settings you want. The [configuration reference](configuration.md) describes each one and its default.
 
+## Updating from 1.x to 2.0
+
+Tendo 2.0 keeps all your data and adds no required settings. Take a [backup](backup-restore.md#back-up) first, then follow the update steps above. If `TENDO_VERSION` is `v1` or `v1.0.0`, change it to `v2` (or `latest`) first.
+
+The 2.0 migration adds search and sorting support to the database:
+
+- It installs the PostgreSQL extensions `unaccent` and `pg_trgm` and builds a search index. The published `compose.yaml` migrates as the PostgreSQL administrator, which is allowed to do this. If you run your own PostgreSQL with a less privileged migration role, that role must be allowed to install these two extensions.
+- It rewrites every item row once to fill the search column. With many items this takes longer than an ordinary update; the app starts only after the migration finishes.
+
+Going back to 1.x afterwards needs the backup you took before updating; see [Go back to an earlier version](#go-back-to-an-earlier-version).
+
 ## Moving from a Git checkout
 
 Before version 1.0, Tendo was installed with `git clone` and built locally. Such a checkout switches to the published image with one last pull:

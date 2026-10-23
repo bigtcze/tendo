@@ -2,7 +2,7 @@
 
 Items can be added for a person or thing. See [Items](items.md) for adding, repeating, and completing them.
 
-"People and things" is the list of who and what your household looks after: a child, your home, the car, a pet. Open it from the home screen.
+"People and things" is the list of who and what your household looks after: a child, your home, the car, a pet. Open it with **People and things** in the navigation at the top of every household screen.
 
 ## Add one
 

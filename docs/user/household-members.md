@@ -4,11 +4,11 @@ An owner can invite someone to join the household as a member. Tendo does not se
 
 ## See who is in the household
 
-On the home screen, open **Household members**. Everyone in the household sees the member list with each person's login and whether they are an owner or a member.
+Choose **Members** in the navigation at the top of every household screen to open **Household members**. Everyone in the household sees the member list with each person's login and whether they are an owner or a member.
 
 ## Invite someone (owners)
 
-1. Open **Household members**.
+1. Choose **Members** in the navigation.
 2. Select **Create invite link**.
 3. Copy the link and send it to the person through a private channel, such as a direct message.
 
