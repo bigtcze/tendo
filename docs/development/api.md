@@ -16,7 +16,7 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | Status | `code` | Meaning |
 | --- | --- | --- |
 | 400 | `invalid_request` | Malformed JSON, unknown, duplicate or null keys, wrong value types, empty patch |
-| 400 | `invalid_query` | Bad query parameter; `parameter` names `limit`, `cursor`, `archived`, `done`, `subjectId`, `responsibleUserId`, `workflowState`, `attention`, `recurring`, `sort`, or `attentionDate`, or `q` |
+| 400 | `invalid_query` | Bad query parameter; `parameter` names `limit`, `cursor`, `archived`, `done`, `subjectId`, `responsibleUserId`, `workflowState`, `attention`, `recurring`, `sort`, `attentionDate`, `q`, `id` (subject list), or `order` (completion history) |
 | 401 | `unauthenticated` | No valid session |
 | 404 | `not_found` | Malformed ID, nonexistent resource, resource of another household, or caller not a member. The bodies are identical |
 | 404 | `invalid_invitation` | Malformed, unknown, expired, revoked, or already-used invitation token |

@@ -4,7 +4,7 @@ An owner can invite someone to join the household as a member. Tendo does not se
 
 ## See who is in the household
 
-Choose **Members** in the navigation at the top of every household screen to open **Household members**. Everyone in the household sees the member list with each person's login and whether they are an owner or a member.
+Choose **Members** in the navigation at the top of every household screen to open **Household members**. Everyone in the household sees the member list with each person's login and whether they are an owner or a member. Long lists show one page at a time; use **Next page**, **Previous page** and **First page** to move through them. For owners, the **Invitations** list pages the same way.
 
 ## Invite someone (owners)
 
