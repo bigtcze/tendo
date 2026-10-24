@@ -24,6 +24,8 @@ const PAPER = 'rgb(250, 247, 242)';
 
 /** Collect rendered text and control candidates using the browser's resolved styles. */
 export async function collectContrastCandidates(page: Page): Promise<RawCandidate[]> {
+  // Entry animations fade content in from opacity 0; measuring mid-animation reports transient, not rendered, colours.
+  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
   return page.evaluate(({ paper, transparent }) => {
     const parse = (value: string): Color | null => {
       const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%)?)?\s*\)$/i);
