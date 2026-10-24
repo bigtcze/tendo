@@ -1,4 +1,4 @@
-import { boundaryPasses, colorString, composite, contrastRatio, evaluateContrast, parseColor, type Color, type ContrastResult } from './contrast';
+import { boundaryPasses, composite, contrastRatio, evaluateContrast, parseColor, type Color, type ContrastResult } from './contrast';
 import type { Page } from '@playwright/test';
 
 type RawCandidate = {
@@ -29,6 +29,7 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%)?)?\s*\)$/i);
       return match ? { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] === undefined ? 1 : Number(match[4]) / (match[5] ? 100 : 1) } : null;
     };
+    const formatColor = (color: Color) => `rgb(${Math.round(color.r)} ${Math.round(color.g)} ${Math.round(color.b)})`;
     const blend = (foreground: Color, backdrop: Color): Color => {
       const alpha = foreground.a + backdrop.a * (1 - foreground.a);
       if (!alpha) return { r: 0, g: 0, b: 0, a: 0 };
@@ -81,7 +82,7 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       const foreground = parse(style.color);
       const background = layers(element);
       const composited = foreground ? blend({ ...foreground, a: foreground.a * opacity }, background) : null;
-      result.push({ kind: 'text', name: describe(element), foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : style.color, background: colorString(background), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: parseFloat(style.fontSize), fontWeight: Number(style.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
+      result.push({ kind: 'text', name: describe(element), foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : style.color, background: formatColor(background), outside: formatColor(outsideColor(element)), ownBackground: formatColor(ownColor(element)), fontSize: parseFloat(style.fontSize), fontWeight: Number(style.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
     }
     for (const element of document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[placeholder],textarea[placeholder]')) {
       if (!isVisible(element)) continue;
@@ -91,7 +92,7 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       let opacity = Number(placeholder.opacity || 1);
       for (let node: Element | null = element; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity || 1);
       const composited = fg ? blend({ ...fg, a: fg.a * opacity }, inputBackground) : null;
-      result.push({ kind: 'placeholder', name: `${describe(element)}[placeholder]`, foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : placeholder.color, background: colorString(inputBackground), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: parseFloat(placeholder.fontSize), fontWeight: Number(placeholder.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
+      result.push({ kind: 'placeholder', name: `${describe(element)}[placeholder]`, foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : placeholder.color, background: formatColor(inputBackground), outside: formatColor(outsideColor(element)), ownBackground: formatColor(ownColor(element)), fontSize: parseFloat(placeholder.fontSize), fontWeight: Number(placeholder.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
     }
     const selector = 'input,select,textarea,button,[role="switch"],[role="checkbox"],[role="radio"]';
     for (const element of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(selector)) {
@@ -103,7 +104,7 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       const isNative = element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type) && style.appearance === 'auto';
       const border = parse(style.borderTopColor);
       const background = layers(element);
-      result.push({ kind: isNative ? 'native-control' : 'boundary', name: element.getAttribute('aria-label') || describe(element), foreground: border ? `rgba(${border.r}, ${border.g}, ${border.b}, ${border.a})` : style.borderTopColor, background: colorString(background), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: 0, fontWeight: 400, disabled: disabled(element), exempt: false, borderWidth: parseFloat(style.borderTopWidth), opacity: 1, native: isNative });
+      result.push({ kind: isNative ? 'native-control' : 'boundary', name: element.getAttribute('aria-label') || describe(element), foreground: border ? `rgba(${border.r}, ${border.g}, ${border.b}, ${border.a})` : style.borderTopColor, background: formatColor(background), outside: formatColor(outsideColor(element)), ownBackground: formatColor(ownColor(element)), fontSize: 0, fontWeight: 400, disabled: disabled(element), exempt: false, borderWidth: parseFloat(style.borderTopWidth), opacity: 1, native: isNative });
     }
     return result.map((candidate) => ({ ...candidate, background: candidate.background || transparent }));
   }, { paper: PAPER, transparent: TRANSPARENT });
