@@ -51,7 +51,7 @@ type service interface {
 	Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p item.Patch) (item.Item, error)
 	Complete(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, key string, request item.CompletionRequest) (item.Completion, bool, error)
 	UndoCompletion(ctx context.Context, userID, householdID, itemID, completionID string, expectedVersion int64) (item.Completion, error)
-	ListCompletions(ctx context.Context, userID, householdID, itemID string, limit int, cursor string) (item.CompletionPage, error)
+	ListCompletions(ctx context.Context, userID, householdID, itemID string, limit int, cursor, order string) (item.CompletionPage, error)
 }
 
 // Handler serves item resources. Authentication is injected so this package

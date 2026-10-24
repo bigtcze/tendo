@@ -701,7 +701,6 @@ func TestItemListExplainIndexesAtScale(t *testing.T) {
 	// IDs ascend with n so created pages and cursor positions are deterministic. Target has 10k rows; other household contributes a further 10k.
 	mustExec(`INSERT INTO items(id,household_id,subject_id,title,attention_on,responsible_user_id,workflow_state,archived,done) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((100000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END,CASE WHEN n%10=0 THEN $6::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,(n%11=0),(n%13=0) FROM generate_series(1,20000) n`, h, other, s, os, sparseSubject, actor)
 	mustExec(`INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) SELECT household_id,id,DATE '2026-01-01', $1::uuid,'open',1,'explain-'||id::text,decode(repeat('ab',32),'hex') FROM items WHERE household_id=$2::uuid AND id IN (SELECT id FROM items WHERE household_id=$2::uuid ORDER BY id LIMIT 20)`, actor, h)
-	mustExec(`ANALYZE items`)
 	conn, err := app.Acquire(ctx)
 	must(err)
 	defer conn.Release()
@@ -823,8 +822,7 @@ func TestItemListExplainIndexesAtScale(t *testing.T) {
 }
 
 // createdOrderIndexes lists the indexes that can each legitimately serve the unchanged
-// V1 id-ordered list without a Sort; the planner chooses by cost (with this fixture's
-// 50/50 household split it may walk items_pkey and filter the household), so none is pinned.
+// V1 id-ordered list without a Sort; the planner chooses by cost, so none is pinned.
 const createdOrderIndexes = "items_pkey|items_household_id_id_key|items_household_archived_done_id_idx"
 
 // planOrderedIndex reports whether the main (non-subplan) path contains an ordered
@@ -1371,7 +1369,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		history, err := repo.ListCompletions(ctx, hA, created.ID, itemIDFloor, 10)
+		history, err := repo.ListCompletions(ctx, hA, created.ID, itemIDFloor, 10, false)
 		if err != nil || len(history) != 1 {
 			t.Fatalf("history=%+v err=%v", history, err)
 		}
@@ -1386,7 +1384,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err != nil || replayed.ID != created.ID || replayed.Version != afterUndo.Version || !sameDate(replayed.AttentionOn, afterUndo.AttentionOn) {
 			t.Fatalf("replay=%+v after undo=%+v err=%v", replayed, afterUndo, err)
 		}
-		history, err = repo.ListCompletions(ctx, hA, created.ID, itemIDFloor, 10)
+		history, err = repo.ListCompletions(ctx, hA, created.ID, itemIDFloor, 10, false)
 		if err != nil || len(history) != 1 || history[0].UndoneAt == nil {
 			t.Fatalf("receipt history=%+v err=%v", history, err)
 		}
@@ -1555,7 +1553,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if err != nil || updated.Recurrence == nil || *updated.Recurrence != policy2 {
 			t.Fatalf("policy update=%+v err=%v", updated, err)
 		}
-		storedHistory, err := repo.ListCompletions(ctx, hA, got.ID, "00000000-0000-0000-0000-000000000000", 10)
+		storedHistory, err := repo.ListCompletions(ctx, hA, got.ID, "00000000-0000-0000-0000-000000000000", 10, false)
 		if err != nil || len(storedHistory) != 1 || storedHistory[0].Recurrence == nil || *storedHistory[0].Recurrence != *policy {
 			t.Fatalf("policy edit mutated receipt=%+v err=%v", storedHistory, err)
 		}
@@ -1600,7 +1598,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 				if err != nil || restored.AttentionOn == nil || restored.AttentionOn.String() != "2025-11-30" || restored.LastCompletedOn == nil || *restored.LastCompletedOn != completed || restored.Version != 4 {
 					t.Fatalf("restored=%+v err=%v", restored, err)
 				}
-				rows, err := service.ListCompletions(ctx, completionUser, hA, created.ID, 10, "")
+				rows, err := service.ListCompletions(ctx, completionUser, hA, created.ID, 10, "", item.CompletionOrderOldest)
 				if err != nil || len(rows.Items) != 2 {
 					t.Fatalf("after completion undo history=%+v err=%v", rows, err)
 				}
@@ -1616,7 +1614,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 				if err != nil || final.AttentionOn != nil || final.LastCompletedOn != nil || final.WorkflowState != item.StateOpen || final.Done || final.Recurrence == nil || *final.Recurrence != policy || final.Version != 5 {
 					t.Fatalf("final=%+v err=%v", final, err)
 				}
-				rows, err = service.ListCompletions(ctx, completionUser, hA, created.ID, 10, "")
+				rows, err = service.ListCompletions(ctx, completionUser, hA, created.ID, 10, "", item.CompletionOrderOldest)
 				if err != nil || len(rows.Items) != 2 {
 					t.Fatalf("final receipts=%+v err=%v", rows, err)
 				}
@@ -2064,11 +2062,25 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if after.Version != 3 || replay.CompletedOn != first.CompletedOn || replay.ID != first.ID {
 			t.Fatalf("replay changed receipt or version first=%+v replay=%+v item=%+v", first, replay, after)
 		}
-		rows, err := repo.ListCompletions(ctx, hA, i.ID, "00000000-0000-0000-0000-000000000000", 10)
+		rows, err := repo.ListCompletions(ctx, hA, i.ID, "00000000-0000-0000-0000-000000000000", 10, false)
 		if err != nil || len(rows) != 1 || rows[0].Recurrence == nil || rows[0].NextAttentionOn.String() != "2027-10-07" {
 			t.Fatalf("history=%+v err=%v", rows, err)
 		}
-		if _, err = repo.ListCompletions(ctx, hA, first.ID, "00000000-0000-0000-0000-000000000000", 10); !errors.Is(err, item.ErrNotFound) {
+		if _, err := admin.Exec(ctx, `UPDATE items SET archived=true,done=false,version=version+1 WHERE id=$1::uuid`, i.ID); err != nil {
+			t.Fatal(err)
+		}
+		archivedRows, err := repo.ListCompletions(ctx, hA, i.ID, itemIDFloor, 10, false)
+		if err != nil || len(archivedRows) != 1 {
+			t.Fatalf("archived history=%+v err=%v", archivedRows, err)
+		}
+		if _, err := admin.Exec(ctx, `UPDATE items SET archived=false,done=true,version=version+1 WHERE id=$1::uuid`, i.ID); err != nil {
+			t.Fatal(err)
+		}
+		doneRows, err := repo.ListCompletions(ctx, hA, i.ID, itemIDFloor, 10, false)
+		if err != nil || len(doneRows) != 1 {
+			t.Fatalf("done history=%+v err=%v", doneRows, err)
+		}
+		if _, err = repo.ListCompletions(ctx, hA, first.ID, "00000000-0000-0000-0000-000000000000", 10, false); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("foreign/nonexistent item list=%v", err)
 		}
 	})
@@ -2126,7 +2138,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		if _, _, err := repo.Complete(ctx, hA, i.ID, "foreign", [32]byte{1}, decide); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("complete err=%v", err)
 		}
-		if _, err := repo.ListCompletions(ctx, hA, i.ID, "00000000-0000-0000-0000-000000000000", 10); !errors.Is(err, item.ErrNotFound) {
+		if _, err := repo.ListCompletions(ctx, hA, i.ID, "00000000-0000-0000-0000-000000000000", 10, false); !errors.Is(err, item.ErrNotFound) {
 			t.Fatalf("list err=%v", err)
 		}
 		stored, err := repo.Get(ctx, hB, i.ID)
@@ -2185,6 +2197,81 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			t.Fatalf("foreign POST changed receipts before=%d after=%d err=%v", beforeCount, afterCount, err)
 		}
 	})
+	t.Run("ordered completion walks and isolation", func(t *testing.T) {
+		i := create(hA, sA.ID, "ordered completion walk", nil, nil)
+		policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+		i, err = service.Update(ctx, completionUser, hA, i.ID, i.Version, item.Patch{Recurrence: item.Some(policy)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherItem := create(hA, sA.ID, "other completion item", nil, nil)
+		version := i.Version
+		for n := 0; n < 5; n++ {
+			_, _, err = service.Complete(ctx, completionUser, hA, i.ID, version, fmt.Sprintf("order-%d", n), item.CompletionRequest{CompletedOn: func() *string { s := "2020-01-01"; return &s }()})
+			if err != nil {
+				t.Fatalf("completion %d version=%d: %v", n, version, err)
+			}
+			version++
+		}
+		if _, _, err := service.Complete(ctx, completionUser, hA, otherItem.ID, 1, "other-item", item.CompletionRequest{}); err != nil {
+			t.Fatal(err)
+		}
+		oldest, err := service.ListCompletions(ctx, completionUser, hA, i.ID, 2, "", item.CompletionOrderOldest)
+		if err != nil || len(oldest.Items) != 2 || oldest.NextCursor == nil {
+			t.Fatalf("oldest=%+v err=%v", oldest, err)
+		}
+		oldestContinuation, err := service.ListCompletions(ctx, completionUser, hA, i.ID, 10, *oldest.NextCursor, item.CompletionOrderOldest)
+		if err != nil || len(oldestContinuation.Items) != 3 {
+			t.Fatalf("oldest continuation=%+v err=%v", oldestContinuation, err)
+		}
+		newest, err := service.ListCompletions(ctx, completionUser, hA, i.ID, 2, "", item.CompletionOrderNewest)
+		if err != nil || len(newest.Items) != 2 || newest.Items[0].ID <= newest.Items[1].ID || newest.NextCursor == nil {
+			t.Fatalf("newest=%+v err=%v", newest, err)
+		}
+		newestNext, err := service.ListCompletions(ctx, completionUser, hA, i.ID, 10, *newest.NextCursor, item.CompletionOrderNewest)
+		if err != nil || len(newestNext.Items) != 3 {
+			t.Fatalf("newest continuation=%+v err=%v", newestNext, err)
+		}
+		for _, receipt := range newestNext.Items {
+			if receipt.ID > newest.Items[1].ID {
+				t.Fatalf("newest cursor walk did not continue strictly older: first=%+v next=%+v", newest, newestNext)
+			}
+		}
+		oldRows, err := service.ListCompletions(ctx, completionUser, hA, i.ID, 10, "", item.CompletionOrderOldest)
+		if err != nil || len(oldRows.Items) != 5 {
+			t.Fatalf("ascending walk=%+v err=%v", oldRows, err)
+		}
+		for n := range newest.Items {
+			if newest.Items[n].ID != oldRows.Items[len(oldRows.Items)-1-n].ID {
+				t.Fatalf("newest is not reverse ascending: newest=%v oldest=%v", newest.Items, oldRows.Items)
+			}
+		}
+		newCursor := *newest.NextCursor
+		if _, _, err := service.Complete(ctx, completionUser, hA, i.ID, version, "between-page", item.CompletionRequest{}); err != nil {
+			t.Fatal(err)
+		}
+		next, err := service.ListCompletions(ctx, completionUser, hA, i.ID, 10, newCursor, item.CompletionOrderNewest)
+		if err != nil || len(next.Items) != 3 {
+			t.Fatalf("live continuation=%+v err=%v", next, err)
+		}
+		for _, c := range next.Items {
+			if c.ID > newest.Items[1].ID {
+				t.Fatalf("new receipt crossed page boundary: %+v", c)
+			}
+		}
+		foreignItem := create(hB, sB.ID, "foreign household receipt", nil, nil)
+		if _, err := admin.Exec(ctx, `INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) VALUES($1::uuid,$2::uuid,DATE '2026-01-01',$3::uuid,'open',1,'foreign-isolation',decode(repeat('aa',32),'hex'))`, hB, foreignItem.ID, completionUser); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := repo.ListCompletions(ctx, hA, i.ID, itemIDFloor, 20, false)
+		if err != nil || len(rows) != 6 {
+			t.Fatalf("household rows=%d err=%v", len(rows), err)
+		}
+		otherRows, err := repo.ListCompletions(ctx, hA, otherItem.ID, itemIDFloor, 20, false)
+		if err != nil || len(otherRows) != 1 {
+			t.Fatalf("other item rows=%d err=%v", len(otherRows), err)
+		}
+	})
 	t.Run("undo completion persistence behavior", func(t *testing.T) {
 		today := time.Date(2026, time.October, 7, 12, 0, 0, 0, time.UTC)
 		houses := func(_ context.Context, userID, householdID string) (string, error) {
@@ -2206,7 +2293,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}
 		getReceipt := func(itemID, receiptID string) item.Completion {
 			t.Helper()
-			page, err := svc.ListCompletions(ctx, completionUser, hA, itemID, 100, "")
+			page, err := svc.ListCompletions(ctx, completionUser, hA, itemID, 100, "", item.CompletionOrderOldest)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2295,7 +2382,7 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			if err != nil || initial.Version != 2 {
 				t.Fatalf("item=%+v err=%v", initial, err)
 			}
-			history, err := svc.ListCompletions(ctx, completionUser, hA, initial.ID, 50, "")
+			history, err := svc.ListCompletions(ctx, completionUser, hA, initial.ID, 50, "", item.CompletionOrderOldest)
 			if err != nil || len(history.Items) != 1 {
 				t.Fatalf("history=%+v err=%v", history, err)
 			}

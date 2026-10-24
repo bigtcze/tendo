@@ -3,6 +3,8 @@ package item_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func TestCompletionPlansAndState(t *testing.T) {
 			c, _, err := runCompletion(t, e, iid, "key", expected, &on)
 			if tc.wantErr != "" {
 				before, _ := e.repo.Row(iid)
-				beforePage, _ := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "")
+				beforePage, _ := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "", item.CompletionOrderOldest)
 				if tc.wantErr == "archived" && !errors.Is(err, item.ErrArchived) {
 					t.Fatalf("err=%v", err)
 				}
@@ -101,7 +103,7 @@ func TestCompletionPlansAndState(t *testing.T) {
 					t.Fatalf("rejected case %s unexpectedly succeeded", tc.wantErr)
 				}
 				after, _ := e.repo.Row(iid)
-				afterPage, _ := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "")
+				afterPage, _ := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "", item.CompletionOrderOldest)
 				if before.Version != after.Version || before.Done != after.Done || len(beforePage.Items) != len(afterPage.Items) {
 					t.Fatalf("rejection mutated item/history before=%+v after=%+v", before, after)
 				}
@@ -194,7 +196,7 @@ func TestCompletionDateValidationOverflowAndSnapshot(t *testing.T) {
 	_, _, err := runCompletion(t, e, iid, "overflow", 1, nil)
 	validation(t, err, "recurrence", "date_overflow")
 	row, _ := e.repo.Row(iid)
-	history, _ := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "")
+	history, _ := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "", item.CompletionOrderOldest)
 	if row.Version != 1 || row.Done || len(history.Items) != 0 {
 		t.Fatalf("overflow persisted state=%+v history=%+v", row, history)
 	}
@@ -215,7 +217,7 @@ func TestCompletionPolicySnapshotSurvivesLaterEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "")
+	page, err := e.svc.ListCompletions(context.Background(), userID, householdID, iid, 50, "", item.CompletionOrderOldest)
 	if err != nil || len(page.Items) != 1 || page.Items[0].Recurrence == nil || *page.Items[0].Recurrence != *original || page.Items[0].NextAttentionOn == nil || page.Items[0].NextAttentionOn.String() != "2027-09-01" {
 		t.Fatalf("receipt=%+v err=%v", page, err)
 	}
@@ -345,6 +347,145 @@ func TestUndoRejectsStaleAndArchived(t *testing.T) {
 	}
 }
 
+func TestCompletionOrderingWalksAndLiveInsert(t *testing.T) {
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID})
+	seed, _ := e.repo.Row(missingID)
+	seed.Recurrence = &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	e.repo.Seed(seed)
+	other := "0198a2f0-7c1e-7a53-9b0e-000000000102"
+	e.repo.SeedCompletion(item.Completion{ID: other, HouseholdID: householdID, ItemID: "0198a2f0-7c1e-7a53-9b0e-000000000103", CompletedOn: *d("2023-01-01")})
+	for i := 0; i < 100; i++ {
+		e.repo.SeedCompletion(item.Completion{ID: fmt.Sprintf("0198a2f0-7c1e-7a53-9b0e-%012d", i+1), HouseholdID: householdID, ItemID: missingID, CompletedOn: *d("2025-01-01")})
+	}
+	ascending := make([]string, 0, 100)
+	for _, limit := range []int{1, 25, 100} {
+		for _, order := range []string{item.CompletionOrderOldest, item.CompletionOrderNewest} {
+			cursor := ""
+			var walked []string
+			for {
+				page, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, limit, cursor, order)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, c := range page.Items {
+					walked = append(walked, c.ID)
+				}
+				if page.NextCursor == nil {
+					break
+				}
+				cursor = *page.NextCursor
+			}
+			if len(walked) != 100 {
+				t.Fatalf("limit=%d order=%s walked=%d", limit, order, len(walked))
+			}
+			if order == item.CompletionOrderOldest {
+				ascending = walked
+			} else {
+				for i := range ascending {
+					if walked[i] != ascending[len(ascending)-1-i] {
+						t.Fatalf("newest does not reverse oldest limit=%d", limit)
+					}
+				}
+			}
+		}
+	}
+	first, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 1, "", item.CompletionOrderNewest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := *first.NextCursor
+	e.repo.SeedCompletion(item.Completion{ID: "0198a2f0-7c1e-7a53-9b0e-000000000101", HouseholdID: householdID, ItemID: missingID, CompletedOn: *d("2024-01-01")})
+	page, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 100, cursor, item.CompletionOrderNewest)
+	if err != nil || len(page.Items) != 99 {
+		t.Fatalf("live walk page=%d err=%v", len(page.Items), err)
+	}
+	fresh, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 1, "", item.CompletionOrderNewest)
+	if err != nil || fresh.Items[0].ID != "0198a2f0-7c1e-7a53-9b0e-000000000101" {
+		t.Fatalf("fresh page=%+v err=%v", fresh, err)
+	}
+	if _, err := e.svc.ListCompletions(context.Background(), userID, householdID, "0198a2f0-7c1e-7a53-9b0e-000000000103", 10, "", item.CompletionOrderOldest); !errors.Is(err, item.ErrNotFound) {
+		t.Fatalf("missing history item err=%v", err)
+	}
+	for _, order := range []string{item.CompletionOrderOldest, item.CompletionOrderNewest} {
+		cursor := ""
+		var walked []string
+		for {
+			exact, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 100, cursor, order)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range exact.Items {
+				walked = append(walked, c.ID)
+			}
+			if exact.NextCursor == nil {
+				break
+			}
+			cursor = *exact.NextCursor
+		}
+		if len(walked) != 101 {
+			t.Fatalf("exact multiple order=%s walked=%d", order, len(walked))
+		}
+	}
+}
+
+func TestCompletionCursorOrdersAreVersionedAndIncompatible(t *testing.T) {
+	id := "0198a2f0-7c1e-7a53-9b0e-000000000001"
+	oldest := item.EncodeCompletionCursorForOrder(id, item.CompletionOrderOldest)
+	newest := item.EncodeCompletionCursorForOrder(id, item.CompletionOrderNewest)
+	if got, err := item.DecodeCompletionCursorForOrder(oldest, item.CompletionOrderOldest); err != nil || got != id {
+		t.Fatalf("oldest cursor round trip got=%q err=%v", got, err)
+	}
+	if got, err := item.DecodeCompletionCursorForOrder(newest, item.CompletionOrderNewest); err != nil || got != id {
+		t.Fatalf("newest cursor round trip got=%q err=%v", got, err)
+	}
+	if oldest != "YzE6MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtMDAwMDAwMDAwMDAx" {
+		t.Fatalf("oldest cursor bytes changed: %q", oldest)
+	}
+	if newest != "YzI6MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtMDAwMDAwMDAwMDAx" {
+		t.Fatalf("newest cursor bytes changed: %q", newest)
+	}
+	for _, tc := range []struct{ cursor, order string }{{oldest, item.CompletionOrderNewest}, {newest, item.CompletionOrderOldest}} {
+		if _, err := item.DecodeCompletionCursorForOrder(tc.cursor, tc.order); err == nil {
+			t.Fatalf("cross-order cursor accepted: %+v", tc)
+		}
+	}
+}
+
+func TestListCompletionsOrderValidationAndDefault(t *testing.T) {
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID})
+	defaultPage, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 50, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldestPage, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 50, "", item.CompletionOrderOldest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(defaultPage, oldestPage) {
+		t.Fatalf("default=%+v oldest=%+v", defaultPage, oldestPage)
+	}
+	for _, tc := range []struct{ cursor, order string }{{"bad", item.CompletionOrderOldest}, {EncodeCompletionTestCursor(item.CompletionOrderOldest), item.CompletionOrderNewest}, {EncodeCompletionTestCursor(item.CompletionOrderNewest), item.CompletionOrderOldest}, {"YzM6MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtMDAwMDAwMDAwMDAx", item.CompletionOrderOldest}} {
+		_, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 50, tc.cursor, tc.order)
+		var invalid *item.InvalidQueryError
+		if !errors.As(err, &invalid) || invalid.Parameter != "cursor" {
+			t.Fatalf("cursor/order=%+v err=%v", tc, err)
+		}
+	}
+	_, err = e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 50, "", "sideways")
+	var invalid *item.InvalidQueryError
+	if !errors.As(err, &invalid) || invalid.Parameter != "order" {
+		t.Fatalf("invalid order err=%v", err)
+	}
+	_, err = e.svc.ListCompletions(context.Background(), "not-a-member", householdID, missingID, 50, "", "sideways")
+	if !errors.Is(err, item.ErrNotFound) {
+		t.Fatalf("non-member got %v", err)
+	}
+}
+
+func EncodeCompletionTestCursor(order string) string {
+	return item.EncodeCompletionCursorForOrder("0198a2f0-7c1e-7a53-9b0e-000000000001", order)
+}
+
 func TestListCompletionsInvalidQueryNames(t *testing.T) {
 	e := newEnv("UTC")
 	for _, tc := range []struct {
@@ -352,7 +493,7 @@ func TestListCompletionsInvalidQueryNames(t *testing.T) {
 		cursor string
 		param  string
 	}{{101, "", "limit"}, {50, "bad", "cursor"}} {
-		_, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, tc.limit, tc.cursor)
+		_, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, tc.limit, tc.cursor, item.CompletionOrderOldest)
 		var invalid *item.InvalidQueryError
 		if !errors.As(err, &invalid) || invalid.Parameter != tc.param {
 			t.Fatalf("query=%+v err=%v", tc, err)

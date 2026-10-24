@@ -474,7 +474,7 @@ func TestHistoricalInitializationCreatesReceiptAndInitialAnchor(t *testing.T) {
 		if created.Version != 2 || created.AttentionOn == nil || created.AttentionOn.String() != tc.want || created.LastCompletedOn == nil || created.LastCompletedOn.String() != tc.date {
 			t.Fatalf("created=%+v", created)
 		}
-		history, err := e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "")
+		history, err := e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "", item.CompletionOrderOldest)
 		if err != nil || len(history.Items) != 1 || history.Items[0].CompletedOn.String() != tc.date || history.Items[0].CycleAttentionOn != nil || history.Items[0].NextAttentionOn == nil || history.Items[0].NextAttentionOn.String() != tc.want || history.Items[0].ItemVersionBefore != 1 {
 			t.Fatalf("history=%+v err=%v", history, err)
 		}
@@ -683,7 +683,7 @@ func TestBusinessDateClockBoundaryAndCompletion(t *testing.T) {
 	if after.Version != before.Version || after.AttentionOn == nil || before.AttentionOn == nil || after.AttentionOn.String() != before.AttentionOn.String() || after.WorkflowState != before.WorkflowState || after.Done != before.Done || after.Archived != before.Archived {
 		t.Fatalf("derived date changed stored item: before=%+v after=%+v", before, after)
 	}
-	history, err := e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "")
+	history, err := e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "", item.CompletionOrderOldest)
 	if err != nil || len(history.Items) != 0 {
 		t.Fatalf("unexpected completions: %+v err=%v", history, err)
 	}
@@ -694,7 +694,7 @@ func TestBusinessDateClockBoundaryAndCompletion(t *testing.T) {
 		validation(t, err, "completedOn", "future_date")
 	}
 	unchanged, _ := e.repo.Row(created.ID)
-	history, err = e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "")
+	history, err = e.svc.ListCompletions(context.Background(), userID, householdID, created.ID, 50, "", item.CompletionOrderOldest)
 	if err != nil || len(history.Items) != 0 || unchanged.Version != before.Version || unchanged.Done != before.Done || unchanged.WorkflowState != before.WorkflowState || unchanged.Archived != before.Archived || unchanged.AttentionOn == nil || unchanged.AttentionOn.String() != "2026-01-16" {
 		t.Fatalf("future rejection mutated item/history: item=%+v history=%+v err=%v", unchanged, history, err)
 	}

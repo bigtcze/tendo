@@ -93,8 +93,16 @@ func (h *Handler) listCompletions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	order := ""
+	if values, present := r.URL.Query()["order"]; present {
+		if len(values) != 1 || values[0] == "" {
+			httpx.QueryProblemResponse(w, "order")
+			return
+		}
+		order = values[0]
+	}
 
-	page, err := h.service.ListCompletions(r.Context(), uid, chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId"), p.Limit, p.Cursor)
+	page, err := h.service.ListCompletions(r.Context(), uid, chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId"), p.Limit, p.Cursor, order)
 	if err != nil {
 		writeCompletionError(w, err)
 		return

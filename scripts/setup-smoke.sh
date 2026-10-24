@@ -395,6 +395,17 @@ status,_,default_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert oneo
 status,_,done_items=ireq('GET',ibase+'?done=true',ICOLL,headers=cookie_header);assert any(x['id']==oneoff['id'] and x['done'] is True for x in done_items['items']),('done list',done_items)
 status,_,bad_done=ireq('GET',ibase+'?done=bad',ICOLL,headers=cookie_header);assert status==400 and bad_done['code']=='invalid_query' and bad_done['parameter']=='done',('invalid done filter',status,bad_done)
 status,_,history=ireq('GET',cpath(oneoff['id']),CITEM,headers=cookie_header);assert status==200 and len(history['items'])==1 and history['items'][0]==one_receipt,('completion history',status,history)
+# Newest completion keyset pages use c2 cursors; order mismatch is rejected.
+status,hh,newest_page=ireq('GET',cpath(fixed_late['id'])+'?order=newest&limit=1',CITEM,headers=cookie_header)
+assert status==200 and len(newest_page['items'])==1 and newest_page['items'][0]['id']==active_two['id'] and newest_page['nextCursor'],('newest completion first page',status,newest_page)
+raw_newest=base64.urlsafe_b64decode(newest_page['nextCursor']+'='*((4-len(newest_page['nextCursor'])%4)%4));assert raw_newest.startswith(b'c2:'),('newest completion cursor version',raw_newest)
+status,_,newest_next=ireq('GET',cpath(fixed_late['id'])+'?order=newest&limit=1&cursor='+newest_page['nextCursor'],CITEM,headers=cookie_header)
+assert status==200 and len(newest_next['items'])==1 and newest_next['items'][0]['id']==active_one['id'],('newest completion continuation',status,newest_next)
+status,_,bad_order=ireq('GET',cpath(fixed_late['id'])+'?order=sideways',CITEM,headers=cookie_header);assert status==400 and bad_order['parameter']=='order',('invalid completion order',status,bad_order)
+# Use a real c1 cursor by requesting an oldest first page with a small limit.
+status,_,oldest_page=ireq('GET',cpath(fixed_late['id'])+'?order=oldest&limit=1',CITEM,headers=cookie_header);assert status==200 and oldest_page['nextCursor'],('oldest completion first page',status,oldest_page)
+status,_,oldest_cross=ireq('GET',cpath(fixed_late['id'])+'?order=newest&cursor='+oldest_page['nextCursor'],CITEM,headers=cookie_header);assert status==400 and oldest_cross['parameter']=='cursor',('c1 newest mismatch',status,oldest_cross)
+status,_,newest_cross=ireq('GET',cpath(fixed_late['id'])+'?order=oldest&cursor='+newest_page['nextCursor'],CITEM,headers=cookie_header);assert status==400 and newest_cross['parameter']=='cursor',('c2 oldest mismatch',status,newest_cross)
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items/{oneoff["id"]}/completions',CITEM,headers=cookie_header);assert status==404 and b['code']=='not_found',('foreign item completion list',status,b)
 status,_,b=ireq('GET',f'/api/v1/households/{other_id}/items',ICOLL,headers=cookie_header);assert status==404 and b['code']=='not_found',('non-member items',status,b)
 status,_,b=ireq('GET',ibase,ICOLL);assert status==401 and b['code']=='unauthenticated',('anonymous items',status,b)

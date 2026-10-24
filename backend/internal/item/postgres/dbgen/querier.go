@@ -19,6 +19,7 @@ type Querier interface {
 	InsertInitializedItem(ctx context.Context, arg InsertInitializedItemParams) (InsertInitializedItemRow, error)
 	LatestActiveCompletionVersion(ctx context.Context, arg LatestActiveCompletionVersionParams) (int64, error)
 	ListCompletions(ctx context.Context, arg ListCompletionsParams) ([]ListCompletionsRow, error)
+	ListCompletionsNewest(ctx context.Context, arg ListCompletionsNewestParams) ([]ListCompletionsNewestRow, error)
 	ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error)
 	ListItemsByAttention(ctx context.Context, arg ListItemsByAttentionParams) ([]ListItemsByAttentionRow, error)
 	LockItemForCompletion(ctx context.Context, arg LockItemForCompletionParams) (LockItemForCompletionRow, error)

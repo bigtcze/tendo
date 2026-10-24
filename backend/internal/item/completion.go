@@ -203,20 +203,44 @@ func policyOrDisabled(policy *schedule.Policy) schedule.Policy {
 }
 
 const completionCursorPrefix = "c1:"
+const completionNewestCursorPrefix = "c2:"
+
+const (
+	CompletionOrderOldest = "oldest"
+	CompletionOrderNewest = "newest"
+)
+
+const newestCompletionBoundary = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 func EncodeCompletionCursor(id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(completionCursorPrefix + strings.ToLower(id)))
 }
-func DecodeCompletionCursor(cursor string) (string, error) {
+func EncodeCompletionCursorForOrder(id, order string) string {
+	prefix := completionCursorPrefix
+	if order == CompletionOrderNewest {
+		prefix = completionNewestCursorPrefix
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(prefix + strings.ToLower(id)))
+}
+
+func DecodeCompletionCursorForOrder(cursor, order string) (string, error) {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(cursor)
 	if err != nil {
 		return "", err
 	}
-	id, ok := strings.CutPrefix(string(raw), completionCursorPrefix)
+	prefix := completionCursorPrefix
+	if order == CompletionOrderNewest {
+		prefix = completionNewestCursorPrefix
+	}
+	id, ok := strings.CutPrefix(string(raw), prefix)
 	if !ok || !validUUID(id) {
 		return "", errors.New("invalid completion cursor")
 	}
 	return strings.ToLower(id), nil
+}
+
+func DecodeCompletionCursor(cursor string) (string, error) {
+	return DecodeCompletionCursorForOrder(cursor, CompletionOrderOldest)
 }
 
 type CompletionPage struct {
@@ -224,7 +248,7 @@ type CompletionPage struct {
 	NextCursor *string
 }
 
-func (s *Service) ListCompletions(ctx context.Context, userID, householdID, itemID string, limit int, cursor string) (CompletionPage, error) {
+func (s *Service) ListCompletions(ctx context.Context, userID, householdID, itemID string, limit int, cursor, order string) (CompletionPage, error) {
 	householdID, _, err := s.check(ctx, userID, householdID)
 	if err != nil {
 		return CompletionPage{}, err
@@ -238,9 +262,19 @@ func (s *Service) ListCompletions(ctx context.Context, userID, householdID, item
 	if limit < 1 || limit > MaxLimit {
 		return CompletionPage{}, &InvalidQueryError{"limit"}
 	}
+	if order == "" {
+		order = CompletionOrderOldest
+	}
+	if order != CompletionOrderOldest && order != CompletionOrderNewest {
+		return CompletionPage{}, &InvalidQueryError{"order"}
+	}
+	newest := order == CompletionOrderNewest
 	after := nilUUID
+	if newest {
+		after = newestCompletionBoundary
+	}
 	if cursor != "" {
-		after, err = DecodeCompletionCursor(cursor)
+		after, err = DecodeCompletionCursorForOrder(cursor, order)
 		if err != nil {
 			return CompletionPage{}, &InvalidQueryError{"cursor"}
 		}
@@ -248,7 +282,7 @@ func (s *Service) ListCompletions(ctx context.Context, userID, householdID, item
 	repo := s.repository
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := repo.ListCompletions(ctx, householdID, strings.ToLower(itemID), after, limit+1)
+	rows, err := repo.ListCompletions(ctx, householdID, strings.ToLower(itemID), after, limit+1, newest)
 	if errors.Is(err, ErrNotFound) {
 		return CompletionPage{}, err
 	}
@@ -258,7 +292,7 @@ func (s *Service) ListCompletions(ctx context.Context, userID, householdID, item
 	page := CompletionPage{Items: rows}
 	if len(rows) > limit {
 		page.Items = rows[:limit]
-		next := EncodeCompletionCursor(rows[limit-1].ID)
+		next := EncodeCompletionCursorForOrder(rows[limit-1].ID, order)
 		page.NextCursor = &next
 	}
 	if page.Items == nil {

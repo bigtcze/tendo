@@ -192,7 +192,7 @@ func TestUndoCompletionHTTP(t *testing.T) {
 	if rowAfterReplay.Version != 3 || rowAfterReplay.AttentionOn == nil || rowAfterReplay.AttentionOn.String() != "2026-09-01" || rowAfterReplay.WorkflowState != item.StateWaiting || rowAfterReplay.Done {
 		t.Fatalf("replay changed item=%+v", rowAfterReplay)
 	}
-	pageAfterReplay, err := svc.ListCompletions(context.Background(), userID, hid, other, 50, "")
+	pageAfterReplay, err := svc.ListCompletions(context.Background(), userID, hid, other, 50, "", item.CompletionOrderOldest)
 	if err != nil || len(pageAfterReplay.Items) != 1 || pageAfterReplay.Items[0].ID != receipt.ID {
 		t.Fatalf("history replay page=%+v err=%v", pageAfterReplay, err)
 	}
@@ -217,7 +217,13 @@ func TestUndoCompletionHTTP(t *testing.T) {
 
 func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 	f := newFixture(true)
-	svc := item.NewService(f.repo, func(context.Context, string, string) (string, error) { return "UTC", nil }, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return nil }, func() time.Time { return at })
+	var householdErr error
+	svc := item.NewService(f.repo, func(context.Context, string, string) (string, error) {
+		if householdErr != nil {
+			return "", householdErr
+		}
+		return "UTC", nil
+	}, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(context.Context, string, string) error { return householdErr }, func() time.Time { return at })
 	r := chi.NewRouter()
 	New(svc, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +270,51 @@ func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 	}
 	if len(page2.Items) != 1 || page2.Items[0].Id != ids[2] || page2.NextCursor != nil {
 		t.Fatalf("page2=%+v", page2)
+	}
+	newest := f.do("GET", path+"?limit=2&order=newest", "", nil)
+	if newest.Code != 200 || newest.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("newest=%d headers=%v body=%s", newest.Code, newest.Header(), newest.Body)
+	}
+	var newestPage CompletionList
+	if err := json.Unmarshal(newest.Body.Bytes(), &newestPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(newestPage.Items) != 2 || newestPage.Items[0].Id != ids[2] || newestPage.Items[1].Id != ids[1] || newestPage.NextCursor == nil || *newestPage.NextCursor != item.EncodeCompletionCursorForOrder(ids[1], item.CompletionOrderNewest) {
+		t.Fatalf("newest page=%+v ids=%v", newestPage, ids)
+	}
+	newestNext := f.do("GET", path+"?limit=2&order=newest&cursor="+*newestPage.NextCursor, "", nil)
+	var newestPage2 CompletionList
+	if newestNext.Code != 200 || json.Unmarshal(newestNext.Body.Bytes(), &newestPage2) != nil || len(newestPage2.Items) != 1 || newestPage2.Items[0].Id != ids[0] || newestPage2.NextCursor != nil {
+		t.Fatalf("newest next=%d %s %+v", newestNext.Code, newestNext.Body, newestPage2)
+	}
+	for _, url := range []string{"?order=", "?order=oldest&order=newest"} {
+		bad := f.do("GET", path+url, "", nil)
+		if bad.Code != 400 || !strings.Contains(bad.Body.String(), `"parameter":"order"`) {
+			t.Fatalf("structural order %q=%d %s", url, bad.Code, bad.Body)
+		}
+	}
+	badOrder := f.do("GET", path+"?order=unknown", "", nil)
+	if badOrder.Code != 400 || !strings.Contains(badOrder.Body.String(), `"parameter":"order"`) {
+		t.Fatalf("semantic order=%d %s", badOrder.Code, badOrder.Body)
+	}
+	if w := f.do("GET", base+"/bad/completions?order=unknown", "", nil); w.Code != 404 {
+		t.Fatalf("malformed item precedence=%d %s", w.Code, w.Body)
+	}
+	householdErr = item.ErrNotFound
+	if w := f.do("GET", path+"?order=unknown", "", nil); w.Code != 404 {
+		t.Fatalf("nonmember order status=%d %s", w.Code, w.Body)
+	}
+	householdErr = nil
+	unauthRouter := chi.NewRouter()
+	New(svc, func(next http.Handler) http.Handler { return next }, func(context.Context) (string, bool) { return "", false }).Register(unauthRouter)
+	unauth := httptest.NewRecorder()
+	unauthRouter.ServeHTTP(unauth, httptest.NewRequest("GET", path+"?order=newest", nil))
+	if unauth.Code != 401 || !strings.Contains(unauth.Body.String(), `"code":"unauthenticated"`) {
+		t.Fatalf("unauthenticated list=%d %s", unauth.Code, unauth.Body)
+	}
+	cross := f.do("GET", path+"?order=newest&cursor="+*page1.NextCursor, "", nil)
+	if cross.Code != 400 || !strings.Contains(cross.Body.String(), `"parameter":"cursor"`) {
+		t.Fatalf("cross-order=%d %s", cross.Code, cross.Body)
 	}
 	seen := map[string]bool{}
 	for _, c := range append(page1.Items, page2.Items...) {
