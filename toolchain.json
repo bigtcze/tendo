@@ -10,7 +10,7 @@
     "linuxAmd64Sha256": "497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
   },
   "mise": {
-    "version": "2026.10.15",
+    "version": "2026.10.17",
     "linuxX64Sha256": "1c2d85dc42bef51e0bb20780093c746d6e12dfd15ca461f3979bd52cc214bc19"
   },
   "oapiCodegen": "v2.8.0",
