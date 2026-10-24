@@ -99,7 +99,21 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       const foreground = parse(style.color);
       const background = layers(element);
       const composited = foreground ? blend({ ...foreground, a: foreground.a * opacity }, background) : null;
-      result.push({ kind: 'text', name: describe(element), foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : style.color, background: formatRgb(background), outside: formatRgb(outsideColor(element)), ownBackground: formatColor(ownColor(element)), fontSize: parseFloat(style.fontSize), fontWeight: Number(style.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
+      result.push({
+        kind: 'text',
+        name: describe(element),
+        foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : style.color,
+        background: formatRgb(background),
+        outside: formatRgb(outsideColor(element)),
+        ownBackground: formatColor(ownColor(element)),
+        fontSize: parseFloat(style.fontSize),
+        fontWeight: Number(style.fontWeight),
+        disabled: disabled(element),
+        exempt: false,
+        borderWidth: 0,
+        opacity,
+        native: false,
+      });
     }
     for (const element of document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[placeholder],textarea[placeholder]')) {
       if (!isVisible(element)) continue;
@@ -109,7 +123,21 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       let opacity = Number(placeholder.opacity || 1);
       for (let node: Element | null = element; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity || 1);
       const composited = fg ? blend({ ...fg, a: fg.a * opacity }, inputBackground) : null;
-      result.push({ kind: 'placeholder', name: `${describe(element)}[placeholder]`, foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : placeholder.color, background: formatColor(inputBackground), outside: formatColor(outsideColor(element)), ownBackground: formatColor(ownColor(element)), fontSize: parseFloat(placeholder.fontSize), fontWeight: Number(placeholder.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
+      result.push({
+        kind: 'placeholder',
+        name: `${describe(element)}[placeholder]`,
+        foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : placeholder.color,
+        background: formatRgb(inputBackground),
+        outside: formatRgb(outsideColor(element)),
+        ownBackground: formatColor(ownColor(element)),
+        fontSize: parseFloat(placeholder.fontSize),
+        fontWeight: Number(placeholder.fontWeight),
+        disabled: disabled(element),
+        exempt: false,
+        borderWidth: 0,
+        opacity,
+        native: false,
+      });
     }
     const valueControls = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
       'input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="image"]):not([type="color"]):not([type="range"]),textarea,select',
@@ -153,7 +181,21 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       const isNative = element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type) && style.appearance === 'auto';
       const border = parse(style.borderTopColor);
       const background = layers(element);
-      result.push({ kind: isNative ? 'native-control' : 'boundary', name: element.getAttribute('aria-label') || describe(element), foreground: border ? `rgba(${border.r}, ${border.g}, ${border.b}, ${border.a})` : style.borderTopColor, background: formatRgb(background), outside: formatRgb(outsideColor(element)), ownBackground: formatColor(ownColor(element)), fontSize: 0, fontWeight: 400, disabled: disabled(element), exempt: false, borderWidth: parseFloat(style.borderTopWidth), opacity: 1, native: isNative });
+      result.push({
+        kind: isNative ? 'native-control' : 'boundary',
+        name: element.getAttribute('aria-label') || describe(element),
+        foreground: border ? `rgba(${border.r}, ${border.g}, ${border.b}, ${border.a})` : style.borderTopColor,
+        background: formatRgb(background),
+        outside: formatRgb(outsideColor(element)),
+        ownBackground: formatColor(ownColor(element)),
+        fontSize: 0,
+        fontWeight: 400,
+        disabled: disabled(element),
+        exempt: false,
+        borderWidth: parseFloat(style.borderTopWidth),
+        opacity: 1,
+        native: isNative,
+      });
     }
     return result.map((candidate) => ({ ...candidate, background: candidate.background || transparent }));
   }, { paper: PAPER, transparent: TRANSPARENT });

@@ -2728,6 +2728,46 @@ test.describe('Tendo production journey', () => {
       expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
     };
     try {
+      const fixturePage = await context.newPage();
+      try {
+        await fixturePage.setContent(`
+          <html>
+            <body style="margin: 0; background: #faf7f2; color: #25302b">
+              <input id="fx-transparent" style="background: transparent; border: 1px solid #d8d0c3">
+              <input id="fx-value" value="Low contrast value" style="color: #c8c8c8; background: #fff; border: 1px solid #857c6e">
+              <textarea id="fx-notes" style="color: #c8c8c8; background: #fff">Low contrast notes</textarea>
+              <select id="fx-subject" style="color: #c8c8c8; background: #fff"><option>Low contrast option</option></select>
+              <input id="fx-passing" value="Passing value" style="color: #25302b; background: #fff; border: 1px solid #857c6e">
+            </body>
+          </html>
+        `);
+        const fixtureRows = await auditContrast(fixturePage, 'auditor-self-test');
+        const transparentBoundary = fixtureRows.find((row) => row.kind === 'boundary' && row.name === 'input#fx-transparent');
+        expect(transparentBoundary, 'transparent fixture boundary is collected').toBeDefined();
+        expect(transparentBoundary?.exempt, 'transparent fill cannot exempt its low-contrast border').toBe(false);
+        expect(transparentBoundary?.ratio, 'transparent fixture border is below 3:1').toBeLessThan(3);
+
+        const expectFailingText = (name: string) => {
+          const row = fixtureRows.find((candidate) => candidate.kind === 'text' && candidate.name === name);
+          expect(row, `${name} text is collected`).toBeDefined();
+          expect(row?.exempt, `${name} is not exempt`).toBe(false);
+          expect(row?.ratio, `${name} fails its text threshold`).toBeLessThan(row?.threshold ?? 0);
+        };
+        expectFailingText('input#fx-value[value]');
+        expectFailingText('textarea#fx-notes[value]');
+        expectFailingText('select#fx-subject[value]');
+
+        const passingText = fixtureRows.find((row) => row.kind === 'text' && row.name === 'input#fx-passing[value]');
+        const passingBoundary = fixtureRows.find((row) => row.kind === 'boundary' && row.name === 'input#fx-passing');
+        expect(passingText, 'passing control text is collected').toBeDefined();
+        expect(passingText?.exempt, 'passing control text is not exempt').toBe(false);
+        expect(passingText?.ratio, 'passing control text meets its threshold').toBeGreaterThanOrEqual(passingText?.threshold ?? Infinity);
+        expect(passingBoundary, 'passing control boundary is collected').toBeDefined();
+        expect(passingBoundary?.ratio, 'passing control border meets its threshold').toBeGreaterThanOrEqual(passingBoundary?.threshold ?? Infinity);
+      } finally {
+        await fixturePage.close();
+      }
+
       for (const route of routes) {
         await auditPage.setViewportSize({ width: 1280, height: 800 });
         await auditPage.goto(route.path);
