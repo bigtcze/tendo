@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
+import { MembersScreen } from './MembersScreen';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session } from '../../test/fakeServer';
 
@@ -12,10 +13,44 @@ const invitation = (id: string, status = 'pending') => ({ id, status, createdAt:
 function renderApp() { return render(<I18nProvider><App /></I18nProvider>); }
 function defaults() { return { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household), ...emptyHome, [`GET ${base}/members`]: page(members()), [`GET ${base}/invitations`]: page([]) }; }
 const problem = (status: number, extra: Record<string, unknown> = {}) => json(status, { type: 'about:blank', title: 'x', status, ...extra });
-beforeEach(() => { vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); });
+beforeEach(() => { window.history.replaceState(null, '', '/'); vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('members and invitations', () => {
+  it('owner discovery makes exactly 20 member requests then one invitations probe', async () => {
+    const discoveryCursors: Array<string | null> = [];
+    let routeRequests = 0;
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+        if (window.location.pathname !== '/members') return page(members());
+        routeRequests += 1;
+        const cursor = req.query.get('cursor');
+        discoveryCursors.push(cursor);
+        const pageNumber = Number(cursor?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: `other-${pageNumber}`, login: `other_${pageNumber}`, role: 'member' }], nextCursor: pageNumber < 20 ? `p${pageNumber + 1}` : null });
+      },
+      [`GET ${base}/invitations`]: page([]),
+    });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
+    expect(routeRequests).toBe(20);
+    expect(discoveryCursors).toEqual([null, ...Array.from({ length: 19 }, (_, i) => `p${i + 2}`)]);
+    expect(fake.requests.filter((request) => request.path === `${base}/invitations`)).toHaveLength(1);
+  });
+
+  it('unmounting during a deferred members initial load ignores late page results', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const onSignedOut = vi.fn();
+    installFakeServer({ ...defaults(), [`GET ${base}/members`]: () => pending });
+    const view = render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={onSignedOut} /></I18nProvider>);
+    view.unmount();
+    await act(async () => { release(problem(401)); await pending; });
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
   it('home links to household members and displays member roles and who is you', async () => {
     const fake = installFakeServer(defaults()); renderApp();
     expect(await screen.findByRole('link', { name: 'Household members' })).toHaveAttribute('href', '/members');
@@ -32,6 +67,28 @@ describe('members and invitations', () => {
     const main = screen.getByRole('main');
     const action = await within(main).findByRole('button', { name: 'Vytvořit odkaz s pozvánkou' });
     expect(action).toHaveClass('whitespace-normal', 'w-full');
+  });
+
+  it('member paging does not cancel an in-flight invite', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'p2'
+        ? page([{ userId: 'next-member', login: 'next_member', role: 'member' }])
+        : json(200, { items: members(), nextCursor: 'p2' }),
+      [`POST ${base}/invitations`]: () => pending,
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const invite = await screen.findByRole('button', { name: 'Create invite link' });
+    await userEvent.click(invite);
+    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
+    expect(await within(membersSection).findByText('next_member')).toBeVisible();
+    await act(async () => { release(json(201, { id: 'created', token: 'x'.repeat(43) })); await pending; });
+    expect(await screen.findByLabelText('Invitation link')).toHaveValue(`${location.origin}/invite#${'x'.repeat(43)}`);
+    expect(screen.getByRole('status')).toHaveTextContent('Your invite link is ready.');
+    expect(screen.getByRole('button', { name: 'Create invite link' })).toBeEnabled();
   });
 
   it('creates links with unique idempotency keys, empty body, and copies the exact URL', async () => {
@@ -64,7 +121,7 @@ describe('members and invitations', () => {
   });
 
   it('200 retry response explains that the link was not shown and refreshes invitations', async () => {
-    let posts = 0; let lists = 0; const fake = installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: () => (++lists === 1 ? page([]) : page([invitation('one')])), [`POST ${base}/invitations`]: () => (++posts === 1 ? json(201, { id: 'first', token: 'a'.repeat(43) }) : json(200, invitation('one'))) });
+    let posts = 0; let lists = 0; const fake = installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: () => (++lists <= 2 ? page([]) : page([invitation('one')])), [`POST ${base}/invitations`]: () => (++posts === 1 ? json(201, { id: 'first', token: 'a'.repeat(43) }) : json(200, invitation('one'))) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
     await screen.findByLabelText('Invitation link');
     await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
@@ -121,9 +178,78 @@ describe('members and invitations', () => {
     expect(await screen.findByText('Only household owners can invite someone.')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument(); expect(fake.requests.some((r) => r.path === `${base}/invitations`)).toBe(false);
   });
 
-  it('owner is discovered on a later members page', async () => {
+  it('finds the viewer on page three but renders only first-page rows', async () => {
+    const requests: Array<string | null> = [];
+    const fake = installFakeServer({ ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+      if (window.location.pathname !== '/members') return page(members());
+      const cursor = req.query.get('cursor'); requests.push(cursor);
+      if (cursor === null) return json(200, { items: [{ userId: 'first', login: 'first_page', role: 'member' }], nextCursor: 'p2' });
+      if (cursor === 'p2') return json(200, { items: [{ userId: 'second', login: 'second_page', role: 'member' }], nextCursor: 'p3' });
+      return json(200, { items: [{ userId: session().userId, login: 'anna', role: 'owner' }], nextCursor: 'p4' });
+    } });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
+    const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    expect(within(memberSection).getByText('first_page')).toBeVisible();
+    expect(within(memberSection).queryByText('second_page')).not.toBeInTheDocument();
+    expect(within(memberSection).queryByText('anna')).not.toBeInTheDocument();
+    expect(requests.filter((cursor) => cursor === null || cursor === 'p2' || cursor === 'p3').slice(0, 3)).toEqual([null, 'p2', 'p3']);
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
+  });
+
+  it('caps viewer discovery then probes owner access through invitations', async () => {
+    const routeCursors: Array<string | null> = [];
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+        if (window.location.pathname !== '/members') return page(members());
+        routeCursors.push(req.query.get('cursor'));
+        const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
+      },
+      [`GET ${base}/invitations`]: page([]),
+    });
+    renderApp();
+    await screen.findByRole('link', { name: 'Household members' });
+    await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
+    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
+    expect(routeCursors).toHaveLength(20);
+    expect(routeCursors.filter((cursor) => cursor !== null)).toHaveLength(19);
+    expect(screen.queryByText('Only household owners can invite someone.')).not.toBeInTheDocument();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
+  });
+
+  it('caps viewer discovery and uses owner_required to confirm non-owner status', async () => {
+    const discoveryCursors: Array<string | null> = [];
+    let initialMemberCalls = 0;
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+        if (window.location.pathname !== '/members') return page(members());
+        initialMemberCalls += 1;
+        const cursor = req.query.get('cursor');
+        discoveryCursors.push(cursor);
+        const pageNumber = Number(cursor?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
+      },
+      [`GET ${base}/invitations`]: problem(403, { code: 'owner_required' }),
+    });
+    renderApp();
+    await screen.findByRole('link', { name: 'Household members' });
+    await userEvent.click(screen.getByRole('link', { name: 'Home' }));
+    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('Only household owners can invite someone.')).toBeVisible();
+    expect(initialMemberCalls).toBe(20);
+    expect(within(screen.getByRole('heading', { name: 'Members' }).parentElement!).getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('page_1')).toBeVisible();
+    expect(screen.queryByText('page_20')).not.toBeInTheDocument();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
+  });
+
+  it('discovers the owner on a later page without rendering discovery rows', async () => {
     const ownerPage = () => json(200, { items: [{ userId: 'other', login: 'petr', role: 'member' }], nextCursor: 'next' });
-    const routes = { ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'next' ? page([{ userId: session().userId, login: 'anna', role: 'owner' }]) : ownerPage() };
+    const routes = { ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'next' ? json(200, { items: [{ userId: session().userId, login: 'anna', role: 'owner' }], nextCursor: null }) : ownerPage() };
     const fake = installFakeServer(routes);
     renderApp();
     await screen.findByRole('link', { name: 'Household members' });
@@ -132,6 +258,10 @@ describe('members and invitations', () => {
     const beforeMembersPage = membersRequestsBeforeNavigation.length;
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
+    const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    expect(within(memberSection).getByText('petr')).toBeVisible();
+    expect(within(memberSection).queryByText('anna')).not.toBeInTheDocument();
+    expect(within(memberSection).getAllByRole('listitem')).toHaveLength(1);
     const membersPageRequests = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`);
     expect(membersPageRequests.slice(beforeMembersPage).map((r) => r.query.get('cursor'))).toEqual([null, 'next']);
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
@@ -199,23 +329,154 @@ describe('members and invitations', () => {
     const initial = new Promise<Response>((resolve) => { release = resolve; });
     installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: () => initial });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create invite link' })).toBeDisabled());
     release(page([invitation('first')]));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create invite link' })).toBeEnabled());
     expect(screen.getByText('Pending')).toBeVisible();
   });
 
-  it('a refresh after revoke wins over an older Show more response', async () => {
+  it('a failed invitation Next keeps the stack unchanged for a successful retry', async () => {
+    let calls = 0;
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => {
+        if (req.query.get('cursor') !== 'p2') return json(200, { items: [invitation('first')], nextCursor: 'p2' });
+        if (++calls === 1) return problem(503);
+        return page([invitation('second', 'accepted')]);
+      },
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    const next = within(invitations).getByRole('button', { name: 'Next page' });
+    await userEvent.click(next);
+    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
+    expect(within(invitations).getByText('Page 1')).toBeVisible();
+    expect(within(invitations).queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    expect(await within(invitations).findByText('Accepted')).toBeVisible();
+    expect(within(invitations).getByText('Page 2')).toBeVisible();
+    await userEvent.click(within(invitations).getByRole('button', { name: 'First page' }));
+    expect(await within(invitations).findByText('Pending')).toBeVisible();
+    expect(within(invitations).getByText('Page 1')).toBeVisible();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations` && r.query.get('cursor') === 'p2')).toHaveLength(2);
+  });
+
+  it('member and invitation paging keeps focus ownership separate for simultaneous requests', async () => {
+    let releaseMembers!: (response: Response) => void;
+    let releaseInvitations!: (response: Response) => void;
+    const membersPending = new Promise<Response>((resolve) => { releaseMembers = resolve; });
+    const invitationsPending = new Promise<Response>((resolve) => { releaseInvitations = resolve; });
+    let memberPageRequests = 0;
+    installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'm2'
+        ? (++memberPageRequests === 1 ? membersPending : json(200, { items: [{ userId: 'member2', login: 'member_two', role: 'member' }], nextCursor: null }))
+        : json(200, { items: members(), nextCursor: window.location.pathname === '/members' ? 'm2' : null }),
+      [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'i2'
+        ? invitationsPending : json(200, { items: [invitation('one')], nextCursor: 'i2' }),
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create invite link' })).toBeEnabled());
+    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    const memberNext = within(membersSection).getByRole('button', { name: 'Next page' });
+    const invitationNext = within(invitations).getByRole('button', { name: 'Next page' });
+    await userEvent.click(memberNext);
+    await act(async () => { releaseMembers(json(200, { items: [{ userId: 'member2', login: 'member_two', role: 'member' }], nextCursor: null })); await membersPending; });
+    expect(await within(membersSection).findByText('member_two')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Members' })).toHaveFocus());
+    expect(invitationNext).toBeInTheDocument();
+    expect(invitationNext).not.toHaveFocus();
+    await userEvent.click(invitationNext);
+    await act(async () => { releaseInvitations(json(200, { items: [invitation('two', 'accepted')], nextCursor: null })); await invitationsPending; });
+    expect(await within(invitations).findByText('Accepted')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Invitations' })).toHaveFocus();
+  });
+
+  it('member and invitation page controls replace their own rows independently', async () => {
+    const firstInvitation = invitation('one');
+    const secondInvitation = invitation('two', 'accepted');
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'm2'
+        ? page([{ userId: 'next-member', login: 'next_member', role: 'member' }])
+        : json(200, { items: members(), nextCursor: 'm2' }),
+      [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'i2'
+        ? page([secondInvitation]) : json(200, { items: [firstInvitation], nextCursor: 'i2' }),
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
+    expect(await within(membersSection).findByText('next_member')).toBeVisible();
+    expect(within(membersSection).queryByText('anna')).not.toBeInTheDocument();
+    expect(within(membersSection).queryByText('petr')).not.toBeInTheDocument();
+    expect(within(membersSection).getAllByRole('listitem')).toHaveLength(1);
+    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    expect(await within(invitations).findByText('Accepted')).toBeVisible();
+    expect(within(invitations).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(within(invitations).getByRole('list')).queryByText('Pending')).not.toBeInTheDocument();
+    expect(fake.requests.filter((r) => r.path === `${base}/members`).map((r) => r.query.get('cursor'))).toContain('m2');
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`).map((r) => r.query.get('cursor'))).toContain('i2');
+  });
+
+  it('member and invitation paging supports three pages and return to first', async () => {
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'm2'
+        ? json(200, { items: [{ userId: 'next-member', login: 'next_member', role: 'member' }], nextCursor: 'm3' })
+        : req.query.get('cursor') === 'm3'
+          ? page([{ userId: 'last-member', login: 'last_member', role: 'member' }])
+          : json(200, { items: members(), nextCursor: 'm2' }),
+      [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'i2'
+        ? json(200, { items: [invitation('two', 'accepted')], nextCursor: 'i3' })
+        : req.query.get('cursor') === 'i3' ? page([invitation('three', 'revoked')]) : json(200, { items: [invitation('one')], nextCursor: 'i2' }),
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
+    expect(await within(membersSection).findByText('next_member')).toBeVisible();
+    expect(within(membersSection).queryByText('anna')).not.toBeInTheDocument();
+    expect(within(membersSection).queryByText('petr')).not.toBeInTheDocument();
+    expect(within(membersSection).getAllByRole('listitem')).toHaveLength(1);
+    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    expect(await within(invitations).findByText('Accepted')).toBeVisible();
+    expect(within(invitations).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(within(invitations).getByRole('list')).queryByText('Pending')).not.toBeInTheDocument();
+    await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
+    expect(await within(membersSection).findByText('last_member')).toBeVisible();
+    await userEvent.click(within(membersSection).getByRole('button', { name: 'Previous page' }));
+    expect(await within(membersSection).findByText('next_member')).toBeVisible();
+    await userEvent.click(within(membersSection).getByRole('button', { name: 'First page' }));
+    expect(await within(membersSection).findByText('anna (you)')).toBeVisible();
+    expect(within(membersSection).queryByText('next_member')).not.toBeInTheDocument();
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    expect(await within(invitations).findByText('Revoked')).toBeVisible();
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Previous page' }));
+    expect(await within(invitations).findByText('Accepted')).toBeVisible();
+    await userEvent.click(within(invitations).getByRole('button', { name: 'First page' }));
+    expect(await within(invitations).findByText('Pending')).toBeVisible();
+    expect(fake.requests.filter((r) => r.path === `${base}/members`).map((r) => r.query.get('cursor'))).toContain('m3');
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`).map((r) => r.query.get('cursor'))).toContain('i3');
+  });
+
+  it('a refresh after revoke wins over an older Next page response', async () => {
     let releaseMore!: (response: Response) => void;
     const more = new Promise<Response>((resolve) => { releaseMore = resolve; });
     let firstPages = 0;
-    installFakeServer({
+    let secondPages = 0;
+    const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'p2' ? more : ++firstPages === 1 ? json(200, { items: [invitation('one')], nextCursor: 'p2' }) : page([invitation('one', 'revoked')]),
+      [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'p2'
+        ? (++secondPages === 1 ? more : page([invitation('later', 'accepted')]))
+        : ++firstPages === 1 ? json(200, { items: [invitation('one')], nextCursor: 'p2' }) : json(200, { items: [invitation('one', 'revoked')], nextCursor: 'p2' }),
       [`DELETE ${base}/invitations/one`]: json(204),
     });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Show more' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(fake.requests.some((request) => request.path === `${base}/invitations` && request.query.get('cursor') === 'p2')).toBe(true));
+    expect(screen.getByRole('button', { name: 'Revoke' })).toBeEnabled();
     await userEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await userEvent.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(screen.getByText('Revoked')).toBeVisible());
@@ -224,8 +485,16 @@ describe('members and invitations', () => {
       await more;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const rows = within(screen.getByRole('heading', { name: 'Invitations' }).parentElement!).getAllByRole('listitem');
+    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    const rows = within(invitations).getAllByRole('listitem');
     expect(rows.map((row) => row.textContent?.startsWith('Revoked'))).toEqual([true]);
+    expect(within(invitations).queryByText('Page 2')).not.toBeInTheDocument();
+    expect(within(invitations).queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+    const cursorCount = fake.requests.filter((request) => request.path === `${base}/invitations` && request.query.get('cursor') === 'p2').length;
+    expect(cursorCount).toBe(1);
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    expect(await within(invitations).findByText('Accepted')).toBeVisible();
+    expect(within(invitations).getByText('Page 2')).toBeVisible();
   });
 
   it('revoking an unrelated invitation keeps the unresolved create key for Check again', async () => {

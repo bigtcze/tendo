@@ -3014,6 +3014,226 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  test('n22. People and things and Members page large collections one page at a time', async () => {
+    test.setTimeout(180_000);
+    const subjectsPath = `/api/v1/households/${householdId}/subjects`;
+    const invitationsPath = `/api/v1/households/${householdId}/invitations`;
+    const seededSubjects: Array<{ id: string; name: string }> = [];
+    const createdInvitations: string[] = [];
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    let subjectListGets = 0;
+    const onRequest = (request: import('@playwright/test').Request) => {
+      const url = new URL(request.url());
+      if (request.method() === 'GET' && url.pathname === subjectsPath && !url.searchParams.has('id')) subjectListGets += 1;
+    };
+    const walkSubjects = async () => {
+      const result: Array<{ id: string; name: string }> = [];
+      let cursor: string | undefined;
+      do {
+        const response = await page.request.get(subjectsPath, { params: { archived: 'false', limit: '100', ...(cursor ? { cursor } : {}) } });
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: Array<{ id: string; name: string }>; nextCursor: string | null };
+        result.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return result;
+    };
+    const walkInvitations = async () => {
+      const result: Array<{ id: string; status: string }> = []; 
+      let cursor: string | undefined;
+      do {
+        const response = await page.request.get(invitationsPath, { params: { limit: '100', ...(cursor ? { cursor } : {}) } });
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: Array<{ id: string; status: string }>; nextCursor: string | null };
+        result.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return result;
+    };
+    try {
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
+      const preexistingCount = (await walkSubjects()).length;
+      for (let start = 0; start < 130; start += 25) {
+        const batch = Array.from({ length: Math.min(25, 130 - start) }, (_, offset) => start + offset);
+        const responses = await Promise.all(batch.map((index) => page.request.post(subjectsPath, {
+          headers: { Origin: baseURL, 'Idempotency-Key': `e2e-n22-subject-${index}` },
+          data: { name: `N22 subject ${String(index).padStart(3, '0')}`, type: 'custom' },
+        })));
+        for (let index = 0; index < responses.length; index += 1) {
+          expect(responses[index]!.status(), `seed subject ${start + index}`).toBe(201);
+          const created = await responses[index]!.json() as { id: string; name: string };
+          seededSubjects.push({ id: created.id, name: created.name });
+        }
+      }
+      const serverPageWalk = await walkSubjects();
+      expect(serverPageWalk).toHaveLength(preexistingCount + 130);
+      const serverIds = serverPageWalk.map((subject) => subject.id);
+      const expectedIds = new Set(serverIds);
+      expect(expectedIds.size).toBe(serverIds.length);
+
+      page.on('request', onRequest);
+      subjectListGets = 0;
+      await page.getByRole('link', { name: en['home.people'], exact: true }).click();
+      const main = page.getByRole('main');
+      await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+      const subjectRows = main.locator('[data-focus^="row:"]');
+      const pageOneIds = await subjectRows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-focus')!.slice('row:'.length)));
+      expect(pageOneIds.length).toBeLessThanOrEqual(50);
+      await expect(main.getByText(en['subjects.page.number'].replace('{n}', '1'), { exact: true })).toBeVisible();
+      await expect(main.getByRole('button', { name: en['subjects.page.next'], exact: true })).toBeVisible();
+      await expect(main.getByRole('button', { name: en['subjects.page.first'], exact: true })).toHaveCount(0);
+      expect(subjectListGets).toBe(1);
+
+      const apiPages: Array<{ ids: string[]; nextCursor: string | null }> = [];
+      let apiCursor: string | undefined;
+      do {
+        const response = await page.request.get(subjectsPath, { params: { archived: 'false', limit: '50', ...(apiCursor ? { cursor: apiCursor } : {}) } });
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: Array<{ id: string }>; nextCursor: string | null };
+        apiPages.push({ ids: body.items.map((subject) => subject.id), nextCursor: body.nextCursor });
+        apiCursor = body.nextCursor ?? undefined;
+      } while (apiCursor);
+      const seenIds = new Set<string>();
+      let walkedCount = 0;
+      let pageNumber = 1;
+      let lastPageIds = pageOneIds;
+      while (true) {
+        const ids = await subjectRows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-focus')!.slice('row:'.length)));
+        const expectedPageIds = apiPages[pageNumber - 1]?.ids ?? [];
+        expect(ids.length).toBe(apiPages[pageNumber - 1]?.ids.length ?? 0);
+        expect(ids).toEqual(expectedPageIds);
+        expect(ids.length).toBeLessThanOrEqual(50);
+        for (const id of ids) { expect(seenIds.has(id), `subject ${id} is not repeated`).toBe(false); seenIds.add(id); }
+        walkedCount += ids.length;
+        lastPageIds = ids;
+        const next = main.getByRole('button', { name: en['subjects.page.next'], exact: true });
+        if (!(await next.isVisible().catch(() => false))) {
+          expect(apiPages[pageNumber - 1]?.nextCursor).toBeNull();
+          break;
+        }
+        expect(apiPages[pageNumber - 1]?.nextCursor).not.toBeNull();
+        pageNumber += 1;
+        const before = subjectListGets;
+        await next.click();
+        await expect(main.getByText(en['subjects.page.number'].replace('{n}', String(pageNumber)), { exact: true })).toBeVisible();
+        await expect.poll(() => subjectListGets).toBe(before + 1);
+        expect(subjectListGets).toBe(pageNumber);
+      }
+      expect(walkedCount).toBe(serverPageWalk.length);
+      expect(seenIds).toEqual(expectedIds);
+      const domCount = await page.locator('*').count();
+      console.log(`n22 last-page DOM elements=${domCount} subjects=${lastPageIds.length}`);
+      expect(domCount).toBeLessThan(1500);
+
+      if (pageNumber > 1) {
+        while (pageNumber > 1) {
+          const previousLabel = pageNumber === 2 ? en['subjects.page.first'] : en['subjects.page.previous'];
+          await main.getByRole('button', { name: previousLabel, exact: true }).click();
+          pageNumber -= 1;
+          const expectedPreviousIds = apiPages[pageNumber - 1]?.ids ?? [];
+          await expect.poll(async () => subjectRows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-focus')!.slice('row:'.length)))).toEqual(expectedPreviousIds);
+          if (pageNumber > 1) await expect(main.getByText(en['subjects.page.number'].replace('{n}', String(pageNumber)), { exact: true })).toBeVisible();
+        }
+        const restoredIds = await subjectRows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-focus')!.slice('row:'.length)));
+        expect(restoredIds).toEqual(apiPages[0]!.ids);
+      }
+
+      if (serverPageWalk.length > 50) {
+        const next = main.getByRole('button', { name: en['subjects.page.next'], exact: true });
+        await next.focus();
+        await page.keyboard.press('Enter');
+        const secondRows = main.locator('[data-focus^="row:"]');
+        await expect.poll(async () => secondRows.first().evaluate((element) => document.activeElement === element)).toBe(true);
+      }
+
+      const invitationIdsBefore = new Set((await walkInvitations()).map((invitation) => invitation.id));
+      for (let start = 0; start < 55; start += 25) {
+        const batch = Array.from({ length: Math.min(25, 55 - start) }, (_, offset) => start + offset);
+        const responses = await Promise.all(batch.map((index) => page.request.post(invitationsPath, {
+          headers: { Origin: baseURL, 'Idempotency-Key': `e2e-n22-invite-${index}` }, data: {},
+        })));
+        for (let offset = 0; offset < responses.length; offset += 1) {
+          expect(responses[offset]!.status(), `seed invitation ${start + offset}`).toBe(201);
+          const invitation = await responses[offset]!.json() as { id: string };
+          createdInvitations.push(invitation.id);
+        }
+      }
+      const invitationWalk = await walkInvitations();
+      const newInvitationIds = invitationWalk.map((invitation) => invitation.id).filter((id) => !invitationIdsBefore.has(id));
+      expect(newInvitationIds).toHaveLength(55);
+      expect(new Set(newInvitationIds).size).toBe(55);
+      expect(invitationWalk.filter((invitation) => newInvitationIds.includes(invitation.id)).every((invitation) => invitation.status === 'pending')).toBe(true);
+      const expectedInvitationPageTwoSize = invitationWalk.length - 50;
+
+      await page.getByRole('link', { name: en['home.members'], exact: true }).click();
+      const memberSection = page.getByRole('heading', { name: en['members.list.title'] }).locator('..');
+      const memberRows = memberSection.locator('ul').first().getByRole('listitem');
+      await expect.poll(async () => memberRows.count()).toBe(2);
+      const memberPageOne = await memberRows.allTextContents();
+      const invitationHeading = page.getByRole('heading', { name: en['members.invitations.title'] });
+      const invitationSection = invitationHeading.locator('..');
+      const invitationRows = invitationSection.locator('ul').getByRole('listitem');
+      await expect.poll(async () => invitationRows.count()).toBe(50);
+      const firstInvitationRows = await invitationRows.allTextContents();
+      expect(firstInvitationRows.length).toBe(50);
+      await page.getByRole('button', { name: en['members.page.next'], exact: true }).click();
+      await expect.poll(async () => invitationRows.count()).toBe(expectedInvitationPageTwoSize);
+      const secondInvitationPage = await invitationRows.allTextContents();
+      expect(secondInvitationPage).toHaveLength(expectedInvitationPageTwoSize);
+      expect(await memberRows.allTextContents()).toEqual(memberPageOne);
+      expect(firstInvitationRows.length + secondInvitationPage.length).toBe(invitationWalk.length);
+      const secondStatuses = secondInvitationPage.map((row) => row.slice(0, row.indexOf('Created')));
+      const statusText: Record<string, string> = { pending: en['members.invitation.status.pending'], accepted: en['members.invitation.status.accepted'], revoked: en['members.invitation.status.revoked'], expired: en['members.invitation.status.expired'] };
+      expect(secondStatuses).toEqual(invitationWalk.slice(50).map((invitation) => statusText[invitation.status]));
+
+      await page.getByRole('link', { name: en['home.people'], exact: true }).click();
+      const peopleMain = page.getByRole('main');
+      await peopleMain.getByRole('button', { name: en['subjects.page.next'], exact: true }).click();
+      await expect(peopleMain.getByRole('button', { name: en['subjects.page.first'], exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+      await expect(peopleMain.getByText(cs['subjects.page.number'].replace('{n}', '2'), { exact: true })).toBeVisible();
+      await expect(peopleMain.getByRole('button', { name: cs['subjects.page.first'], exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'English', exact: true }).click();
+      await page.setViewportSize({ width: 320, height: 740 });
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, '320px People and things overflow on page two').toBeLessThanOrEqual(0);
+      const pagingButtons = peopleMain.locator('[data-subject-page]');
+      for (const button of await pagingButtons.all()) {
+        await button.scrollIntoViewIfNeeded();
+        const box = await button.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+        expect(box!.y).toBeGreaterThanOrEqual(0);
+        expect(box!.y + box!.height).toBeLessThanOrEqual(740);
+      }
+    } catch (error) {
+      primaryFailure = error;
+    } finally {
+      page.off('request', onRequest);
+      for (const subject of seededSubjects) {
+        try {
+          const current = await page.request.get(`${subjectsPath}/${subject.id}`, { headers: { Origin: baseURL } });
+          if (current.status() !== 200) { cleanupFailure ??= new Error(`Could not read n22 subject ${subject.id}: ${current.status()}`); continue; }
+          const etag = current.headers()['etag'];
+          const archived = await page.request.patch(`${subjectsPath}/${subject.id}`, { headers: { Origin: baseURL, 'If-Match': etag }, data: { archived: true } });
+          if (archived.status() !== 200) cleanupFailure ??= new Error(`Could not archive n22 subject ${subject.id}: ${archived.status()}`);
+        } catch (error) { cleanupFailure ??= error; }
+      }
+      for (const invitationId of createdInvitations) {
+        try {
+          const revoked = await page.request.delete(`${invitationsPath}/${invitationId}`, { headers: { Origin: baseURL } });
+          if (revoked.status() !== 204) cleanupFailure ??= new Error(`Could not revoke n22 invitation ${invitationId}: ${revoked.status()}`);
+        } catch (error) { cleanupFailure ??= error; }
+      }
+      await page.setViewportSize({ width: 1280, height: 800 }).catch((error) => { cleanupFailure ??= error; });
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");

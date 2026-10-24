@@ -81,6 +81,11 @@ export function SubjectsScreen({
   const [membersLoaded, setMembersLoaded] = useState(false);
   const memberGeneration = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [mutationPending, setMutationPending] = useState(false);
+  const archivePage = useRef<{ cursor?: string; stack: string[] } | null>(null);
+  const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const [currentCursor, setCurrentCursor] = useState<string | undefined>();
+  const pagingFocus = useRef<HTMLElement | null>(null);
   const busy = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
   // Bumped whenever the view changes or the list is reloaded. Async work captures it before awaiting
@@ -91,16 +96,15 @@ export function SubjectsScreen({
 
   useEffect(() => {
     let cancelled = false;
+    const token = ++generation.current;
     listSubjects(householdId, { archived: showArchived }).then((result) => {
-      if (cancelled) return;
+      if (cancelled || token !== generation.current) return;
       if (result.kind === 'unauthenticated') onSignedOut();
       else if (result.kind === 'ok') setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
       else if (result.kind === 'noHousehold') setList({ kind: 'noHousehold' });
       else setList({ kind: 'error' });
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [householdId, showArchived, attempt, onSignedOut]);
 
   useEffect(() => {
@@ -129,6 +133,15 @@ export function SubjectsScreen({
   }, [notice]);
 
   useEffect(() => {
+    if (!loadingMore && pagingFocus.current) {
+      const activated = pagingFocus.current;
+      const active = document.activeElement;
+      if (active === activated || active === document.body || active === null) {
+        const first = list.kind === 'ready' ? list.items[0] : undefined;
+        if (first) document.querySelector<HTMLElement>(`[data-focus="row:${first.id}"]`)?.focus();
+      }
+      pagingFocus.current = null;
+    }
     const key = focusKey.current;
     if (!key) return;
     const el = document.querySelector<HTMLElement>(`[data-focus="${key}"]`);
@@ -140,17 +153,30 @@ export function SubjectsScreen({
 
   const reload = useCallback(() => {
     generation.current += 1;
+    setLoadingMore(false);
+    setMutationPending(false);
+    pagingFocus.current = null;
+    setCursorStack([]);
+    setCurrentCursor(undefined);
     focusKey.current = null;
     setAttempt((n) => n + 1);
   }, []);
 
   function retryLoad() {
+    setLoadingMore(false);
+    setCursorStack([]);
+    setCurrentCursor(undefined);
     setList({ kind: 'loading' });
     reload();
   }
 
   function switchView(archived: boolean) {
     generation.current += 1;
+    setLoadingMore(false);
+    setMutationPending(false);
+    pagingFocus.current = null;
+    setCursorStack([]);
+    setCurrentCursor(undefined);
     focusKey.current = null;
     setShowArchived(archived);
     setList({ kind: 'loading' });
@@ -161,6 +187,7 @@ export function SubjectsScreen({
   }
 
   function startAdding() {
+    if (loadingMore || mutationPending || busy.current) return;
     setMembers([]);
     setMembersLoaded(false);
     const pending = getPendingSubjectCreate(userId, householdId);
@@ -200,6 +227,18 @@ export function SubjectsScreen({
     reload();
   }
 
+  async function reloadPage(cursor: string | undefined, stack: string[]) {
+    const token = ++generation.current;
+    const result = await listSubjects(householdId, { archived: showArchived, cursor });
+    if (token !== generation.current) return;
+    if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+    if (result.kind === 'ok') {
+      setCursorStack(stack);
+      setCurrentCursor(cursor);
+      setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
+    } else setActionFailed(true);
+  }
+
   function updateRow(subject: Subject) {
     setList((current) => (current.kind === 'ready' ? { ...current, items: replaceById(current.items, subject) } : current));
   }
@@ -208,16 +247,20 @@ export function SubjectsScreen({
     if (busy.current) return;
     busy.current = true;
     setBusyId(id);
+    setMutationPending(true);
     setActionFailed(false);
     try {
       await work();
     } finally {
       busy.current = false;
       setBusyId(null);
+      setMutationPending(false);
     }
   }
 
   function startEditing(subject: Subject) {
+    if (loadingMore || mutationPending || adding || editing) return;
+    if (busy.current) return;
     const started = generation.current;
     void guarded(subject.id, async () => {
       setNotice(null);
@@ -244,7 +287,10 @@ export function SubjectsScreen({
   }
 
   function changeArchived(subject: Subject, archived: boolean, isUndo: boolean) {
+    if (loadingMore || mutationPending || adding || editing) return;
+    if (busy.current) return;
     const started = generation.current;
+    if (!isUndo) archivePage.current = { cursor: currentCursor, stack: [...cursorStack] };
     void guarded(subject.id, async () => {
       // An undo keeps its notice (and the Undo button) until it has worked.
       if (!isUndo) setNotice(null);
@@ -257,11 +303,15 @@ export function SubjectsScreen({
       if (result.kind === 'ok') {
         if (isUndo) {
           setNotice(null);
-          // Put the row back where it belongs and land on it, rather than refetching the whole list.
-          focusKey.current = `row:${subject.id}`;
-          setList((current) =>
-            current.kind === 'ready' ? { ...current, items: insertById(current.items, result.subject) } : current,
-          );
+          const archivedAt = archivePage.current;
+          archivePage.current = null;
+          const samePage = archivedAt !== null && archivedAt?.cursor === currentCursor && archivedAt.stack.length === cursorStack.length;
+          if (samePage) {
+            focusKey.current = `row:${subject.id}`;
+            setList((current) => current.kind === 'ready' ? { ...current, items: insertById(current.items, result.subject) } : current);
+          } else {
+            void reloadPage(currentCursor, cursorStack);
+          }
         } else {
           setList((current) =>
             current.kind === 'ready'
@@ -301,10 +351,20 @@ export function SubjectsScreen({
       clearPendingSubjectCreate(userId, householdId);
       setPendingCreate(undefined);
       setCreateUncertain(false);
-      const refreshed = await listSubjects(householdId, { archived: false });
-      if (refreshed.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' }; }
-      if (started === generation.current && refreshed.kind === 'ok') {
-        setList({ kind: 'ready', items: mergeById(refreshed.items, result.subject.archived ? [] : [result.subject]), nextCursor: refreshed.nextCursor });
+      // Only a still-current view returns to page one with the new row; a view the user has
+      // since switched to keeps its own in-flight work untouched.
+      if (started === generation.current) {
+        const refreshToken = ++generation.current;
+        setLoadingMore(false);
+        pagingFocus.current = null;
+        const refreshed = await listSubjects(householdId, { archived: false });
+        if (refreshed.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' }; }
+        if (refreshToken === generation.current && refreshed.kind === 'ok') {
+          setCursorStack([]);
+          setCurrentCursor(undefined);
+          const refreshedItems = refreshed.nextCursor || result.subject.archived ? refreshed.items : insertById(refreshed.items, result.subject);
+          setList({ kind: 'ready', items: refreshedItems, nextCursor: refreshed.nextCursor });
+        }
       }
       setAdding(false);
       setNotice({ kind: 'added', subject: result.subject });
@@ -383,28 +443,33 @@ export function SubjectsScreen({
     }
   }
 
-  async function showMore() {
-    if (list.kind !== 'ready' || !list.nextCursor || loadingMore) return;
-    const started = generation.current;
-    const known = new Set(list.items.map((s) => s.id));
+  const interactionLocked = loadingMore || mutationPending || adding || editing !== null || busyId !== null;
+
+  async function goToPage(cursor: string | undefined, stack: string[], activated: HTMLElement) {
+    if (busy.current || list.kind !== 'ready' || interactionLocked) return;
+    const started = ++generation.current;
+    pagingFocus.current = activated;
     setLoadingMore(true);
     setActionFailed(false);
-    const result = await listSubjects(householdId, { archived: showArchived, cursor: list.nextCursor });
-    setLoadingMore(false);
-    if (result.kind === 'unauthenticated') {
-      onSignedOut();
-      return;
-    }
+    const result = await listSubjects(householdId, { archived: showArchived, cursor });
     if (started !== generation.current) return;
+    setLoadingMore(false);
+    if (result.kind === 'unauthenticated') { pagingFocus.current = null; onSignedOut(); return; }
     if (result.kind === 'ok') {
-      const first = result.items.find((s) => !known.has(s.id));
-      if (first) focusKey.current = `row:${first.id}`;
-      setList((current) =>
-        current.kind === 'ready'
-          ? { kind: 'ready', items: mergeById(current.items, result.items), nextCursor: result.nextCursor }
-          : current,
-      );
-    } else setActionFailed(true);
+      setCursorStack(stack);
+      setCurrentCursor(cursor);
+      setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
+    } else { pagingFocus.current = null; setActionFailed(true); }
+  }
+
+  function nextPage(event: React.MouseEvent<HTMLButtonElement>) {
+    if (list.kind !== 'ready' || !list.nextCursor) return;
+    void goToPage(list.nextCursor, [...cursorStack, currentCursor ?? ''], event.currentTarget);
+  }
+  function previousPage(event: React.MouseEvent<HTMLButtonElement>) {
+    const stack = [...cursorStack];
+    const cursor = stack.pop() ?? '';
+    void goToPage(cursor || undefined, stack, event.currentTarget);
   }
 
   const items = list.kind === 'ready' ? list.items : [];
@@ -446,7 +511,7 @@ export function SubjectsScreen({
                   type="button"
                   variant="quiet"
                   size="small"
-                  disabled={busyId !== null}
+                  disabled={interactionLocked}
                   onClick={() => undoArchive(notice)}
                 >
                   {t('subjects.undo')}
@@ -488,7 +553,7 @@ export function SubjectsScreen({
         {list.kind === 'ready' ? (
           <div className="mt-8 space-y-6">
             {!showArchived && !adding && !empty ? (
-              <Button type="button" data-focus="add" onClick={startAdding} className="w-full sm:w-auto">
+              <Button type="button" data-focus="add" disabled={loadingMore || mutationPending || busyId !== null} onClick={startAdding} className="w-full sm:w-auto">
                 {t('subjects.add')}
               </Button>
             ) : null}
@@ -509,7 +574,7 @@ export function SubjectsScreen({
               />
             ) : null}
 
-            {empty && !adding ? (
+            {empty && cursorStack.length === 0 && !adding ? (
               <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10">
                 <h2 className="font-display text-2xl leading-snug">
                   {showArchived ? t('subjects.emptyArchived') : t('subjects.empty.title')}
@@ -565,7 +630,7 @@ export function SubjectsScreen({
                               size="small"
                               data-focus={`row:${subject.id}`}
                               aria-label={t('subjects.restore.label', { name: subject.name })}
-                              disabled={busyId !== null}
+                              disabled={interactionLocked}
                               onClick={() => changeArchived(subject, false, false)}
                             >
                               {t('subjects.restore')}
@@ -578,7 +643,7 @@ export function SubjectsScreen({
                                 size="small"
                                 data-focus={`row:${subject.id}`}
                                 aria-label={t('subjects.edit.label', { name: subject.name })}
-                                disabled={busyId !== null}
+                                disabled={interactionLocked}
                                 onClick={() => startEditing(subject)}
                               >
                                 {t('subjects.edit')}
@@ -588,7 +653,7 @@ export function SubjectsScreen({
                                 variant="quiet"
                                 size="small"
                                 aria-label={t('subjects.archive.label', { name: subject.name })}
-                                disabled={busyId !== null}
+                                disabled={interactionLocked}
                                 onClick={() => changeArchived(subject, true, false)}
                               >
                                 {t('subjects.archive')}
@@ -603,10 +668,12 @@ export function SubjectsScreen({
               </ul>
             ) : null}
 
-            {list.nextCursor ? (
-              <Button type="button" variant="quiet" onClick={showMore} disabled={loadingMore}>
-                {loadingMore ? t('subjects.moreLoading') : t('subjects.more')}
-              </Button>
+            {cursorStack.length > 0 || list.nextCursor ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {cursorStack.length > 0 ? <Button data-subject-page type="button" variant="quiet" onClick={previousPage} disabled={interactionLocked}>{cursorStack.length > 1 ? t('subjects.page.previous') : t('subjects.page.first')}</Button> : <span />}
+                {list.nextCursor ? <Button data-subject-page type="button" variant="quiet" onClick={nextPage} disabled={interactionLocked}>{t('subjects.page.next')}</Button> : null}
+                <p className="w-full text-center text-sm text-muted">{t('subjects.page.number', { n: String(cursorStack.length + 1) })}</p>
+              </div>
             ) : null}
           </div>
         ) : null}
