@@ -234,5 +234,5 @@ forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase
 Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the
 control. Setup has finished before n21 runs, so onboarding is covered elsewhere: test b measures rendered-colour
 contrast and runs axe on its error state, `OnboardingScreen.test.tsx` checks error focus, and the opt-in audit
-checks widths. Zoom is
-emulated in headless Chromium, not set through the browser's zoom control. None of this is a WCAG conformance certification.
+checks widths. Zoom is emulated in headless Chromium, not set through the browser's zoom control. None of this
+is a WCAG conformance certification.
