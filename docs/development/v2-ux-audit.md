@@ -128,12 +128,21 @@ The audit is re-run after slices 6–8 and the measurements above are replaced, 
 
 ## Accessibility review (2026-10-23)
 
-Agent review on the production build (production binary with embedded frontend, real PostgreSQL 18, Playwright
-Chromium) through the required `scripts/e2e-smoke.sh` journey. The review is mostly encoded as journey **n21**
+Production evidence runs in required serial journey **n21** (production binary with embedded frontend, real PostgreSQL 18, Playwright Chromium). The review is encoded in n21
 so it stays in required CI. The other evidence comes from n14 (axe scans, sampled focus, zoom, reduced motion),
 n15 (widths), n16 (keyboard-only item workflow), n17–n20 (error, loading, session-ended and sign-in states),
-plus Vitest focus and error-association tests. n21 prints its zoom measurements, keyboard sequences and any axe
-`incomplete` results to the runner's process log.
+plus Vitest focus and error-association tests. n21 prints zoom measurements, keyboard sequences, computed contrast summaries and any axe `incomplete` results to the runner log. Contrast calculations use a shared pure module with Vitest tests; detailed rows are attached as `contrast-evidence-n21.json`.
+
+| Production palette pair | Contrast ratio | Threshold |
+|---|---:|---:|
+| ink `#25302b` / paper `#faf7f2` | 12.79:1 | 4.5:1 text |
+| muted `#5b655f` / paper `#faf7f2` | 5.53:1 | 4.5:1 text |
+| accent `#2f6b57` / paper `#faf7f2` | 5.60:1 | 4.5:1 text |
+| accent-strong `#234f41` / paper `#faf7f2` | 8.69:1 | 4.5:1 text |
+| danger `#a3342a` / paper `#faf7f2` | 6.21:1 | 4.5:1 text |
+| line `#d8d0c3` / white input surface | 1.49:1 | 3:1 only if border alone identifies control |
+
+Method: in-page computed foreground is composited for ancestor opacity, backgrounds are composited from nearest opaque layer outward, and text contrast uses 4.5:1 (3:1 for >=24px or >=18.66px bold). Placeholders are sampled separately. Images/gradients are unmeasurable and fail; Chromium rgb/rgba, color(srgb), and oklch are parsed. Named/text/shape-identified controls do not fail solely for a low-contrast boundary; disabled controls are recorded but exempt. Focus stops report ring color vs adjacent computed background at 3:1 and retain the existing unobscured hit-test (2.4.11). Palette table ratios are theoretical token pairs, not substitutes for row-level page measurements. Full form/error states and Czech contrast are not exhaustively sampled. No WCAG 2.4.13 AAA claim.
 
 ### What n21 checks on every route
 
