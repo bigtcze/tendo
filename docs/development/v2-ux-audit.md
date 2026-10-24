@@ -135,24 +135,28 @@ n15 (widths), n16 (keyboard-only item workflow), n17–n20 (error, loading, sess
 plus Vitest focus and error-association tests. n21 prints its zoom measurements, keyboard sequences, contrast
 measurements and any axe `incomplete` results to the runner's process log.
 
-### Measured contrast (2026-10-24)
+### Measured contrast (2026-10-25)
 
 n21 measures rendered colours at route-entry states for Home, All items, People and things, Members, Account,
 login and invitation acceptance, plus the Home add form (Repeat on) and item edit form (`frontend/e2e/contrastAudit.ts`,
 maths in `frontend/e2e/contrast.ts` with Vitest tests). Test b measures the onboarding error state. These checks
 include visible control values and selected select text and fail on any shortfall without tolerance. Measured
-minimum per rendered pair in the recorded run:
+minimum per rendered pair from n21 in the recorded run (test b separately measured 27 onboarding rows with no
+shortfall):
 
 | Rendered pair (foreground on effective background) | Use | Min ratio | Required |
 |---|---|---:|---:|
 | ink `#25302b` on paper `#faf7f2` | body text, headings | 12.79:1 | 4.5:1 |
 | ink on sand `#efe9df` | selected / hover surfaces | 11.32:1 | 4.5:1 |
 | ink on card `rgb(253 253 251)` (white/70 over paper) | rows, forms | 13.42:1 | 4.5:1 |
+| ink on white | form-control values | 13.67:1 | 4.5:1 |
+| ink on sand tints `rgb(243 240 232)` / `rgb(246 243 237)` | add/edit form panels and selects | 12.00:1 / 12.34:1 | 4.5:1 |
 | muted `#5b655f` on paper | secondary text | 5.66:1 | 4.5:1 |
 | muted on card | row metadata | 5.94:1 | 4.5:1 |
+| muted on sand tint `rgb(243 240 232)` | form hints | 5.31:1 | 4.5:1 |
 | accent-strong `#234f41` on card | links | 9.10:1 | 4.5:1 |
 | white on accent `#2f6b57` | primary buttons | 6.25:1 | 4.5:1 |
-| field `#857c6e` on paper | form-control borders (1.4.11) | 3.85:1 | 3:1 |
+| field `#857c6e` on paper / card / sand tint `rgb(243 240 232)` | form-control borders (1.4.11) | 3.85:1 / 4.04:1 / 3.61:1 | 3:1 |
 | accent focus outline on paper / card | focus indicator (1.4.11) | 5.85:1 / 6.12:1 | 3:1 |
 
 Finding **A4** (1.4.11): form-control borders used the decorative `line` token (`#d8d0c3`, 1.43:1 on paper,
