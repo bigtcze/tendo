@@ -327,33 +327,33 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
           <input id="all-items-search" type="search" value={search}
             onChange={(event) => { setSearch(event.target.value); setSearchError(false); }}
             aria-invalid={searchError} aria-describedby={searchError ? 'all-items-search-error' : undefined}
-            className="mt-1 min-h-11 w-full rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" />
+            className="mt-1 min-h-11 w-full rounded-xl border border-field bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" />
           {searchError ? <p id="all-items-search-error" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p> : null}
         </div>
         <Button type="submit">{t('allItems.searchButton')}</Button>
       </form>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm">{t('allItems.status.label')}
-          <select value={status} onChange={(event) => { const value = event.target.value as AllItemsStatus; setStatus(value); update({ status: value }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          <select value={status} onChange={(event) => { const value = event.target.value as AllItemsStatus; setStatus(value); update({ status: value }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             {statuses.map((id) => <option key={id} value={id}>{t(statusKeys[id])}{summary ? ` (${countFor(id, summary)})` : ''}</option>)}
           </select>
         </label>
         {subjectState === 'ready' ? <label className="text-sm">{t('items.subject')}
-          <select value={subjectId} onChange={(event) => { setSubjectId(event.target.value); update({ subjectId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          <select value={subjectId} onChange={(event) => { setSubjectId(event.target.value); update({ subjectId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <option value="">{t('allItems.any')}</option>
             {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}{subject.archived ? ` ${t('allItems.archivedSuffix')}` : ''}</option>)}
             {subjectId && !subjectNames.has(subjectId) ? <option value={subjectId}>{t('allItems.unknown')}</option> : null}
           </select>
         </label> : null}
         {memberState === 'ready' ? <label className="text-sm">{t('items.responsible.label')}
-          <select value={responsible} onChange={(event) => { setResponsible(event.target.value); update({ responsibleUserId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          <select value={responsible} onChange={(event) => { setResponsible(event.target.value); update({ responsibleUserId: event.target.value || undefined }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <option value="">{t('allItems.anyone')}</option><option value="unassigned">{t('items.responsible.none')}</option>
             {members.map((member) => <option key={member.userId} value={member.userId}>{member.login}{member.userId === userId ? ` (${t('allItems.you')})` : ''}</option>)}
             {responsible && responsible !== 'unassigned' && !members.some((member) => member.userId === responsible) ? <option value={responsible}>{t('allItems.unknown')}</option> : null}
           </select>
         </label> : null}
         <label className="text-sm">{t('allItems.repeat')}
-          <select value={recurring} onChange={(event) => { setRecurring(event.target.value); update({ recurring: event.target.value === '' ? undefined : event.target.value === 'true' }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-line bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          <select value={recurring} onChange={(event) => { setRecurring(event.target.value); update({ recurring: event.target.value === '' ? undefined : event.target.value === 'true' }); }} className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <option value="">{t('allItems.any')}</option><option value="true">{t('allItems.repeating')}</option><option value="false">{t('allItems.oneOff')}</option>
           </select>
         </label>
