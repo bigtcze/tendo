@@ -193,8 +193,10 @@ test.describe('Tendo production journey', () => {
     const contrastRows = await auditContrast(page, 'onboarding-error');
     expect(contrastRows.some((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null), 'onboarding-error has measured non-exempt text').toBe(true);
     expect(contrastRows.some((row) => row.kind === 'boundary' && row.ratio !== null), 'onboarding-error has a measured control boundary').toBe(true);
-    expect(contrastRows.some((row) => row.name === 'input#household-name[value]'), 'household name value is measured').toBe(true);
-    expect(contrastRows.some((row) => row.name === 'select#onboarding-timezone[value]'), 'time zone selected value is measured').toBe(true);
+    // describe() names elements tag#id plus up to two classes, so match the id prefix and the [value] suffix.
+    const measuredValue = (prefix: string) => contrastRows.some((row) => row.kind === 'text' && !row.exempt && row.ratio !== null && row.name.startsWith(prefix) && row.name.endsWith('[value]'));
+    expect(measuredValue('input#household-name'), 'household name value is measured').toBe(true);
+    expect(measuredValue('select#onboarding-timezone'), 'time zone selected value is measured').toBe(true);
     expect(contrastShortfalls(contrastRows), 'onboarding-error contrast failures').toEqual([]);
     console.log(`contrast-summary onboarding-error ${JSON.stringify({ measured: contrastRows.length, shortfalls: contrastShortfalls(contrastRows).length })}`);
     await test.info().attach('contrast-evidence-onboarding.json', { body: JSON.stringify(contrastRows, null, 2), contentType: 'application/json' });
