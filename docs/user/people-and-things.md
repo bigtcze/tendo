@@ -22,7 +22,7 @@ If a person is also a household member, you can optionally choose their account 
 
 ## Long lists
 
-The list shows one page at a time. Use **Next page**, **Previous page** and **First page** to move through it; the page number is shown between the buttons. The same buttons work in the archived list.
+The list shows one page at a time. Use **Next page**, **Previous page** and **First page** to move through it; the page number is shown below them. The same buttons work in the archived list.
 
 ## Rename or change the type
 
