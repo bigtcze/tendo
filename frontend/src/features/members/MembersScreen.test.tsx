@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { MembersScreen } from './MembersScreen';
 import { I18nProvider } from '../../i18n';
-import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session } from '../../test/fakeServer';
+import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const page = (items: unknown[]) => json(200, { items, nextCursor: null });
@@ -22,8 +22,8 @@ describe('members and invitations', () => {
     let routeRequests = 0;
     const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-        if (window.location.pathname !== '/members') return page(members());
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
         routeRequests += 1;
         const cursor = req.query.get('cursor');
         discoveryCursors.push(cursor);
@@ -180,8 +180,8 @@ describe('members and invitations', () => {
 
   it('finds the viewer on page three but renders only first-page rows', async () => {
     const requests: Array<string | null> = [];
-    const fake = installFakeServer({ ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-      if (window.location.pathname !== '/members') return page(members());
+    const fake = installFakeServer({ ...defaults(), [`GET ${base}/members`]: (req: RecordedRequest) => {
+      if (req.documentPath !== '/members') return page(members());
       const cursor = req.query.get('cursor'); requests.push(cursor);
       if (cursor === null) return json(200, { items: [{ userId: 'first', login: 'first_page', role: 'member' }], nextCursor: 'p2' });
       if (cursor === 'p2') return json(200, { items: [{ userId: 'second', login: 'second_page', role: 'member' }], nextCursor: 'p3' });
@@ -201,8 +201,8 @@ describe('members and invitations', () => {
     const routeCursors: Array<string | null> = [];
     const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-        if (window.location.pathname !== '/members') return page(members());
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
         routeCursors.push(req.query.get('cursor'));
         const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
         return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
@@ -223,8 +223,8 @@ describe('members and invitations', () => {
     let invitationCalls = 0;
     const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-        if (window.location.pathname !== '/members') return page(members());
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
         const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
         return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
       },
@@ -247,8 +247,8 @@ describe('members and invitations', () => {
     const pending = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-        if (window.location.pathname !== '/members') return page(members());
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
         const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
         return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
       },
@@ -269,8 +269,8 @@ describe('members and invitations', () => {
   it('an undiscovered role with a persistently failing probe keeps a visible retry', async () => {
     const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-        if (window.location.pathname !== '/members') return page(members());
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
         const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
         return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
       },
@@ -290,8 +290,8 @@ describe('members and invitations', () => {
     let initialMemberCalls = 0;
     const fake = installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
-        if (window.location.pathname !== '/members') return page(members());
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
         initialMemberCalls += 1;
         const cursor = req.query.get('cursor');
         discoveryCursors.push(cursor);
@@ -435,9 +435,9 @@ describe('members and invitations', () => {
     let memberPageRequests = 0;
     installFakeServer({
       ...defaults(),
-      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'm2'
+      [`GET ${base}/members`]: (req: RecordedRequest) => req.query.get('cursor') === 'm2'
         ? (++memberPageRequests === 1 ? membersPending : json(200, { items: [{ userId: 'member2', login: 'member_two', role: 'member' }], nextCursor: null }))
-        : json(200, { items: members(), nextCursor: window.location.pathname === '/members' ? 'm2' : null }),
+        : json(200, { items: members(), nextCursor: req.documentPath === '/members' ? 'm2' : null }),
       [`GET ${base}/invitations`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'i2'
         ? invitationsPending : json(200, { items: [invitation('one')], nextCursor: 'i2' }),
     });
