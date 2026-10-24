@@ -2429,8 +2429,11 @@ test.describe('Tendo production journey', () => {
   });
 
   test('n19. an ended session explains the sign-out on the login screen', async () => {
-    await page.goto('/');
+    // Home chains summary -> group pages -> subject labels; revoke only after that chain has settled, otherwise a late
+    // background 401 (CI run 40081332586: GET /subjects) ends the session before the navigation under test.
+    await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await expect(page.getByRole('main').getByRole('status')).toHaveCount(0);
     const cookies = await page.context().cookies();
     const sessionCookie = cookies.find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session');
     expect(sessionCookie).toBeDefined();
