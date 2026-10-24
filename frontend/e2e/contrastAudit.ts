@@ -1,4 +1,4 @@
-import { boundaryPasses, colorString, composite, contrastRatio, evaluateContrast, parseColor, type ContrastResult } from './contrast';
+import { boundaryPasses, colorString, composite, contrastRatio, evaluateContrast, parseColor, type Color, type ContrastResult } from './contrast';
 import type { Page } from '@playwright/test';
 
 type RawCandidate = {
@@ -25,6 +25,20 @@ const PAPER = 'rgb(250, 247, 242)';
 /** Collect rendered text and control candidates using the browser's resolved styles. */
 export async function collectContrastCandidates(page: Page): Promise<RawCandidate[]> {
   return page.evaluate(({ paper, transparent }) => {
+    const parse = (value: string): Color | null => {
+      const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%)?)?\s*\)$/i);
+      return match ? { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] === undefined ? 1 : Number(match[4]) / (match[5] ? 100 : 1) } : null;
+    };
+    const blend = (foreground: Color, backdrop: Color): Color => {
+      const alpha = foreground.a + backdrop.a * (1 - foreground.a);
+      if (!alpha) return { r: 0, g: 0, b: 0, a: 0 };
+      return {
+        r: (foreground.r * foreground.a + backdrop.r * backdrop.a * (1 - foreground.a)) / alpha,
+        g: (foreground.g * foreground.a + backdrop.g * backdrop.a * (1 - foreground.a)) / alpha,
+        b: (foreground.b * foreground.a + backdrop.b * backdrop.a * (1 - foreground.a)) / alpha,
+        a: alpha,
+      };
+    };
     const isVisible = (element: Element) => {
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
@@ -41,17 +55,17 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
     const layers = (element: Element) => {
       const chain: Element[] = [];
       for (let node: Element | null = element; node; node = node.parentElement) chain.push(node);
-      let background = parseColor(paper)!;
+      let background = parse(paper)!;
       for (const node of chain.reverse()) {
         const style = getComputedStyle(node);
         if (style.backgroundImage !== 'none') throw new Error(`background image is unmeasurable at ${describe(element)}: ${style.backgroundImage}`);
-        const color = parseColor(style.backgroundColor);
-        if (color) background = composite(color, background);
+        const color = parse(style.backgroundColor);
+        if (color) background = blend(color, background);
       }
       return background;
     };
-    const ownColor = (element: Element) => parseColor(getComputedStyle(element).backgroundColor) ?? { r: 0, g: 0, b: 0, a: 0 };
-    const outsideColor = (element: Element) => element.parentElement ? layers(element.parentElement) : parseColor(paper)!;
+    const ownColor = (element: Element) => parse(getComputedStyle(element).backgroundColor) ?? { r: 0, g: 0, b: 0, a: 0 };
+    const outsideColor = (element: Element) => element.parentElement ? layers(element.parentElement) : parse(paper)!;
     const result: RawCandidate[] = [];
     const textElements = new Set<Element>();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -64,19 +78,19 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       const style = getComputedStyle(element);
       let opacity = 1;
       for (let node: Element | null = element; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity || 1);
-      const foreground = parseColor(style.color);
+      const foreground = parse(style.color);
       const background = layers(element);
-      const composited = foreground ? composite({ ...foreground, a: foreground.a * opacity }, background) : null;
+      const composited = foreground ? blend({ ...foreground, a: foreground.a * opacity }, background) : null;
       result.push({ kind: 'text', name: describe(element), foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : style.color, background: colorString(background), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: parseFloat(style.fontSize), fontWeight: Number(style.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
     }
     for (const element of document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[placeholder],textarea[placeholder]')) {
       if (!isVisible(element)) continue;
       const placeholder = getComputedStyle(element, '::placeholder');
       const inputBackground = layers(element);
-      const fg = parseColor(placeholder.color);
+      const fg = parse(placeholder.color);
       let opacity = Number(placeholder.opacity || 1);
       for (let node: Element | null = element; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity || 1);
-      const composited = fg ? composite({ ...fg, a: fg.a * opacity }, inputBackground) : null;
+      const composited = fg ? blend({ ...fg, a: fg.a * opacity }, inputBackground) : null;
       result.push({ kind: 'placeholder', name: `${describe(element)}[placeholder]`, foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : placeholder.color, background: colorString(inputBackground), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: parseFloat(placeholder.fontSize), fontWeight: Number(placeholder.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
     }
     const selector = 'input,select,textarea,button,[role="switch"],[role="checkbox"],[role="radio"]';
@@ -84,10 +98,10 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       if (!isVisible(element)) continue;
       const style = getComputedStyle(element);
       const isButton = element instanceof HTMLButtonElement || (element instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(element.type));
-      const hasTextLabel = Boolean(element.textContent?.trim() || (element instanceof HTMLInputElement && element.value.trim()) || element.getAttribute('aria-label') || (element instanceof HTMLInputElement && element.labels?.length));
+      const hasTextLabel = Boolean(element.textContent?.trim() || (element instanceof HTMLInputElement && element.value.trim()));
       if (isButton && hasTextLabel) continue;
       const isNative = element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type) && style.appearance === 'auto';
-      const border = parseColor(style.borderTopColor);
+      const border = parse(style.borderTopColor);
       const background = layers(element);
       result.push({ kind: isNative ? 'native-control' : 'boundary', name: element.getAttribute('aria-label') || describe(element), foreground: border ? `rgba(${border.r}, ${border.g}, ${border.b}, ${border.a})` : style.borderTopColor, background: colorString(background), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: 0, fontWeight: 400, disabled: disabled(element), exempt: false, borderWidth: parseFloat(style.borderTopWidth), opacity: 1, native: isNative });
     }
