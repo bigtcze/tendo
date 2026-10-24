@@ -3014,6 +3014,8 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  // Seeds 130 subjects and 55 invitations; the two-member household exercises only the Members
+  // page shell, while member paging itself is covered by MembersScreen component tests.
   test('n22. People and things and Members page large collections one page at a time', async () => {
     test.setTimeout(180_000);
     const subjectsPath = `/api/v1/households/${householdId}/subjects`;

@@ -219,6 +219,47 @@ describe('members and invitations', () => {
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
 
+  it('an undiscovered owner recovers invitation controls after a failed probe and explicit retry', async () => {
+    let invitationCalls = 0;
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+        if (window.location.pathname !== '/members') return page(members());
+        const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
+      },
+      [`GET ${base}/invitations`]: () => (++invitationCalls === 1 ? problem(503) : page([invitation('one')])),
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Only household owners can invite someone.')).not.toBeInTheDocument();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeEnabled();
+    expect(screen.getByText('Pending')).toBeVisible();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(2);
+  });
+
+  it('an undiscovered role with a persistently failing probe keeps a visible retry', async () => {
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+        if (window.location.pathname !== '/members') return page(members());
+        const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
+      },
+      [`GET ${base}/invitations`]: problem(503),
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(2));
+    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+  });
+
   it('caps viewer discovery and uses owner_required to confirm non-owner status', async () => {
     const discoveryCursors: Array<string | null> = [];
     let initialMemberCalls = 0;
@@ -381,16 +422,17 @@ describe('members and invitations', () => {
     const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
     const memberNext = within(membersSection).getByRole('button', { name: 'Next page' });
     const invitationNext = within(invitations).getByRole('button', { name: 'Next page' });
+    // Both requests are in flight at once; the user last activated invitation paging.
     await userEvent.click(memberNext);
+    await userEvent.click(invitationNext);
     await act(async () => { releaseMembers(json(200, { items: [{ userId: 'member2', login: 'member_two', role: 'member' }], nextCursor: null })); await membersPending; });
     expect(await within(membersSection).findByText('member_two')).toBeVisible();
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Members' })).toHaveFocus());
-    expect(invitationNext).toBeInTheDocument();
-    expect(invitationNext).not.toHaveFocus();
-    await userEvent.click(invitationNext);
+    // The member result must not pull focus away from the invitation control the user moved to.
+    expect(invitationNext).toHaveFocus();
+    expect(screen.getByRole('heading', { name: 'Members' })).not.toHaveFocus();
     await act(async () => { releaseInvitations(json(200, { items: [invitation('two', 'accepted')], nextCursor: null })); await invitationsPending; });
     expect(await within(invitations).findByText('Accepted')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Invitations' })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Invitations' })).toHaveFocus());
   });
 
   it('member and invitation page controls replace their own rows independently', async () => {

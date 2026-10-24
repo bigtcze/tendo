@@ -82,7 +82,11 @@ export function SubjectsScreen({
   const memberGeneration = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [mutationPending, setMutationPending] = useState(false);
-  const archivePage = useRef<{ cursor?: string; stack: string[] } | null>(null);
+  // Identifies the server page instance on screen; Undo may reinsert locally only into the same instance.
+  const pageLoad = useRef(0);
+  const archivePage = useRef<number | null>(null);
+  // Identifies the open Add form, so a late create result never closes a newer form.
+  const addForm = useRef(0);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const [currentCursor, setCurrentCursor] = useState<string | undefined>();
   const pagingFocus = useRef<HTMLElement | null>(null);
@@ -100,7 +104,10 @@ export function SubjectsScreen({
     listSubjects(householdId, { archived: showArchived }).then((result) => {
       if (cancelled || token !== generation.current) return;
       if (result.kind === 'unauthenticated') onSignedOut();
-      else if (result.kind === 'ok') setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
+      else if (result.kind === 'ok') {
+        pageLoad.current += 1;
+        setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
+      }
       else if (result.kind === 'noHousehold') setList({ kind: 'noHousehold' });
       else setList({ kind: 'error' });
     });
@@ -126,6 +133,9 @@ export function SubjectsScreen({
     })();
     return () => { if (generationRef.current === token) generationRef.current++; };
   }, [householdId, adding, editing?.subject.id, editing?.etag, onSignedOut]);
+
+  // Late page, refresh, or mutation responses after leaving the screen must not act on another screen.
+  useEffect(() => () => { generation.current += 1; }, []);
 
   // Moves focus to the confirmation so keyboard and screen reader users are not left on a removed button.
   useEffect(() => {
@@ -201,6 +211,7 @@ export function SubjectsScreen({
     }
     setEditing(null);
     setActionFailed(false);
+    addForm.current += 1;
     setAdding(true);
   }
 
@@ -227,12 +238,15 @@ export function SubjectsScreen({
     reload();
   }
 
-  async function reloadPage(cursor: string | undefined, stack: string[]) {
+  async function reloadPage(cursor: string | undefined, stack: string[], focusId: string) {
     const token = ++generation.current;
     const result = await listSubjects(householdId, { archived: showArchived, cursor });
     if (token !== generation.current) return;
     if (result.kind === 'unauthenticated') { onSignedOut(); return; }
     if (result.kind === 'ok') {
+      pageLoad.current += 1;
+      const target = result.items.find((s) => s.id === focusId) ?? result.items[0];
+      focusKey.current = target ? `row:${target.id}` : null;
       setCursorStack(stack);
       setCurrentCursor(cursor);
       setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
@@ -290,7 +304,7 @@ export function SubjectsScreen({
     if (loadingMore || mutationPending || adding || editing) return;
     if (busy.current) return;
     const started = generation.current;
-    if (!isUndo) archivePage.current = { cursor: currentCursor, stack: [...cursorStack] };
+    if (!isUndo) archivePage.current = pageLoad.current;
     void guarded(subject.id, async () => {
       // An undo keeps its notice (and the Undo button) until it has worked.
       if (!isUndo) setNotice(null);
@@ -303,14 +317,15 @@ export function SubjectsScreen({
       if (result.kind === 'ok') {
         if (isUndo) {
           setNotice(null);
-          const archivedAt = archivePage.current;
+          const archivedOn = archivePage.current;
           archivePage.current = null;
-          const samePage = archivedAt !== null && archivedAt?.cursor === currentCursor && archivedAt.stack.length === cursorStack.length;
-          if (samePage) {
+          // The page was fetched again since archiving (the server may have backfilled the slot):
+          // refetch instead of reinserting, so the screen never shows more than one server page.
+          if (archivedOn === pageLoad.current) {
             focusKey.current = `row:${subject.id}`;
             setList((current) => current.kind === 'ready' ? { ...current, items: insertById(current.items, result.subject) } : current);
           } else {
-            void reloadPage(currentCursor, cursorStack);
+            await reloadPage(currentCursor, cursorStack, subject.id);
           }
         } else {
           setList((current) =>
@@ -336,6 +351,7 @@ export function SubjectsScreen({
 
   async function add(values: SubjectValues): Promise<SubmitOutcome> {
     const started = generation.current;
+    const form = addForm.current;
     const body = { name: values.name, type: values.type, ...(values.linkedUserId ? { linkedUserId: values.linkedUserId } : {}) };
     const pending = pendingCreate ?? { version: 1 as const, key: idempotencyKey(), body };
     if (!pendingCreate) {
@@ -358,17 +374,17 @@ export function SubjectsScreen({
         setLoadingMore(false);
         pagingFocus.current = null;
         const refreshed = await listSubjects(householdId, { archived: false });
+        if (refreshToken !== generation.current) return finishAdd(form, result.subject);
         if (refreshed.kind === 'unauthenticated') { onSignedOut(); return { kind: 'handled' }; }
-        if (refreshToken === generation.current && refreshed.kind === 'ok') {
+        if (refreshed.kind === 'ok') {
+          pageLoad.current += 1;
           setCursorStack([]);
           setCurrentCursor(undefined);
           const refreshedItems = refreshed.nextCursor || result.subject.archived ? refreshed.items : insertById(refreshed.items, result.subject);
           setList({ kind: 'ready', items: refreshedItems, nextCursor: refreshed.nextCursor });
         }
       }
-      setAdding(false);
-      setNotice({ kind: 'added', subject: result.subject });
-      return { kind: 'done' };
+      return finishAdd(form, result.subject);
     }
     if (result.kind === 'invalid' || result.kind === 'reused' || result.kind === 'definitive') {
       clearPendingSubjectCreate(userId, householdId);
@@ -385,6 +401,14 @@ export function SubjectsScreen({
     setCreateUncertain(true);
     setNotice(null);
     return { kind: 'handled' };
+  }
+
+  // Confirms a create only while its own form is still the open one (or no newer form was opened).
+  function finishAdd(form: number, subject: Subject): SubmitOutcome {
+    if (form !== addForm.current) return { kind: 'handled' };
+    setAdding(false);
+    setNotice({ kind: 'added', subject });
+    return { kind: 'done' };
   }
 
   async function save(values: SubjectValues): Promise<SubmitOutcome> {
@@ -456,6 +480,7 @@ export function SubjectsScreen({
     setLoadingMore(false);
     if (result.kind === 'unauthenticated') { pagingFocus.current = null; onSignedOut(); return; }
     if (result.kind === 'ok') {
+      pageLoad.current += 1;
       setCursorStack(stack);
       setCurrentCursor(cursor);
       setList({ kind: 'ready', items: result.items, nextCursor: result.nextCursor });
@@ -672,7 +697,7 @@ export function SubjectsScreen({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 {cursorStack.length > 0 ? <Button data-subject-page type="button" variant="quiet" onClick={previousPage} disabled={interactionLocked}>{cursorStack.length > 1 ? t('subjects.page.previous') : t('subjects.page.first')}</Button> : <span />}
                 {list.nextCursor ? <Button data-subject-page type="button" variant="quiet" onClick={nextPage} disabled={interactionLocked}>{t('subjects.page.next')}</Button> : null}
-                <p className="w-full text-center text-sm text-muted">{t('subjects.page.number', { n: String(cursorStack.length + 1) })}</p>
+                <p aria-live="polite" className="w-full text-center text-sm text-muted">{t('subjects.page.number', { n: String(cursorStack.length + 1) })}</p>
               </div>
             ) : null}
           </div>

@@ -242,6 +242,19 @@ describe('list', () => {
     expect(onSignedOut).not.toHaveBeenCalled();
   });
 
+  it('does not sign out when a Next page request resolves 401 after leaving the screen', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') === 'p2' ? pending : page([anna], 'p2') });
+    renderApp(); await openPeople();
+    await userEvent.click(await within(screen.getByRole('main')).findByRole('button', { name: 'Next page' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Home' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    await act(async () => { release(problem(401)); await pending; });
+    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: /sign in/i })).not.toBeInTheDocument();
+  });
+
   it('retry after a page-two archive conflict resets the page and uses page-one cursor', async () => {
     let initialLists = 0;
     const fake = installFakeServer({
@@ -1050,6 +1063,39 @@ describe('archive and restore', () => {
     expect(names).toEqual(['Anna', 'Octavia']);
   });
 
+  it('Undo after leaving and re-fetching a full page refetches instead of showing more than one page', async () => {
+    const full = Array.from({ length: 50 }, (_, i) => subject(`f-${String(i).padStart(2, '0')}`, `Row ${String(i).padStart(2, '0')}`));
+    const backfill = subject('f-50', 'Row 50');
+    const archivedIds = new Set<string>();
+    const pageOne = () => [...full, backfill].filter((s) => !archivedIds.has(s.id)).slice(0, 50);
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('cursor') === 'p2' ? page([subject('z-1', 'Zeta')]) : page(pageOne(), 'p2'),
+      [itemKey('f-03')]: () => etagged({ ...full[3]!, archived: archivedIds.has('f-03') }, '"1"'),
+      [itemKey('f-03', 'PATCH')]: (req) => {
+        const archived = JSON.parse(req.body).archived as boolean;
+        if (archived) archivedIds.add('f-03'); else archivedIds.delete('f-03');
+        return json(200, { ...full[3]!, archived }, { ETag: '"2"' });
+      },
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Archive Row 03' }));
+    expect(await main.findByText('Row 03 was archived.')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    expect(await main.findByText('Zeta')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'First page' }));
+    expect(await main.findByText('Row 50')).toBeVisible();
+    expect(main.getAllByRole('listitem')).toHaveLength(50);
+    await userEvent.click(main.getByRole('button', { name: 'Undo' }));
+    expect(await main.findByRole('button', { name: 'Edit Row 03' })).toBeVisible();
+    await waitFor(() => expect(main.queryByText('Row 50')).not.toBeInTheDocument());
+    expect(main.getAllByRole('listitem')).toHaveLength(50);
+    await waitFor(() => expect(main.getByRole('button', { name: 'Edit Row 03' })).toHaveFocus());
+    const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('cursor') === null && r.query.get('archived') !== 'true');
+    expect(lists.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('skips the PATCH when the fresh read already shows the wanted archived state', async () => {
     const fake = installFakeServer({
       ...signedIn,
@@ -1361,6 +1407,35 @@ describe('stale responses', () => {
     await waitFor(() => expect(g.state.answered).toBe(true));
     await settle();
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
+  });
+
+  it('a late create refresh does not close a newer Add form or discard its draft', async () => {
+    let releaseRefresh!: (response: Response) => void;
+    const refreshPending = new Promise<Response>((resolve) => { releaseRefresh = resolve; });
+    let activeLists = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => {
+        if (req.query.get('archived') === 'true') return page([]);
+        activeLists += 1;
+        return activeLists === 2 ? refreshPending : page([anna]);
+      },
+      [createKey]: json(201, subject('s-9', 'Zuzka'), { ETag: '"1"' }),
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Add' }));
+    await userEvent.type(screen.getByLabelText('Name'), 'Zuzka{Enter}');
+    await waitFor(() => expect(activeLists).toBe(2));
+    await userEvent.click(main.getByRole('button', { name: 'Show archived' }));
+    expect(await main.findByText('Nothing is archived.')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'Back to the list' }));
+    await userEvent.click(await main.findByRole('button', { name: 'Add' }));
+    await userEvent.type(screen.getByLabelText('Name'), 'Bohdan');
+    await act(async () => { releaseRefresh(page([anna, subject('s-9', 'Zuzka')])); await refreshPending; });
+    expect(screen.getByRole('form', { name: 'Add a person or thing' })).toBeVisible();
+    expect(screen.getByLabelText('Name')).toHaveValue('Bohdan');
+    expect(screen.getByLabelText('Name')).toHaveFocus();
   });
 
   it('an add that finishes after a view switch still says it was added', async () => {

@@ -69,6 +69,8 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     if (page.kind === 'rejected') { setInvitationsError(true); setInvitationsLoaded(true); setNotice(tRef.current('members.error.requestRefused')); return false; }
     if (page.kind === 'notFound') { setInvitationsError(true); setInvitationsLoaded(true); setNotice(tRef.current('members.error.householdNotFound')); return false; }
     if (page.kind === 'ok') {
+      // Only owners can list invitations, so a successful list also settles an unknown role.
+      setOwner(true);
       setInvitations(page.items);
       setInvitationCursor(page.nextCursor);
       setCurrentInvitationCursor(cursor || undefined);
@@ -122,24 +124,8 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
       setInvitationsError(false);
       setInvitationsLoaded(viewer !== undefined && viewer.role !== 'owner');
       const invitationRequest = ++invitationGeneration.current;
-      if (viewer?.role === 'owner') await loadInvitations('', invitationRequest, []);
-      else if (viewer?.role === 'member') setInvitationsLoaded(true);
-      else {
-        const probe = await listInvitations(householdId);
-        if (cancelled || invitationGeneration.current !== invitationRequest) return;
-        if (probe.kind === 'ok') {
-          setOwner(true);
-          setInvitations(probe.items);
-          setInvitationCursor(probe.nextCursor);
-          setInvitationStack([]);
-          setCurrentInvitationCursor(undefined);
-          setInvitationsError(false);
-          setInvitationsLoaded(true);
-        } else if (probe.kind === 'forbidden') {
-          setOwner(false);
-          setInvitationsLoaded(true);
-        } else await loadInvitations('', invitationRequest, []);
-      }
+      // An owner beyond the discovery cap is settled by the owner-only invitations list.
+      if (viewer?.role !== 'member') await loadInvitations('', invitationRequest, []);
     })();
     return () => { cancelled = true; memberPageGeneration.current += 1; };
   }, [householdId, userId, attempt, loadInvitations]);
@@ -288,7 +274,7 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     {state === 'error' ? <div className="mt-8 space-y-3"><p className="text-muted">{notice && notice !== t('members.error.householdNotFound') && notice !== t('members.error.requestRefused') ? notice : notice ?? t('members.error.load')}</p><Button onClick={() => { setNotice(null); setAttempt((n) => n + 1); }}>{t('app.error.retry')}</Button></div> : null}
     {state === 'ready' ? <div className="mt-8 space-y-8">
       <section><h2 ref={memberHeading} tabIndex={-1} className="font-display text-2xl outline-none">{t('members.list.title')}</h2><ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{members.map((member) => <li key={member.userId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"><span className="min-w-0 break-all">{member.login}{member.userId === userId ? ` (${t('members.you')})` : ''}</span><span className="text-sm text-muted">{t(member.role === 'owner' ? 'members.role.owner' : 'members.role.member')}</span></li>)}</ul>
-      {memberStack.length > 0 || memberCursor ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2">{memberStack.length ? <Button data-member-page variant="quiet" disabled={memberBusy} onClick={previousMembers}>{memberStack.length > 1 ? t('members.page.previous') : t('members.page.first')}</Button> : <span />}{memberCursor ? <Button data-member-page variant="quiet" disabled={memberBusy} onClick={nextMembers}>{t('members.page.next')}</Button> : null}<p className="w-full text-center text-sm text-muted">{t('members.page.number', { n: String(memberStack.length + 1) })}</p></div> : null}
+      {memberStack.length > 0 || memberCursor ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2">{memberStack.length ? <Button data-member-page variant="quiet" disabled={memberBusy} onClick={previousMembers}>{memberStack.length > 1 ? t('members.page.previous') : t('members.page.first')}</Button> : <span />}{memberCursor ? <Button data-member-page variant="quiet" disabled={memberBusy} onClick={nextMembers}>{t('members.page.next')}</Button> : null}<p aria-live="polite" className="w-full text-center text-sm text-muted">{t('members.page.number', { n: String(memberStack.length + 1) })}</p></div> : null}
       </section>
       {owner === true ? <section className="border-t border-line pt-6"><h2 className="font-display text-2xl">{t('members.invite.title')}</h2><p className="mt-2 text-muted">{t('members.invite.intro')}</p><Button className="mt-4 w-full whitespace-normal text-center sm:w-auto" disabled={busy || !listReady} onClick={() => void invite()}>{busy ? t('members.invite.creating') : t('members.invite.action')}</Button>
         {recoveryInvitationId ? <Button variant="quiet" className="mt-3" disabled={busy} onClick={() => void revoke(recoveryInvitationId)}>{t('members.invite.revokeRecovered')}</Button> : null}
@@ -296,8 +282,10 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
         {link ? <div className="mt-4 rounded-2xl border border-line bg-white/70 p-4"><p className="text-muted">{t('members.invite.share')}</p><div className="mt-3 flex flex-wrap gap-2"><input ref={linkRef} readOnly value={link} aria-label={t('members.invite.link')} className="min-h-11 min-w-0 flex-1 basis-48 rounded-xl border border-field bg-white px-3 text-sm break-all focus-visible:outline-2 focus-visible:outline-accent" /><Button variant="quiet" onClick={copyLink}>{copied ? t('members.invite.copiedButton') : t('members.invite.copy')}</Button></div><p className="mt-3 text-sm text-muted">{t('members.invite.caveat')}</p></div> : null}
         <h3 ref={invitationHeading} tabIndex={-1} className="mt-8 font-display text-xl outline-none">{t('members.invitations.title')}</h3>
         {!listReady ? <p role="status" className="mt-2 text-muted">{t('members.loading')}</p> : invitationsError ? <div className="mt-2"><p className="text-muted">{notice === t('members.error.requestRefused') ? notice : t('members.invitations.error')}</p><Button variant="quiet" className="mt-2" onClick={refreshInvitations}>{t('app.error.retry')}</Button></div> : invitations.length ? <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{invitations.map((inv) => <li key={inv.id} className="flex flex-wrap items-start justify-between gap-3 p-4"><div className="min-w-0"><p>{t(`members.invitation.status.${inv.status}`)}</p><p className="mt-1 text-sm text-muted">{t('members.invitation.created', { date: formatDate(inv.createdAt) })} · {t('members.invitation.expires', { date: formatDate(inv.expiresAt) })}</p></div>{inv.status === 'pending' ? revokeId === inv.id ? <div className="flex min-h-11 items-center gap-2"><span>{t('members.invitation.revokeConfirm')}</span><Button ref={(element) => { if (element) yesRefs.current.set(inv.id, element); else yesRefs.current.delete(inv.id); }} variant="quiet" size="small" disabled={busy} onClick={() => void revoke(inv.id)}>{t('members.invitation.yes')}</Button><Button variant="quiet" size="small" onClick={() => { restoreFocusId.current = inv.id; setRevokeId(null); }}>{t('members.invitation.cancel')}</Button></div> : <Button ref={(element) => { if (element) revokeRefs.current.set(inv.id, element); else revokeRefs.current.delete(inv.id); }} variant="quiet" size="small" disabled={busy} onClick={() => { setRevokeId(inv.id); window.setTimeout(() => yesRefs.current.get(inv.id)?.focus(), 0); }}>{t('members.invitation.revoke')}</Button> : null}</li>)}</ul> : <p className="mt-2 text-muted">{t('members.invitations.empty')}</p>}
-        {listReady && (invitationStack.length > 0 || invitationCursor) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2">{invitationStack.length ? <Button data-invitation-page variant="quiet" disabled={invitationBusy} onClick={previousInvitations}>{invitationStack.length > 1 ? t('members.page.previous') : t('members.page.first')}</Button> : <span />}{invitationCursor ? <Button data-invitation-page variant="quiet" disabled={invitationBusy} onClick={nextInvitations}>{t('members.page.next')}</Button> : null}<p className="w-full text-center text-sm text-muted">{t('members.page.number', { n: String(invitationStack.length + 1) })}</p></div> : null}
-      </section> : owner === false ? <p className="border-t border-line pt-5 text-muted">{t('members.ownerOnly')}</p> : null}
+        {listReady && (invitationStack.length > 0 || invitationCursor) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2">{invitationStack.length ? <Button data-invitation-page variant="quiet" disabled={invitationBusy} onClick={previousInvitations}>{invitationStack.length > 1 ? t('members.page.previous') : t('members.page.first')}</Button> : <span />}{invitationCursor ? <Button data-invitation-page variant="quiet" disabled={invitationBusy} onClick={nextInvitations}>{t('members.page.next')}</Button> : null}<p aria-live="polite" className="w-full text-center text-sm text-muted">{t('members.page.number', { n: String(invitationStack.length + 1) })}</p></div> : null}
+      </section> : owner === false ? <p className="border-t border-line pt-5 text-muted">{t('members.ownerOnly')}</p>
+      : invitationsError ? <div className="border-t border-line pt-5"><p className="text-muted">{notice === t('members.error.requestRefused') ? notice : t('members.invitations.error')}</p><Button variant="quiet" className="mt-2" onClick={refreshInvitations}>{t('app.error.retry')}</Button></div>
+      : <p role="status" className="border-t border-line pt-5 text-muted">{t('members.loading')}</p>}
     </div> : null}
   </section></Layout>;
 }
