@@ -28,4 +28,7 @@ UPDATE items SET attention_on=$3, workflow_state=$4, done=false, version=version
 UPDATE items SET attention_on=$3, workflow_state=$4, done=$5, version=version+1, updated_at=now() WHERE household_id=$1 AND id=$2;
 
 -- name: ListCompletions :many
-SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id>$3 ORDER BY id ASC LIMIT $4;
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id>$3 ORDER BY item_completions.id ASC LIMIT $4;
+
+-- name: ListCompletionsNewest :many
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id<$3 ORDER BY item_completions.id DESC LIMIT $4;

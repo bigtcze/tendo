@@ -1104,7 +1104,7 @@ paths:
     get:
       operationId: listItemCompletions
       summary: List item completion receipts
-      description: 'Returns receipts in ascending UUIDv7 id order using keyset pagination. Limit defaults to 50 and is capped at 100; cursor is unpadded base64url for versioned c1:<uuid>. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.'
+      description: 'Returns receipts by UUIDv7 id using a live keyset walk, not a snapshot. order defaults to oldest (ascending id) and may be oldest or newest (descending id; most recently recorded, not completedOn). Limit defaults to 50 and is capped at 100. Oldest cursors are unpadded base64url c1:<lowercase uuid>; newest cursors are c2:<lowercase uuid>. Malformed, unknown-version, or cross-order cursors return 400 invalid_query parameter=cursor. Check order: authentication; limit syntax/range and empty or repeated cursor; empty or repeated order; household membership; item ID syntax (404); unknown order value; cursor decoding; item existence. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.'
       tags: [Completions]
       security: [{ SessionCookie: [] }]
       parameters:
@@ -1113,10 +1113,16 @@ paths:
         - $ref: '#/components/parameters/ItemId'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - name: order
+          in: query
+          required: false
+          description: 'oldest (default) or newest by UUIDv7 id order. Cursor version must match: c1 for oldest and c2 for newest; cross-order cursors are invalid_query parameter=cursor. Present-empty and repeated values are structural errors before membership.'
+          schema: { type: string, enum: [oldest, newest], default: oldest }
+          example: newest
       responses:
         '200': { description: Completion page., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/json: { schema: { $ref: '#/components/schemas/CompletionList' }, example: { items: [], nextCursor: null } } } }
         '400':
-          description: Invalid limit or cursor.
+          description: Invalid limit, cursor, or order.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } }
         '401':
@@ -1683,7 +1689,7 @@ components:
         - $ref: '#/components/schemas/Problem'
         - type: object
           properties:
-            parameter: { type: string, enum: [limit, cursor, archived, done, id, subjectId, responsibleUserId, workflowState, attention, recurring, sort, attentionDate, q] }
+            parameter: { type: string, enum: [limit, cursor, archived, done, id, subjectId, responsibleUserId, workflowState, attention, recurring, sort, attentionDate, q, order] }
     SubjectValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'

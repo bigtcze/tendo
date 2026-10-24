@@ -286,7 +286,7 @@ func uuid(s string) pgtype.UUID { u, _ := parseUUID(s); return u }
 func uuidString(u pgtype.UUID) string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", binary.BigEndian.Uint32(u.Bytes[0:4]), binary.BigEndian.Uint16(u.Bytes[4:6]), binary.BigEndian.Uint16(u.Bytes[6:8]), binary.BigEndian.Uint16(u.Bytes[8:10]), u.Bytes[10:16])
 }
-func (r *Repository) ListCompletions(ctx context.Context, hid, iid, after string, limit int) ([]item.Completion, error) {
+func (r *Repository) ListCompletions(ctx context.Context, hid, iid, after string, limit int, newest bool) ([]item.Completion, error) {
 	h, ok1 := parseUUID(hid)
 	id, ok2 := parseUUID(iid)
 	afterID, ok3 := parseUUID(after)
@@ -298,17 +298,36 @@ func (r *Repository) ListCompletions(ctx context.Context, hid, iid, after string
 	} else if err != nil {
 		return nil, errPersistence
 	}
+	if newest {
+		rows, err := r.queries.ListCompletionsNewest(ctx, dbgen.ListCompletionsNewestParams{HouseholdID: h, ItemID: id, ID: afterID, Limit: int32(limit)})
+		if err != nil {
+			return nil, errPersistence
+		}
+		return completionRowsFromNewest(rows)
+	}
 	rows, err := r.queries.ListCompletions(ctx, dbgen.ListCompletionsParams{HouseholdID: h, ItemID: id, ID: afterID, Limit: int32(limit)})
 	if err != nil {
 		return nil, errPersistence
 	}
+	return completionRowsFromList(rows)
+}
+
+func completionRowsFromList(rows []dbgen.ListCompletionsRow) ([]item.Completion, error) {
 	out := make([]item.Completion, 0, len(rows))
 	for _, row := range rows {
-		c, e := completionFromList(row)
-		if e != nil {
+		c, err := completionFromList(row)
+		if err != nil {
 			return nil, errPersistence
 		}
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+func completionRowsFromNewest(rows []dbgen.ListCompletionsNewestRow) ([]item.Completion, error) {
+	converted := make([]dbgen.ListCompletionsRow, len(rows))
+	for i, row := range rows {
+		converted[i] = dbgen.ListCompletionsRow(row)
+	}
+	return completionRowsFromList(converted)
 }

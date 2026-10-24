@@ -326,7 +326,7 @@ export interface paths {
         };
         /**
          * List item completion receipts
-         * @description Returns receipts in ascending UUIDv7 id order using keyset pagination. Limit defaults to 50 and is capped at 100; cursor is unpadded base64url for versioned c1:<uuid>. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.
+         * @description Returns receipts by UUIDv7 id using a live keyset walk, not a snapshot. order defaults to oldest (ascending id) and may be oldest or newest (descending id; most recently recorded, not completedOn). Limit defaults to 50 and is capped at 100. Oldest cursors are unpadded base64url c1:<lowercase uuid>; newest cursors are c2:<lowercase uuid>. Malformed, unknown-version, or cross-order cursors return 400 invalid_query parameter=cursor. Check order: authentication; limit syntax/range and empty or repeated cursor; empty or repeated order; household membership; item ID syntax (404); unknown order value; cursor decoding; item existence. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.
          */
         get: operations["listItemCompletions"];
         put?: never;
@@ -648,7 +648,7 @@ export interface components {
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
-            parameter?: "limit" | "cursor" | "archived" | "done" | "id" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate" | "q";
+            parameter?: "limit" | "cursor" | "archived" | "done" | "id" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate" | "q" | "order";
         };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -4793,6 +4793,11 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
                 cursor?: components["parameters"]["Cursor"];
+                /**
+                 * @description oldest (default) or newest by UUIDv7 id order. Cursor version must match: c1 for oldest and c2 for newest; cross-order cursors are invalid_query parameter=cursor. Present-empty and repeated values are structural errors before membership.
+                 * @example newest
+                 */
+                order?: "oldest" | "newest";
             };
             header?: {
                 /**
@@ -4834,7 +4839,7 @@ export interface operations {
                     "application/json": components["schemas"]["CompletionList"];
                 };
             };
-            /** @description Invalid limit or cursor. */
+            /** @description Invalid limit, cursor, or order. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -273,7 +273,7 @@ type Repository interface {
 	Summary(ctx context.Context, householdID string, opts SummaryOptions) (SummaryCounts, error)
 	Complete(ctx context.Context, householdID, itemID, key string, fingerprint [32]byte, decide CompletionDecider) (Completion, bool, error)
 	UndoCompletion(ctx context.Context, householdID, itemID, completionID string, decide CompletionUndoDecider) (Completion, error)
-	ListCompletions(ctx context.Context, householdID, itemID, afterID string, limit int) ([]Completion, error)
+	ListCompletions(ctx context.Context, householdID, itemID, boundary string, limit int, newest bool) ([]Completion, error)
 	Update(ctx context.Context, householdID, itemID string, expectedVersion int64, c Change) (Item, error)
 }
 

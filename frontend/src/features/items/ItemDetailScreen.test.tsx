@@ -149,15 +149,160 @@ describe('item details', () => {
     expect(screen.getByRole('heading', { name: 'History' })).toBeVisible();
   });
 
-  it('shows history newest first across two pages and mutes undone entries', async () => {
-    const older = completion('c-old', '2024-03-01'); const newer = completion('c-new', '2025-04-02', { undoneAt: '2025-04-03T00:00:00Z' });
-    const fake = installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.has('cursor') ? json(200, { items: [newer], nextCursor: null }) : json(200, { items: [older], nextCursor: 'next' }) }));
+  it('pages history with a cursor stack, keeps 25 rows, and returns to latest with focus', async () => {
+    const page = (prefix: string, year: number) => Array.from({ length: 25 }, (_, index) => completion(`${prefix}-${index}`, `${year}-${String(12 - Math.floor(index / 2.5)).padStart(2, '0')}-${String(28 - index).padStart(2, '0')}`));
+    const fake = installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
+      const cursor = request.query.get('cursor');
+      if (cursor === 'c-older') return json(200, { items: [completion('oldest', '2020-01-01', { undoneAt: '2020-01-02T00:00:00Z' })], nextCursor: null });
+      if (cursor === 'c-middle') return json(200, { items: page('middle', 2024), nextCursor: 'c-older' });
+      return json(200, { items: page('latest', 2025), nextCursor: 'c-middle' });
+    } }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
-    const newestText = await screen.findByText(/Done Apr 2, 2025/); const olderText = await screen.findByText(/Done Mar 1, 2024/);
-    expect(newestText.closest('li')!.compareDocumentPosition(olderText.closest('li')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(newestText.closest('li')).toHaveClass('opacity-65'); expect(newestText.closest('li')).toHaveTextContent('Undone');
-    expect(screen.queryByText('secret-user')).not.toBeInTheDocument();
-    expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(2);
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    const historyList = async () => within(await main.findByRole('list'));
+    const historyQuery = () => requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'));
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(25);
+    const first = requestsOf(fake.requests, 'GET', historyPath)[0]!;
+    expect(first.query.get('limit')).toBe('25'); expect(first.query.get('order')).toBe('newest'); expect(first.query.has('cursor')).toBe(false);
+    expect((await historyList()).getAllByRole('listitem')[0]).toHaveTextContent('Done Dec 28, 2025');
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
+
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(25);
+    expect(main.queryByText('Done Dec 28, 2025')).not.toBeInTheDocument();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    const oldest = await main.findByText('Done Jan 1, 2020 · Undone');
+    expect(oldest.closest('li')).toHaveClass('opacity-65');
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(1);
+    expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+
+    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle']);
+
+    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
+    expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null]);
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(await main.findByRole('button', { name: 'Older' }));
+    await main.findByText('Done Jan 1, 2020 · Undone');
+    await userEvent.click(main.getByRole('button', { name: 'Latest' }));
+    expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
+    expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null, 'c-middle', 'c-older', null]);
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Older' })).toBeVisible();
+    expect(main.queryByText('secret-user')).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '25' && request.query.get('order') === 'newest')).toBe(true);
+  });
+
+  it('does not steal focus when a slow history page arrives after the user moved on', async () => {
+    let release!: (response: Response) => void;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.get('cursor') === 'slow' ? new Promise<Response>((resolve) => { release = resolve; }) : json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'slow' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    const elsewhere = screen.getByRole('button', { name: 'Edit' });
+    elsewhere.focus();
+    await act(async () => release(json(200, { items: [completion('older', '2024-03-01')], nextCursor: null })));
+    expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
+    expect(elsewhere).toHaveFocus();
+  });
+
+  it('a stale-write reload cancels pending history focus and keeps focus on its notice', async () => {
+    let releaseStale!: (response: Response) => void;
+    let releaseReload!: (response: Response) => void;
+    let reads = 0; let historyCalls = 0;
+    installFakeServer(common({ [`GET ${path}`]: () => json(200, item(), { ETag: `"${++reads}"` }), [`PATCH ${path}`]: json(412), [`GET ${historyPath}`]: () => {
+      historyCalls++;
+      if (historyCalls === 2) return new Promise<Response>((resolve) => { releaseStale = resolve; });
+      if (historyCalls === 3) return new Promise<Response>((resolve) => { releaseReload = resolve; });
+      return json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'slow' });
+    } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+    const notice = await screen.findByText('That changed just now. Here is the latest.');
+    await waitFor(() => expect(notice).toHaveFocus());
+    await waitFor(() => expect(historyCalls).toBe(3));
+    await act(async () => releaseReload(json(200, { items: [completion('reloaded', '2025-05-05')], nextCursor: null })));
+    expect(await main.findByText('Done May 5, 2025')).toBeVisible();
+    await act(async () => releaseStale(json(200, { items: [completion('stale', '2020-01-01')], nextCursor: null })));
+    expect(main.queryByText('Done Jan 1, 2020')).not.toBeInTheDocument();
+    expect(notice).toHaveFocus();
+  });
+
+  it('ignores an earlier page response after a stale-write reload resets history', async () => {
+    let release!: (response: Response) => void;
+    const fake = installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
+      if (request.query.get('cursor') === 'slow') return new Promise<Response>((resolve) => { release = resolve; });
+      return json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'slow' });
+    }, [`PATCH ${path}`]: json(412) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(2));
+    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', historyPath)).toHaveLength(3));
+    expect(requestsOf(fake.requests, 'GET', historyPath)[2]!.query.has('cursor')).toBe(false);
+    expect(await main.findByText('Done Apr 2, 2025')).toBeVisible();
+    await act(async () => release(json(200, { items: [completion('stale', '2020-01-01')], nextCursor: null })));
+    expect(main.queryByText('Done Jan 1, 2020')).not.toBeInTheDocument();
+    expect(main.getByText('Done Apr 2, 2025')).toBeVisible();
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+  });
+
+  it('retries the current history page and announces loading; an empty older page stays navigable', async () => {
+    let failures = 1;
+    let releaseRetry!: () => void;
+    const fake = installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
+      if (!request.query.get('cursor')) return json(200, { items: [completion('newest', '2025-04-02')], nextCursor: 'older-cursor' });
+      if (failures-- > 0) return json(503);
+      return new Promise<Response>((resolve) => { releaseRetry = () => resolve(json(200, { items: [], nextCursor: null })); });
+    } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    expect(await main.findByText('History could not be loaded.')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'Try again' }));
+    expect(await main.findByRole('status')).toHaveTextContent('Loading history…');
+    await act(async () => releaseRetry());
+    expect(await main.findByText('Nothing completed yet.')).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'))).toEqual([null, 'older-cursor', 'older-cursor']);
+    expect(main.getByRole('button', { name: 'Newer' })).toBeVisible();
+    expect(main.getByRole('button', { name: 'Latest' })).toBeVisible();
+  });
+
+  it('renders Czech history navigation labels', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.has('cursor') ? json(200, { items: [completion('c-old', '2024-03-01')], nextCursor: null }) : json(200, { items: [completion('c-new', '2025-04-02')], nextCursor: 'older' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    expect(await main.findByRole('heading', { name: 'Historie' })).toBeVisible();
+    await userEvent.click(await main.findByRole('button', { name: 'Starší' }));
+    expect(await main.findByRole('button', { name: 'Novější' })).toBeVisible();
+    expect(main.getByRole('button', { name: 'Nejnovější' })).toBeVisible();
+    expect(main.queryByRole('button', { name: 'Starší' })).not.toBeInTheDocument();
   });
 
   it('loads details via deep link, shows gone for 404/malformed ids and Home returns home', async () => {

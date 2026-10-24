@@ -355,6 +355,19 @@ test('household fixtures enforce the ETag pattern, problem media type, and body 
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('completion order and cursor compatibility query contract', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const operation = contract.paths['/api/v1/households/{householdId}/items/{itemId}/completions'].get
+  const order = operation.parameters.find(parameter => parameter.name === 'order')
+  assert.deepEqual(order.schema, { type: 'string', enum: ['oldest', 'newest'], default: 'oldest' })
+  assert.match(order.description, /c1.*oldest.*c2.*newest.*cross-order/i)
+  assert.match(operation.description, /live keyset walk, not a snapshot/i)
+  assert.ok(operation.responses['400'])
+  assert.deepEqual(contract.components.schemas.QueryProblem.allOf[1].properties.parameter.enum.includes('order'), true)
+})
+
 test('item list sort and freshness query contract', async () => {
   const { readFile } = await import('node:fs/promises')
   const { parse } = await import('yaml')

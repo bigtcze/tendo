@@ -290,7 +290,7 @@ func (q *Queries) LatestActiveCompletionVersion(ctx context.Context, arg LatestA
 }
 
 const listCompletions = `-- name: ListCompletions :many
-SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id>$3 ORDER BY id ASC LIMIT $4
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id>$3 ORDER BY item_completions.id ASC LIMIT $4
 `
 
 type ListCompletionsParams struct {
@@ -334,6 +334,80 @@ func (q *Queries) ListCompletions(ctx context.Context, arg ListCompletionsParams
 	items := []ListCompletionsRow{}
 	for rows.Next() {
 		var i ListCompletionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.HouseholdID,
+			&i.ItemID,
+			&i.CompletedOn,
+			&i.CompletedByUserID,
+			&i.CycleAttentionOn,
+			&i.RecurrenceIntervalValue,
+			&i.RecurrenceIntervalUnit,
+			&i.RecurrenceMode,
+			&i.PriorWorkflowState,
+			&i.NextAttentionOn,
+			&i.ItemVersionBefore,
+			&i.IdempotencyKey,
+			&i.RequestFingerprint,
+			&i.CreatedAt,
+			&i.UndoneAt,
+			&i.UndoneByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCompletionsNewest = `-- name: ListCompletionsNewest :many
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id<$3 ORDER BY item_completions.id DESC LIMIT $4
+`
+
+type ListCompletionsNewestParams struct {
+	HouseholdID pgtype.UUID
+	ItemID      pgtype.UUID
+	ID          pgtype.UUID
+	Limit       int32
+}
+
+type ListCompletionsNewestRow struct {
+	ID                      string
+	HouseholdID             string
+	ItemID                  string
+	CompletedOn             pgtype.Date
+	CompletedByUserID       string
+	CycleAttentionOn        pgtype.Date
+	RecurrenceIntervalValue pgtype.Int4
+	RecurrenceIntervalUnit  pgtype.Text
+	RecurrenceMode          pgtype.Text
+	PriorWorkflowState      string
+	NextAttentionOn         pgtype.Date
+	ItemVersionBefore       int64
+	IdempotencyKey          string
+	RequestFingerprint      []byte
+	CreatedAt               pgtype.Timestamptz
+	UndoneAt                pgtype.Timestamptz
+	UndoneByUserID          pgtype.UUID
+}
+
+func (q *Queries) ListCompletionsNewest(ctx context.Context, arg ListCompletionsNewestParams) ([]ListCompletionsNewestRow, error) {
+	rows, err := q.db.Query(ctx, listCompletionsNewest,
+		arg.HouseholdID,
+		arg.ItemID,
+		arg.ID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCompletionsNewestRow{}
+	for rows.Next() {
+		var i ListCompletionsNewestRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.HouseholdID,

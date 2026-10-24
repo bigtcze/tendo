@@ -60,6 +60,13 @@ func (r *Repo) CompletionCount() int {
 	return len(r.completions)
 }
 
+// SeedCompletion adds a receipt directly for pagination tests.
+func (r *Repo) SeedCompletion(c item.Completion) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.completions = append(r.completions, c)
+}
+
 func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fingerprint [32]byte, decide item.CompletionDecider) (item.Completion, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -159,7 +166,7 @@ func (r *Repo) UndoCompletion(_ context.Context, householdID, itemID, completion
 
 func ptrTime(t time.Time) *time.Time { return &t }
 
-func (r *Repo) ListCompletions(_ context.Context, householdID, itemID, after string, limit int) ([]item.Completion, error) {
+func (r *Repo) ListCompletions(_ context.Context, householdID, itemID, after string, limit int, newest bool) ([]item.Completion, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if i, ok := r.rows[itemID]; !ok || i.HouseholdID != householdID {
@@ -167,11 +174,11 @@ func (r *Repo) ListCompletions(_ context.Context, householdID, itemID, after str
 	}
 	var out []item.Completion
 	for _, v := range r.completions {
-		if v.ItemID == itemID && v.HouseholdID == householdID && v.ID > after {
+		if v.ItemID == itemID && v.HouseholdID == householdID && ((!newest && v.ID > after) || (newest && v.ID < after)) {
 			out = append(out, v)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	sort.Slice(out, func(i, j int) bool { return (out[i].ID < out[j].ID) != newest })
 	if len(out) > limit {
 		out = out[:limit]
 	}

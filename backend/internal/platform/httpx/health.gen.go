@@ -426,6 +426,7 @@ const (
 	QueryProblemParameterDone              QueryProblemParameter = "done"
 	QueryProblemParameterId                QueryProblemParameter = "id"
 	QueryProblemParameterLimit             QueryProblemParameter = "limit"
+	QueryProblemParameterOrder             QueryProblemParameter = "order"
 	QueryProblemParameterQ                 QueryProblemParameter = "q"
 	QueryProblemParameterRecurring         QueryProblemParameter = "recurring"
 	QueryProblemParameterResponsibleUserId QueryProblemParameter = "responsibleUserId"
@@ -450,6 +451,8 @@ func (e QueryProblemParameter) Valid() bool {
 	case QueryProblemParameterId:
 		return true
 	case QueryProblemParameterLimit:
+		return true
+	case QueryProblemParameterOrder:
 		return true
 	case QueryProblemParameterQ:
 		return true
@@ -747,6 +750,24 @@ func (e GetItemsSummaryParamsRecurring) Valid() bool {
 	case GetItemsSummaryParamsRecurringFalse:
 		return true
 	case GetItemsSummaryParamsRecurringTrue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListItemCompletionsParamsOrder.
+const (
+	Newest ListItemCompletionsParamsOrder = "newest"
+	Oldest ListItemCompletionsParamsOrder = "oldest"
+)
+
+// Valid indicates whether the value is a known member of the ListItemCompletionsParamsOrder enum.
+func (e ListItemCompletionsParamsOrder) Valid() bool {
+	switch e {
+	case Newest:
+		return true
+	case Oldest:
 		return true
 	default:
 		return false
@@ -1505,9 +1526,15 @@ type ListItemCompletionsParams struct {
 	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
+	// Order oldest (default) or newest by UUIDv7 id order. Cursor version must match: c1 for oldest and c2 for newest; cross-order cursors are invalid_query parameter=cursor. Present-empty and repeated values are structural errors before membership.
+	Order *ListItemCompletionsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
+
+// ListItemCompletionsParamsOrder defines parameters for ListItemCompletions.
+type ListItemCompletionsParamsOrder string
 
 // CreateItemCompletionParams defines parameters for CreateItemCompletion.
 type CreateItemCompletionParams struct {

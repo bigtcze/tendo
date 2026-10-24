@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HOUSEHOLD_ID, installFakeServer, json } from '../../test/fakeServer';
-import { completeItem, createItem, getItemsSummary, itemWriteWaitLimitMs, listItemGroup, patchItem } from './itemsApi';
+import { completeItem, createItem, getItemsSummary, itemWriteWaitLimitMs, listCompletions, listItemGroup, patchItem } from './itemsApi';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const itemId = '00000000-0000-4000-8000-000000000001';
@@ -11,6 +11,19 @@ const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolv
 const reads = (requests: { method: string }[]) => requests.filter((request) => request.method === 'GET');
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+describe('completion history API', () => {
+  it('sends requested order and limit while preserving legacy defaults', async () => {
+    const path = `${base}/items/${itemId}/completions`;
+    const fake = installFakeServer({ [`GET ${path}`]: json(200, { items: [], nextCursor: null }) });
+    await listCompletions(HOUSEHOLD_ID, itemId, undefined, { order: 'newest', limit: 25 });
+    expect(fake.requests[0]!.query.get('order')).toBe('newest');
+    expect(fake.requests[0]!.query.get('limit')).toBe('25');
+    await listCompletions(HOUSEHOLD_ID, itemId);
+    expect(fake.requests[1]!.query.has('order')).toBe(false);
+    expect(fake.requests[1]!.query.get('limit')).toBe('100');
+  });
+});
 
 describe('item write barrier', () => {
   it('reads immediately when no item write is pending', async () => {
