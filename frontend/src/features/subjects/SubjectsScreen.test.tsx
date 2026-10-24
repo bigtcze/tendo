@@ -302,7 +302,7 @@ describe('list', () => {
     installFakeServer({
       ...signedIn,
       // Home also lists subjects; only the People and things screen's own list load is refused.
-      [listKey]: () => (window.location.pathname === '/people' ? problem(401) : page([])),
+      [listKey]: (req: RecordedRequest) => (req.documentPath === '/people' ? problem(401) : page([])),
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
