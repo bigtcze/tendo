@@ -130,6 +130,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
   const showMoreButtons = useRef(new Map<ItemGroup, HTMLButtonElement>());
   const showMoreInFlight = useRef(new Set<ItemGroup>());
   const focusedMoreGroup = useRef<ItemGroup | null>(null);
+  const undoFocus = useRef<{ itemId: string; group: ItemGroup | null } | null>(null);
   const itemGroup = (itemId: string): ItemGroup | null => {
     for (const group of groups) if (groupData[group.id].items.some((item) => item.id === itemId)) return group.id;
     return null;
@@ -355,6 +356,20 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     if (!adding && returnFocus.current) { addRef.current?.focus(); returnFocus.current = false; }
   }, [adding]);
   useEffect(() => {
+    const pending = undoFocus.current;
+    if (busy || !pending) return;
+    undoFocus.current = null;
+    // The Undo control unmounted with its notice; restore focus only if the user has not moved it meanwhile.
+    if (!focusUnclaimed(null)) return;
+    const done = document.querySelector<HTMLButtonElement>(`[data-item-id="${pending.itemId}"] [data-action="done"]`);
+    const firstHeading = groups.map((group) => sectionHeadingRefs.current.get(group.id)).find(Boolean);
+    if (done) done.focus();
+    else if (pending.group && sectionHeadingRefs.current.has(pending.group)) sectionHeadingRefs.current.get(pending.group)?.focus();
+    else if (firstHeading) firstHeading.focus();
+    else if (noticeRef.current) noticeRef.current.focus();
+    else addRef.current?.focus();
+  }, [busy]);
+  useEffect(() => {
     const id = focusedMoreGroup.current;
     if (!id || groupData[id].loadingMore) return;
     const button = showMoreButtons.current.get(id);
@@ -534,16 +549,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
       if (result.kind === 'ok') {
         setNotice(null);
         await refresh();
-        requestAnimationFrame(() => {
-          // The Undo control unmounted with its notice; restore focus only if the user has not moved it meanwhile.
-          if (!focusUnclaimed(null)) return;
-          const done = document.querySelector<HTMLButtonElement>(`[data-item-id="${itemId}"] [data-action="done"]`);
-          if (done) done.focus();
-          else if (focusedGroup && sectionHeadingRefs.current.has(focusedGroup)) sectionHeadingRefs.current.get(focusedGroup)?.focus();
-          else if (groups.map((group) => sectionHeadingRefs.current.get(group.id)).find(Boolean)) groups.map((group) => sectionHeadingRefs.current.get(group.id)).find(Boolean)?.focus();
-          else if (noticeRef.current) noticeRef.current.focus();
-          else addRef.current?.focus();
-        });
+        // Restored after busy clears (effect below): the row's Done is disabled until then and cannot take focus.
+        undoFocus.current = { itemId, group: focusedGroup };
       } else if (result.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); }
       else if (result.kind === 'conflict') {
         await refresh();

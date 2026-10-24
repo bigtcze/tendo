@@ -1212,6 +1212,31 @@ describe('Home items', () => {
     expect(patch.headers.get('If-Match')).toBe('"8"');
   });
 
+  it('focuses the restored Done action after undo even when the next frame precedes the busy re-render', async () => {
+    // Production E2E saw a frame fire before React committed busy=false, so the still-disabled Done ignored focus().
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: () => {
+        const mutations = requestsOf(fake.requests, 'POST', donePath).length + requestsOf(fake.requests, 'PATCH', `${donePath}/c-frame`).length;
+        return json(200, item(), { ETag: mutations === 0 ? '"7"' : '"8"' });
+      },
+      [`POST ${donePath}`]: json(201, { id: 'c-frame', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }),
+      [`PATCH ${donePath}/c-frame`]: json(200, { id: 'c-frame', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-01T00:00:00Z', undoneByUserId: 'u-1' }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    const undo = await screen.findByRole('button', { name: 'Undo' });
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callback(performance.now()); return 0; });
+    try {
+      await userEvent.click(undo);
+      const done = await screen.findByRole('button', { name: /Done:/ });
+      await waitFor(() => expect(done).toBeEnabled());
+      await waitFor(() => expect(done).toHaveFocus());
+    } finally { frame.mockRestore(); }
+  });
+
   it('does not take focus back to the restored row when the user moved focus while undo was settling', async () => {
     let releasePatch: (() => void) | undefined;
     const fake = installFakeServer({
@@ -1233,14 +1258,11 @@ describe('Home items', () => {
     const add = screen.getByRole('button', { name: 'Add item' });
     add.focus();
     const summariesBefore = requestsOf(fake.requests, 'GET', `${base}/items/summary`).length;
-    const frame = vi.spyOn(window, 'requestAnimationFrame');
-    try {
-      await act(async () => releasePatch!());
-      // Undo's own refresh must have run and its focus-restore frame must be scheduled before focus is judged.
-      await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`).length).toBeGreaterThan(summariesBefore));
-      await waitFor(() => expect(frame).toHaveBeenCalled());
-      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
-    } finally { frame.mockRestore(); }
+    await act(async () => releasePatch!());
+    // Undo's own refresh must have run and busy must have cleared (focus restore runs then) before focus is judged.
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`).length).toBeGreaterThan(summariesBefore));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Done:/ })).toBeEnabled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     expect(add).toHaveFocus();
   });
