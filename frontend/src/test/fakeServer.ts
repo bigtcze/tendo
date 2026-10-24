@@ -7,6 +7,8 @@ export interface RecordedRequest {
   query: URLSearchParams;
   body: string;
   headers: Headers;
+  /** Browser path when the app issued the request, captured before any await so it names the requesting screen. */
+  documentPath: string;
 }
 
 type Handler = (req: RecordedRequest) => Response | Promise<Response>;
@@ -25,6 +27,7 @@ export function installFakeServer(routes: Record<string, Handler | Response>) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: Request) => {
+      const documentPath = window.location.pathname;
       const url = new URL(input.url);
       const req: RecordedRequest = {
         method: input.method,
@@ -32,6 +35,7 @@ export function installFakeServer(routes: Record<string, Handler | Response>) {
         query: url.searchParams,
         body: await input.text(),
         headers: input.headers,
+        documentPath,
       };
       requests.push(req);
       const queryRoute = `${req.method} ${req.path}?${url.searchParams.toString()}`;
