@@ -19,7 +19,7 @@ COPY backend/ ./
 COPY --from=web /src/backend/internal/platform/webui/dist/ ./internal/platform/webui/dist/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/tendo ./cmd/tendo
 
-FROM gcr.io/distroless/base-debian13:nonroot@sha256:6c591b4ac789b683ab3665327181e7cfb7a39b5834f42dcb73d7becb8d18a5d9
+FROM gcr.io/distroless/base-debian13:nonroot@sha256:f9518b74815721f537a7458cc693b4406208c04fce23bbffab511516117f34fd
 COPY --from=build /out/tendo /tendo
 COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /usr/local/go/lib/time/zoneinfo.zip
 ENV ZONEINFO=/usr/local/go/lib/time/zoneinfo.zip
