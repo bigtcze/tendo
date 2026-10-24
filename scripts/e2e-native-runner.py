@@ -395,7 +395,7 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
 
 def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path):
     env = {key: inherited[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in inherited}
-    for key in ("PLAYWRIGHT_BROWSERS_PATH", "CI"):
+    for key in ("PLAYWRIGHT_BROWSERS_PATH", "CI", "TENDO_E2E_READ_DELAY_MS"):
         if key in inherited:
             env[key] = inherited[key]
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(Path.home() / ".cache/ms-playwright"))

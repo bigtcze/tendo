@@ -40,6 +40,38 @@ const expectedForeignDetailPath = new RegExp(`^/api/v1/households/[0-9a-f-]{36}/
 let expectedSessionEndedPaths: Array<(path: string) => boolean> = [];
 const wrongSetupCode = 'A'.repeat(43) + '=';
 
+// Counts the current document's in-flight API fetches. The counter lives in the page, so a full navigation,
+// which abandons the previous document's fetches without a Playwright requestfinished/requestfailed event,
+// starts again from zero. The app resolves globalThis.fetch at call time (src/lib/api.ts).
+const trackedPages = new WeakSet<Page>();
+
+async function trackInFlightApiFetches(page: Page) {
+  if (trackedPages.has(page)) return;
+  trackedPages.add(page);
+  await page.addInitScript(() => {
+    const state = window as unknown as { __tendoInFlightApi: number };
+    state.__tendoInFlightApi = 0;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args: Parameters<typeof fetch>) => {
+      const input = args[0];
+      const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+      if (!url.pathname.startsWith('/api/')) return originalFetch(...args);
+      state.__tendoInFlightApi += 1;
+      let response: Response;
+      try {
+        response = await originalFetch(...args);
+      } catch (error) {
+        state.__tendoInFlightApi -= 1;
+        throw error;
+      }
+      // fetch resolves at response headers; stay in flight until a clone's body has fully arrived so the
+      // caller's body read (and any request it chains) is not mistaken for idleness. The caller's body is untouched.
+      void response.clone().arrayBuffer().catch(() => undefined).finally(() => { state.__tendoInFlightApi -= 1; });
+      return response;
+    };
+  });
+}
+
 function watch(page: Page) {
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return;
@@ -64,6 +96,34 @@ function watch(page: Page) {
   });
 }
 
+async function waitForSettledHouseholdRequests(page: Page) {
+  // Waits until the app has no API fetch in flight for three consecutive polls; networkidle misses later SPA reads.
+  if (!trackedPages.has(page)) throw new Error('trackInFlightApiFetches(page) must run before waiting for API reads');
+  let consecutiveIdlePolls = 0;
+  await expect.poll(async () => {
+    const inFlight = await page.evaluate(() => (window as unknown as { __tendoInFlightApi?: number }).__tendoInFlightApi);
+    if (inFlight === undefined) throw new Error('in-flight API counter missing: trackInFlightApiFetches(page) must run before the first navigation');
+    consecutiveIdlePolls = inFlight === 0 ? consecutiveIdlePolls + 1 : 0;
+    return consecutiveIdlePolls;
+  }).toBe(3);
+}
+
+// Home's loading statuses in both locales: the item list, the add-form catalogue and the deferred subject labels.
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const homeLoadingTexts = [...new Set([en, cs].flatMap((messages) => [messages['items.loading'], messages['items.subjects.loading'], messages['items.subjectLabels.loading']]))];
+const homeLoadingStatus = new RegExp(`^(?:${homeLoadingTexts.map(escapeRegExp).join('|')})$`);
+
+async function waitForSettledHome(page: Page, name: string) {
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+  // Only loading statuses mean unsettled; a completion notice from an earlier step is legitimate settled state.
+  // Home chains reads (summary, then groups, then subject labels), so settle the network after the UI is ready
+  // and confirm no later stage started loading meanwhile.
+  const loading = page.getByRole('main').getByRole('status').filter({ hasText: homeLoadingStatus });
+  await expect(loading).toHaveCount(0);
+  await waitForSettledHouseholdRequests(page);
+  await expect(loading).toHaveCount(0);
+}
+
 async function signIn(page: Page, password: string) {
   await page.getByLabel(en['login.login']).fill(ownerLogin);
   await page.getByLabel(en['login.password']).fill(password);
@@ -80,7 +140,18 @@ test.describe('Tendo production journey', () => {
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
+    const delayValue = process.env.TENDO_E2E_READ_DELAY_MS;
+    if (delayValue !== undefined) {
+      if (!/^[1-9]\d*$/.test(delayValue)) throw new Error('TENDO_E2E_READ_DELAY_MS must be a positive integer');
+      const delayMs = Number(delayValue);
+      if (!Number.isSafeInteger(delayMs)) throw new Error('TENDO_E2E_READ_DELAY_MS must be a positive integer');
+      await context.route('**/api/v1/households/**', async (route) => {
+        if (route.request().method() === 'GET') await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await route.continue();
+      });
+    }
     page = await context.newPage();
+    await trackInFlightApiFetches(page);
     watch(page);
   });
 
@@ -219,6 +290,7 @@ test.describe('Tendo production journey', () => {
 
   test('h. People and things opens from home at /people and starts empty', async () => {
     await page.goto('/');
+    await waitForSettledHome(page, householdName);
     await page.getByRole('link', { name: en['home.people'], exact: true }).click();
     await expect(page).toHaveURL(/\/people$/);
     expect(new URL(page.url()).pathname).toBe('/people');
@@ -399,7 +471,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
 
     await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await waitForSettledHome(page, householdName);
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
@@ -765,11 +837,12 @@ test.describe('Tendo production journey', () => {
     await expect(page.locator('ol').getByRole('listitem')).toContainText(en['itemDetail.historyDone'].replace('{date}', dateLabel('2025-10-31')));
 
     await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await waitForSettledHome(page, householdName);
     await row(fixedTitle).getByRole('button', { name: en['items.done'] }).click();
     await expect.poll(async () => (await serverCompletions(fixed.id)).length).toBe(2);
     expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: '2026-01-30', lastCompletedOn: expectedCompletionDate });
     await page.getByRole('button', { name: en['items.undo'] }).click();
+    await expect(row(fixedTitle).getByRole('button', { name: en['items.done'] })).toBeFocused();
     await expect.poll(async () => (await serverItem(fixedTitle)).attentionOn).toBe('2025-11-30');
     expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: '2025-11-30', lastCompletedOn: '2025-10-31' });
 
@@ -834,6 +907,7 @@ test.describe('Tendo production journey', () => {
 
     const memberContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
     const memberPage = await memberContext.newPage();
+    await trackInFlightApiFetches(memberPage);
     const memberProblems: string[] = [];
     const memberFailedResponses = new Set<string>();
     const expectedMemberConsoleFailurePaths = new Set(['/api/v1/session', '/api/v1/auth/invitations/accept', '/api/v1/invitations/accept']);
@@ -860,6 +934,7 @@ test.describe('Tendo production journey', () => {
 
       await memberPage.getByRole('link', { name: en['home.members'], exact: true }).click();
       await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(memberPage);
       const memberRows = memberPage.getByRole('listitem');
       await expect(memberRows.filter({ hasText: ownerLogin })).toContainText(en['members.role.owner']);
       await expect(memberRows.filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
@@ -925,6 +1000,7 @@ test.describe('Tendo production journey', () => {
 
   test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
     await page.goto('/');
+    await waitForSettledHome(page, householdName);
     const memberResponse = await page.request.get(`/api/v1/households/${householdId}/members`);
     expect(memberResponse.status()).toBe(200);
     const member = ((await memberResponse.json()) as { items: Array<{ userId: string; login: string }> }).items.find((entry) => entry.login === 'member_e2e');
@@ -1019,6 +1095,7 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('link', { name: en['home.account'], exact: true }).click();
     await expect(page).toHaveURL(/\/account$/);
     await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    await waitForSettledHouseholdRequests(page);
     const before = await page.request.get('/api/v1/auth/oidc/identity');
     expect(await before.json()).toEqual({ linked: false });
     await page.getByLabel(en['account.oidc.password']).fill(ownerPassword);
@@ -1151,7 +1228,7 @@ test.describe('Tendo production journey', () => {
     };
     try {
       await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
       const subjectResponse = await page.request.post(`/api/v1/households/${householdId}/subjects`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-n11-subject' }, data: { name: 'Slice six subject', type: 'custom' } });
       expect(subjectResponse.status()).toBe(201);
       const subjectId = (await subjectResponse.json() as { id: string }).id;
@@ -1170,6 +1247,7 @@ test.describe('Tendo production journey', () => {
       const counts = await summaryResponse.json() as { needsAttention: number; inProgress: number; waiting: number; upcoming: number; paused: number };
       page.on('request', requestListener);
       await page.goto('/');
+      await waitForSettledHome(page, householdName);
       const needs = group(en['items.group.needs']);
       for (let index = 0; index < 3; index++) await expect(needs.getByRole('listitem').filter({ hasText: `Slice six needs ${index}` })).toBeVisible();
       const upcoming = group(en['items.group.upcoming']);
@@ -1270,7 +1348,7 @@ test.describe('Tendo production journey', () => {
     try {
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
       const subjectsResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
       expect(subjectsResponse.status()).toBe(200);
       const subjectEntries = (await subjectsResponse.json() as { items: Array<{ id: string; name: string }> }).items;
@@ -1325,12 +1403,9 @@ test.describe('Tendo production journey', () => {
 
       page.on('request', onRequest);
       await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
-      // Home issues its per-group list requests only after its summary resolves; wait for the loaded home
-      // (group overview rendered, loading status gone) so those requests are not counted as All items opening calls.
+      await waitForSettledHome(page, householdName);
       const homeMain = page.getByRole('main');
       await expect(homeMain.getByRole('navigation', { name: en['items.group.overview'] })).toBeVisible();
-      await expect(homeMain.getByRole('status').filter({ hasText: en['items.loading'] })).toHaveCount(0);
       const beforeNavigation = requests.length;
       await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
@@ -1475,7 +1550,7 @@ test.describe('Tendo production journey', () => {
     };
     try {
       await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
       const activeResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
       expect(activeResponse.status()).toBe(200);
       const activeSubjects = (await activeResponse.json() as { items: Array<{ id: string; name: string }> }).items;
@@ -1514,7 +1589,7 @@ test.describe('Tendo production journey', () => {
 
       page.on('request', onSubjectRequest);
       await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
       const main = page.getByRole('main');
       await expect(main.getByRole('listitem').filter({ hasText: visibleTitles[0]! })).toBeVisible();
       const renderedSubjectIDs = await main.locator('[data-item-id]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-item-id')!));
@@ -1678,7 +1753,7 @@ test.describe('Tendo production journey', () => {
     try {
       await setWidth(1280, 800);
       await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
       await addItem({ title, subject: 'Anička', attentionOn: addDays(pragueToday(), -2), repeat: { value: '2', unit: 'week', fluid: true } });
       itemId = (await serverItem(title)).id;
       await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
@@ -1844,6 +1919,7 @@ test.describe('Tendo production journey', () => {
 
       await page.getByRole('link', { name: en['home.account'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
       const accountSnapshot = await snapshot('account');
       expect(accountSnapshot).toContain(en['account.title']);
       await checkTargets('account');
@@ -1937,7 +2013,7 @@ test.describe('Tendo production journey', () => {
         await page.setViewportSize({ width, height: 800 });
         expect(await page.evaluate(() => window.innerWidth), `requested viewport ${width}`).toBe(width);
         await page.goto('/');
-        await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+        await waitForSettledHome(page, householdName);
         await check(`Home ${width}`, [main.getByRole('button', { name: en['items.add'], exact: true })], [main.getByRole('listitem').filter({ hasText: title }).first()]);
 
         await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
@@ -1999,7 +2075,7 @@ test.describe('Tendo production journey', () => {
     const savedTitle = 'Keyboard journey renamed item';
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await waitForSettledHome(page, householdName);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const pressTabUntil = async (predicate: (name: string) => boolean, description: string) => {
       for (let i = 0; i < 200; i += 1) {
@@ -2107,7 +2183,7 @@ test.describe('Tendo production journey', () => {
     try {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.goto('/');
-      await expect(main.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
 
     // Offline failures are induced by in-app navigation, keeping the production SPA shell loaded.
     n17OfflineExpectedResources.length = 0;
@@ -2138,6 +2214,7 @@ test.describe('Tendo production journey', () => {
 
     // A real API problem response produces the same recoverable list state.
     await homeLink.click();
+    await waitForSettledHome(page, householdName);
     const summaryRoute = async (route: import('@playwright/test').Route) => route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
     n17ExpectedFailurePaths.add(allItemsPath);
     n17FailurePhaseActive = true;
@@ -2157,6 +2234,7 @@ test.describe('Tendo production journey', () => {
     // A lost completion response keeps the same completion key and does not advance the item until retry.
     const failureTitle = 'N17 recoverable completion unique';
     await homeLink.click();
+    await waitForSettledHome(page, householdName);
     await addItem({ title: failureTitle, subject: 'Anička' });
     const itemBeforeFailure = await serverItem(failureTitle);
     const completionPath = `/api/v1/households/${householdId}/items/${itemBeforeFailure.id}/completions`;
@@ -2186,6 +2264,7 @@ test.describe('Tendo production journey', () => {
     // the same idempotency key and return the existing receipt without creating another one.
     const lostResponseTitle = 'N17 lost completion response unique';
     await homeLink.click();
+    await waitForSettledHome(page, householdName);
     await addItem({ title: lostResponseTitle, subject: 'Anička' });
     const itemBeforeLostResponse = await serverItem(lostResponseTitle);
     const lostResponsePath = `/api/v1/households/${householdId}/items/${itemBeforeLostResponse.id}/completions`;
@@ -2231,6 +2310,8 @@ test.describe('Tendo production journey', () => {
     // Member list 403 is a refused request, regardless of the problem code, and retries in place.
     const membersPath = `/api/v1/households/${householdId}/members`;
     const membersForbidden = (route: import('@playwright/test').Route) => route.fulfill({ status: 403, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Forbidden', status: 403, code: 'owner_required' }) });
+    await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
+    await waitForSettledHome(page, householdName);
     n17ExpectedFailurePaths.add(membersPath);
     n17FailurePhaseActive = true;
     await ownRoute(membersRoute, membersForbidden);
@@ -2249,7 +2330,7 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('button', { name: 'Čeština', exact: true }).click();
     switchedToCzech = true;
     await page.goto('/');
-    await expect(page.getByRole('main').getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await waitForSettledHome(page, householdName);
     n17OfflineExpectedResources.length = 0;
     const czechOfflineHouseholdResource = new URL(`/api/v1/households/${householdId}/`, baseURL).href;
     n17OfflineExpectedResources.push(
@@ -2333,6 +2414,7 @@ test.describe('Tendo production journey', () => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.goto('/account');
       await expect(main.getByRole('heading', { level: 2, name: 'Language', exact: true })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
       await expect(main.getByText('Switch between English and Czech at the bottom of any page.', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Čeština', exact: true }).click();
       switchedToCzech = true;
@@ -2345,6 +2427,7 @@ test.describe('Tendo production journey', () => {
       const itemPath = `/api/v1/households/${householdId}/items/${waterItem.id}`;
       await page.goto(`/items/${waterItem.id}`);
       await expect(main.getByRole('heading', { level: 1, name: 'Water the plants' })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
       const editHold = await holdRequest(`**${itemPath}`);
       await main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
       await editHold.hit;
@@ -2375,6 +2458,7 @@ test.describe('Tendo production journey', () => {
 
       const peopleListUrl = new URL(`/api/v1/households/${householdId}/subjects`, baseURL).href;
       const peopleHold = await holdRequest(new RegExp(`^${escapeRegExp(peopleListUrl)}\\?[^#]*archived=false(?:&|$)`));
+      await waitForSettledHouseholdRequests(page);
       await page.goto('/people');
       await peopleHold.hit;
       await expectLoading(en['subjects.loading']);
@@ -2433,9 +2517,8 @@ test.describe('Tendo production journey', () => {
   test('n19. an ended session explains the sign-out on the login screen', async () => {
     // Home chains summary -> group pages -> subject labels; revoke only after that chain has settled, otherwise a late
     // background 401 (CI run 40081332586: GET /subjects) ends the session before the navigation under test.
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
-    await expect(page.getByRole('main').getByRole('status')).toHaveCount(0);
+    await page.goto('/');
+    await waitForSettledHome(page, householdName);
     const cookies = await page.context().cookies();
     const sessionCookie = cookies.find((cookie) => cookie.name === 'tendo_session' || cookie.name === '__Host-tendo_session');
     expect(sessionCookie).toBeDefined();
@@ -2471,7 +2554,7 @@ test.describe('Tendo production journey', () => {
       await loginZoom.send('Emulation.clearDeviceMetricsOverride');
       await loginZoom.detach();
       await signIn(page, ownerPassword);
-      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await waitForSettledHome(page, householdName);
     } finally {
       n19PhaseActive = false;
       await fresh.dispose();
@@ -2486,6 +2569,7 @@ test.describe('Tendo production journey', () => {
   });
 
   test('o. sign out returns to login and revokes the session server-side', async () => {
+    await waitForSettledHome(page, householdName);
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     // Replay the old cookie from a clean client: only server-side revocation can make this fail.

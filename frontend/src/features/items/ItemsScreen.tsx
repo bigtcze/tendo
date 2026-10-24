@@ -32,6 +32,13 @@ function countPluralKey(count: number, locale: string): MessageKey {
   return `items.group.count.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
 }
 
+// True while focus is still where an asynchronous action left it: on body (its control unmounted), on the
+// control that started it, or inside the notice area. Late focus moves must not steal focus the user moved.
+function focusUnclaimed(origin: Element | null) {
+  const active = document.activeElement;
+  return !active || active === document.body || active === origin || Boolean(active.closest('[data-items-notice]'));
+}
+
 function NoticeView({ notice, busy, onUndo, onRetry, onRetryFocus }: { notice: Notice | null; busy: boolean; onUndo: () => void; onRetry: () => void; onRetryFocus: () => void }) {
   const { t } = useI18n();
   if (!notice) return null;
@@ -112,6 +119,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
   const returnFocus = useRef(false);
   const focusedRow = useRef(false);
   const retryHadFocus = useRef(false);
+  // The control focused when a completion started; a later notice may take focus only from it, the notice or body.
+  const focusOrigin = useRef<HTMLElement | null>(null);
   const labelRetryRef = useRef<HTMLButtonElement>(null);
   const catalogueRetryRef = useRef<HTMLButtonElement>(null);
   const noSubjectsRef = useRef<HTMLButtonElement>(null);
@@ -336,7 +345,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
 
   useEffect(() => {
     if (createNotice === 'reused' || (notice && (focusedRow.current || retryHadFocus.current))) {
-      noticeRef.current?.focus();
+      // A completion outcome may arrive after the user has moved on (for example into the add form); keep their focus.
+      if (createNotice === 'reused' || focusUnclaimed(focusOrigin.current)) noticeRef.current?.focus();
       focusedRow.current = false;
       retryHadFocus.current = false;
     }
@@ -457,6 +467,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
     const focusedControl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focused = focusedControl?.dataset.action === 'done' || focusedControl?.dataset.action === 'completion-trigger';
     if (!beginMutation()) return;
+    focusOrigin.current = focusedControl;
     const attemptKey = getPendingCompletion(userId, householdId, itemId) ?? idempotencyKey();
     setPendingCompletion(userId, householdId, itemId, attemptKey);
     try {
@@ -480,7 +491,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
           await refresh();
           setNotice({ text: t('items.notice.alreadyUndone') });
           focusedRow.current = focused;
-          requestAnimationFrame(() => noticeRef.current?.focus());
+          const origin = focusedControl;
+          requestAnimationFrame(() => { if (focusUnclaimed(origin)) noticeRef.current?.focus(); });
           return;
         }
         clearPendingCompletion(userId, householdId, itemId);
@@ -523,6 +535,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
         setNotice(null);
         await refresh();
         requestAnimationFrame(() => {
+          // The Undo control unmounted with its notice; restore focus only if the user has not moved it meanwhile.
+          if (!focusUnclaimed(null)) return;
           const done = document.querySelector<HTMLButtonElement>(`[data-item-id="${itemId}"] [data-action="done"]`);
           if (done) done.focus();
           else if (focusedGroup && sectionHeadingRefs.current.has(focusedGroup)) sectionHeadingRefs.current.get(focusedGroup)?.focus();
@@ -552,7 +566,7 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
   }
 
   return <div className="space-y-6">
-    <div ref={noticeRef} tabIndex={-1} className="outline-none">{createNotice === 'reused' ? <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2"><p>{t('items.create.reused')}</p></div> : notice ? <NoticeView notice={notice} busy={busy} onUndo={() => void undo()} onRetry={() => void retryNotice()} onRetryFocus={() => { retryHadFocus.current = true; }} /> : null}</div>
+    <div ref={noticeRef} data-items-notice tabIndex={-1} className="outline-none">{createNotice === 'reused' ? <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2"><p>{t('items.create.reused')}</p></div> : notice ? <NoticeView notice={notice} busy={busy} onUndo={() => void undo()} onRetry={() => void retryNotice()} onRetryFocus={() => { retryHadFocus.current = true; }} /> : null}</div>
     {error ? <div className="space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button></div> : null}
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
     {adding && subjectLoading && !(recoveryEditable && pendingCreate) ? <p role="status" className="text-muted">{t('items.subjects.loading')}</p> : null}
