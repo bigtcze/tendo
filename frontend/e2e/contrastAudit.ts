@@ -1,0 +1,134 @@
+import { boundaryPasses, colorString, composite, contrastRatio, evaluateContrast, parseColor, type ContrastResult } from './contrast';
+import type { Page } from '@playwright/test';
+
+type RawCandidate = {
+  kind: 'text' | 'placeholder' | 'boundary' | 'native-control';
+  name: string;
+  foreground: string;
+  background: string;
+  outside: string;
+  ownBackground: string;
+  fontSize: number;
+  fontWeight: number;
+  disabled: boolean;
+  exempt: boolean;
+  borderWidth: number;
+  opacity: number;
+  native: boolean;
+};
+
+export type ContrastAuditRow = ContrastResult & { route: string };
+
+const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+const PAPER = 'rgb(250, 247, 242)';
+
+/** Collect rendered text and control candidates using the browser's resolved styles. */
+export async function collectContrastCandidates(page: Page): Promise<RawCandidate[]> {
+  return page.evaluate(({ paper, transparent }) => {
+    const isVisible = (element: Element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') return false;
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const current = getComputedStyle(node);
+        if (Number(current.opacity) === 0 || current.clip !== 'auto' || current.clipPath !== 'none') return false;
+        if ((current.position === 'absolute' || current.position === 'fixed') && rect.width <= 1 && rect.height <= 1 && current.overflow === 'hidden') return false;
+      }
+      return true;
+    };
+    const disabled = (element: Element) => element.matches(':disabled') || Boolean(element.closest('[disabled],[aria-disabled="true"]'));
+    const describe = (element: Element) => `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${[...element.classList].slice(0, 2).map((name) => `.${name}`).join('')}`;
+    const layers = (element: Element) => {
+      const chain: Element[] = [];
+      for (let node: Element | null = element; node; node = node.parentElement) chain.push(node);
+      let background = parseColor(paper)!;
+      for (const node of chain.reverse()) {
+        const style = getComputedStyle(node);
+        if (style.backgroundImage !== 'none') throw new Error(`background image is unmeasurable at ${describe(element)}: ${style.backgroundImage}`);
+        const color = parseColor(style.backgroundColor);
+        if (color) background = composite(color, background);
+      }
+      return background;
+    };
+    const ownColor = (element: Element) => parseColor(getComputedStyle(element).backgroundColor) ?? { r: 0, g: 0, b: 0, a: 0 };
+    const outsideColor = (element: Element) => element.parentElement ? layers(element.parentElement) : parseColor(paper)!;
+    const result: RawCandidate[] = [];
+    const textElements = new Set<Element>();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.textContent?.trim() && node.parentElement) textElements.add(node.parentElement);
+    }
+    for (const element of textElements) {
+      if (!isVisible(element)) continue;
+      const style = getComputedStyle(element);
+      let opacity = 1;
+      for (let node: Element | null = element; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity || 1);
+      const foreground = parseColor(style.color);
+      const background = layers(element);
+      const composited = foreground ? composite({ ...foreground, a: foreground.a * opacity }, background) : null;
+      result.push({ kind: 'text', name: describe(element), foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : style.color, background: colorString(background), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: parseFloat(style.fontSize), fontWeight: Number(style.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
+    }
+    for (const element of document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[placeholder],textarea[placeholder]')) {
+      if (!isVisible(element)) continue;
+      const placeholder = getComputedStyle(element, '::placeholder');
+      const inputBackground = layers(element);
+      const fg = parseColor(placeholder.color);
+      let opacity = Number(placeholder.opacity || 1);
+      for (let node: Element | null = element; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity || 1);
+      const composited = fg ? composite({ ...fg, a: fg.a * opacity }, inputBackground) : null;
+      result.push({ kind: 'placeholder', name: `${describe(element)}[placeholder]`, foreground: composited ? `rgba(${composited.r}, ${composited.g}, ${composited.b}, 1)` : placeholder.color, background: colorString(inputBackground), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: parseFloat(placeholder.fontSize), fontWeight: Number(placeholder.fontWeight), disabled: disabled(element), exempt: false, borderWidth: 0, opacity, native: false });
+    }
+    const selector = 'input,select,textarea,button,[role="switch"],[role="checkbox"],[role="radio"]';
+    for (const element of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(selector)) {
+      if (!isVisible(element)) continue;
+      const style = getComputedStyle(element);
+      const isButton = element instanceof HTMLButtonElement || (element instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(element.type));
+      const hasTextLabel = Boolean(element.textContent?.trim() || (element instanceof HTMLInputElement && element.value.trim()) || element.getAttribute('aria-label') || (element instanceof HTMLInputElement && element.labels?.length));
+      if (isButton && hasTextLabel) continue;
+      const isNative = element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type) && style.appearance === 'auto';
+      const border = parseColor(style.borderTopColor);
+      const background = layers(element);
+      result.push({ kind: isNative ? 'native-control' : 'boundary', name: element.getAttribute('aria-label') || describe(element), foreground: border ? `rgba(${border.r}, ${border.g}, ${border.b}, ${border.a})` : style.borderTopColor, background: colorString(background), outside: colorString(outsideColor(element)), ownBackground: colorString(ownColor(element)), fontSize: 0, fontWeight: 400, disabled: disabled(element), exempt: false, borderWidth: parseFloat(style.borderTopWidth), opacity: 1, native: isNative });
+    }
+    return result.map((candidate) => ({ ...candidate, background: candidate.background || transparent }));
+  }, { paper: PAPER, transparent: TRANSPARENT });
+}
+
+/** Apply WCAG thresholds and boundary-indicator exception to browser-collected candidates. */
+export async function auditContrast(page: Page, route: string): Promise<ContrastAuditRow[]> {
+  const candidates = await collectContrastCandidates(page);
+  return candidates.map((candidate) => {
+    const background = parseColor(candidate.kind === 'boundary' ? candidate.outside : candidate.background)!;
+    const result = evaluateContrast({
+      kind: candidate.kind,
+      name: candidate.name,
+      foreground: candidate.foreground,
+      background,
+      fontSize: candidate.fontSize,
+      fontWeight: candidate.fontWeight,
+      disabled: candidate.disabled,
+      exempt: candidate.exempt,
+      note: candidate.native ? 'native, unmeasured' : undefined,
+    });
+    if (candidate.kind === 'boundary') {
+      const outside = parseColor(candidate.outside)!;
+      const own = parseColor(candidate.ownBackground)!;
+      const border = parseColor(candidate.foreground)!;
+      const effectiveBorder = composite(border, outside);
+      const effectiveOwn = composite(own, outside);
+      const ownContrast = contrastRatio(effectiveOwn, outside);
+      const passes = candidate.borderWidth > 0
+        ? boundaryPasses(effectiveBorder, outside, effectiveOwn)
+        : ownContrast >= 3;
+      return {
+        ...result,
+        route,
+        ratio: candidate.borderWidth > 0 ? contrastRatio(effectiveBorder, outside) : ownContrast,
+        exempt: result.exempt || passes,
+        note: candidate.borderWidth > 0 ? result.note : 'no border indicator',
+      };
+    }
+    return { ...result, route };
+  });
+}

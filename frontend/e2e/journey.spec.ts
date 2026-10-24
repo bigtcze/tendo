@@ -2,7 +2,8 @@ import { expect, request, test, type ConsoleMessage, type Locator, type Page } f
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
-import { composite, contrastRatio, parseColor } from './contrast';
+import { contrastRatio, parseColor } from './contrast';
+import { auditContrast, type ContrastAuditRow } from './contrastAudit';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -2593,18 +2594,10 @@ test.describe('Tendo production journey', () => {
       for (const text of loadingTexts) await expect(target.getByText(text, { exact: true }), `${route.name} still loading`).toHaveCount(0);
     };
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
-    const contrastEvidence: Array<{ route: string; kind: string; name: string; foreground: string; background: string; ratio: number; threshold: number }> = [];
+    const contrastEvidence: ContrastAuditRow[] = [];
     const measureContrast = async (target: Page, route: string) => {
-      const visibleElements = await target.evaluate(() => {
-        const isVisible = (e: Element) => { const s=getComputedStyle(e),r=e.getBoundingClientRect(); return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity)>0; };
-        const textElements=new Set<Element>(); const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
-        while(walker.nextNode()) if(walker.currentNode.textContent?.trim()) textElements.add(walker.currentNode.parentElement!);
-        const text=[...textElements].filter(isVisible).map(e=>{const s=getComputedStyle(e),chain:Element[]=[];for(let n:Element|null=e;n;n=n.parentElement)chain.push(n);return{kind:'text',name:`${e.tagName.toLowerCase()}${e.id?`#${e.id}`:''}.${[...e.classList].slice(0,2).join('.')}`,fg:s.color,opacity:chain.reduce((v,n)=>v*Number(getComputedStyle(n).opacity||1),1),backgrounds:chain.map(n=>{const x=getComputedStyle(n);return{color:x.backgroundColor,image:x.backgroundImage};}).filter(x=>x.color!=='rgba(0, 0, 0, 0)'||x.image!=='none'),fontSize:parseFloat(s.fontSize),weight:Number(s.fontWeight),disabled:e.matches(':disabled')};});
-        const placeholders=[...document.querySelectorAll('input,textarea')].filter(isVisible).map(e=>{const s=getComputedStyle(e,'::placeholder');return{kind:'placeholder',name:`${e.tagName.toLowerCase()}[placeholder]`,fg:s.color,opacity:1,backgrounds:[{color:getComputedStyle(e).backgroundColor,image:getComputedStyle(e).backgroundImage}],fontSize:parseFloat(s.fontSize),weight:Number(s.fontWeight),disabled:(e as HTMLInputElement).disabled};});
-        const controls=[...document.querySelectorAll('input,select,textarea,[role="switch"],[role="checkbox"],[role="radio"]')].filter(isVisible).map(e=>{const s=getComputedStyle(e);return{kind:'control',name:e.getAttribute('aria-label')||e.tagName.toLowerCase(),fg:s.borderColor,opacity:1,backgrounds:[{color:s.backgroundColor,image:s.backgroundImage}],fontSize:0,weight:400,disabled:(e as HTMLInputElement).disabled};});return [...text,...placeholders,...controls];
-      });
-      const rows=visibleElements.map(item=>{let fg=parseColor(item.fg);if(!fg)throw new Error(`${route}: unsupported ${item.kind} foreground ${item.fg} (${item.name})`);fg={...fg,a:fg.a*item.opacity};let bg=parseColor('rgb(250, 247, 242)')!;for(const layer of [...item.backgrounds].reverse()){if(layer.image!=='none')throw new Error(`${route}: background image is unmeasurable at ${item.name}: ${layer.image}`);const c=parseColor(layer.color);if(c)bg=composite(c,bg);}if(fg.a<1)fg=composite(fg,bg);const ratio=contrastRatio(fg,bg),large=item.fontSize>=24||(item.fontSize>=18.66&&item.weight>=700);return{route,kind:item.kind,name:item.name,foreground:item.fg,background:`rgb(${Math.round(bg.r)} ${Math.round(bg.g)} ${Math.round(bg.b)})`,ratio,threshold:item.disabled?0:item.kind==='control'?3:large?3:4.5};});
-      contrastEvidence.push(...rows);expect(rows.filter(r=>r.threshold>0&&r.ratio+.01<r.threshold).map(r=>`${route} ${r.name} ${r.foreground}/${r.background} ${r.ratio.toFixed(2)} < ${r.threshold}`),`${route} contrast`).toEqual([]);
+      const rows = await auditContrast(target, route);
+      contrastEvidence.push(...rows);
     };
     const context = await browser.newContext({ baseURL, locale: 'en-US', storageState: await page.context().storageState() });
     const auditPage = await context.newPage();
@@ -2668,7 +2661,11 @@ test.describe('Tendo production journey', () => {
           const focused = indicator();
           const focusedStyle = getComputedStyle(element);
           const ringColor = focusedStyle.outlineStyle !== 'none' && parseFloat(focusedStyle.outlineWidth) > 0 ? focusedStyle.outlineColor : (() => { const shadow = focusedStyle.boxShadow.match(/rgba?\\([^)]*\\)|#[0-9a-fA-F]{3,8}/); return shadow?.[0] ?? 'transparent'; })();
-          const ringBackground = getComputedStyle(element.parentElement ?? document.body).backgroundColor;
+          let ringBackground = 'rgb(250, 247, 242)';
+          for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+            const candidate = getComputedStyle(ancestor).backgroundColor;
+            if (candidate !== 'rgba(0, 0, 0, 0)') { ringBackground = candidate; break; }
+          }
           const box = element.getBoundingClientRect();
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
@@ -2763,8 +2760,11 @@ test.describe('Tendo production journey', () => {
           } finally { await zoomContext.close(); }
         }
       }
-      const contrastSummary=[...new Set(contrastEvidence.map(r=>`${r.foreground} on ${r.background}`))].map(pair=>{const rows=contrastEvidence.filter(r=>`${r.foreground} on ${r.background}`===pair);return{pair,minRatio:Math.min(...rows.map(r=>r.ratio)),measured:rows.length};});
+      const contrastSummary=[...new Set(contrastEvidence.map(r=>`${r.foreground} on ${r.background}`))].map(pair=>{const rows=contrastEvidence.filter(r=>`${r.foreground} on ${r.background}`===pair);const ratios=rows.flatMap(r=>r.ratio===null?[]:[r.ratio]);return{pair,minRatio:ratios.length?Math.min(...ratios):null,measured:rows.length};});
       console.log(`contrast-summary ${JSON.stringify(contrastSummary)}`);
+      const contrastFailures = contrastEvidence.filter((row) => !row.exempt && row.ratio !== null && row.ratio + 0.01 < row.threshold);
+      console.log(`contrast-failures ${JSON.stringify(contrastFailures.map((row) => ({ route: row.route, element: row.name, foreground: row.foreground, background: row.background, ratio: row.ratio, threshold: row.threshold })))}`);
+      expect(contrastFailures.map((row) => `${row.route} ${row.name} ${row.foreground}/${row.background} ${row.ratio?.toFixed(2)} < ${row.threshold}`), 'contrast failures').toEqual([]);
       await test.info().attach('contrast-evidence-n21.json',{body:JSON.stringify({summary:contrastSummary,measurements:contrastEvidence},null,2),contentType:'application/json'});
       console.log(`zoom-measurements ${JSON.stringify(measured)}`);
       await test.info().attach('all-route-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
