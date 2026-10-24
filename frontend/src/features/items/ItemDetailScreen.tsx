@@ -10,7 +10,6 @@ import { listMembers, type Member } from '../members/membersApi';
 import { listCompletions, getItem, changeItem, patchItem, listActiveSubjects, type Completion, type Item, type Recurrence, type Subject, type ItemField } from './itemsApi';
 import { ItemForm, type ItemFormValues } from './ItemForm';
 
-const MAX_HISTORY_PAGES = 1000;
 const MAX_SUBJECT_PAGES = 20;
 const MAX_MEMBER_PAGES = 20;
 type Editing = { etag: string; baseline: Item; conflict: boolean; latest?: Item; mine?: ItemFormValues };
@@ -42,7 +41,11 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const [subjectOverride, setSubjectOverride] = useState<string | null>(null);
   const [history, setHistory] = useState<Completion[]>([]);
   const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [historyPartial, setHistoryPartial] = useState(false);
+  const [historyCursors, setHistoryCursors] = useState<(string | null)[]>([null]);
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const historyGeneration = useRef(0);
+  const historyHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusHistoryAfterPage = useRef(false);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<MessageKey | null>(null);
@@ -82,25 +85,21 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     if (current(token)) setMembers([]);
   }, [householdId, onSignedOut]);
 
-  const loadHistory = useCallback(async (token: number) => {
-    setHistoryState('loading'); setHistoryPartial(false);
-    const all: Completion[] = [];
-    let cursor: string | undefined;
-    for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
-      const result = await listCompletions(householdId, itemId, cursor);
-      if (!current(token)) return;
-      if (result.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (result.kind !== 'ok') { setHistoryState('error'); return; }
-      all.push(...result.completions);
-      if (!result.nextCursor) { setHistory(all.reverse()); setHistoryState('ready'); return; }
-      cursor = result.nextCursor;
-    }
-    setHistory(all.reverse()); setHistoryPartial(true); setHistoryState('ready');
+  const loadHistory = useCallback(async (token: number, cursor: string | null = null) => {
+    const historyToken = ++historyGeneration.current;
+    setHistoryState('loading');
+    const result = await listCompletions(householdId, itemId, cursor ?? undefined, { order: 'newest', limit: 25 });
+    if (!current(token) || historyGeneration.current !== historyToken) return;
+    if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+    if (result.kind !== 'ok') { setHistoryState('error'); return; }
+    setHistory(result.completions); setHistoryState('ready'); setHistoryNextCursor(result.nextCursor);
+    if (focusHistoryAfterPage.current) { historyHeadingRef.current?.focus(); focusHistoryAfterPage.current = false; }
   }, [householdId, itemId, onSignedOut]);
 
   const load = useCallback(async (token: number, preserveArchiveNotice = false) => {
     if (!/^[0-9a-f-]{36}$/i.test(itemId)) { if (current(token)) setState('gone'); return; }
-    setState('loading'); setHistory([]); setHistoryState('loading'); setEditing(null); setEditLoading(false);
+    historyGeneration.current += 1;
+    setState('loading'); setHistory([]); setHistoryState('loading'); setHistoryCursors([null]); setHistoryNextCursor(null); setEditing(null); setEditLoading(false);
     if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); }
     const result = await getItem(householdId, itemId);
     if (!current(token)) return;
@@ -122,6 +121,26 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     return () => { if (generation.current === token) generation.current = token + 1; };
   }, [load, attempt]);
   useEffect(() => { if (focusAfterMutation.current && notice) { focusRef.current?.focus(); focusAfterMutation.current = false; } }, [notice]);
+  function historyOlder() {
+    if (!historyNextCursor || historyState === 'loading') return;
+    const cursor = historyNextCursor;
+    setHistoryCursors((stack) => [...stack, cursor]);
+    focusHistoryAfterPage.current = true;
+    void loadHistory(generation.current, cursor);
+  }
+  function historyNewer() {
+    if (historyCursors.length <= 1 || historyState === 'loading') return;
+    const next = historyCursors.slice(0, -1);
+    setHistoryCursors(next);
+    focusHistoryAfterPage.current = true;
+    void loadHistory(generation.current, next[next.length - 1] ?? null);
+  }
+  function historyLatest() {
+    if (historyCursors.length <= 1 || historyState === 'loading') return;
+    setHistoryCursors([null]);
+    focusHistoryAfterPage.current = true;
+    void loadHistory(generation.current, null);
+  }
   useEffect(() => { if (notice === 'itemDetail.updated') { focusRef.current?.focus(); returnEditFocus.current = false; } }, [notice]);
   useEffect(() => { if (!editing && !editLoading && !busy && returnEditFocus.current) { editButtonRef.current?.focus(); returnEditFocus.current = false; } }, [editing, editLoading, busy]);
 
@@ -311,7 +330,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         {item.workflowState !== 'paused' ? <><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'waiting' })}>{t('itemDetail.waitingAction')}</Button><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'paused' })}>{t('itemDetail.pause')}</Button></> : <Button type="button" disabled={busy} onClick={() => void mutate({ workflowState: 'open' })}>{t('itemDetail.resume')}</Button>}
       </div> : null}
       {!editing && (!item.archived ? <div className="mt-5 border-t border-line pt-4"><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ archived: true }, true)}>{t('subjects.archive')}</Button></div> : <Button type="button" variant="quiet" className="mt-5" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.restore')}</Button>)}
-      {!editing ? <section className="mt-8 border-t border-line pt-6"><h2 className="font-display text-2xl">{t('itemDetail.history')}</h2>{historyState === 'loading' ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.historyLoading')}</p> : historyState === 'error' ? <div className="mt-3 space-y-2"><p className="text-sm text-muted">{t('itemDetail.historyError')}</p><Button type="button" variant="quiet" onClick={() => void loadHistory(generation.current)}>{t('app.error.retry')}</Button></div> : history.length ? <>{historyPartial ? <p className="mt-3 text-sm text-muted">{t('itemDetail.historyPartial')}</p> : null}<ol className="mt-3 space-y-2">{history.map((completion) => <li key={completion.id} className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted opacity-65' : ''}`}><p>{t(completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone', { date: formatDate(completion.completedOn, locale) })}</p>{completion.cycleAttentionOn ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}{completion.nextAttentionOn ? <p className="text-muted">{t('itemDetail.historyNext', { date: formatDate(completion.nextAttentionOn, locale) })}</p> : null}</li>)}</ol></> : <p className="mt-3 text-sm text-muted">{t('itemDetail.historyEmpty')}</p>}</section> : null}
+      {!editing ? <section className="mt-8 border-t border-line pt-6"><h2 ref={historyHeadingRef} tabIndex={-1} className="font-display text-2xl outline-none">{t('itemDetail.history')}</h2>{historyState === 'loading' ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.historyLoading')}</p> : historyState === 'error' ? <div className="mt-3 space-y-2"><p className="text-sm text-muted">{t('itemDetail.historyError')}</p><Button type="button" variant="quiet" onClick={() => void loadHistory(generation.current, historyCursors.at(-1) ?? null)}>{t('app.error.retry')}</Button></div> : <>{history.length ? <ol className="mt-3 space-y-2">{history.map((completion) => <li key={completion.id} className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted opacity-65' : ''}`}><p>{t(completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone', { date: formatDate(completion.completedOn, locale) })}</p>{completion.cycleAttentionOn ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}{completion.nextAttentionOn ? <p className="text-muted">{t('itemDetail.historyNext', { date: formatDate(completion.nextAttentionOn, locale) })}</p> : null}</li>)}</ol> : <p className="mt-3 text-sm text-muted">{t('itemDetail.historyEmpty')}</p>}{historyNextCursor || historyCursors.length > 1 ? <div className="mt-4 flex flex-wrap gap-2">{historyCursors.length > 1 ? <Button type="button" variant="quiet" onClick={historyNewer}>{t('itemDetail.historyNewer')}</Button> : null}{historyNextCursor ? <Button type="button" variant="quiet" onClick={historyOlder}>{t('itemDetail.historyOlder')}</Button> : null}{historyCursors.length > 1 ? <Button type="button" variant="quiet" onClick={historyLatest}>{t('itemDetail.historyLatest')}</Button> : null}</div> : null}</>}</section> : null}
     </> : null}
   </section></Layout>;
 }

@@ -37,9 +37,9 @@ async function afterItemWrites(): Promise<void> {
 }
 
 export type CompletionPage = { kind: 'ok'; completions: Completion[]; nextCursor: string | null } | Failure | { kind: 'notFound' };
-export async function listCompletions(householdId: string, itemId: string, cursor?: string): Promise<CompletionPage> {
+export async function listCompletions(householdId: string, itemId: string, cursor?: string, options: { order?: 'oldest' | 'newest'; limit?: number } = {}): Promise<CompletionPage> {
   try {
-    const { data, response } = await api.GET(completionPath, { params: { path: { householdId, itemId }, query: { limit: 100, ...(cursor ? { cursor } : {}) } } });
+    const { data, response } = await api.GET(completionPath, { params: { path: { householdId, itemId }, query: { limit: options.limit ?? 100, ...(options.order ? { order: options.order } : {}), ...(cursor ? { cursor } : {}) } } });
     if (data && response.status === 200) return { kind: 'ok', completions: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 404) return { kind: 'notFound' };

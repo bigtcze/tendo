@@ -556,6 +556,74 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
   }
 
+  test('n0. item history pages 25 receipts at a time, newest first, and every receipt stays reachable', async () => {
+    const displayDate = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+    const doneRow = (value: string) => en['itemDetail.historyDone'].replace('{date}', displayDate(value));
+    const title = 'Water the balcony plants';
+    const subjectsResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
+    expect(subjectsResponse.status()).toBe(200);
+    const subjectId = ((await subjectsResponse.json()) as { items: Array<{ id: string }> }).items[0]!.id;
+    const created = await page.request.post(`/api/v1/households/${householdId}/items`, { headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-history-pagination-item' }, data: { title, subjectId, recurrence: { intervalValue: 1, intervalUnit: 'day', mode: 'fixed' } } });
+    expect(created.status()).toBe(201);
+    const seeded = await created.json() as { id: string };
+    const completionsPath = `/api/v1/households/${householdId}/items/${seeded.id}/completions`;
+    // 60 receipts recorded in date order (one per day, the last today), so newest-recorded is also the latest date.
+    const seededDates = Array.from({ length: 60 }, (_, index) => addDays(pragueToday(), index - 59));
+    for (const [index, completedOn] of seededDates.entries()) {
+      const current = await page.request.get(`/api/v1/households/${householdId}/items/${seeded.id}`);
+      expect(current.status()).toBe(200);
+      const result = await page.request.post(completionsPath, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']!, 'Idempotency-Key': `e2e-history-pagination-${index}` }, data: { completedOn } });
+      expect(result.status(), `seed completion ${index}`).toBe(201);
+    }
+    const newestFirst = [...seededDates].reverse();
+    const detailRequests: URL[] = [];
+    const onRequest = (req: import('@playwright/test').Request) => { const url = new URL(req.url()); if (url.pathname === completionsPath && req.method() === 'GET') detailRequests.push(url); };
+    try {
+      page.on('request', onRequest);
+      await page.goto(`/items/${seeded.id}`);
+      const main = page.getByRole('main');
+      const history = main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
+      const rows = history.getByRole('listitem');
+      const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') => history.getByRole('button', { name: en[key], exact: true });
+      await expect(rows).toHaveCount(25);
+      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[0]!))}`));
+      await expect(rows.last()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[24]!))}`));
+      await expect(button('itemDetail.historyNewer')).toHaveCount(0);
+      await expect(button('itemDetail.historyLatest')).toHaveCount(0);
+
+      await button('itemDetail.historyOlder').click();
+      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[25]!))}`));
+      await expect(rows).toHaveCount(25);
+      await expect(main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true })).toBeFocused();
+
+      await button('itemDetail.historyOlder').click();
+      await expect(rows).toHaveCount(10);
+      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[50]!))}`));
+      await expect(rows.last()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(seededDates[0]!))}`));
+      await expect(button('itemDetail.historyOlder')).toHaveCount(0);
+
+      await button('itemDetail.historyNewer').click();
+      await expect(rows).toHaveCount(25);
+      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[25]!))}`));
+
+      await button('itemDetail.historyLatest').click();
+      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[0]!))}`));
+      await expect(rows).toHaveCount(25);
+      await expect(button('itemDetail.historyLatest')).toHaveCount(0);
+
+      expect(detailRequests.length).toBe(5);
+      for (const url of detailRequests) {
+        expect(url.searchParams.get('limit'), url.search).toBe('25');
+        expect(url.searchParams.get('order'), url.search).toBe('newest');
+      }
+      expect(detailRequests.map((url) => url.searchParams.has('cursor'))).toEqual([false, true, true, true, false]);
+    } finally {
+      page.off('request', onRequest);
+      const current = await page.request.get(`/api/v1/households/${householdId}/items/${seeded.id}`);
+      if (current.status() === 200) await page.request.patch(`/api/v1/households/${householdId}/items/${seeded.id}`, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true } });
+    }
+  });
+
   test('n1. a one-off item with Repeat off completes, leaves the active list, keeps history, and undo brings it back', async () => {
     await page.goto('/');
     try {
