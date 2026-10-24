@@ -13,6 +13,7 @@ import {
   type RecordedRequest,
 } from '../../test/fakeServer';
 import type { Subject } from './subjectsApi';
+import { SubjectsScreen } from './SubjectsScreen';
 import { clearPendingSubjectCreates } from './pendingSubjectCreate';
 
 function renderApp() {
@@ -147,6 +148,13 @@ describe('list', () => {
     expect(screen.getAllByRole('button', { name: 'Add' })).toHaveLength(1);
   });
 
+  it('still shows the empty state when page one has no rows', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([]) });
+    renderApp(); await openPeople();
+    expect(await screen.findByText('Nothing here yet.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+  });
+
   it('shows name and a human type label for every type', async () => {
     installFakeServer({
       ...signedIn,
@@ -178,21 +186,104 @@ describe('list', () => {
     expect(screen.queryByText(/subject|custom/i)).not.toBeInTheDocument();
   });
 
-  it('"Show more" passes the cursor and appends the next page', async () => {
+  it('a pending Next disables Add and row actions until that page resolves', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') ? pending : page([anna], 'p2') });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    const next = await main.findByRole('button', { name: 'Next page' });
+    await userEvent.click(next);
+    expect(main.getByRole('button', { name: 'Add' })).toBeDisabled();
+    expect(main.getByRole('button', { name: 'Edit Anna' })).toBeDisabled();
+    expect(main.getByRole('button', { name: 'Archive Anna' })).toBeDisabled();
+    await act(async () => { release(page([octavia])); await pending; });
+    expect(await main.findByText('Octavia')).toBeVisible();
+  });
+
+  it('replaces subject pages and Previous returns exactly to page one without a cursor', async () => {
+    const fake = installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') === 'abc' ? page([octavia]) : page([anna], 'abc') });
+    renderApp(); await openPeople(); await screen.findByText('Anna');
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    expect(await main.findByText('Octavia')).toBeVisible();
+    expect(main.queryByText('Anna')).not.toBeInTheDocument();
+    expect(main.getAllByRole('listitem')).toHaveLength(1);
+    expect(main.getByText('Page 2')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'First page' }));
+    expect(await main.findByText('Anna')).toBeVisible();
+    expect(main.queryByText('Octavia')).not.toBeInTheDocument();
+    expect(main.getAllByRole('listitem')).toHaveLength(1);
+    const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('limit') === '50');
+    expect(lists.map((r) => r.query.get('cursor'))).toEqual([null, 'abc', null]);
+  });
+
+  it('replaces page rows rather than appending them', async () => {
+    const first = [anna, octavia];
+    const second = [subject('s-3', 'Milo'), subject('s-4', 'Rex', 'pet')];
+    installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') === 'next' ? page(second) : page(first, 'next') });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Next page' }));
+    await main.findByText('Milo');
+    expect(main.queryByText('Anna')).not.toBeInTheDocument();
+    expect(main.queryByText('Octavia')).not.toBeInTheDocument();
+    expect(main.getAllByRole('listitem')).toHaveLength(second.length);
+  });
+
+  it('does not sign out when the initial People request resolves 401 after unmount', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const onSignedOut = vi.fn();
+    installFakeServer({ ...signedIn, [listKey]: () => pending });
+    const view = render(<I18nProvider><div><button type="button">Placeholder route</button><SubjectsScreen userId={session().userId} householdId={HOUSEHOLD_ID} login={session().login} onSignedOut={onSignedOut} /></div></I18nProvider>);
+    view.unmount();
+    await act(async () => { release(problem(401)); await pending; });
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
+  it('does not sign out when a Next page request resolves 401 after leaving the screen', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') === 'p2' ? pending : page([anna], 'p2') });
+    renderApp(); await openPeople();
+    await userEvent.click(await within(screen.getByRole('main')).findByRole('button', { name: 'Next page' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Home' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    await act(async () => { release(problem(401)); await pending; });
+    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: /sign in/i })).not.toBeInTheDocument();
+  });
+
+  it('retry after a page-two archive conflict resets the page and uses page-one cursor', async () => {
+    let initialLists = 0;
     const fake = installFakeServer({
       ...signedIn,
-      [listKey]: (req) =>
-        req.query.get('cursor') === 'abc' ? page([octavia]) : page([anna], 'abc'),
+      [listKey]: (req) => {
+        if (req.query.get('limit') === '100') return page([]);
+        if (req.query.get('archived') === 'true') return page([]);
+        if (!req.query.get('cursor')) { initialLists += 1; return page([anna], 'p2'); }
+        return req.query.get('cursor') === 'p2' ? page([octavia], null) : problem(400);
+      },
+      [itemKey('s-2')]: etagged(octavia, '"1"'),
+      [itemKey('s-2', 'PATCH')]: problem(412),
     });
-    renderApp();
-    await openPeople();
-    await screen.findByText('Anna');
-    await userEvent.click(screen.getByRole('button', { name: 'Show more' }));
-    expect(await screen.findByText('Octavia')).toBeVisible();
-    expect(screen.getByText('Anna')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
-    const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('limit') === '50');
-    expect(lists.map((r) => r.query.get('cursor'))).toEqual([null, 'abc']);
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await main.findByText('Octavia');
+    await userEvent.click(main.getByRole('button', { name: 'Archive Octavia' }));
+    expect(await main.findByText('That changed just now. The list is up to date.')).toBeVisible();
+    expect(await main.findByText('Anna')).toBeVisible();
+    expect(main.getByText('Page 1')).toBeVisible();
+    expect(main.getByRole('button', { name: 'Next page' })).toBeVisible();
+    const before = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects`).length;
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await main.findByText('Octavia');
+    const requests = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects` && request.query.get('limit') === '50');
+    expect(requests.at(-1)?.query.get('cursor')).toBe('p2');
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects`).length).toBeGreaterThan(before);
+    expect(initialLists).toBe(2);
   });
 
   it('a failed load is retryable', async () => {
@@ -959,7 +1050,8 @@ describe('archive and restore', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    const edit = await screen.findByRole('button', { name: 'Edit Octavia' });
+    expect(await screen.findByRole('button', { name: 'Edit Octavia' })).toBeVisible();
+    const edit = screen.getByRole('button', { name: 'Edit Octavia' });
     expect(sent(fake.requests, 'PATCH')).toHaveLength(2);
     patch = sent(fake.requests, 'PATCH')[1]!;
     expect(JSON.parse(patch.body)).toEqual({ archived: false });
@@ -969,6 +1061,39 @@ describe('archive and restore', () => {
     const names = within(screen.getByRole('main')).getAllByRole('listitem')
       .map((r) => r.querySelector('[data-subject-name]')!.textContent);
     expect(names).toEqual(['Anna', 'Octavia']);
+  });
+
+  it('Undo after leaving and re-fetching a full page refetches instead of showing more than one page', async () => {
+    const full = Array.from({ length: 50 }, (_, i) => subject(`f-${String(i).padStart(2, '0')}`, `Row ${String(i).padStart(2, '0')}`));
+    const backfill = subject('f-50', 'Row 50');
+    const archivedIds = new Set<string>();
+    const pageOne = () => [...full, backfill].filter((s) => !archivedIds.has(s.id)).slice(0, 50);
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('cursor') === 'p2' ? page([subject('z-1', 'Zeta')]) : page(pageOne(), 'p2'),
+      [itemKey('f-03')]: () => etagged({ ...full[3]!, archived: archivedIds.has('f-03') }, '"1"'),
+      [itemKey('f-03', 'PATCH')]: (req) => {
+        const archived = JSON.parse(req.body).archived as boolean;
+        if (archived) archivedIds.add('f-03'); else archivedIds.delete('f-03');
+        return json(200, { ...full[3]!, archived }, { ETag: '"2"' });
+      },
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Archive Row 03' }));
+    expect(await main.findByText('Row 03 was archived.')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    expect(await main.findByText('Zeta')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'First page' }));
+    expect(await main.findByText('Row 50')).toBeVisible();
+    expect(main.getAllByRole('listitem')).toHaveLength(50);
+    await userEvent.click(main.getByRole('button', { name: 'Undo' }));
+    expect(await main.findByRole('button', { name: 'Edit Row 03' })).toBeVisible();
+    await waitFor(() => expect(main.queryByText('Row 50')).not.toBeInTheDocument());
+    expect(main.getAllByRole('listitem')).toHaveLength(50);
+    await waitFor(() => expect(main.getByRole('button', { name: 'Edit Row 03' })).toHaveFocus());
+    const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('cursor') === null && r.query.get('archived') !== 'true');
+    expect(lists.length).toBeGreaterThanOrEqual(3);
   });
 
   it('skips the PATCH when the fresh read already shows the wanted archived state', async () => {
@@ -982,6 +1107,122 @@ describe('archive and restore', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
     expect(await screen.findByText('Octavia was archived.')).toBeVisible();
     expect(sent(fake.requests, 'PATCH')).toHaveLength(0);
+  });
+
+  it('a pending create locks paging and successful create resets to page one', async () => {
+    let releaseCreate!: (response: Response) => void;
+    const pendingCreate = new Promise<Response>((resolve) => { releaseCreate = resolve; });
+    const created = subject('s-3', 'Milo', 'pet');
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('cursor') === 'p2' ? page([octavia]) : page([anna], 'p2'),
+      [createKey]: () => pendingCreate,
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(main.getByRole('button', { name: 'Add' }));
+    const form = main.getByRole('form', { name: 'Add a person or thing' });
+    await userEvent.type(within(form).getByLabelText('Name'), 'Milo');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(sent(fake.requests, 'POST')).toHaveLength(1));
+    expect(main.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    await act(async () => { releaseCreate(json(201, created, { ETag: '"1"' })); await pendingCreate; });
+    expect(await main.findByText('Milo was added.')).toBeVisible();
+    expect(main.getByText('Page 1')).toBeVisible();
+    expect(main.getByRole('button', { name: 'Next page' })).toBeEnabled();
+    expect(main.getAllByRole('listitem').map((row) => row.querySelector('[data-subject-name]')?.textContent)).toEqual(['Anna']);
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects` && request.query.get('limit') === '50').at(-1)?.query.get('cursor')).toBeNull();
+  });
+
+  it('keeps focus on the user’s new target when a page response resolves', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') ? pending : page([anna], 'p2') });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Next page' }));
+    const viewToggle = await main.findByRole('button', { name: 'Show archived' });
+    viewToggle.focus();
+    await act(async () => { release(page([octavia])); await pending; });
+    expect(await main.findByText('Octavia')).toBeVisible();
+    expect(viewToggle).toHaveFocus();
+    expect(main.getByRole('button', { name: 'Edit Octavia' })).not.toHaveFocus();
+  });
+
+  it('moves focus to the first row when focus stays on the paging control', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') ? pending : page([anna], 'p2') });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    const next = await main.findByRole('button', { name: 'Next page' });
+    await userEvent.click(next);
+    await act(async () => { release(page([octavia])); await pending; });
+    await waitFor(() => expect(main.getByRole('button', { name: 'Edit Octavia' })).toHaveFocus());
+  });
+
+  it('a pending edit PATCH disables paging and still handles a 412 conflict', async () => {
+    let releasePatch!: (response: Response) => void;
+    const pendingPatch = new Promise<Response>((resolve) => { releasePatch = resolve; });
+    let reads = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('cursor') ? page([octavia]) : page([anna], 'p2'),
+      [itemKey('s-2')]: () => etagged(octavia, ++reads === 1 ? '"1"' : '"2"'),
+      [itemKey('s-2', 'PATCH')]: () => pendingPatch,
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await main.findByText('Octavia');
+    await userEvent.click(main.getByRole('button', { name: 'Edit Octavia' }));
+    const form = await main.findByRole('form', { name: 'Edit Octavia' });
+    await userEvent.type(within(form).getByLabelText('Name'), ' RS');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Saving…' })).toBeDisabled());
+    expect(main.getByRole('button', { name: 'First page' })).toBeDisabled();
+    await act(async () => { releasePatch(problem(412)); await pendingPatch; });
+    expect(await main.findByText(/Someone else changed this just now/)).toBeVisible();
+    expect(main.getByLabelText('Name')).toHaveValue('Octavia');
+  });
+
+  it('disables paging during an archive and preserves its notice and Undo result', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('cursor') ? page([octavia]) : page([anna], 'p2'),
+      [itemKey('s-2')]: etagged(octavia, '"1"'),
+      [itemKey('s-2', 'PATCH')]: () => pending,
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await main.findByText('Octavia');
+    await userEvent.click(main.getByRole('button', { name: 'Archive Octavia' }));
+    expect(main.getByRole('button', { name: 'First page' })).toBeDisabled();
+    await act(async () => { release(json(200, { ...octavia, archived: true }, { ETag: '"2"' })); await pending; });
+    expect(await main.findByText('Octavia was archived.')).toBeVisible();
+    expect(main.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  });
+
+  it('archiving every row on page two keeps paging controls instead of showing the empty state', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('cursor') === 'p2' ? page([octavia]) : page([anna], 'p2'),
+      [itemKey('s-2')]: etagged(octavia, '"1"'),
+      [itemKey('s-2', 'PATCH')]: json(200, { ...octavia, archived: true }, { ETag: '"2"' }),
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(main.getByRole('button', { name: 'Next page' }));
+    await main.findByText('Octavia');
+    await userEvent.click(main.getByRole('button', { name: 'Archive Octavia' }));
+    expect(await main.findByText('Octavia was archived.')).toBeVisible();
+    expect(main.getByRole('button', { name: 'First page' })).toBeVisible();
+    expect(main.queryByText('Nothing here yet.')).not.toBeInTheDocument();
+    expect(main.queryByRole('list')).not.toBeInTheDocument();
+    expect(sent(fake.requests, 'PATCH')).toHaveLength(1);
   });
 
   it('archived view lists with archived=true and can bring one back', async () => {
@@ -1116,7 +1357,7 @@ describe('stale responses', () => {
   }
   const settle = () => act(async () => {});
 
-  it('a slow "Show more" from one view never lands in another', async () => {
+  it('a slow Next page response from one view never lands in another', async () => {
     const g = gate();
     const archivedOcta = { ...octavia, archived: true };
     installFakeServer({
@@ -1133,7 +1374,7 @@ describe('stale responses', () => {
     renderApp();
     await openPeople();
     await screen.findByText('Anna');
-    await userEvent.click(screen.getByRole('button', { name: 'Show more' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Show archived' }));
     expect(await screen.findByText('Octavia')).toBeVisible();
     g.release();
@@ -1141,7 +1382,7 @@ describe('stale responses', () => {
     await settle();
     expect(screen.queryByText('Late active')).not.toBeInTheDocument();
     expect(screen.getByText('Octavia')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument();
   });
 
   it('an edit read that resolves after switching views and back does not open the form', async () => {
@@ -1168,6 +1409,35 @@ describe('stale responses', () => {
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
   });
 
+  it('a late create refresh does not close a newer Add form or discard its draft', async () => {
+    let releaseRefresh!: (response: Response) => void;
+    const refreshPending = new Promise<Response>((resolve) => { releaseRefresh = resolve; });
+    let activeLists = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => {
+        if (req.query.get('archived') === 'true') return page([]);
+        activeLists += 1;
+        return activeLists === 2 ? refreshPending : page([anna]);
+      },
+      [createKey]: json(201, subject('s-9', 'Zuzka'), { ETag: '"1"' }),
+    });
+    renderApp(); await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Add' }));
+    await userEvent.type(screen.getByLabelText('Name'), 'Zuzka{Enter}');
+    await waitFor(() => expect(activeLists).toBe(2));
+    await userEvent.click(main.getByRole('button', { name: 'Show archived' }));
+    expect(await main.findByText('Nothing is archived.')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'Back to the list' }));
+    await userEvent.click(await main.findByRole('button', { name: 'Add' }));
+    await userEvent.type(screen.getByLabelText('Name'), 'Bohdan');
+    await act(async () => { releaseRefresh(page([anna, subject('s-9', 'Zuzka')])); await refreshPending; });
+    expect(screen.getByRole('form', { name: 'Add a person or thing' })).toBeVisible();
+    expect(screen.getByLabelText('Name')).toHaveValue('Bohdan');
+    expect(screen.getByLabelText('Name')).toHaveFocus();
+  });
+
   it('an add that finishes after a view switch still says it was added', async () => {
     const g = gate();
     installFakeServer({
@@ -1189,7 +1459,8 @@ describe('stale responses', () => {
     await waitFor(() => expect(g.state.answered).toBe(true));
     expect(await screen.findByText('Zuzka was added.')).toBeVisible();
     // The archived list must not have taken the new active row.
-    expect(within(screen.getByRole('navigation', { name: 'Household navigation' }).parentElement!).getByRole('list')).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('list')).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByRole('heading', { name: 'Archived' })).toBeVisible();
     expect(within(screen.getByRole('main')).queryByText('Zuzka')).not.toBeInTheDocument();
   });
 });
@@ -1251,16 +1522,18 @@ describe('focus', () => {
     expect(await screen.findByRole('button', { name: 'Show archived' })).toHaveFocus();
   });
 
-  it('after the last "Show more" page, focus lands on the first new row', async () => {
+  it('moves focus to the new row after Next page only if the user has not moved focus', async () => {
     installFakeServer({
       ...signedIn,
       [listKey]: (req) => (req.query.get('cursor') ? page([octavia]) : page([anna], 'abc')),
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Show more' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Next page' }));
     const edit = await screen.findByRole('button', { name: 'Edit Octavia' });
     await waitFor(() => expect(edit).toHaveFocus());
+
+
   });
 });
 
@@ -1329,10 +1602,10 @@ describe('other failures and edge cases', () => {
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Show more' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Next page' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('That didn’t work.');
     expect(screen.getByText('Anna')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Show more' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
   });
 
   it('saving without changes sends no PATCH', async () => {
