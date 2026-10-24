@@ -135,25 +135,28 @@ n15 (widths), n16 (keyboard-only item workflow), n17–n20 (error, loading, sess
 plus Vitest focus and error-association tests. n21 prints its zoom measurements, keyboard sequences, contrast
 measurements and any axe `incomplete` results to the runner's process log.
 
-### Measured contrast (2026-10-24)
+### Measured contrast (2026-10-25)
 
 n21 measures rendered colours at route-entry states for Home, All items, People and things, Members, Account,
-login and invitation acceptance (`frontend/e2e/contrastAudit.ts`, maths in `frontend/e2e/contrast.ts` with Vitest
-tests) and fails on any shortfall without tolerance. It includes visible control values and selected select text.
-The audit does not measure onboarding or add/edit form controls; the A4 field-border fix also applies to those
-controls. Measured minimum per rendered pair in
-the recorded run:
+login and invitation acceptance, plus the Home add form (Repeat on) and item edit form (`frontend/e2e/contrastAudit.ts`,
+maths in `frontend/e2e/contrast.ts` with Vitest tests). Test b measures the onboarding error state. These checks
+include visible control values and selected select text and fail on any shortfall without tolerance. Measured
+minimum per rendered pair from n21 in the recorded run (test b separately measured 27 onboarding rows with no
+shortfall):
 
 | Rendered pair (foreground on effective background) | Use | Min ratio | Required |
 |---|---|---:|---:|
 | ink `#25302b` on paper `#faf7f2` | body text, headings | 12.79:1 | 4.5:1 |
 | ink on sand `#efe9df` | selected / hover surfaces | 11.32:1 | 4.5:1 |
 | ink on card `rgb(253 253 251)` (white/70 over paper) | rows, forms | 13.42:1 | 4.5:1 |
+| ink on white | form-control values | 13.67:1 | 4.5:1 |
+| ink on sand tints `rgb(243 240 232)` / `rgb(246 243 237)` | add/edit form panels and selects | 12.00:1 / 12.34:1 | 4.5:1 |
 | muted `#5b655f` on paper | secondary text | 5.66:1 | 4.5:1 |
 | muted on card | row metadata | 5.94:1 | 4.5:1 |
+| muted on sand tint `rgb(243 240 232)` | form hints | 5.31:1 | 4.5:1 |
 | accent-strong `#234f41` on card | links | 9.10:1 | 4.5:1 |
 | white on accent `#2f6b57` | primary buttons | 6.25:1 | 4.5:1 |
-| field `#857c6e` on paper | form-control borders (1.4.11) | 3.85:1 | 3:1 |
+| field `#857c6e` on paper / card / sand tint `rgb(243 240 232)` | form-control borders (1.4.11) | 3.85:1 / 4.04:1 / 3.61:1 | 3:1 |
 | accent focus outline on paper / card | focus indicator (1.4.11) | 5.85:1 / 6.12:1 | 3:1 |
 
 Finding **A4** (1.4.11): form-control borders used the decorative `line` token (`#d8d0c3`, 1.43:1 on paper,
@@ -223,7 +226,7 @@ checks and an axe scan.
 | A1 | 2.5.8 | The Repeat and Fluid switch inputs were 20×20 CSS px. | 24×24 (`size-6`); Vitest regression; n14 target scan of the add form with Repeat on. |
 | A2 | 1.3.1 / plain language | In All items, overdue rows read "Needs attention" and then "Needs attention Nov 18, 2024". The state was repeated, and the date did not say it was the start of the overdue period. | Rows now use the same wording as Home: "Needs attention since …" for overdue items, "Needs attention …" for coming-up items and "Attention date …" for paused, waiting, in-progress, done and archived items. Vitest regression (mutation-checked). |
 | A3 | 1.3.1 / 2.4.6 | The All items search form had `role="search"` but no name. | Named "Search items" / "Hledat položky" from the existing label key; Vitest regression (fails without the name). |
-| A4 | 1.4.11 | Form-control borders were 1.43:1 against the page (decorative `line` token). | `field` token `#857c6e` (≥3.41:1) on form-control borders; n21 measures route-entry states of Home, All items, People and things, Members, Account, login and invitation acceptance (see Measured contrast). The same fix applies to onboarding and add/edit form controls, which n21 does not measure. |
+| A4 | 1.4.11 | Form-control borders were 1.43:1 against the page (decorative `line` token). | `field` token `#857c6e` (≥3.41:1) on form-control borders; n21 measures route-entry states of Home, All items, People and things, Members, Account, login and invitation acceptance, plus the Home add form (Repeat on) and item edit form. Test b measures onboarding's error state (see Measured contrast). |
 
 No other defect was found in the snapshots, keyboard sequences, target scans, axe results or zoom measurements.
 
@@ -232,6 +235,8 @@ No other defect was found in the snapshots, keyboard sequences, target scans, ax
 This is an agent review. No human screen-reader user took part, and ARIA snapshots do not prove what a screen
 reader says. The keyboard sweep checks reachability, visible focus and order on route entry. Behaviour inside
 forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase, is covered by n16 and the
-Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the control. Onboarding is checked by n14 (axe, error focus) and the opt-in audit (widths)
-because setup has already finished when n21 runs. Zoom is emulated in headless Chromium, not set through the
-browser's zoom control. None of this is a WCAG conformance certification.
+Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the
+control. Setup has finished before n21 runs, so onboarding is covered elsewhere: test b measures rendered-colour
+contrast and runs axe on its error state, `OnboardingScreen.test.tsx` checks error focus, and the opt-in audit
+checks widths. Zoom is emulated in headless Chromium, not set through the browser's zoom control. None of this
+is a WCAG conformance certification.
