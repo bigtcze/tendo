@@ -6,6 +6,7 @@ import {
   evaluateContrast,
   isLargeText,
   parseColor,
+  passesContrastThreshold,
   type Color,
 } from '../e2e/contrast';
 
@@ -21,6 +22,10 @@ describe('contrast calculations', () => {
 });
 
 describe('WCAG contrast evaluation', () => {
+  it('passes an exact threshold and fails just below it without tolerance', () => {
+    expect(passesContrastThreshold(4.5, 4.5)).toBe(true);
+    expect(passesContrastThreshold(4.499999, 4.5)).toBe(false);
+  });
   it('classifies large text at either size/weight boundary', () => {
     expect(isLargeText(24, 400)).toBe(true);
     expect(isLargeText(18.66, 700)).toBe(true);
@@ -34,8 +39,31 @@ describe('WCAG contrast evaluation', () => {
     expect(result.threshold).toBe(4.5);
   });
 
-  it('applies the non-text boundary indicator exception', () => {
-    expect(boundaryPasses(color(216, 208, 195), color(255, 255, 255), color(0, 0, 0))).toBe(true);
-    expect(boundaryPasses(color(216, 208, 195), color(255, 255, 255), color(250, 247, 242))).toBe(false);
+  it('applies the non-text boundary indicator exception only to a contrasting composited fill', () => {
+    const outside = color(250, 247, 242);
+    const transparentFill = composite(color(0, 0, 0, 0), outside);
+    const lowContrastBorder = composite(color(216, 208, 195), outside);
+    expect(boundaryPasses(lowContrastBorder, outside, transparentFill)).toBe(false);
+    expect(boundaryPasses(lowContrastBorder, outside, color(0, 0, 0))).toBe(true);
+    expect(contrastRatio(transparentFill, outside)).toBe(1);
+  });
+
+  it.each([
+    ['input value', 'input#email[value]', 'rgba(118, 118, 118, 1)', 4.5],
+    ['textarea value', 'textarea#notes[value]', 'rgba(118, 118, 118, 1)', 4.5],
+    ['selected option text', 'select#subject[value]', 'rgba(118, 118, 118, 1)', 4.5],
+  ])('evaluates %s as normal text contrast', (_label, name, foreground, threshold) => {
+    const result = evaluateContrast({
+      kind: 'text',
+      name,
+      foreground,
+      background: color(255, 255, 255),
+      fontSize: 16,
+      fontWeight: 400,
+      disabled: false,
+    });
+    expect(result.threshold).toBe(threshold);
+    expect(result.exempt).toBe(false);
+    expect(result.ratio).toBeCloseTo(4.54, 2);
   });
 });

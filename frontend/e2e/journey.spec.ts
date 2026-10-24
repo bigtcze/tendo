@@ -2,7 +2,7 @@ import { expect, request, test, type ConsoleMessage, type Locator, type Page } f
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
-import { colorString, composite, contrastRatio, parseColor, type Color } from './contrast';
+import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, type ContrastAuditRow } from './contrastAudit';
 
 function required(name: string): string {
@@ -2596,8 +2596,14 @@ test.describe('Tendo production journey', () => {
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
     const contrastEvidence: ContrastAuditRow[] = [];
     const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
-    const measureContrast = async (target: Page, route: string) => {
+    const measureContrast = async (target: Page, route: string, expectBoundary = false) => {
       const rows = await auditContrast(target, route);
+      const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);
+      expect(measuredText.length, `${route} has a measured non-exempt text candidate`).toBeGreaterThan(0);
+      if (expectBoundary) {
+        const measuredBoundaries = rows.filter((row) => row.kind === 'boundary' && row.ratio !== null);
+        expect(measuredBoundaries.length, `${route} has a measured control boundary candidate`).toBeGreaterThan(0);
+      }
       contrastEvidence.push(...rows);
     };
     const context = await browser.newContext({ baseURL, locale: 'en-US', storageState: await page.context().storageState() });
@@ -2663,7 +2669,11 @@ test.describe('Tendo production journey', () => {
           };
           const focused = indicator();
           const focusedStyle = getComputedStyle(element);
-          const ringColor = focusedStyle.outlineStyle !== 'none' && parseFloat(focusedStyle.outlineWidth) > 0 ? focusedStyle.outlineColor : (() => { const shadow = focusedStyle.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/); return shadow?.[0] ?? 'transparent'; })();
+          let ringColor = focusedStyle.outlineColor;
+          if (focusedStyle.outlineStyle === 'none' || parseFloat(focusedStyle.outlineWidth) <= 0) {
+            const shadowColor = focusedStyle.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/);
+            ringColor = shadowColor?.[0] ?? 'transparent';
+          }
           // Normalize every colour (Chromium serializes color-mix() as oklab()) to rgba via canvas; fail closed on unknown values.
           const canvas = document.createElement('canvas');
           canvas.width = 1;
@@ -2722,7 +2732,7 @@ test.describe('Tendo production journey', () => {
         await auditPage.setViewportSize({ width: 1280, height: 800 });
         await auditPage.goto(route.path);
         await expectReady(auditPage, route);
-        await measureContrast(auditPage, route.name);
+        await measureContrast(auditPage, route.name, route.name === 'all-items');
         const aria = await auditPage.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
@@ -2750,7 +2760,7 @@ test.describe('Tendo production journey', () => {
         await expect(signedOut.getByRole('main')).toBeVisible();
         await expect(signedOut.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
         await expect(route.content(signedOut), `${route.name} content`).toBeVisible();
-        await measureContrast(signedOut, route.name);
+        await measureContrast(signedOut, route.name, route.name === 'login' || route.name === 'invitation-acceptance');
         const aria = await signedOut.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
@@ -2780,9 +2790,18 @@ test.describe('Tendo production journey', () => {
           } finally { await zoomContext.close(); }
         }
       }
-      const contrastSummary=[...new Set(contrastEvidence.map(r=>`${r.foreground} on ${r.background}`))].map(pair=>{const rows=contrastEvidence.filter(r=>`${r.foreground} on ${r.background}`===pair);const ratios=rows.flatMap(r=>r.ratio===null?[]:[r.ratio]);return{pair,minRatio:ratios.length?Math.min(...ratios):null,measured:rows.length};});
+      const contrastPairs = [...new Set(contrastEvidence.map((row) => `${row.foreground} on ${row.background}`))];
+      const contrastSummary = contrastPairs.map((pair) => {
+        const matchingRows = contrastEvidence.filter((row) => `${row.foreground} on ${row.background}` === pair);
+        const measuredRatios = matchingRows.flatMap((row) => row.ratio === null ? [] : [row.ratio]);
+        return {
+          pair,
+          minRatio: measuredRatios.length > 0 ? Math.min(...measuredRatios) : null,
+          measured: matchingRows.length,
+        };
+      });
       console.log(`contrast-summary ${JSON.stringify(contrastSummary)}`);
-      const contrastFailures = contrastEvidence.filter((row) => !row.exempt && row.ratio !== null && row.ratio + 0.01 < row.threshold);
+      const contrastFailures = contrastEvidence.filter((row) => !row.exempt && row.ratio !== null && !passesContrastThreshold(row.ratio, row.threshold));
       console.log(`contrast-failures ${JSON.stringify(contrastFailures.map((row) => ({ route: row.route, element: row.name, foreground: row.foreground, background: row.background, ratio: row.ratio, threshold: row.threshold })))}`);
       expect(contrastFailures.map((row) => `${row.route} ${row.name} ${row.foreground}/${row.background} ${row.ratio?.toFixed(2)} < ${row.threshold}`), 'contrast failures').toEqual([]);
       const focusFailures = focusEvidence.filter((row) => row.ratio === null || row.ratio < 3);
