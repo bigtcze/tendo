@@ -20,6 +20,10 @@ A person does not need an account. Adding "Anička" creates an entry in your hou
 
 If a person is also a household member, you can optionally choose their account in **Their account in Tendo**. This is only a label to help everyone recognise who is who; it does not change what anyone can see. To clear the link, select **Edit**, choose **No linked account**, then select **Save**. Changing the entry to another type clears it automatically.
 
+## Long lists
+
+The list shows one page at a time. Use **Next page**, **Previous page** and **First page** to move through it; the page number is shown below them. The same buttons work in the archived list.
+
 ## Rename or change the type
 
 Select **Edit** next to an entry, change the name or type, and select **Save**. If someone else changed the same entry a moment earlier, Tendo shows the latest version so you can check it and save again.
