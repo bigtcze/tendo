@@ -45,6 +45,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
   const historyGeneration = useRef(0);
   const historyHeadingRef = useRef<HTMLHeadingElement>(null);
+  const historySectionRef = useRef<HTMLElement>(null);
   const focusHistoryAfterPage = useRef(false);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -91,14 +92,17 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     const result = await listCompletions(householdId, itemId, cursor ?? undefined, { order: 'newest', limit: 25 });
     if (!current(token) || historyGeneration.current !== historyToken) return;
     if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+    const moveFocus = focusHistoryAfterPage.current; focusHistoryAfterPage.current = false;
     if (result.kind !== 'ok') { setHistoryState('error'); return; }
     setHistory(result.completions); setHistoryState('ready'); setHistoryNextCursor(result.nextCursor);
-    if (focusHistoryAfterPage.current) { historyHeadingRef.current?.focus(); focusHistoryAfterPage.current = false; }
+    // The pressed paging control unmounts while loading; only reclaim focus if it was left there (on body or in History).
+    const active = document.activeElement;
+    if (moveFocus && (!active || active === document.body || historySectionRef.current?.contains(active))) historyHeadingRef.current?.focus();
   }, [householdId, itemId, onSignedOut]);
 
   const load = useCallback(async (token: number, preserveArchiveNotice = false) => {
     if (!/^[0-9a-f-]{36}$/i.test(itemId)) { if (current(token)) setState('gone'); return; }
-    historyGeneration.current += 1;
+    historyGeneration.current += 1; focusHistoryAfterPage.current = false;
     setState('loading'); setHistory([]); setHistoryState('loading'); setHistoryCursors([null]); setHistoryNextCursor(null); setEditing(null); setEditLoading(false);
     if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); }
     const result = await getItem(householdId, itemId);
@@ -330,7 +334,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         {item.workflowState !== 'paused' ? <><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'waiting' })}>{t('itemDetail.waitingAction')}</Button><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ workflowState: 'paused' })}>{t('itemDetail.pause')}</Button></> : <Button type="button" disabled={busy} onClick={() => void mutate({ workflowState: 'open' })}>{t('itemDetail.resume')}</Button>}
       </div> : null}
       {!editing && (!item.archived ? <div className="mt-5 border-t border-line pt-4"><Button type="button" variant="quiet" disabled={busy} onClick={() => void mutate({ archived: true }, true)}>{t('subjects.archive')}</Button></div> : <Button type="button" variant="quiet" className="mt-5" disabled={busy} onClick={() => void mutate({ archived: false }, true)}>{t('subjects.restore')}</Button>)}
-      {!editing ? <section className="mt-8 border-t border-line pt-6"><h2 ref={historyHeadingRef} tabIndex={-1} className="font-display text-2xl outline-none">{t('itemDetail.history')}</h2>{historyState === 'loading' ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.historyLoading')}</p> : historyState === 'error' ? <div className="mt-3 space-y-2"><p className="text-sm text-muted">{t('itemDetail.historyError')}</p><Button type="button" variant="quiet" onClick={() => void loadHistory(generation.current, historyCursors.at(-1) ?? null)}>{t('app.error.retry')}</Button></div> : <>{history.length ? <ol className="mt-3 space-y-2">{history.map((completion) => <li key={completion.id} className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted opacity-65' : ''}`}><p>{t(completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone', { date: formatDate(completion.completedOn, locale) })}</p>{completion.cycleAttentionOn ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}{completion.nextAttentionOn ? <p className="text-muted">{t('itemDetail.historyNext', { date: formatDate(completion.nextAttentionOn, locale) })}</p> : null}</li>)}</ol> : <p className="mt-3 text-sm text-muted">{t('itemDetail.historyEmpty')}</p>}{historyNextCursor || historyCursors.length > 1 ? <div className="mt-4 flex flex-wrap gap-2">{historyCursors.length > 1 ? <Button type="button" variant="quiet" onClick={historyNewer}>{t('itemDetail.historyNewer')}</Button> : null}{historyNextCursor ? <Button type="button" variant="quiet" onClick={historyOlder}>{t('itemDetail.historyOlder')}</Button> : null}{historyCursors.length > 1 ? <Button type="button" variant="quiet" onClick={historyLatest}>{t('itemDetail.historyLatest')}</Button> : null}</div> : null}</>}</section> : null}
+      {!editing ? <section ref={historySectionRef} className="mt-8 border-t border-line pt-6"><h2 ref={historyHeadingRef} tabIndex={-1} className="font-display text-2xl outline-none">{t('itemDetail.history')}</h2>{historyState === 'loading' ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.historyLoading')}</p> : historyState === 'error' ? <div className="mt-3 space-y-2"><p className="text-sm text-muted">{t('itemDetail.historyError')}</p><Button type="button" variant="quiet" onClick={() => { focusHistoryAfterPage.current = true; void loadHistory(generation.current, historyCursors.at(-1) ?? null); }}>{t('app.error.retry')}</Button></div> : <>{history.length ? <ol className="mt-3 space-y-2">{history.map((completion) => <li key={completion.id} className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted opacity-65' : ''}`}><p>{t(completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone', { date: formatDate(completion.completedOn, locale) })}</p>{completion.cycleAttentionOn ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}{completion.nextAttentionOn ? <p className="text-muted">{t('itemDetail.historyNext', { date: formatDate(completion.nextAttentionOn, locale) })}</p> : null}</li>)}</ol> : <p className="mt-3 text-sm text-muted">{t('itemDetail.historyEmpty')}</p>}{historyNextCursor || historyCursors.length > 1 ? <div className="mt-4 flex flex-wrap gap-2">{historyCursors.length > 1 ? <Button type="button" variant="quiet" onClick={historyNewer}>{t('itemDetail.historyNewer')}</Button> : null}{historyNextCursor ? <Button type="button" variant="quiet" onClick={historyOlder}>{t('itemDetail.historyOlder')}</Button> : null}{historyCursors.length > 1 ? <Button type="button" variant="quiet" onClick={historyLatest}>{t('itemDetail.historyLatest')}</Button> : null}</div> : null}</>}</section> : null}
     </> : null}
   </section></Layout>;
 }

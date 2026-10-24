@@ -585,38 +585,43 @@ test.describe('Tendo production journey', () => {
       const history = main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
       const rows = history.getByRole('listitem');
       const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') => history.getByRole('button', { name: en[key], exact: true });
-      await expect(rows).toHaveCount(25);
-      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[0]!))}`));
-      await expect(rows.last()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[24]!))}`));
+      // Every page row, in order: a receipt's first line is its done date (planned/next dates follow).
+      const expectPage = async (from: number, to: number) => {
+        const expected = newestFirst.slice(from, to).map((value) => new RegExp(`^${escapeRegExp(doneRow(value))}`));
+        await expect(rows).toHaveText(expected);
+      };
+      await expectPage(0, 25);
       await expect(button('itemDetail.historyNewer')).toHaveCount(0);
       await expect(button('itemDetail.historyLatest')).toHaveCount(0);
 
       await button('itemDetail.historyOlder').click();
-      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[25]!))}`));
-      await expect(rows).toHaveCount(25);
+      await expectPage(25, 50);
       await expect(main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true })).toBeFocused();
 
       await button('itemDetail.historyOlder').click();
-      await expect(rows).toHaveCount(10);
-      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[50]!))}`));
+      await expectPage(50, 60);
       await expect(rows.last()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(seededDates[0]!))}`));
       await expect(button('itemDetail.historyOlder')).toHaveCount(0);
 
       await button('itemDetail.historyNewer').click();
-      await expect(rows).toHaveCount(25);
-      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[25]!))}`));
-
-      await button('itemDetail.historyLatest').click();
-      await expect(rows.first()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(newestFirst[0]!))}`));
-      await expect(rows).toHaveCount(25);
+      await expectPage(25, 50);
+      await button('itemDetail.historyNewer').click();
+      await expectPage(0, 25);
+      await expect(button('itemDetail.historyNewer')).toHaveCount(0);
       await expect(button('itemDetail.historyLatest')).toHaveCount(0);
 
-      expect(detailRequests.length).toBe(5);
+      await button('itemDetail.historyOlder').click();
+      await expectPage(25, 50);
+      await button('itemDetail.historyLatest').click();
+      await expectPage(0, 25);
+      await expect(button('itemDetail.historyLatest')).toHaveCount(0);
+
+      expect(detailRequests.length).toBe(7);
       for (const url of detailRequests) {
         expect(url.searchParams.get('limit'), url.search).toBe('25');
         expect(url.searchParams.get('order'), url.search).toBe('newest');
       }
-      expect(detailRequests.map((url) => url.searchParams.has('cursor'))).toEqual([false, true, true, true, false]);
+      expect(detailRequests.map((url) => url.searchParams.has('cursor'))).toEqual([false, true, true, true, false, true, false]);
     } finally {
       page.off('request', onRequest);
       const current = await page.request.get(`/api/v1/households/${householdId}/items/${seeded.id}`);

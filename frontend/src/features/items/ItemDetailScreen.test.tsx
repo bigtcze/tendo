@@ -186,12 +186,65 @@ describe('item details', () => {
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle']);
 
-    await userEvent.click(main.getByRole('button', { name: 'Latest' }));
+    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null]);
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(await main.findByRole('button', { name: 'Older' }));
+    await main.findByText('Done Jan 1, 2020 · Undone');
+    await userEvent.click(main.getByRole('button', { name: 'Latest' }));
+    expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
+    expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null, 'c-middle', 'c-older', null]);
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+    expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
     expect(main.getByRole('button', { name: 'Older' })).toBeVisible();
+    expect(main.queryByText('secret-user')).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '25' && request.query.get('order') === 'newest')).toBe(true);
+  });
+
+  it('does not steal focus when a slow history page arrives after the user moved on', async () => {
+    let release!: (response: Response) => void;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.get('cursor') === 'slow' ? new Promise<Response>((resolve) => { release = resolve; }) : json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'slow' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    const elsewhere = screen.getByRole('button', { name: 'Edit' });
+    elsewhere.focus();
+    await act(async () => release(json(200, { items: [completion('older', '2024-03-01')], nextCursor: null })));
+    expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
+    expect(elsewhere).toHaveFocus();
+  });
+
+  it('a stale-write reload cancels pending history focus and keeps focus on its notice', async () => {
+    let releaseStale!: (response: Response) => void;
+    let releaseReload!: (response: Response) => void;
+    let reads = 0; let historyCalls = 0;
+    installFakeServer(common({ [`GET ${path}`]: () => json(200, item(), { ETag: `"${++reads}"` }), [`PATCH ${path}`]: json(412), [`GET ${historyPath}`]: () => {
+      historyCalls++;
+      if (historyCalls === 2) return new Promise<Response>((resolve) => { releaseStale = resolve; });
+      if (historyCalls === 3) return new Promise<Response>((resolve) => { releaseReload = resolve; });
+      return json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'slow' });
+    } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await main.findByText('Done Apr 2, 2025');
+    await userEvent.click(main.getByRole('button', { name: 'Older' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+    const notice = await screen.findByText('That changed just now. Here is the latest.');
+    await waitFor(() => expect(notice).toHaveFocus());
+    await waitFor(() => expect(historyCalls).toBe(3));
+    await act(async () => releaseReload(json(200, { items: [completion('reloaded', '2025-05-05')], nextCursor: null })));
+    expect(await main.findByText('Done May 5, 2025')).toBeVisible();
+    await act(async () => releaseStale(json(200, { items: [completion('stale', '2020-01-01')], nextCursor: null })));
+    expect(main.queryByText('Done Jan 1, 2020')).not.toBeInTheDocument();
+    expect(notice).toHaveFocus();
   });
 
   it('ignores an earlier page response after a stale-write reload resets history', async () => {

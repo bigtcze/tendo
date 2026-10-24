@@ -701,6 +701,7 @@ func TestItemListExplainIndexesAtScale(t *testing.T) {
 	// IDs ascend with n so created pages and cursor positions are deterministic. Target has 10k rows; other household contributes a further 10k.
 	mustExec(`INSERT INTO items(id,household_id,subject_id,title,attention_on,responsible_user_id,workflow_state,archived,done) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((100000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%5) END,CASE WHEN n%10=0 THEN $6::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,(n%11=0),(n%13=0) FROM generate_series(1,20000) n`, h, other, s, os, sparseSubject, actor)
 	mustExec(`INSERT INTO item_completions(household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint) SELECT household_id,id,DATE '2026-01-01', $1::uuid,'open',1,'explain-'||id::text,decode(repeat('ab',32),'hex') FROM items WHERE household_id=$2::uuid AND id IN (SELECT id FROM items WHERE household_id=$2::uuid ORDER BY id LIMIT 20)`, actor, h)
+	mustExec(`ANALYZE items`)
 	conn, err := app.Acquire(ctx)
 	must(err)
 	defer conn.Release()
@@ -822,7 +823,8 @@ func TestItemListExplainIndexesAtScale(t *testing.T) {
 }
 
 // createdOrderIndexes lists the indexes that can each legitimately serve the unchanged
-// V1 id-ordered list without a Sort; the planner chooses by cost, so none is pinned.
+// V1 id-ordered list without a Sort; the planner chooses by cost (with this fixture's
+// 50/50 household split it may walk items_pkey and filter the household), so none is pinned.
 const createdOrderIndexes = "items_pkey|items_household_id_id_key|items_household_archived_done_id_idx"
 
 // planOrderedIndex reports whether the main (non-subplan) path contains an ordered

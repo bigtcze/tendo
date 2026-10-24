@@ -326,7 +326,7 @@ export interface paths {
         };
         /**
          * List item completion receipts
-         * @description Returns receipts by UUIDv7 id using a live keyset walk, not a snapshot. order defaults to oldest (ascending id) and may be oldest or newest (descending id; most recently recorded, not completedOn). Limit defaults to 50 and is capped at 100. Oldest cursors are unpadded base64url c1:<lowercase uuid>; newest cursors are c2:<lowercase uuid>. Malformed, unknown-version, or cross-order cursors return 400 invalid_query parameter=cursor. Membership is checked before semantic order validation; item ID, limit, order, cursor, then item existence are checked in that order after membership. Present-empty/repeated order is a structural 400 before membership. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.
+         * @description Returns receipts by UUIDv7 id using a live keyset walk, not a snapshot. order defaults to oldest (ascending id) and may be oldest or newest (descending id; most recently recorded, not completedOn). Limit defaults to 50 and is capped at 100. Oldest cursors are unpadded base64url c1:<lowercase uuid>; newest cursors are c2:<lowercase uuid>. Malformed, unknown-version, or cross-order cursors return 400 invalid_query parameter=cursor. Check order: authentication; limit syntax/range and empty or repeated cursor; empty or repeated order; household membership; item ID syntax (404); unknown order value; cursor decoding; item existence. Membership and item existence are checked even when there are no receipts; archived and done items remain readable. Responses are Cache-Control: no-store.
          */
         get: operations["listItemCompletions"];
         put?: never;
@@ -4839,7 +4839,7 @@ export interface operations {
                     "application/json": components["schemas"]["CompletionList"];
                 };
             };
-            /** @description Invalid limit or cursor. */
+            /** @description Invalid limit, cursor, or order. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

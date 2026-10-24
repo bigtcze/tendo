@@ -41,14 +41,14 @@ func TestCompletionOrderExplainUsesBackwardTargetIndex(t *testing.T) {
 	// one item among many would; at that share the planner must use the household/item index instead of
 	// filtering a backward primary-key walk. Receipt IDs ascend with n and interleave the streams, as
 	// UUIDv7 receipts recorded over time would.
-	mustExec(`INSERT INTO items(id,household_id,subject_id,title) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((300000+n)::text,12,'0'))::uuid,$1::uuid,$2::uuid,'target unrelated-'||n::text FROM generate_series(1,1000) n`, targetHousehold, targetSubject)
-	mustExec(`INSERT INTO items(id,household_id,subject_id,title) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((400000+n)::text,12,'0'))::uuid,$1::uuid,$2::uuid,'foreign unrelated-'||n::text FROM generate_series(1,1000) n`, foreignHousehold, foreignSubject)
+	mustExec(`INSERT INTO items(id,household_id,subject_id,title) SELECT ('0198a2f2-0000-7000-8000-'||lpad((300000+n)::text,12,'0'))::uuid,$1::uuid,$2::uuid,'target unrelated-'||n::text FROM generate_series(1,1000) n`, targetHousehold, targetSubject)
+	mustExec(`INSERT INTO items(id,household_id,subject_id,title) SELECT ('0198a2f2-0000-7000-8000-'||lpad((400000+n)::text,12,'0'))::uuid,$1::uuid,$2::uuid,'foreign unrelated-'||n::text FROM generate_series(1,1000) n`, foreignHousehold, foreignSubject)
 	mustExec(`INSERT INTO item_completions(id,household_id,item_id,completed_on,completed_by_user_id,prior_workflow_state,item_version_before,idempotency_key,request_fingerprint)
 		SELECT ('0198a2f1-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid,
 			CASE WHEN n%9>=5 THEN $2::uuid ELSE $1::uuid END,
 			CASE WHEN n%45=0 THEN $3::uuid
-				WHEN n%9<5 THEN ('0198a2f0-7c1e-7a53-9b0e-'||lpad((300000+n%1000+1)::text,12,'0'))::uuid
-				ELSE ('0198a2f0-7c1e-7a53-9b0e-'||lpad((400000+n%1000+1)::text,12,'0'))::uuid END,
+				WHEN n%9<5 THEN ('0198a2f2-0000-7000-8000-'||lpad((300000+n%1000+1)::text,12,'0'))::uuid
+				ELSE ('0198a2f2-0000-7000-8000-'||lpad((400000+n%1000+1)::text,12,'0'))::uuid END,
 			DATE '2026-01-01',$4::uuid,'open',n,'explain-'||n::text,decode(repeat('aa',32),'hex')
 		FROM generate_series(1,90000) n`, targetHousehold, foreignHousehold, targetItem, actor)
 	mustExec(`ANALYZE items`)
