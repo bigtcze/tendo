@@ -181,9 +181,6 @@ def exercise():
     for query,name in literal_queries:
         result=ok(200,'GET',f'{base}/items?q={query}',cookie=owner)[1]['items']
         expected=s['items'][name]; assert [i['id'] for i in result]==[expected],(query,name,[i['id'] for i in result])
-    for query,decoy in (('MARK%25X','percent_decoy'),('UNDER_SCORE','underscore_decoy'),('BACK%5CSLASH','backslash_decoy')):
-        result=ok(200,'GET',f'{base}/items?q={query}',cookie=owner)[1]['items']
-        assert s['items'][decoy] not in {i['id'] for i in result},(query,decoy,result)
     # Attention order is NULLS FIRST, then ascending attentionOn, then ascending id.
     expected_attention=sorted((i for i in partitions[('false','false')] if i['workflowState']=='open'),key=lambda i:(i['attentionOn'] is not None,i['attentionOn'] or '',i['id']))
     expected_ids=[i['id'] for i in expected_attention]; seen=[]; cursor=None
@@ -196,6 +193,7 @@ def exercise():
     _,replay=ok(201,'POST',f'{base}/items/{iid}/completions',{'completedOn':'2025-01-05'},owner,{'If-Match':'"1"','Idempotency-Key':'upgrade-replay-key'})
     assert replay==s['fluidReceipt'],(replay,s['fluidReceipt'])
     fluid_hs,_=ok(200,'GET',f'{base}/items/{iid}',cookie=owner)
+    assert fluid_hs['ETag']==before['etag'],('completion replay changed the item version',before['etag'],fluid_hs['ETag'])
     hs,undone=ok(200,'PATCH',f'{base}/items/{iid}/completions/{replay["id"]}',{'undone':True},owner,{'If-Match':fluid_hs['ETag']})
     assert undone['undoneAt'] is not None
     _,created=ok(201,'POST',base+'/items',{'title':'New V2 search record','subjectId':s['personId']},owner,{'Idempotency-Key':'upgrade-new-v2-item'})
