@@ -138,11 +138,10 @@ measurements and any axe `incomplete` results to the runner's process log.
 ### Measured contrast (2026-10-24)
 
 n21 measures rendered colours at route-entry states for Home, All items, People and things, Members, Account,
-login and invitation acceptance (`frontend/e2e/contrastAudit.ts`, maths in `frontend/e2e/contrast.ts` with Vitest
-tests) and fails on any shortfall without tolerance. It includes visible control values and selected select text.
-The audit does not measure onboarding or add/edit form controls; the A4 field-border fix also applies to those
-controls. Measured minimum per rendered pair in
-the recorded run:
+login and invitation acceptance, plus the Home add form (Repeat on) and item edit form (`frontend/e2e/contrastAudit.ts`,
+maths in `frontend/e2e/contrast.ts` with Vitest tests). Test b measures the onboarding error state. These checks
+include visible control values and selected select text and fail on any shortfall without tolerance. Measured
+minimum per rendered pair in the recorded run:
 
 | Rendered pair (foreground on effective background) | Use | Min ratio | Required |
 |---|---|---:|---:|
@@ -223,7 +222,7 @@ checks and an axe scan.
 | A1 | 2.5.8 | The Repeat and Fluid switch inputs were 20×20 CSS px. | 24×24 (`size-6`); Vitest regression; n14 target scan of the add form with Repeat on. |
 | A2 | 1.3.1 / plain language | In All items, overdue rows read "Needs attention" and then "Needs attention Nov 18, 2024". The state was repeated, and the date did not say it was the start of the overdue period. | Rows now use the same wording as Home: "Needs attention since …" for overdue items, "Needs attention …" for coming-up items and "Attention date …" for paused, waiting, in-progress, done and archived items. Vitest regression (mutation-checked). |
 | A3 | 1.3.1 / 2.4.6 | The All items search form had `role="search"` but no name. | Named "Search items" / "Hledat položky" from the existing label key; Vitest regression (fails without the name). |
-| A4 | 1.4.11 | Form-control borders were 1.43:1 against the page (decorative `line` token). | `field` token `#857c6e` (≥3.41:1) on form-control borders; n21 measures route-entry states of Home, All items, People and things, Members, Account, login and invitation acceptance (see Measured contrast). The same fix applies to onboarding and add/edit form controls, which n21 does not measure. |
+| A4 | 1.4.11 | Form-control borders were 1.43:1 against the page (decorative `line` token). | `field` token `#857c6e` (≥3.41:1) on form-control borders; n21 measures route-entry states of Home, All items, People and things, Members, Account, login and invitation acceptance, plus the Home add form (Repeat on) and item edit form. Test b measures onboarding's error state (see Measured contrast). |
 
 No other defect was found in the snapshots, keyboard sequences, target scans, axe results or zoom measurements.
 
@@ -232,6 +231,7 @@ No other defect was found in the snapshots, keyboard sequences, target scans, ax
 This is an agent review. No human screen-reader user took part, and ARIA snapshots do not prove what a screen
 reader says. The keyboard sweep checks reachability, visible focus and order on route entry. Behaviour inside
 forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase, is covered by n16 and the
-Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the control. Onboarding is checked by n14 (axe, error focus) and the opt-in audit (widths)
-because setup has already finished when n21 runs. Zoom is emulated in headless Chromium, not set through the
-browser's zoom control. None of this is a WCAG conformance certification.
+Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the
+control. Setup has finished before n21 runs, so onboarding is covered elsewhere: test b measures rendered-colour
+contrast of its error state, n14 checks axe and error focus, and the opt-in audit checks widths. Zoom is
+emulated in headless Chromium, not set through the browser's zoom control. None of this is a WCAG conformance certification.

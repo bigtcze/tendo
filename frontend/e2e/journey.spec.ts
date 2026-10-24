@@ -3,7 +3,7 @@ import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
-import { auditContrast, type ContrastAuditRow } from './contrastAudit';
+import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -188,7 +188,16 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('alert').filter({ hasText: en['onboarding.error.setupCode'] })).toBeVisible();
     await expect(page.getByLabel(en['onboarding.householdName'])).toHaveValue(householdName);
     await expect(page.locator('#onboarding-login')).toHaveValue(ownerLogin);
+    await expect(page.locator('#onboarding-timezone')).toHaveValue('America/New_York');
     await expectNoAxeViolations(page, 'onboarding-error');
+    const contrastRows = await auditContrast(page, 'onboarding-error');
+    expect(contrastRows.some((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null), 'onboarding-error has measured non-exempt text').toBe(true);
+    expect(contrastRows.some((row) => row.kind === 'boundary' && row.ratio !== null), 'onboarding-error has a measured control boundary').toBe(true);
+    expect(contrastRows.some((row) => row.name === 'input#household-name[value]'), 'household name value is measured').toBe(true);
+    expect(contrastRows.some((row) => row.name === 'select#onboarding-timezone[value]'), 'time zone selected value is measured').toBe(true);
+    expect(contrastShortfalls(contrastRows), 'onboarding-error contrast failures').toEqual([]);
+    console.log(`contrast-summary onboarding-error ${JSON.stringify({ measured: contrastRows.length, shortfalls: contrastShortfalls(contrastRows).length })}`);
+    await test.info().attach('contrast-evidence-onboarding.json', { body: JSON.stringify(contrastRows, null, 2), contentType: 'application/json' });
   });
 
   test('c. correcting the time zone and onboarding lands on the empty home, skipping login', async () => {
@@ -2753,7 +2762,7 @@ test.describe('Tendo production journey', () => {
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
     const contrastEvidence: ContrastAuditRow[] = [];
     const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
-    const measureContrast = async (target: Page, route: string, expectBoundary = false) => {
+    const measureContrast = async (target: Page, route: string, expectBoundary = false): Promise<ContrastAuditRow[]> => {
       const rows = await auditContrast(target, route);
       const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);
       expect(measuredText.length, `${route} has a measured non-exempt text candidate`).toBeGreaterThan(0);
@@ -2762,6 +2771,7 @@ test.describe('Tendo production journey', () => {
         expect(measuredBoundaries.length, `${route} has a measured control boundary candidate`).toBeGreaterThan(0);
       }
       contrastEvidence.push(...rows);
+      return rows;
     };
     const context = await browser.newContext({ baseURL, locale: 'en-US', storageState: await page.context().storageState() });
     const auditPage = await context.newPage();
@@ -2947,6 +2957,31 @@ test.describe('Tendo production journey', () => {
         await keyboardSweep(auditPage, route.name, route.name !== 'account');
         for (const zoom of [200, 400] as const) await auditZoom(route, zoom);
       }
+      // Measure form states separately from route-entry evidence, including populated control values.
+      await auditPage.goto(routes[0].path);
+      await expectReady(auditPage, routes[0]);
+      await auditPage.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const addForm = auditPage.getByRole('form', { name: en['items.add.formLabel'] });
+      await expect(addForm).toBeVisible();
+      await addForm.getByLabel(en['items.title'], { exact: true }).fill('Contrast evidence item');
+      await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      const addRows = await measureContrast(auditPage, 'home-add-form', true);
+      expect(addRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'home-add-form has a measured [value] text row').toBe(true);
+      await addForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(addForm).toHaveCount(0);
+
+      await auditPage.goto(routes[1].path);
+      await expectReady(auditPage, routes[1]);
+      await auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('link').first().click();
+      await expect(auditPage.getByRole('heading', { level: 1 })).toBeVisible();
+      await auditPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const editForm = auditPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(editForm).toBeVisible();
+      const editRows = await measureContrast(auditPage, 'item-edit-form', true);
+      expect(editRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'item-edit-form has a measured [value] text row').toBe(true);
+      await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(editForm).toHaveCount(0);
+
       // Readiness includes asynchronously loaded content: login's OIDC provider button.
       const signedOutRoutes: Array<{ path: string; name: string; findTitle: string; content: (target: Page) => Locator }> = [
         { path: '/', name: 'login', findTitle: en['login.title'], content: (target) => target.getByRole('button', { name: /^Sign in with / }) },
@@ -3000,7 +3035,7 @@ test.describe('Tendo production journey', () => {
       console.log(`contrast-summary ${JSON.stringify(contrastSummary)}`);
       const contrastFailures = contrastEvidence.filter((row) => !row.exempt && row.ratio !== null && !passesContrastThreshold(row.ratio, row.threshold));
       console.log(`contrast-failures ${JSON.stringify(contrastFailures.map((row) => ({ route: row.route, element: row.name, foreground: row.foreground, background: row.background, ratio: row.ratio, threshold: row.threshold })))}`);
-      expect(contrastFailures.map((row) => `${row.route} ${row.name} ${row.foreground}/${row.background} ${row.ratio?.toFixed(2)} < ${row.threshold}`), 'contrast failures').toEqual([]);
+      expect(contrastShortfalls(contrastEvidence), 'contrast failures').toEqual([]);
       const focusFailures = focusEvidence.filter((row) => row.ratio === null || row.ratio < 3);
       console.log(`focus-contrast-failures ${JSON.stringify(focusFailures)}`);
       expect(focusFailures, 'focus ring contrast').toEqual([]);
