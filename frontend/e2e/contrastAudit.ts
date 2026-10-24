@@ -1,4 +1,4 @@
-import { boundaryPasses, composite, contrastRatio, evaluateContrast, parseColor, type Color, type ContrastResult } from './contrast';
+import { boundaryPasses, composite, contrastRatio, evaluateContrast, parseColor, passesContrastThreshold, type Color, type ContrastResult } from './contrast';
 import type { Page } from '@playwright/test';
 
 type RawCandidate = {
@@ -18,6 +18,13 @@ type RawCandidate = {
 };
 
 export type ContrastAuditRow = ContrastResult & { route: string };
+
+/** Format non-exempt measured rows that fall below their WCAG contrast threshold. */
+export function contrastShortfalls(rows: ContrastAuditRow[]): string[] {
+  return rows
+    .filter((row) => !row.exempt && row.ratio !== null && !passesContrastThreshold(row.ratio, row.threshold))
+    .map((row) => `${row.route} ${row.name} ${row.foreground}/${row.background} ${row.ratio!.toFixed(2)} < ${row.threshold}`);
+}
 
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 const PAPER = 'rgb(250, 247, 242)';
