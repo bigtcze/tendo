@@ -233,7 +233,7 @@ export function OnboardingScreen({
             aria-invalid={target === 'timezone'}
             aria-describedby={describedBy('timezone', 'onboarding-timezone-hint')}
             className={cn(
-              'min-h-11 w-full rounded-xl border border-line bg-white px-4 text-base text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent aria-[invalid=true]:border-danger',
+              'min-h-11 w-full rounded-xl border border-field bg-white px-4 text-base text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent aria-[invalid=true]:border-danger',
             )}
           >
             {zones.map((zone) => (

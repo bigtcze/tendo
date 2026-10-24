@@ -132,8 +132,50 @@ Agent review on the production build (production binary with embedded frontend, 
 Chromium) through the required `scripts/e2e-smoke.sh` journey. The review is mostly encoded as journey **n21**
 so it stays in required CI. The other evidence comes from n14 (axe scans, sampled focus, zoom, reduced motion),
 n15 (widths), n16 (keyboard-only item workflow), n17–n20 (error, loading, session-ended and sign-in states),
-plus Vitest focus and error-association tests. n21 prints its zoom measurements, keyboard sequences and any axe
-`incomplete` results to the runner's process log.
+plus Vitest focus and error-association tests. n21 prints its zoom measurements, keyboard sequences, contrast
+measurements and any axe `incomplete` results to the runner's process log.
+
+### Measured contrast (2026-10-24)
+
+n21 measures rendered colours at route-entry states for Home, All items, People and things, Members, Account,
+login and invitation acceptance (`frontend/e2e/contrastAudit.ts`, maths in `frontend/e2e/contrast.ts` with Vitest
+tests) and fails on any shortfall without tolerance. It includes visible control values and selected select text.
+The audit does not measure onboarding or add/edit form controls; the A4 field-border fix also applies to those
+controls. Measured minimum per rendered pair in
+the recorded run:
+
+| Rendered pair (foreground on effective background) | Use | Min ratio | Required |
+|---|---|---:|---:|
+| ink `#25302b` on paper `#faf7f2` | body text, headings | 12.79:1 | 4.5:1 |
+| ink on sand `#efe9df` | selected / hover surfaces | 11.32:1 | 4.5:1 |
+| ink on card `rgb(253 253 251)` (white/70 over paper) | rows, forms | 13.42:1 | 4.5:1 |
+| muted `#5b655f` on paper | secondary text | 5.66:1 | 4.5:1 |
+| muted on card | row metadata | 5.94:1 | 4.5:1 |
+| accent-strong `#234f41` on card | links | 9.10:1 | 4.5:1 |
+| white on accent `#2f6b57` | primary buttons | 6.25:1 | 4.5:1 |
+| field `#857c6e` on paper | form-control borders (1.4.11) | 3.85:1 | 3:1 |
+| accent focus outline on paper / card | focus indicator (1.4.11) | 5.85:1 / 6.12:1 | 3:1 |
+
+Finding **A4** (1.4.11): form-control borders used the decorative `line` token (`#d8d0c3`, 1.43:1 on paper,
+1.53:1 on white); the white field fill is 1.04:1 against paper, so nothing identified the field edge on login,
+invitation acceptance, All items search/filters, add/edit forms, People and things and onboarding. Fix: a
+`field` token (`#857c6e`; 3.85:1 on paper, 3.41:1 on sand, 4.11:1 on white) for form-control borders only;
+decorative card borders and dividers keep `line`.
+
+Method: text (1.4.3) uses 4.5:1, or 3:1 for large text (≥24 px, or ≥18.66 px at weight ≥700). Foreground
+alpha and ancestor opacity are composited over the effective background, which is built from the root outward
+over paper. Placeholders are measured against their field. Form controls (1.4.11) must have a border of 3:1
+against the surface outside the control unless their own fill differs from it by 3:1. Buttons with a text
+label are identified by their text. Native checkboxes, radios and the Repeat/Fluid switches (`accent-color`)
+are recorded as native and not measured. Disabled controls are recorded and exempt. A background image fails
+as unmeasurable. Every colour is normalized to sRGB through a canvas, because Chromium serializes
+`color-mix()` as `oklab()`, and unknown values fail. Measuring waits for entry animations and focus
+transitions to finish. Each focus stop of the keyboard sweep compares its outline (or box-shadow) colour with
+the composited background around the control (3:1), together with the existing centre hit test (a 2.4.11
+proxy). Mutation-checked: `muted` set to `#9aa39d` fails (axe, n14), `field` reverted to `#d8d0c3` fails n21
+contrast, and the button focus outline set to `sand` fails n21 focus contrast. Hover states are not
+measured. The ring is compared only with the background around the control, not with the control's own fill.
+2.4.13 (AAA focus appearance) is not claimed.
 
 ### What n21 checks on every route
 
@@ -181,6 +223,7 @@ checks and an axe scan.
 | A1 | 2.5.8 | The Repeat and Fluid switch inputs were 20×20 CSS px. | 24×24 (`size-6`); Vitest regression; n14 target scan of the add form with Repeat on. |
 | A2 | 1.3.1 / plain language | In All items, overdue rows read "Needs attention" and then "Needs attention Nov 18, 2024". The state was repeated, and the date did not say it was the start of the overdue period. | Rows now use the same wording as Home: "Needs attention since …" for overdue items, "Needs attention …" for coming-up items and "Attention date …" for paused, waiting, in-progress, done and archived items. Vitest regression (mutation-checked). |
 | A3 | 1.3.1 / 2.4.6 | The All items search form had `role="search"` but no name. | Named "Search items" / "Hledat položky" from the existing label key; Vitest regression (fails without the name). |
+| A4 | 1.4.11 | Form-control borders were 1.43:1 against the page (decorative `line` token). | `field` token `#857c6e` (≥3.41:1) on form-control borders; n21 measures route-entry states of Home, All items, People and things, Members, Account, login and invitation acceptance (see Measured contrast). The same fix applies to onboarding and add/edit form controls, which n21 does not measure. |
 
 No other defect was found in the snapshots, keyboard sequences, target scans, axe results or zoom measurements.
 
@@ -189,6 +232,6 @@ No other defect was found in the snapshots, keyboard sequences, target scans, ax
 This is an agent review. No human screen-reader user took part, and ARIA snapshots do not prove what a screen
 reader says. The keyboard sweep checks reachability, visible focus and order on route entry. Behaviour inside
 forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase, is covered by n16 and the
-Vitest focus tests, not by n21. Focus-indicator contrast is not measured. Onboarding is checked by n14 (axe, error focus) and the opt-in audit (widths)
+Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the control. Onboarding is checked by n14 (axe, error focus) and the opt-in audit (widths)
 because setup has already finished when n21 runs. Zoom is emulated in headless Chromium, not set through the
 browser's zoom control. None of this is a WCAG conformance certification.

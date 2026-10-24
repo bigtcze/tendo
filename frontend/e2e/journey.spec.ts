@@ -2,6 +2,8 @@ import { expect, request, test, type ConsoleMessage, type Locator, type Page } f
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
+import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
+import { auditContrast, type ContrastAuditRow } from './contrastAudit';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -2592,6 +2594,18 @@ test.describe('Tendo production journey', () => {
       for (const text of loadingTexts) await expect(target.getByText(text, { exact: true }), `${route.name} still loading`).toHaveCount(0);
     };
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
+    const contrastEvidence: ContrastAuditRow[] = [];
+    const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
+    const measureContrast = async (target: Page, route: string, expectBoundary = false) => {
+      const rows = await auditContrast(target, route);
+      const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);
+      expect(measuredText.length, `${route} has a measured non-exempt text candidate`).toBeGreaterThan(0);
+      if (expectBoundary) {
+        const measuredBoundaries = rows.filter((row) => row.kind === 'boundary' && row.ratio !== null);
+        expect(measuredBoundaries.length, `${route} has a measured control boundary candidate`).toBeGreaterThan(0);
+      }
+      contrastEvidence.push(...rows);
+    };
     const context = await browser.newContext({ baseURL, locale: 'en-US', storageState: await page.context().storageState() });
     const auditPage = await context.newPage();
     const signedOutContext = await browser.newContext({ baseURL, locale: 'en-US' });
@@ -2638,10 +2652,12 @@ test.describe('Tendo production journey', () => {
         return ids;
       });
       await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
-      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean }> = [];
+      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[] }> = [];
       let loop = '';
       for (let index = 0; index < 150; index += 1) {
         await target.keyboard.press('Tab');
+        // Focus styles transition (transition-colors includes outline-color); measure the settled ring, not a mid-transition colour.
+        await target.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
         const stop = await target.evaluate((position) => {
           const element = document.activeElement as HTMLElement | null;
           if (!element || element === document.body) return null;
@@ -2652,6 +2668,28 @@ test.describe('Tendo production journey', () => {
             return `${outline}|${style.boxShadow}`;
           };
           const focused = indicator();
+          const focusedStyle = getComputedStyle(element);
+          let ringColor = focusedStyle.outlineColor;
+          if (focusedStyle.outlineStyle === 'none' || parseFloat(focusedStyle.outlineWidth) <= 0) {
+            const shadowColor = focusedStyle.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/);
+            ringColor = shadowColor?.[0] ?? 'transparent';
+          }
+          // Normalize every colour (Chromium serializes color-mix() as oklab()) to rgba via canvas; fail closed on unknown values.
+          const canvas = document.createElement('canvas');
+          canvas.width = 1;
+          canvas.height = 1;
+          const context = canvas.getContext('2d', { willReadFrequently: true })!;
+          const toRgba = (value: string) => {
+            if (!CSS.supports('color', value)) return `unsupported ${value}`;
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = value;
+            context.fillRect(0, 0, 1, 1);
+            const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+            return `rgba(${r}, ${g}, ${b}, ${alpha / 255})`;
+          };
+          // Ancestor backgrounds root-first, composited in Node with the shared contrast module.
+          const ringBackgrounds: string[] = [];
+          for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) ringBackgrounds.unshift(toRgba(getComputedStyle(ancestor).backgroundColor));
           const box = element.getBoundingClientRect();
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
@@ -2659,13 +2697,23 @@ test.describe('Tendo production journey', () => {
           const unfocused = indicator();
           element.focus({ preventScroll: true });
           const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
-          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured };
+          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds };
         }, index);
         if (!stop) break;
         if (stops.some((entry) => entry.id === stop.id)) { loop = `${stop.region}:${stop.name}`; break; }
         stops.push(stop);
         if (stop.region === 'footer' && stops.filter((entry) => entry.region === 'footer').length >= 2) break;
       }
+      const focusRatios = stops.map((stop) => {
+        const foreground = parseColor(stop.ringColor);
+        const layers = stop.ringBackgrounds.map(parseColor);
+        const background = layers.every((layer) => layer !== null) ? layers.reduce<Color>((backdrop, layer) => composite(layer!, backdrop), { r: 250, g: 247, b: 242, a: 1 }) : null;
+        const ratio = foreground && background ? contrastRatio(composite(foreground, background), background) : null;
+        const evidence = { route: label, stop: `${stop.region}:${stop.name}`, color: stop.ringColor, background: background ? colorString(background) : `unparsed ${stop.ringBackgrounds.join(' > ')}`, ratio, unobscured: stop.unobscured };
+        focusEvidence.push(evidence);
+        return evidence;
+      });
+      console.log(`focus-contrast ${label} ${JSON.stringify(focusRatios)}`);
       console.log(`keyboard-sweep ${label} ${JSON.stringify(stops.map((stop) => `${stop.region}:${stop.name}`))}`);
       expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
       expect(stops.filter((stop) => stop.focused === stop.unfocused || stop.focused === 'none|none').map((stop) => `${stop.name} [${stop.focused}]`), `${label} stops whose focus does not change the outline or shadow`).toEqual([]);
@@ -2680,10 +2728,51 @@ test.describe('Tendo production journey', () => {
       expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
     };
     try {
+      const fixturePage = await context.newPage();
+      try {
+        await fixturePage.setContent(`
+          <html>
+            <body style="margin: 0; background: #faf7f2; color: #25302b">
+              <input id="fx-transparent" style="background: transparent; border: 1px solid #d8d0c3">
+              <input id="fx-value" value="Low contrast value" style="color: #c8c8c8; background: #fff; border: 1px solid #857c6e">
+              <textarea id="fx-notes" style="color: #c8c8c8; background: #fff">Low contrast notes</textarea>
+              <select id="fx-subject" style="color: #c8c8c8; background: #fff"><option>Low contrast option</option></select>
+              <input id="fx-passing" value="Passing value" style="color: #25302b; background: #fff; border: 1px solid #857c6e">
+            </body>
+          </html>
+        `);
+        const fixtureRows = await auditContrast(fixturePage, 'auditor-self-test');
+        const transparentBoundary = fixtureRows.find((row) => row.kind === 'boundary' && row.name === 'input#fx-transparent');
+        expect(transparentBoundary, 'transparent fixture boundary is collected').toBeDefined();
+        expect(transparentBoundary?.exempt, 'transparent fill cannot exempt its low-contrast border').toBe(false);
+        expect(transparentBoundary?.ratio, 'transparent fixture border is below 3:1').toBeLessThan(3);
+
+        const expectFailingText = (name: string) => {
+          const row = fixtureRows.find((candidate) => candidate.kind === 'text' && candidate.name === name);
+          expect(row, `${name} text is collected`).toBeDefined();
+          expect(row?.exempt, `${name} is not exempt`).toBe(false);
+          expect(row?.ratio, `${name} fails its text threshold`).toBeLessThan(row?.threshold ?? 0);
+        };
+        expectFailingText('input#fx-value[value]');
+        expectFailingText('textarea#fx-notes[value]');
+        expectFailingText('select#fx-subject[value]');
+
+        const passingText = fixtureRows.find((row) => row.kind === 'text' && row.name === 'input#fx-passing[value]');
+        const passingBoundary = fixtureRows.find((row) => row.kind === 'boundary' && row.name === 'input#fx-passing');
+        expect(passingText, 'passing control text is collected').toBeDefined();
+        expect(passingText?.exempt, 'passing control text is not exempt').toBe(false);
+        expect(passingText?.ratio, 'passing control text meets its threshold').toBeGreaterThanOrEqual(passingText?.threshold ?? Infinity);
+        expect(passingBoundary, 'passing control boundary is collected').toBeDefined();
+        expect(passingBoundary?.ratio, 'passing control border meets its threshold').toBeGreaterThanOrEqual(passingBoundary?.threshold ?? Infinity);
+      } finally {
+        await fixturePage.close();
+      }
+
       for (const route of routes) {
         await auditPage.setViewportSize({ width: 1280, height: 800 });
         await auditPage.goto(route.path);
         await expectReady(auditPage, route);
+        await measureContrast(auditPage, route.name, route.name === 'all-items');
         const aria = await auditPage.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
@@ -2711,6 +2800,7 @@ test.describe('Tendo production journey', () => {
         await expect(signedOut.getByRole('main')).toBeVisible();
         await expect(signedOut.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
         await expect(route.content(signedOut), `${route.name} content`).toBeVisible();
+        await measureContrast(signedOut, route.name, route.name === 'login' || route.name === 'invitation-acceptance');
         const aria = await signedOut.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
@@ -2740,6 +2830,24 @@ test.describe('Tendo production journey', () => {
           } finally { await zoomContext.close(); }
         }
       }
+      const contrastPairs = [...new Set(contrastEvidence.map((row) => `${row.foreground} on ${row.background}`))];
+      const contrastSummary = contrastPairs.map((pair) => {
+        const matchingRows = contrastEvidence.filter((row) => `${row.foreground} on ${row.background}` === pair);
+        const measuredRatios = matchingRows.flatMap((row) => row.ratio === null ? [] : [row.ratio]);
+        return {
+          pair,
+          minRatio: measuredRatios.length > 0 ? Math.min(...measuredRatios) : null,
+          measured: matchingRows.length,
+        };
+      });
+      console.log(`contrast-summary ${JSON.stringify(contrastSummary)}`);
+      const contrastFailures = contrastEvidence.filter((row) => !row.exempt && row.ratio !== null && !passesContrastThreshold(row.ratio, row.threshold));
+      console.log(`contrast-failures ${JSON.stringify(contrastFailures.map((row) => ({ route: row.route, element: row.name, foreground: row.foreground, background: row.background, ratio: row.ratio, threshold: row.threshold })))}`);
+      expect(contrastFailures.map((row) => `${row.route} ${row.name} ${row.foreground}/${row.background} ${row.ratio?.toFixed(2)} < ${row.threshold}`), 'contrast failures').toEqual([]);
+      const focusFailures = focusEvidence.filter((row) => row.ratio === null || row.ratio < 3);
+      console.log(`focus-contrast-failures ${JSON.stringify(focusFailures)}`);
+      expect(focusFailures, 'focus ring contrast').toEqual([]);
+      await test.info().attach('contrast-evidence-n21.json',{body:JSON.stringify({summary:contrastSummary,measurements:contrastEvidence},null,2),contentType:'application/json'});
       console.log(`zoom-measurements ${JSON.stringify(measured)}`);
       await test.info().attach('all-route-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
     } finally {

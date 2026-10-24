@@ -186,7 +186,7 @@ export function SubjectForm({
               />
               <span
                 className={cn(
-                  'inline-flex min-h-11 items-center rounded-xl border border-line bg-white px-4 text-base text-ink transition-colors',
+                  'inline-flex min-h-11 items-center rounded-xl border border-field bg-white px-4 text-base text-ink transition-colors',
                   'peer-hover:bg-sand peer-checked:border-accent peer-checked:bg-accent peer-checked:text-white',
                   'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
                 )}
@@ -207,7 +207,7 @@ export function SubjectForm({
             disabled={locked}
             aria-invalid={target === 'linkedUserId'}
             aria-describedby={target === 'linkedUserId' ? errorId : `${linkedId}-hint`}
-            className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="min-h-11 w-full rounded-xl border border-field bg-white px-3 text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <option value="">{t('subjects.link.none')}</option>
             {linkedUserId && !members.some((member) => member.userId === linkedUserId) ? (
