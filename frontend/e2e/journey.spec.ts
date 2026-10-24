@@ -2595,6 +2595,7 @@ test.describe('Tendo production journey', () => {
     };
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
     const contrastEvidence: ContrastAuditRow[] = [];
+    const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
     const measureContrast = async (target: Page, route: string) => {
       const rows = await auditContrast(target, route);
       contrastEvidence.push(...rows);
@@ -2661,11 +2662,16 @@ test.describe('Tendo production journey', () => {
           const focused = indicator();
           const focusedStyle = getComputedStyle(element);
           const ringColor = focusedStyle.outlineStyle !== 'none' && parseFloat(focusedStyle.outlineWidth) > 0 ? focusedStyle.outlineColor : (() => { const shadow = focusedStyle.boxShadow.match(/rgba?\\([^)]*\\)|#[0-9a-fA-F]{3,8}/); return shadow?.[0] ?? 'transparent'; })();
-          let ringBackground = 'rgb(250, 247, 242)';
-          for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-            const candidate = getComputedStyle(ancestor).backgroundColor;
-            if (candidate !== 'rgba(0, 0, 0, 0)') { ringBackground = candidate; break; }
+          let ringBackground = { r: 250, g: 247, b: 242 };
+          const ancestors: Element[] = [];
+          for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) ancestors.push(ancestor);
+          for (const ancestor of ancestors.reverse()) {
+            const components = getComputedStyle(ancestor).backgroundColor.match(/[\\d.]+/g)?.map(Number);
+            if (!components || components.length < 3) continue;
+            const alpha = components[3] ?? 1;
+            ringBackground = { r: components[0] * alpha + ringBackground.r * (1 - alpha), g: components[1] * alpha + ringBackground.g * (1 - alpha), b: components[2] * alpha + ringBackground.b * (1 - alpha) };
           }
+          const ringBackgroundColor = `rgb(${Math.round(ringBackground.r)} ${Math.round(ringBackground.g)} ${Math.round(ringBackground.b)})`;
           const box = element.getBoundingClientRect();
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
@@ -2673,16 +2679,21 @@ test.describe('Tendo production journey', () => {
           const unfocused = indicator();
           element.focus({ preventScroll: true });
           const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
-          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor, ringBackground };
+          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor, ringBackground: ringBackgroundColor };
         }, index);
         if (!stop) break;
         if (stops.some((entry) => entry.id === stop.id)) { loop = `${stop.region}:${stop.name}`; break; }
         stops.push(stop);
         if (stop.region === 'footer' && stops.filter((entry) => entry.region === 'footer').length >= 2) break;
       }
-      const focusRatios=stops.map(stop=>{const fg=parseColor(stop.ringColor),bg=parseColor(stop.ringBackground);return{stop:`${stop.region}:${stop.name}`,color:stop.ringColor,background:stop.ringBackground,ratio:fg&&bg?contrastRatio(fg,bg):null,unobscured:stop.unobscured};});
-      expect(focusRatios.filter(r=>r.ratio!==null&&r.ratio<3).map(r=>`${r.stop} ${r.color} on ${r.background}: ${r.ratio}`),`${label} focus ring contrast`).toEqual([]);
-      expect(focusRatios.filter(r=>r.ratio===null).map(r=>r.stop),`${label} unmeasurable focus ring`).toEqual([]);
+      const focusRatios = stops.map((stop) => {
+        const foreground = parseColor(stop.ringColor);
+        const background = parseColor(stop.ringBackground);
+        const ratio = foreground && background ? contrastRatio(foreground, background) : null;
+        const evidence = { route: label, stop: `${stop.region}:${stop.name}`, color: stop.ringColor, background: stop.ringBackground, ratio, unobscured: stop.unobscured };
+        focusEvidence.push(evidence);
+        return evidence;
+      });
       console.log(`focus-contrast ${label} ${JSON.stringify(focusRatios)}`);
       console.log(`keyboard-sweep ${label} ${JSON.stringify(stops.map((stop) => `${stop.region}:${stop.name}`))}`);
       expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
@@ -2765,6 +2776,9 @@ test.describe('Tendo production journey', () => {
       const contrastFailures = contrastEvidence.filter((row) => !row.exempt && row.ratio !== null && row.ratio + 0.01 < row.threshold);
       console.log(`contrast-failures ${JSON.stringify(contrastFailures.map((row) => ({ route: row.route, element: row.name, foreground: row.foreground, background: row.background, ratio: row.ratio, threshold: row.threshold })))}`);
       expect(contrastFailures.map((row) => `${row.route} ${row.name} ${row.foreground}/${row.background} ${row.ratio?.toFixed(2)} < ${row.threshold}`), 'contrast failures').toEqual([]);
+      const focusFailures = focusEvidence.filter((row) => row.ratio === null || row.ratio < 3);
+      console.log(`focus-contrast-failures ${JSON.stringify(focusFailures)}`);
+      expect(focusFailures, 'focus ring contrast').toEqual([]);
       await test.info().attach('contrast-evidence-n21.json',{body:JSON.stringify({summary:contrastSummary,measurements:contrastEvidence},null,2),contentType:'application/json'});
       console.log(`zoom-measurements ${JSON.stringify(measured)}`);
       await test.info().attach('all-route-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
