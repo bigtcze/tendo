@@ -1324,6 +1324,11 @@ test.describe('Tendo production journey', () => {
       page.on('request', onRequest);
       await page.goto('/');
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      // Home issues its per-group list requests only after its summary resolves; wait for the loaded home
+      // (group overview rendered, loading status gone) so those requests are not counted as All items opening calls.
+      const homeMain = page.getByRole('main');
+      await expect(homeMain.getByRole('navigation', { name: en['items.group.overview'] })).toBeVisible();
+      await expect(homeMain.getByRole('status').filter({ hasText: en['items.loading'] })).toHaveCount(0);
       const beforeNavigation = requests.length;
       await page.getByRole('link', { name: en['home.allItems'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
