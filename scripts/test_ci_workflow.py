@@ -39,6 +39,7 @@ SMOKES = (
     "proxy-smoke",
     "backup-restore-smoke",
     "household-backup-smoke",
+    "upgrade-smoke",
     "quickstart-smoke",
 )
 
@@ -179,7 +180,7 @@ class WorkflowStructureTests(unittest.TestCase):
         deployment = self.text.split("  deployment:", 1)[1].split("  required:", 1)[0]
         self.assertIn("fail-fast: false", deployment)
         self.assertIn("proxy-smoke) timeout_seconds=720", deployment)
-        self.assertIn("household-backup-smoke) timeout_seconds=900", deployment)
+        self.assertIn("household-backup-smoke|upgrade-smoke) timeout_seconds=900", deployment)
         self.assertIn("timeout \"$timeout_seconds\" bash", deployment)
 
     def test_missing_smoke_fails_structure_validation(self):
