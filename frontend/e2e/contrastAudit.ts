@@ -27,9 +27,20 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
   // Entry animations fade content in from opacity 0; measuring mid-animation reports transient, not rendered, colours.
   await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
   return page.evaluate(({ paper, transparent }) => {
-    const parse = (value: string): Color | null => {
-      const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%)?)?\s*\)$/i);
-      return match ? { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: match[4] === undefined ? 1 : Number(match[4]) / (match[5] ? 100 : 1) } : null;
+    // Chromium serializes color-mix() (e.g. Tailwind bg-white/70) as oklab(); let the canvas convert any CSS colour to sRGB.
+    // Fail closed: an unreadable colour must never be skipped as if it were transparent.
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('2D canvas unavailable for colour normalization');
+    const parse = (value: string): Color => {
+      if (!CSS.supports('color', value)) throw new Error(`unsupported colour ${value}`);
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+      return { r, g, b, a: alpha / 255 };
     };
     const formatColor = (color: Color) => `rgb(${Math.round(color.r)} ${Math.round(color.g)} ${Math.round(color.b)})`;
     const blend = (foreground: Color, backdrop: Color): Color => {
@@ -58,17 +69,16 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
     const layers = (element: Element) => {
       const chain: Element[] = [];
       for (let node: Element | null = element; node; node = node.parentElement) chain.push(node);
-      let background = parse(paper)!;
+      let background = parse(paper);
       for (const node of chain.reverse()) {
         const style = getComputedStyle(node);
         if (style.backgroundImage !== 'none') throw new Error(`background image is unmeasurable at ${describe(element)}: ${style.backgroundImage}`);
-        const color = parse(style.backgroundColor);
-        if (color) background = blend(color, background);
+        background = blend(parse(style.backgroundColor), background);
       }
       return background;
     };
-    const ownColor = (element: Element) => parse(getComputedStyle(element).backgroundColor) ?? { r: 0, g: 0, b: 0, a: 0 };
-    const outsideColor = (element: Element) => element.parentElement ? layers(element.parentElement) : parse(paper)!;
+    const ownColor = (element: Element) => parse(getComputedStyle(element).backgroundColor);
+    const outsideColor = (element: Element) => element.parentElement ? layers(element.parentElement) : parse(paper);
     const result: RawCandidate[] = [];
     const textElements = new Set<Element>();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);

@@ -2,7 +2,7 @@ import { expect, request, test, type ConsoleMessage, type Locator, type Page } f
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
-import { contrastRatio, parseColor } from './contrast';
+import { colorString, composite, contrastRatio, parseColor, type Color } from './contrast';
 import { auditContrast, type ContrastAuditRow } from './contrastAudit';
 
 function required(name: string): string {
@@ -2646,10 +2646,12 @@ test.describe('Tendo production journey', () => {
         return ids;
       });
       await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
-      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackground: string }> = [];
+      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[] }> = [];
       let loop = '';
       for (let index = 0; index < 150; index += 1) {
         await target.keyboard.press('Tab');
+        // Focus styles transition (transition-colors includes outline-color); measure the settled ring, not a mid-transition colour.
+        await target.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
         const stop = await target.evaluate((position) => {
           const element = document.activeElement as HTMLElement | null;
           if (!element || element === document.body) return null;
@@ -2661,17 +2663,23 @@ test.describe('Tendo production journey', () => {
           };
           const focused = indicator();
           const focusedStyle = getComputedStyle(element);
-          const ringColor = focusedStyle.outlineStyle !== 'none' && parseFloat(focusedStyle.outlineWidth) > 0 ? focusedStyle.outlineColor : (() => { const shadow = focusedStyle.boxShadow.match(/rgba?\\([^)]*\\)|#[0-9a-fA-F]{3,8}/); return shadow?.[0] ?? 'transparent'; })();
-          let ringBackground = { r: 250, g: 247, b: 242 };
-          const ancestors: Element[] = [];
-          for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) ancestors.push(ancestor);
-          for (const ancestor of ancestors.reverse()) {
-            const components = getComputedStyle(ancestor).backgroundColor.match(/[\\d.]+/g)?.map(Number);
-            if (!components || components.length < 3) continue;
-            const alpha = components[3] ?? 1;
-            ringBackground = { r: components[0] * alpha + ringBackground.r * (1 - alpha), g: components[1] * alpha + ringBackground.g * (1 - alpha), b: components[2] * alpha + ringBackground.b * (1 - alpha) };
-          }
-          const ringBackgroundColor = `rgb(${Math.round(ringBackground.r)} ${Math.round(ringBackground.g)} ${Math.round(ringBackground.b)})`;
+          const ringColor = focusedStyle.outlineStyle !== 'none' && parseFloat(focusedStyle.outlineWidth) > 0 ? focusedStyle.outlineColor : (() => { const shadow = focusedStyle.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/); return shadow?.[0] ?? 'transparent'; })();
+          // Normalize every colour (Chromium serializes color-mix() as oklab()) to rgba via canvas; fail closed on unknown values.
+          const canvas = document.createElement('canvas');
+          canvas.width = 1;
+          canvas.height = 1;
+          const context = canvas.getContext('2d', { willReadFrequently: true })!;
+          const toRgba = (value: string) => {
+            if (!CSS.supports('color', value)) return `unsupported ${value}`;
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = value;
+            context.fillRect(0, 0, 1, 1);
+            const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+            return `rgba(${r}, ${g}, ${b}, ${alpha / 255})`;
+          };
+          // Ancestor backgrounds root-first, composited in Node with the shared contrast module.
+          const ringBackgrounds: string[] = [];
+          for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) ringBackgrounds.unshift(toRgba(getComputedStyle(ancestor).backgroundColor));
           const box = element.getBoundingClientRect();
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
@@ -2679,7 +2687,7 @@ test.describe('Tendo production journey', () => {
           const unfocused = indicator();
           element.focus({ preventScroll: true });
           const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
-          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor, ringBackground: ringBackgroundColor };
+          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds };
         }, index);
         if (!stop) break;
         if (stops.some((entry) => entry.id === stop.id)) { loop = `${stop.region}:${stop.name}`; break; }
@@ -2688,9 +2696,10 @@ test.describe('Tendo production journey', () => {
       }
       const focusRatios = stops.map((stop) => {
         const foreground = parseColor(stop.ringColor);
-        const background = parseColor(stop.ringBackground);
-        const ratio = foreground && background ? contrastRatio(foreground, background) : null;
-        const evidence = { route: label, stop: `${stop.region}:${stop.name}`, color: stop.ringColor, background: stop.ringBackground, ratio, unobscured: stop.unobscured };
+        const layers = stop.ringBackgrounds.map(parseColor);
+        const background = layers.every((layer) => layer !== null) ? layers.reduce<Color>((backdrop, layer) => composite(layer!, backdrop), { r: 250, g: 247, b: 242, a: 1 }) : null;
+        const ratio = foreground && background ? contrastRatio(composite(foreground, background), background) : null;
+        const evidence = { route: label, stop: `${stop.region}:${stop.name}`, color: stop.ringColor, background: background ? colorString(background) : `unparsed ${stop.ringBackgrounds.join(' > ')}`, ratio, unobscured: stop.unobscured };
         focusEvidence.push(evidence);
         return evidence;
       });
