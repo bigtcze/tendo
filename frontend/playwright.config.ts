@@ -18,7 +18,9 @@ export default defineConfig({
   retries: 0,
   forbidOnly: true,
   reporter: 'list',
-  timeout: 30_000,
+  // The opt-in TENDO_E2E_READ_DELAY_MS stress mode slows every household read, so read-heavy tests get a
+  // larger default budget there; required runs keep 30 s. Tests that set their own timeout keep it.
+  timeout: process.env.TENDO_E2E_READ_DELAY_MS ? 90_000 : 30_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL,
