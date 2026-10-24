@@ -137,6 +137,8 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     setInvitationStack([]);
     setCurrentInvitationCursor(undefined);
     setInvitationsLoaded(false);
+    // Clearing the error swaps the retry button for the loading status, so a pending retry cannot be repeated.
+    setInvitationsError(false);
     setInvitations([]);
     setInvitationCursor(null);
     void loadInvitations('', generation);

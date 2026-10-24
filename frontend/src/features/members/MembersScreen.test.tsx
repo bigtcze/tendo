@@ -241,6 +241,31 @@ describe('members and invitations', () => {
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(2);
   });
 
+  it('an undiscovered role shows loading instead of retry while the retry probe is pending', async () => {
+    let invitationCalls = 0;
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: { query: URLSearchParams }) => {
+        if (window.location.pathname !== '/members') return page(members());
+        const pageNumber = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: `user-${pageNumber}`, login: `page_${pageNumber}`, role: 'member' }], nextCursor: `p${pageNumber + 1}` });
+      },
+      [`GET ${base}/invitations`]: () => (++invitationCalls === 1 ? problem(503) : pending),
+    });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(2));
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Invitations couldn’t be loaded. Try again.')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeVisible();
+    await act(async () => { release(page([invitation('one')])); await pending; });
+    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeEnabled();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(2);
+  });
+
   it('an undiscovered role with a persistently failing probe keeps a visible retry', async () => {
     const fake = installFakeServer({
       ...defaults(),
