@@ -13,6 +13,13 @@ const invitation = (id: string, status = 'pending') => ({ id, status, createdAt:
 function renderApp() { return render(<I18nProvider><App /></I18nProvider>); }
 function defaults() { return { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household), ...emptyHome, [`GET ${base}/members`]: page(members()), [`GET ${base}/invitations`]: page([]) }; }
 const problem = (status: number, extra: Record<string, unknown> = {}) => json(status, { type: 'about:blank', title: 'x', status, ...extra });
+// Home reads members in a passive effect. If the Members click lands before that effect has run, React flushes it
+// after openMembers' pushState, so Home's read is recorded with documentPath '/members' and miscounted as discovery.
+// Wait until Home (path '/') has issued its read before navigating.
+async function openMembersAfterHomeRead(fake: { requests: RecordedRequest[] }) {
+  await waitFor(() => expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members` && r.documentPath === '/')).toBe(true));
+  await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
+}
 beforeEach(() => { window.history.replaceState(null, '', '/'); vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -33,7 +40,7 @@ describe('members and invitations', () => {
       [`GET ${base}/invitations`]: page([]),
     });
     renderApp();
-    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(routeRequests).toBe(20);
     expect(discoveryCursors).toEqual([null, ...Array.from({ length: 19 }, (_, i) => `p${i + 2}`)]);
@@ -187,7 +194,7 @@ describe('members and invitations', () => {
       if (cursor === 'p2') return json(200, { items: [{ userId: 'second', login: 'second_page', role: 'member' }], nextCursor: 'p3' });
       return json(200, { items: [{ userId: session().userId, login: 'anna', role: 'owner' }], nextCursor: 'p4' });
     } });
-    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    renderApp(); await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
     const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
     expect(within(memberSection).getByText('first_page')).toBeVisible();
@@ -210,8 +217,7 @@ describe('members and invitations', () => {
       [`GET ${base}/invitations`]: page([]),
     });
     renderApp();
-    await screen.findByRole('link', { name: 'Household members' });
-    await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
+    await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(routeCursors).toHaveLength(20);
     expect(routeCursors.filter((cursor) => cursor !== null)).toHaveLength(19);
@@ -304,7 +310,7 @@ describe('members and invitations', () => {
     await screen.findByRole('link', { name: 'Household members' });
     await userEvent.click(screen.getByRole('link', { name: 'Home' }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
+    await openMembersAfterHomeRead(fake);
     expect(await screen.findByText('Only household owners can invite someone.')).toBeVisible();
     expect(initialMemberCalls).toBe(20);
     expect(within(screen.getByRole('heading', { name: 'Members' }).parentElement!).getAllByRole('listitem')).toHaveLength(1);
