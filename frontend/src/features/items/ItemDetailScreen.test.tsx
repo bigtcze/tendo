@@ -32,8 +32,22 @@ describe('item details', () => {
     installFakeServer(common({ [`GET ${base}/members`]: members }));
     app();
     await screen.findByRole('heading', { name: 'Renew passport' });
+    await waitFor(() => expect(document.title).toBe('Renew passport — Tendo'));
     const nav = screen.getByRole('navigation', { name: 'Household navigation' });
     expect(within(nav).getByRole('link', { name: 'All items' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('titles a failed item load as an error screen and the loaded item once retry succeeds', async () => {
+    let fail = true;
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${path}`]: () => fail ? json(503) : json(200, item(), { ETag: '"1"' }) }));
+    app();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tendo can’t be reached right now.' })).toBeVisible();
+    await waitFor(() => expect(document.title).toBe('Tendo can’t be reached right now. — Tendo'));
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('heading', { level: 1, name: 'Renew passport' });
+    await waitFor(() => expect(document.title).toBe('Renew passport — Tendo'));
   });
 
   it('shows the assigned member in the detail read view and hides the line when unassigned', async () => {
@@ -177,7 +191,8 @@ describe('item details', () => {
 
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
     const oldest = await main.findByText('Done Jan 1, 2020 · Undone');
-    expect(oldest.closest('li')).toHaveClass('opacity-65');
+    expect(oldest).toHaveTextContent('Undone');
+    expect(oldest.closest('li')).not.toHaveClass(/opacity-/);
     expect((await historyList()).getAllByRole('listitem')).toHaveLength(1);
     expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
 
@@ -464,6 +479,7 @@ describe('item details', () => {
     expect(JSON.parse(patch.body)).toEqual({ title: 'Renew passport soon' });
     expect(patch.headers.get('If-Match')).toBe('"2"');
     expect(await screen.findByText('Item updated.')).toBeVisible();
+    await waitFor(() => expect(document.title).toBe('Renew passport soon — Tendo'));
   });
 
   it('keeps unchanged recurrence with server key order and sends only a title edit', async () => {

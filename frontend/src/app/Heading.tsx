@@ -16,6 +16,12 @@ export function Heading({ className, children }: { className?: string; children:
   useLayoutEffect(() => {
     if (transitioned?.current) ref.current?.focus();
   }, [transitioned]);
+  // WCAG 2.4.2: the document title names the current screen; the h1 is its single source.
+  useLayoutEffect(() => {
+    const title = ref.current?.textContent?.trim();
+    document.title = title ? `${title} — Tendo` : 'Tendo';
+  });
+  useLayoutEffect(() => () => { document.title = 'Tendo'; }, []);
   return (
     <h1 ref={ref} tabIndex={-1} className={`${className ?? ''} outline-none`}>
       {children}

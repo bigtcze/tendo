@@ -253,7 +253,7 @@ export const en = {
   'items.subjects.loading': 'Loading…',
   'items.subjectLabels.loading': 'Loading…',
   'items.subjectLabels.error': 'Couldn’t load some names.',
-  'items.subjectLabels.retry': 'Retry names',
+  'items.subjectLabels.retry': 'Load names again',
   'items.unit.day': 'days',
   'items.unit.week': 'weeks',
   'items.unit.month': 'months',
