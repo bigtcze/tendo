@@ -306,7 +306,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
     {backToAll ? backLink : null}
     {state === 'loading' ? <p role="status" className="mt-6 text-muted">{t('items.loading')}</p> : null}
-    {state === 'error' ? <div className="mt-6 space-y-3"><p className="text-muted">{t('app.error.body')}</p><Button type="button" onClick={() => setAttempt((n) => n + 1)}>{t('app.error.retry')}</Button></div> : null}
+    {state === 'error' ? <div className="mt-6 space-y-3"><Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('app.error.title')}</Heading><p className="text-muted">{t('app.error.body')}</p><Button type="button" onClick={() => setAttempt((n) => n + 1)}>{t('app.error.retry')}</Button></div> : null}
     {state === 'gone' ? <div className="mt-6 space-y-3"><Heading className="font-display text-h1">{t('itemDetail.gone')}</Heading><p className="text-muted">{t('itemDetail.goneBody')}</p></div> : null}
     {state === 'ready' && item ? <>
       <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>

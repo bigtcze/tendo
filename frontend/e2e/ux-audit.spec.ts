@@ -303,7 +303,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await capture(page, join(dir, `audit-all-items-done-en-${width}.png`));
         await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('audit-no-such-item-xyz');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-        await expect(page.getByRole('main').locator('p.font-display').getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
         await capture(page, join(dir, `audit-all-items-nomatch-en-${width}.png`));
         if (width === 390 || width === 1440) {
           const csItemsContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });

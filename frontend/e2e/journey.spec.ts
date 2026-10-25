@@ -1589,7 +1589,7 @@ test.describe('Tendo production journey', () => {
       await archivedSearchItem.click();
       await page.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
       await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
-      await expect(page.getByRole('main').locator('p.font-display').getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
       await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['allItems.noMatch'] })).toHaveAttribute('aria-atomic', 'true');
       await statusSelect.selectOption('archived');
       await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(1);
@@ -1986,7 +1986,7 @@ test.describe('Tendo production journey', () => {
       await at320('all-items-search-and-filters', () => allItemsControls('at 320px'));
       await page.getByRole('searchbox').fill(noMatch);
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(page.getByRole('main').locator('p.font-display').getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
       await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['allItems.noMatch'] })).toHaveAttribute('aria-atomic', 'true');
       await expectNoAxeViolations(page, 'all-items-no-match');
 
@@ -2356,7 +2356,8 @@ test.describe('Tendo production journey', () => {
     await page.context().setOffline(true);
     try {
       await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
-      await expect(main.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      await expect(main.locator('p:not(.sr-only)').filter({ hasText: en['app.error.body'] })).toBeVisible();
+    await expect(main.getByRole('status').filter({ hasText: en['app.error.body'] })).toHaveAttribute('aria-atomic', 'true');
       await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
       await page.setViewportSize({ width: 320, height: 720 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px offline horizontal overflow').toBeLessThanOrEqual(0);
@@ -2379,7 +2380,8 @@ test.describe('Tendo production journey', () => {
     n17FailurePhaseActive = true;
     await ownRoute(`**${allItemsPath}`, summaryRoute);
     await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
-    await expect(main.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+    await expect(main.locator('p:not(.sr-only)').filter({ hasText: en['app.error.body'] })).toBeVisible();
+    await expect(main.getByRole('status').filter({ hasText: en['app.error.body'] })).toHaveAttribute('aria-atomic', 'true');
     await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
     await page.unroute(`**${allItemsPath}`, summaryRoute);
     ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === summaryRoute), 1);
@@ -2501,7 +2503,7 @@ test.describe('Tendo production journey', () => {
     await page.context().setOffline(true);
     try {
       await page.getByRole('link', { name: cs['nav.allItems'], exact: true }).click();
-      await expect(page.getByRole('main').getByText(cs['app.error.body'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').locator('p:not(.sr-only)').filter({ hasText: cs['app.error.body'] })).toBeVisible();
       await expect(page.getByRole('main').getByRole('button', { name: cs['app.error.retry'], exact: true })).toBeVisible();
     } finally {
       await page.context().setOffline(false);
@@ -2611,7 +2613,7 @@ test.describe('Tendo production journey', () => {
 
       await main.getByRole('searchbox').fill('N18 no matching household item query');
       await main.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(main.locator('p.font-display').getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+      await expect(main.locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
       await main.getByRole('button', { name: en['allItems.clear'], exact: true }).click();
       await expect(main.getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
 

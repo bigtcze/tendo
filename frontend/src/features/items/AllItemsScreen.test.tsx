@@ -17,6 +17,8 @@ function makeItem(index: number, overrides: Partial<Item> = {}): Item {
 }
 const bootRoutes = { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household), [subjectsPath]: json(200, { items: [subject], nextCursor: null }), [membersPath]: json(200, { items: [member], nextCursor: null }) };
 function app() { return render(<I18nProvider><App /></I18nProvider>); }
+// The persistent outcome region is the only atomic status on the screen; loading and stale notices are not.
+function outcomeRegion() { const region = document.querySelector<HTMLElement>('main [role="status"][aria-atomic="true"]'); if (!region) throw new Error('outcome region missing'); return region; }
 function reqs(requests: RecordedRequest[], path: string) { return requests.filter((request) => request.path === path); }
 async function openAllItems(items: Item[] = [makeItem(1)]) {
   const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, items) });
@@ -106,7 +108,7 @@ describe('All items', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'Item');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('Item 1')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Showing 1–1 of 1'));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Showing 1–1 of 1'));
     expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('q')).toBe('Item');
 
     cleanup();
@@ -135,6 +137,10 @@ describe('All items', () => {
     expect(input).toHaveFocus();
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAttribute('aria-describedby', 'all-items-search-error');
+    const firstAlert = screen.getByRole('alert');
+    await userEvent.type(input, '{Enter}');
+    expect(screen.getByRole('alert')).not.toBe(firstAlert);
+    expect(screen.getByRole('alert')).toHaveTextContent('Search needs to be 200 characters or fewer.');
     expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
   });
 
@@ -224,7 +230,7 @@ describe('All items', () => {
     expect(await screen.findByText('Item 1')).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('Show'), 'archived');
     expect(await screen.findByText('Item 2')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Showing 1–1 of 1'));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Showing 1–1 of 1'));
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('done') === 'true')).toBe(true);
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
@@ -263,14 +269,14 @@ describe('All items', () => {
   it('distinguishes household-empty and no-match states, and Clear resets filters', async () => {
     await openAllItems([]);
     expect(await screen.findByText('There are no items in this household yet.', { selector: 'p.font-display' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('There are no items in this household yet.'));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('There are no items in this household yet.'));
     cleanup();
     window.history.replaceState(null, '', '/');
     const fake = await openAllItems([makeItem(1)]);
     await userEvent.type(screen.getByRole('searchbox'), 'missing');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('No items match.'));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
     await screen.findByText('Item 1');
     expect(window.location.pathname + window.location.search).toBe('/items');
@@ -308,7 +314,7 @@ describe('All items', () => {
 
     await act(async () => releasePatch());
     expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('No items match.'));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
     expect(window.location.pathname + window.location.search).toBe(filteredUrl);
     expect(screen.getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
     expect(fake.requests.slice(readsBeforeBack).some((request) => request.path === `${base}/items/summary` && request.query.get('q') === 'Unique archive target')).toBe(true);
@@ -618,7 +624,7 @@ describe('All items', () => {
     await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
     await screen.findByRole('heading', { name: 'All items' });
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Check your connection and try again.'));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.'));
     expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));

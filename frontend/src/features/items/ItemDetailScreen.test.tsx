@@ -37,6 +37,19 @@ describe('item details', () => {
     expect(within(nav).getByRole('link', { name: 'All items' })).toHaveAttribute('aria-current', 'page');
   });
 
+  it('titles a failed item load as an error screen and the loaded item once retry succeeds', async () => {
+    let fail = true;
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    installFakeServer(common({ [`GET ${path}`]: () => fail ? json(503) : json(200, item(), { ETag: '"1"' }) }));
+    app();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tendo can’t be reached right now.' })).toBeVisible();
+    await waitFor(() => expect(document.title).toBe('Tendo can’t be reached right now. — Tendo'));
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('heading', { level: 1, name: 'Renew passport' });
+    await waitFor(() => expect(document.title).toBe('Renew passport — Tendo'));
+  });
+
   it('shows the assigned member in the detail read view and hides the line when unassigned', async () => {
     const assigned = item({ responsibleUserId: secondMember.userId });
     installFakeServer(common({ [`GET ${path}`]: json(200, assigned, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
