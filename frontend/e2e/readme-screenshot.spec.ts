@@ -131,7 +131,9 @@ test('capture populated README household home screen', async ({ page }) => {
     'Sort the hallway cupboard', 'Plan a family weekend away',
   ]) await expect(page.getByText(title, { exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: en['items.group.overview'] })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: en['items.group.overview'] }).getByRole('link').first()).toBeVisible();
+  await expect(page.getByRole('navigation', { name: en['items.group.overview'] }).getByRole('link')).toHaveText([
+    `${en['items.group.needs']} 4`, `${en['items.group.inProgress']} 2`, `${en['items.group.waiting']} 1`, `${en['items.group.upcoming']} 3`,
+  ]);
   await expect(page.getByText(en['items.responsible.read'].replace('{name}', 'anna_novak'), { exact: true }).first()).toBeVisible();
   await expect(page.getByText(en['items.responsible.you'], { exact: true }).first()).toBeVisible();
 

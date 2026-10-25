@@ -2,7 +2,7 @@
 
 Tendo is a self-hosted shared list for the things a household needs to remember, without forcing everything into a calendar.
 
-![Tendo Home for a sample household: navigation to Home, All items, People and things, Members, and Account; links to each group with its count; and items grouped under Needs attention, In progress, Waiting, and Coming up, each showing who or what it is for, its dates, who is looking after it, and how it repeats](docs/images/v2-overview.png)
+![Tendo Home for a sample household: navigation at the top, links to each group with its item count, and items grouped under Needs attention, In progress, Waiting, and Coming up, with dates, who is looking after them, and repeat details where they apply](docs/images/v2-overview.png)
 
 ## What Tendo does
 
