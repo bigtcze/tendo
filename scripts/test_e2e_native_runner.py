@@ -7,6 +7,7 @@ import subprocess
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -358,6 +359,20 @@ class ChildProcessTests(unittest.TestCase):
 
 
 class FailureLogTests(unittest.TestCase):
+    def test_recipient_fingerprint_is_checked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = pathlib.Path(temporary) / "home"
+            home.mkdir()
+            result = subprocess.run(["gpg", "--batch", "--homedir", str(home), "--passphrase", "", "--quick-generate-key", "Encdiag test", "ed25519", "sign", "0"], capture_output=True)
+            if result.returncode:
+                self.skipTest("gpg key generation unavailable")
+            exported = subprocess.run(["gpg", "--batch", "--homedir", str(home), "--armor", "--export"], capture_output=True, check=True)
+            cert = pathlib.Path(temporary) / "recipient.asc"; cert.write_bytes(exported.stdout)
+            listing = subprocess.run(["gpg", "--batch", "--homedir", str(home), "--with-colons", "--fingerprint"], capture_output=True, text=True, check=True)
+            fingerprint = next(line.split(":")[9] for line in listing.stdout.splitlines() if line.startswith("fpr:"))
+            self.assertTrue(runner.verify_diagnostics_recipient(cert, fingerprint))
+            self.assertFalse(runner.verify_diagnostics_recipient(cert, runner.EXPECTED_DIAGNOSTICS_FINGERPRINT))
+
     def test_full_redacted_process_log_is_written_without_registered_secret(self):
         token = runner.generated_secret(32)
         with tempfile.TemporaryDirectory() as tmp:
@@ -462,7 +477,7 @@ class FailureLogTests(unittest.TestCase):
                 self.assertTrue(runner.stage_ci_upload(staged, source))
                 self.assertEqual((results / "github-output").read_text(), "ci_upload=ready\n")
             for path in staged.iterdir():
-                if path.is_file() and path.name != "STAGED_OK":
+                if path.is_file() and path.name not in {"STAGED_OK", "diagnostics.tar.gpg"}:
                     contents = path.read_text()
                     for leaked in (secret, percent, encoded):
                         self.assertNotIn(leaked, contents)
@@ -536,8 +551,8 @@ class FailureLogTests(unittest.TestCase):
             with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(results / "github-output")}):
                 self.assertTrue(runner.stage_ci_upload(staged, source))
             files = {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
-            self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md", "STAGED_OK"})
-            combined = "\n".join(p.read_text() for p in staged.rglob("*") if p.is_file())
+            self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md", "STAGED_OK", "diagnostics.tar.gpg", "diagnostics.manifest.json"})
+            combined = "\n".join(p.read_text() for p in staged.rglob("*") if p.is_file() and p.name != "diagnostics.tar.gpg")
             self.assertNotIn("owner-secret-123", combined)
             self.assertNotIn("database-secret-456", combined)
             self.assertNotIn("stdout", combined)
@@ -611,7 +626,7 @@ class FailureLogTests(unittest.TestCase):
             with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(pathlib.Path, "write_text", fail_report):
                 self.assertTrue(runner.stage_ci_upload(results / "upload", source))
             staged = results / "upload"
-            self.assertEqual([path.name for path in staged.iterdir()], ["SANITIZE_FAILED"])
+            self.assertEqual(set(path.name for path in staged.iterdir()), {"SANITIZE_FAILED", "diagnostics.tar.gpg", "diagnostics.manifest.json"})
             self.assertEqual(output.read_text(), "ci_upload=ready\n")
 
     def test_github_output_unset_does_not_crash_after_publication(self):
@@ -634,7 +649,7 @@ class FailureLogTests(unittest.TestCase):
             output = results / "github-output"
             with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(runner, "sanitize_json_value", side_effect=ValueError("invalid")):
                 self.assertTrue(runner.stage_ci_upload(destination, source))
-            self.assertEqual([p.name for p in destination.iterdir()], ["SANITIZE_FAILED"])
+            self.assertEqual(set(p.name for p in destination.iterdir()), {"SANITIZE_FAILED", "diagnostics.tar.gpg", "diagnostics.manifest.json"})
             self.assertEqual(output.read_text(), "ci_upload=ready\n")
 
     def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
@@ -696,7 +711,7 @@ class FailureReportingLifecycleTests(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     runner.main()
             self.assertFalse(destination.exists())
-            stage.assert_not_called()
+            stage.assert_called_once_with(destination, mock.ANY)
 
     def test_success_does_not_write_redacted_log(self):
         with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
@@ -767,6 +782,276 @@ class FailureReportingLifecycleTests(unittest.TestCase):
         self._main(env={"TEST_DATABASE_URL": "postgresql://r:runtime%2Fpw@db/app", "TEST_DATABASE_ADMIN_URL": "postgresql://m:adminpw@db/postgres"})
         self.assertNotIn("runtime/pw", runner.redact("x runtime/pw y"))
         self.assertNotIn("adminpw", runner.redact("x adminpw y"))
+
+class EncryptedDiagnosticsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = pathlib.Path(cls.temp.name)
+        cls.home = cls.root / "private-home"; cls.home.mkdir(mode=0o700)
+        env = {**os.environ, "GNUPGHOME": str(cls.home)}
+        subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "Encdiag Test <encdiag@example.invalid>", "ed25519", "cert", "0"], env=env, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        listing = subprocess.run(["gpg", "--batch", "--with-colons", "--fingerprint"], env=env, check=True, capture_output=True, text=True)
+        cls.fingerprint = next(line.split(":")[9] for line in listing.stdout.splitlines() if line.startswith("fpr:"))
+        subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-add-key", cls.fingerprint, "cv25519", "encr", "0"], env=env, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.certificate = cls.root / "recipient.asc"
+        with cls.certificate.open("wb") as output:
+            subprocess.run(["gpg", "--batch", "--armor", "--export", cls.fingerprint], env=env, check=True, stdout=output)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def setUp(self):
+        runner._cancel_deadline = None
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tempdir.name)
+        self.source = self.root / "native-uuid"; self.source.mkdir()
+        (self.source / "process.log").write_text("RAW CREDENTIAL\n")
+        (self.source / "process.redacted.log").write_text("redacted details\n")
+        (self.source / "attention-clock.json").write_text('{"clock":1}')
+        report = self.source / "report-uuid.json"; report.write_text('{"safe":true}')
+        html = self.source / "html-report-uuid"; html.mkdir(); (html / "index.html").write_text("report")
+        artifacts = self.source / "artifacts" / "test-failed"; artifacts.mkdir(parents=True)
+        (artifacts / "trace.zip").write_bytes(b"trace bytes")
+        (artifacts / "failure.png").write_bytes(b"png bytes")
+        (artifacts / "error-context.md").write_text("safe context")
+        self.destination = self.root / "upload"; self.destination.mkdir()
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+        runner._cancel_deadline = None
+
+    def _encrypt(self, recipient=None, expected=None):
+        recipient = recipient or self.certificate
+        expected = expected or self.fingerprint
+        return runner.stage_encrypted_diagnostics(self.destination, self.source, recipient, expected)
+
+    def _decrypt(self, home, ciphertext=None):
+        return subprocess.run(["gpg", "--batch", "--yes", "--homedir", str(home), "--decrypt", str(ciphertext or self.destination / "diagnostics.tar.gpg")], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def test_real_round_trip_preserves_files_and_manifest_hashes(self):
+        self.assertTrue(self._encrypt())
+        imported = subprocess.run(["gpg", "--batch", "--homedir", str(self.home), "--import", str(self.certificate)], capture_output=True)
+        self.assertEqual(imported.returncode, 0)
+        decrypted = self._decrypt(self.home)
+        self.assertEqual(decrypted.returncode, 0, decrypted.stderr)
+        tar_path = self.root / "unpacked.tar"; tar_path.write_bytes(decrypted.stdout)
+        unpack = self.root / "unpacked"; unpack.mkdir()
+        with __import__("tarfile").open(tar_path) as archive:
+            archive.extractall(unpack)
+        manifest = json.loads((unpack / "MANIFEST.json").read_text())
+        expected_paths = {p.relative_to(self.source).as_posix() for p in self.source.rglob("*") if p.is_file() and p.name != "process.log"}
+        self.assertEqual({entry["path"] for entry in manifest}, expected_paths)
+        self.assertNotIn("process.log", {entry["path"] for entry in manifest})
+        for entry in manifest:
+            contents = (unpack / entry["path"]).read_bytes()
+            self.assertEqual(len(contents), entry["size"])
+            self.assertEqual(__import__("hashlib").sha256(contents).hexdigest(), entry["sha256"])
+        self.assertFalse((unpack / "process.log").exists())
+        public = json.loads((self.destination / "diagnostics.manifest.json").read_text())
+        self.assertEqual(public["recipient_fingerprint"], self.fingerprint)
+        ciphertext = (self.destination / "diagnostics.tar.gpg").read_bytes()
+        self.assertEqual(public["ciphertext_size"], len(ciphertext))
+        self.assertEqual(public["ciphertext_sha256"], __import__("hashlib").sha256(ciphertext).hexdigest())
+
+    def test_wrong_recipient_and_invalid_inputs_make_fixed_marker_without_plaintext(self):
+        scenarios = [(self.certificate, "0" * 40, "RECIPIENT_INVALID"), (self.root / "missing.asc", self.fingerprint, "RECIPIENT_INVALID")]
+        for recipient, fingerprint, marker in scenarios:
+            with self.subTest(marker=marker):
+                self.assertFalse(runner.stage_encrypted_diagnostics(self.destination, self.source, recipient, fingerprint))
+                self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), marker)
+                self.assertFalse((self.destination / "diagnostics.tar.gpg").exists())
+                self.assertFalse(any(p.suffix == ".tar" for p in self.destination.iterdir()))
+                (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
+
+    def test_gpg_missing_failure_timeout_and_limits_make_marker(self):
+        runner._cancel_deadline = None
+        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.shutil, "which", return_value=None):
+            self.assertFalse(self._encrypt())
+        self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "GPG_UNAVAILABLE")
+        (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
+        runner._cancel_deadline = time.monotonic() + 0.1
+        fake_process = mock.Mock(returncode=None)
+        fake_process.poll.return_value = None
+        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.subprocess, "Popen", return_value=fake_process):
+            self.assertFalse(self._encrypt())
+        self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "TIMEOUT")
+        (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
+        runner._cancel_deadline = None
+        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner, "MAX_DIAGNOSTIC_FILE_SIZE", 1):
+            self.assertFalse(self._encrypt())
+        self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "SIZE_LIMIT")
+        (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
+        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner, "MAX_DIAGNOSTIC_TOTAL_SIZE", 1):
+            self.assertFalse(self._encrypt())
+        self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "SIZE_LIMIT")
+        (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
+        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner, "MAX_DIAGNOSTIC_FILES", 1):
+            self.assertFalse(self._encrypt())
+        self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "SIZE_LIMIT")
+
+    def test_symlinked_files_are_skipped_and_stage_sanitization_is_independent(self):
+        external = self.root / "outside.txt"; external.write_text("outside")
+        (self.source / "artifacts" / "test-failed" / "outside-link").symlink_to(external)
+        self.assertTrue(self._encrypt())
+        with mock.patch.dict("os.environ", {}, clear=True):
+            staged = self.root / "stage"
+            self.assertTrue(runner.stage_ci_upload(staged, self.source))
+        self.assertTrue((staged / "diagnostics.tar.gpg").exists())
+        self.assertTrue((staged / "process.redacted.log").exists())
+        (self.destination / "diagnostics.tar.gpg").unlink(missing_ok=True)
+        (self.destination / "diagnostics.manifest.json").unlink(missing_ok=True)
+
+    def test_stage_missing_redacted_log_keeps_encrypted_pair(self):
+        (self.source / "process.redacted.log").unlink()
+        staged = self.root / "missing-log-upload"
+        self.assertTrue(runner.stage_ci_upload(staged, self.source))
+        self.assertTrue((staged / "SANITIZE_FAILED").exists())
+        self.assertTrue((staged / "diagnostics.tar.gpg").exists() or (staged / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
+
+    def test_process_log_is_excluded_from_bundle(self):
+        self.assertTrue(self._encrypt())
+        imported_home = self.root / "imported"; imported_home.mkdir(mode=0o700)
+        subprocess.run(["gpg", "--batch", "--homedir", str(imported_home), "--import", str(self.certificate)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        decrypted = self._decrypt(self.home)
+        tar_path = self.root / "process-exclusion.tar"; tar_path.write_bytes(decrypted.stdout)
+        with __import__("tarfile").open(tar_path) as archive:
+            self.assertNotIn("process.log", archive.getnames())
+
+    def test_encryption_failure_retains_sanitized_text_and_sanitizer_failure_keeps_encryption(self):
+        source = self.source
+        def fail_encryption(destination, *_args, **_kwargs):
+            (destination / "ENCRYPTED_DIAGNOSTICS_FAILED").write_text("GPG_FAILED\\n")
+            return False
+        with mock.patch.object(runner, "stage_encrypted_diagnostics", side_effect=fail_encryption):
+            staged = self.root / "text-upload"
+            self.assertTrue(runner.stage_ci_upload(staged, source))
+        self.assertTrue((staged / "process.redacted.log").exists())
+        self.assertTrue((staged / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
+        staged2 = self.root / "sanitizer-upload"
+        with mock.patch.object(runner, "sanitize_json_value", side_effect=ValueError("secret path")):
+            self.assertTrue(runner.stage_ci_upload(staged2, source))
+        self.assertTrue((staged2 / "SANITIZE_FAILED").exists())
+        self.assertTrue((staged2 / "diagnostics.tar.gpg").exists() or (staged2 / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
+        self.assertNotIn("secret path", (staged2 / "SANITIZE_FAILED").read_text())
+        missing_log = self.root / "missing-redacted-log"; (source / "process.redacted.log").unlink()
+        self.assertTrue(runner.stage_ci_upload(missing_log, source))
+        self.assertTrue((missing_log / "SANITIZE_FAILED").exists())
+        self.assertTrue((missing_log / "diagnostics.tar.gpg").exists() or (missing_log / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
+
+    def test_public_only_and_wrong_homes_cannot_decrypt_and_ciphertext_corruption_fails(self):
+        self.assertTrue(self._encrypt())
+        pubhome = self.root / "pubhome"; pubhome.mkdir(mode=0o700)
+        subprocess.run(["gpg", "--batch", "--homedir", str(pubhome), "--import", str(self.certificate)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertNotEqual(self._decrypt(pubhome).returncode, 0)
+        wronghome = self.root / "wronghome"; wronghome.mkdir(mode=0o700)
+        wrong_env = {**os.environ, "GNUPGHOME": str(wronghome)}
+        subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "Wrong key <wrong@example.invalid>", "ed25519", "cert", "0"], env=wrong_env, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertNotEqual(self._decrypt(wronghome).returncode, 0)
+        original = (self.destination / "diagnostics.tar.gpg").read_bytes()
+        for payload in (original[:-8], original[:-1] + bytes([original[-1] ^ 1])):
+            tampered = self.root / "tampered.gpg"; tampered.write_bytes(payload)
+            self.assertNotEqual(self._decrypt(self.home, tampered).returncode, 0)
+
+    def test_gpg_nonzero_after_partial_output_leaves_no_final_ciphertext(self):
+        real_popen = runner.subprocess.Popen
+        runner._cancel_deadline = None
+        class FailedGpg:
+            returncode = 2
+            def poll(self):
+                return self.returncode
+            def wait(self, **_kwargs):
+                return self.returncode
+            def kill(self):
+                self.returncode = -9
+        def partial(command, **_kwargs):
+            pathlib.Path(command[command.index("--output") + 1]).write_bytes(b"partial")
+            return FailedGpg()
+        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.subprocess, "Popen", side_effect=partial):
+            self.assertFalse(self._encrypt())
+        self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "GPG_FAILED")
+        self.assertFalse((self.destination / "diagnostics.tar.gpg").exists())
+
+    def test_sigterm_during_encryption_cleans_private_tar_and_publishes_failure_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary); source = root / "native-run"; source.mkdir()
+            (source / "process.redacted.log").write_text("safe log\\n")
+            artifacts = source / "artifacts"; artifacts.mkdir(); (artifacts / "trace.zip").write_bytes(b"trace")
+            upload = root / "upload"
+            fakebin = root / "bin"; fakebin.mkdir()
+            fakegpg = fakebin / "gpg"
+            started_marker = root / "gpg-started"
+            fakegpg.write_text("#!/usr/bin/python3\nimport os, pathlib, time\npathlib.Path(os.environ['GPG_STARTED']).touch()\ntime.sleep(30)\n")
+            fakegpg.chmod(0o755)
+            module_path = str(MODULE)
+            child_code = f'''import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("runner", {module_path!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_diagnostics_recipient = lambda *_: True
+def fail_suite(root, app, provider, inherited, children, artifacts):
+    (artifacts / "process.log").write_text("failure\\n")
+    raise RuntimeError("expected test failure")
+module.run_suite = fail_suite
+sys.argv = ["runner", "--root", {str(root)!r}, "--app", {str(root / 'app')!r}, "--provider", {str(root / 'provider')!r}]
+try:
+    module.main()
+except RuntimeError:
+    pass
+'''
+            env = {**os.environ, "PATH": str(fakebin) + os.pathsep + os.environ.get("PATH", ""),
+                   "E2E_CI_UPLOAD_DIR": str(upload), "E2E_DIAGNOSTICS_RECIPIENT": str(self.certificate),
+                   "GPG_STARTED": str(started_marker)}
+            (root / "app").touch(); (root / "provider").touch()
+            proc = subprocess.Popen([sys.executable, "-c", child_code], env=env)
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline and not started_marker.exists() and proc.poll() is None:
+                time.sleep(.02)
+            if not started_marker.exists():
+                self.fail(proc.communicate(timeout=1)[0] or "child did not begin GPG encryption")
+            started = time.monotonic(); proc.send_signal(signal.SIGTERM)
+            self.assertEqual(proc.wait(timeout=18), 128 + signal.SIGTERM)
+            self.assertLess(time.monotonic() - started, 17)
+            self.assertEqual(list(root.rglob("tendo-encrypted-diag-*")), [])
+            self.assertFalse(list(root.rglob("diagnostics.tar")))
+            self.assertTrue((upload / "ENCRYPTED_DIAGNOSTICS_FAILED").is_file())
+            self.assertEqual((upload / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "TIMEOUT")
+            self.assertFalse(list(upload.glob("*.tar")))
+
+    def test_mid_staging_cancel_shortens_gpg_wait_to_failure_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary); source = root / "native"; source.mkdir()
+            artifacts = source / "artifacts"; artifacts.mkdir(); (artifacts / "trace.zip").write_bytes(b"trace")
+            destination = root / "upload"; destination.mkdir()
+            fakebin = root / "bin"; fakebin.mkdir()
+            fakegpg = fakebin / "gpg"; fakegpg.write_text("#!/bin/sh\nexec sleep 30\n"); fakegpg.chmod(0o755)
+            started_marker = root / "gpg-started"
+            fakegpg.write_text(f"#!/usr/bin/python3\nimport pathlib, time\npathlib.Path({str(started_marker)!r}).touch()\ntime.sleep(30)\n")
+            fakegpg.chmod(0o755)
+            original_which = runner.shutil.which
+            with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.shutil, "which", side_effect=lambda name: str(fakegpg) if name == "gpg" else original_which(name)):
+                def cancel_when_gpg_starts():
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline and not started_marker.exists(): time.sleep(.01)
+                    runner._cancel_deadline = time.monotonic() + runner.CANCELLED_STAGING_BUDGET
+                timer = threading.Thread(target=cancel_when_gpg_starts)
+                timer.start(); started = time.monotonic()
+                self.assertFalse(runner.stage_encrypted_diagnostics(destination, source, self.certificate))
+                timer.join()
+            self.assertLess(time.monotonic() - started, 17)
+            self.assertEqual((destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "TIMEOUT")
+            self.assertFalse(list(root.rglob("diagnostics.tar")))
+
+    def test_workflow_is_secret_free_and_upload_gated(self):
+        workflow = (pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/required.yml").read_text()
+        e2e = workflow.split("  e2e:\n", 1)[1].split("\n  deployment:", 1)[0]
+        self.assertNotIn("secrets.", e2e)
+        upload = e2e.split("- name: Upload E2E failure diagnostics", 1)[1]
+        self.assertIn("steps.e2e.outputs.ci_upload == 'ready'", upload)
+        self.assertIn("${{ runner.temp }}/e2e-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}/", upload)
+        self.assertNotIn("frontend/test-results", upload)
+
 
 if __name__ == "__main__":
     unittest.main()

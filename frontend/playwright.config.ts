@@ -35,6 +35,7 @@ export default defineConfig({
     headless: process.env.E2E_SR_HEADFUL ? false : true,
     launchOptions: process.env.E2E_SR_HEADFUL ? { args: ['--force-renderer-accessibility', '--window-size=1200,850'] } : {},
     trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     locale: 'en-US',
   },
 });
