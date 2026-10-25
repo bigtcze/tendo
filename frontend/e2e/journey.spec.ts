@@ -171,6 +171,8 @@ test.describe('Tendo production journey', () => {
     expect(response?.status()).toBe(200);
     await expect(page.getByRole('heading', { level: 1, name: en['onboarding.title'] })).toBeVisible();
     await expect(page.locator('#onboarding-timezone')).toHaveValue('America/New_York');
+    // THROWAWAY PROBE (never merge): proves CI failure artifacts survive and redact the generated owner password.
+    expect(ownerPassword, 'intentional artifact-retention canary').toBe('intentional-artifact-probe-mismatch');
     await expect(page.getByRole('combobox')).toHaveCount(1); // only the time zone select
     await expect(page.getByText(/switch household/i)).toHaveCount(0);
 
