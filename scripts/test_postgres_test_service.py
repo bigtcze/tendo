@@ -62,12 +62,14 @@ class FakeService(service.Service):
         self.inherited = inherited
         self.fail_on = fail_on
         self.statements = []
+        self.deadlines = []
         self.roles = {}
         self.databases = {}
         self.next_oid = 100
 
-    def run(self, sql, *, database=None, tuples=False, allow_cancelled=False):
+    def run(self, sql, *, database=None, tuples=False, allow_cancelled=False, deadline=service.PSQL_DEADLINE_SECONDS):
         self.statements.append((sql, database, tuples))
+        self.deadlines.append((sql, deadline))
         if "SHOW server_version_num" in sql:
             return self.version
         if "string_agg(r.rolname" in sql:
@@ -143,6 +145,54 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(set(first.child_env), {"TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TEST_DATABASE_RUNTIME_ROLE", "TEST_DATABASE_MIGRATOR_ROLE"})
         self.assertTrue(any("TEMPLATE template0" in sql for sql, _, _ in first.statements))
         self.assertEqual(first.run("SELECT 1"), "")
+
+    def test_slow_create_database_within_its_deadline_provisions_and_cleans_up(self):
+        # CI run 40148690838: CREATE DATABASE finished after ~12 s, but the
+        # 10-second psql deadline killed the client and left an orphan database.
+        instance = service.Service("postgresql://admin:secret@localhost/postgres")
+        oids = iter(range(500, 600))
+        created = {}
+
+        def fake_psql(args, *, input, timeout, **kwargs):
+            if input.startswith("CREATE DATABASE"):
+                if timeout < 12:
+                    raise service.subprocess.TimeoutExpired(args, timeout)
+                created[input.split('"')[1]] = next(oids)
+                out = ""
+            elif input == "SHOW server_version_num":
+                out = "180006"
+            elif "rolcanlogin" in input:
+                out = "1|f|f|f|f|f|f"
+            elif input.startswith("BEGIN; CREATE ROLE"):
+                out = f"{next(oids)}\n{next(oids)}"
+            elif input.startswith("SELECT oid FROM pg_database"):
+                out = str(next(iter(created.values())))
+            else:
+                out = ""
+            return mock.Mock(returncode=0, stdout=out, stderr="")
+
+        with mock.patch.object(service.subprocess, "run", side_effect=fake_psql) as run:
+            instance.provision()
+        self.assertIn(instance.database, instance.created_dbs)
+        self.assertFalse(instance.database_creation_uncertain)
+        deadlines = {call.kwargs["input"].split(" ")[0]: call.kwargs["timeout"] for call in run.call_args_list}
+        self.assertEqual(deadlines["CREATE"], service.CREATE_DATABASE_DEADLINE_SECONDS)
+        self.assertEqual(deadlines["SHOW"], service.PSQL_DEADLINE_SECONDS)
+
+    def test_timeout_message_reports_the_applied_deadline(self):
+        instance = service.Service("postgresql://admin:secret@localhost/postgres")
+        with mock.patch.object(service.subprocess, "run", side_effect=service.subprocess.TimeoutExpired("psql", 60)):
+            with self.assertRaisesRegex(RuntimeError, "exceeded 60-second deadline"):
+                instance.run("CREATE DATABASE x", deadline=60)
+
+    def test_only_create_database_gets_the_longer_deadline(self):
+        control = FakeService()
+        control.provision()
+        control.cleanup()
+        for sql, deadline in control.deadlines:
+            expected = service.CREATE_DATABASE_DEADLINE_SECONDS if sql.startswith("CREATE DATABASE") else service.PSQL_DEADLINE_SECONDS
+            with self.subTest(sql=sql[:40]):
+                self.assertEqual(deadline, expected)
 
     def test_rejects_wrong_version_and_privileged_role_before_writes(self):
         cases = [FakeService(version="170006"), FakeService(role="1|t|t|f|f|f|f")]
