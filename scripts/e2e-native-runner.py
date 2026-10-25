@@ -9,6 +9,7 @@ import re
 import secrets
 import shutil
 import json
+import tempfile
 import signal
 import socket
 import subprocess
@@ -28,9 +29,25 @@ FAILURE_LOG_TAIL_LINES = 200
 ROUTINE_ACCESS_LINE = re.compile(r" INFO http request .* status=[23]\d\d ")
 
 
+def register_sensitive_value(value: str) -> None:
+    if not value:
+        return
+    variants = {
+        value,
+        urllib.parse.quote(value, safe=""),
+        urllib.parse.quote_plus(value),
+        json.dumps(value)[1:-1],
+        json.dumps(value)[1:-1].replace("/", "\\/"),
+    }
+    for encoded in (base64.b64encode(value.encode()), base64.urlsafe_b64encode(value.encode())):
+        variants.add(encoded.decode())
+        variants.add(encoded.decode().rstrip("="))
+    SENSITIVE_VALUES.update(variants)
+
+
 def generated_secret(nbytes: int) -> str:
     value = base64.b64encode(secrets.token_bytes(nbytes)).decode("ascii")
-    SENSITIVE_VALUES.add(value)
+    register_sensitive_value(value)
     return value
 
 
@@ -38,11 +55,11 @@ def register_database_url(value: str):
     """Register a database URL plus its encoded and decoded password for failure-log redaction."""
     if not value:
         return
-    SENSITIVE_VALUES.add(value)
+    register_sensitive_value(value)
     password = urllib.parse.urlsplit(value).password
     if password:
-        SENSITIVE_VALUES.add(password)
-        SENSITIVE_VALUES.add(urllib.parse.unquote(password))
+        register_sensitive_value(password)
+        register_sensitive_value(urllib.parse.unquote(password))
 
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -55,6 +72,10 @@ STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
     (re.compile(r'(?i)(["\'](?:password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
+    (re.compile(r'(?is)(["\']name["\']\s*:\s*["\'](?:tendo_session[^"\']*|[^"\']*cookie[^"\']*)["\'][^{}]*?["\']value["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
+    (re.compile(r'(?i)(["\']value["\']\s*:\s*)["\'][^"\']*["\'](?=\s*[,}])'), r'\1"[redacted]"'),
+    (re.compile(r"(?i)(?<![A-Za-z0-9_-])#([A-Za-z0-9_-]{20,})"), r"#[redacted]"),
+    (re.compile(r"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_+/=-]{24,}(?![A-Za-z0-9_+/=-]))(?=[A-Za-z0-9_+/-]*[A-Z])(?=[A-Za-z0-9_+/-]*[a-z])(?=[A-Za-z0-9_+/-]*[0-9])[A-Za-z0-9_+/=-]{24,}"), "[redacted]"),
     (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
 )
 
@@ -104,39 +125,63 @@ def sanitize_json_value(value):
     return value
 
 
-def stage_ci_upload(test_results_dir: Path, source_dir: Path) -> Path:
-    """Build a fail-closed allowlist for public CI artifact upload."""
+def remove_upload_destination(test_results_dir: Path) -> None:
     destination = test_results_dir / "ci-upload"
+    if destination.is_symlink() or destination.is_file():
+        destination.unlink()
+    elif destination.exists():
+        shutil.rmtree(destination)
+
+
+def stage_ci_upload(test_results_dir: Path, source_dir: Path) -> Path:
+    """Build a fail-closed allowlist in a fresh sibling and publish it atomically."""
+    destination = test_results_dir / "ci-upload"
+    temporary = None
     try:
-        if destination.is_symlink():
-            destination.unlink()
-        elif destination.exists():
-            shutil.rmtree(destination)
-        destination.mkdir(parents=True)
+        remove_upload_destination(test_results_dir)
+        temporary = Path(tempfile.mkdtemp(prefix=".ci-upload-", dir=test_results_dir))
         redacted_log = source_dir / "process.redacted.log"
-        if not redacted_log.is_file():
-            raise FileNotFoundError("redacted process log missing")
-        (destination / "process.redacted.log").write_text(redact(redacted_log.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
-        for path in source_dir.rglob("*"):
-            if not path.is_file() or destination in path.parents:
-                continue
-            if path.name.startswith("report-") and path.suffix == ".json":
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                (destination / path.name).write_text(json.dumps(sanitize_json_value(payload), ensure_ascii=False, indent=2), encoding="utf-8")
-            elif path.name == "error-context.md":
-                (destination / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
-            # Failure screenshots are deliberately omitted: invite links are rendered in-page and
-            # Playwright has no global mask for its automatic failure screenshots.
+        if redacted_log.is_symlink() or not redacted_log.is_file():
+            raise FileNotFoundError("redacted process log missing or symlinked")
+        (temporary / "process.redacted.log").write_text(redact(redacted_log.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+        for current, dirs, files in os.walk(source_dir, followlinks=False):
+            current_path = Path(current)
+            dirs[:] = [name for name in dirs if not (current_path / name).is_symlink()]
+            for name in files:
+                path = current_path / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if path.name.startswith("report-") and path.suffix == ".json":
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    (temporary / path.name).write_text(json.dumps(sanitize_json_value(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+                elif path.name == "error-context.md":
+                    (temporary / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+        (temporary / "STAGED_OK").write_text("ok\n", encoding="utf-8")
+        os.replace(temporary, destination)
         return destination
     except BaseException as exc:
+        print(f"E2E artifact staging failed: {exc}", file=sys.stderr)
+        cleanup_errors = []
         try:
-            if destination.exists():
-                shutil.rmtree(destination)
-            destination.mkdir(parents=True, exist_ok=True)
-            (destination / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
-        except OSError:
-            # If even the clean marker cannot be written, leave no uploadable fallback.
-            pass
+            remove_upload_destination(test_results_dir)
+        except OSError as cleanup_error:
+            cleanup_errors.append(cleanup_error)
+            print(f"E2E artifact staging cleanup failed: {cleanup_error}", file=sys.stderr)
+        if temporary is not None:
+            try:
+                if temporary.is_symlink():
+                    temporary.unlink()
+                elif temporary.exists():
+                    shutil.rmtree(temporary)
+            except OSError as cleanup_error:
+                cleanup_errors.append(cleanup_error)
+                print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
+        if not cleanup_errors:
+            try:
+                destination.mkdir()
+                (destination / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
+            except OSError as marker_error:
+                print(f"E2E artifact failure marker could not be written: {marker_error}", file=sys.stderr)
         return destination
 
 
@@ -579,8 +624,15 @@ def main():
     root = args.root.resolve()
     for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
         register_database_url(os.environ.get(key, ""))
+    test_results_dir = root / "frontend/test-results"
+    test_results_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        remove_upload_destination(test_results_dir)
+    except OSError as exc:
+        print(f"Cannot clear stale E2E upload directory: {exc}", file=sys.stderr)
+        raise RuntimeError("cannot safely start E2E run with stale ci-upload content") from exc
     children = Children()
-    artifact_dir = root / "frontend/test-results" / f"native-{uuid.uuid4().hex}"
+    artifact_dir = test_results_dir / f"native-{uuid.uuid4().hex}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
     signal_seen = None
     previous_handlers = {}
@@ -618,8 +670,9 @@ def main():
                 signal.signal(signum, previous)
         # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
         if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
-            write_redacted_process_log(artifact_dir / "process.log")
-            stage_ci_upload(root / "frontend/test-results", artifact_dir)
+            redacted_log = write_redacted_process_log(artifact_dir / "process.log")
+            if redacted_log is not None:
+                stage_ci_upload(root / "frontend/test-results", artifact_dir)
             print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
         if result_error is None and cleanup_error_seen is not None:

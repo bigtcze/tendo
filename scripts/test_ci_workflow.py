@@ -171,6 +171,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("PGPASSWORD=ci-postgres-password psql", self.text)
         self.assertIn('bash "scripts/${SMOKE}.sh"', self.text)
         self.assertNotIn("docker exec", self.text)
+        e2e = job_section(self.text, "e2e")
+        self.assertIn("hashFiles('frontend/test-results/ci-upload/STAGED_OK', 'frontend/test-results/ci-upload/SANITIZE_FAILED') != ''", e2e)
+        self.assertIn("path: frontend/test-results/ci-upload/", e2e)
 
     def test_each_deployment_smoke_is_present(self):
         for smoke in SMOKES:

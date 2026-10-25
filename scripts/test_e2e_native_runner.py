@@ -1,4 +1,5 @@
 import base64
+import json
 import importlib.util
 import pathlib
 import signal
@@ -304,6 +305,73 @@ class FailureLogTests(unittest.TestCase):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
+        self.assertIn("Received string: \"#[redacted]!\"", runner.redact('Received string: "#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE!"'))
+        readable = runner.redact("e2e/journey.spec.ts:12:3 report-0123456789abcdef0123456789abcdef")
+        self.assertIn("e2e/journey.spec.ts:12:3", readable)
+        self.assertIn("report-0123456789abcdef0123456789abcdef", readable)
+
+    def test_registered_secret_encodings_are_redacted(self):
+        runner.SENSITIVE_VALUES.clear()
+        secret = "Owner secret /+"
+        runner.register_sensitive_value(secret)
+        variants = {
+            __import__("urllib.parse", fromlist=["quote"]).quote(secret, safe=""),
+            __import__("urllib.parse", fromlist=["quote"]).quote_plus(secret),
+            json.dumps(secret)[1:-1],
+            json.dumps(secret)[1:-1].replace("/", "\\/"),
+            base64.b64encode(secret.encode()).decode(),
+            base64.b64encode(secret.encode()).decode().rstrip("="),
+            base64.urlsafe_b64encode(secret.encode()).decode(),
+            base64.urlsafe_b64encode(secret.encode()).decode().rstrip("="),
+        }
+        for variant in variants:
+            with self.subTest(variant=variant):
+                self.assertNotIn(variant, runner.redact(f"failure {variant}"))
+
+    def test_cookie_object_diagnostics_are_redacted(self):
+        diagnostics = '{"name":"tendo_session","value":"cookie-secret"} {"name":"other-cookie","value":"other-secret"}'
+        out = runner.redact(diagnostics)
+        self.assertNotIn("cookie-secret", out)
+        self.assertNotIn("other-secret", out)
+
+    def test_predictable_encodings_are_redacted_in_every_staged_text_channel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            secret = "secret/with+symbols"
+            runner.SENSITIVE_VALUES.clear()
+            runner.register_sensitive_value(secret)
+            percent = __import__("urllib.parse", fromlist=["quote"]).quote(secret, safe="")
+            encoded = base64.b64encode(secret.encode()).decode()
+            escaped = json.dumps({"detail": secret})[1:-1].replace("/", "\\/")
+            (source / "process.redacted.log").write_text(f"process {percent} {encoded} {escaped}\n")
+            artifacts = source / "artifacts" / "test-failed-7"
+            artifacts.mkdir(parents=True)
+            (artifacts / "error-context.md").write_text(f"context {percent} {encoded} {escaped}\n")
+            (artifacts / "report-7.json").write_text(json.dumps({"errors": [{"message": f"{percent} {encoded}", "stack": escaped, "snippet": f"cookie={{\"name\":\"tendo_session\",\"value\":\"{secret}\"}}"}]}))
+            staged = runner.stage_ci_upload(results, source)
+            for path in staged.iterdir():
+                if path.is_file() and path.name != "STAGED_OK":
+                    contents = path.read_text()
+                    for leaked in (secret, percent, encoded):
+                        self.assertNotIn(leaked, contents)
+
+    def test_stale_destination_removal_failure_aborts_before_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            results = root / "frontend/test-results"
+            results.mkdir(parents=True)
+            destination = results / "ci-upload"
+            destination.mkdir(); (destination / "STAGED_OK").write_text("stale")
+            with (mock.patch.object(runner, "remove_upload_destination", side_effect=PermissionError("denied")),
+                  mock.patch.object(runner, "Children") as children,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                with self.assertRaisesRegex(RuntimeError, "stale ci-upload"):
+                    runner.main()
+            children.assert_not_called()
+            self.assertTrue((destination / "STAGED_OK").exists())
 
     def test_ci_upload_staging_is_allowlisted_and_sanitized(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -311,21 +379,22 @@ class FailureLogTests(unittest.TestCase):
             source = results / "native-fake"
             source.mkdir(parents=True)
             runner.SENSITIVE_VALUES.clear()
-            runner.SENSITIVE_VALUES.update({"owner-secret-123", "database-secret-456"})
+            runner.register_sensitive_value("owner-secret-123")
+            runner.register_sensitive_value("database-secret-456")
             (source / "process.redacted.log").write_text("owner-secret-123 should be hidden\n{\"password\":\"database-secret-456\"}\n")
             artifacts = source / "artifacts" / "test-failed-1"
             artifacts.mkdir(parents=True)
             (artifacts / "trace.zip").write_bytes(b"raw trace")
             (artifacts / "resource.json").write_text('{"password":"owner-secret-123"}')
             (artifacts / "error-context.md").write_text("Invite http://localhost/invite#database-secret-456\n")
-            (artifacts / "report-1.json").write_text('{"attachments":[{"name":"aria.txt","body":"' + base64.b64encode(b"owner-secret-123").decode() + '"}],"stdout":[{"text":"x"}],"message":"password=database-secret-456"}')
+            (artifacts / "report-1.json").write_text(json.dumps({"errors": [{"message": f"percent={__import__('urllib.parse', fromlist=['quote']).quote('owner-secret-123', safe='')} base64={base64.b64encode(b'owner-secret-123').decode()}", "stack": f"nested={{\"detail\":\"x\\/y\"}} cookie={{\"name\":\"tendo_session\",\"value\":\"database-secret-456\"}}", "snippet": "password=database-secret-456"}], "attachments": [{"name": "stdout", "body": "owner-secret-123"}]}))
             (artifacts / "test-failed-1.png").write_bytes(b"png")
             (source / "html-report").mkdir()
             (source / "html-report" / "index.html").write_text("secret")
             staged = runner.stage_ci_upload(results, source)
             files = {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
-            self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md"})
-            combined = "\\n".join(p.read_text() for p in staged.rglob("*") if p.is_file())
+            self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md", "STAGED_OK"})
+            combined = "\n".join(p.read_text() for p in staged.rglob("*") if p.is_file())
             self.assertNotIn("owner-secret-123", combined)
             self.assertNotIn("database-secret-456", combined)
             self.assertNotIn("stdout", combined)
@@ -333,7 +402,73 @@ class FailureLogTests(unittest.TestCase):
             self.assertNotIn('"body"', combined)
             self.assertNotIn("database-secret-456", combined)
             self.assertNotIn("INVITEsecretfragment0123456789", combined)
+            self.assertNotIn("#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE!", combined)
+            self.assertNotIn("x\\/y", combined)
+            self.assertIn('x\\\\/y', combined)
+            self.assertNotIn("owner-secret-123", combined)
             self.assertFalse(any(p.suffix == ".zip" or p.name == "index.html" for p in staged.rglob("*")))
+            self.assertTrue((staged / "STAGED_OK").is_file())
+
+    def test_ci_upload_replaces_stale_destination_and_skips_symlinked_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            destination = results / "ci-upload"
+            destination.mkdir()
+            (destination / "STALE").write_text("old")
+            external = pathlib.Path(tmp) / "outside.json"
+            external.write_text('{"message":"should not copy"}')
+            (source / "report-evil.json").symlink_to(external)
+            staged = runner.stage_ci_upload(results, source)
+            names = {path.name for path in staged.iterdir()}
+            self.assertIn("STAGED_OK", names)
+            self.assertNotIn("STALE", names)
+            self.assertNotIn("report-evil.json", names)
+
+    def test_ci_upload_preexisting_symlink_is_removed_and_denied_removal_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            results.mkdir()
+            source = results / "native-run"
+            source.mkdir()
+            (source / "process.redacted.log").write_text("safe\n")
+            destination = results / "ci-upload"
+            outside = pathlib.Path(tmp) / "outside"
+            outside.mkdir()
+            destination.symlink_to(outside, target_is_directory=True)
+            runner.stage_ci_upload(results, source)
+            self.assertFalse(destination.is_symlink())
+            import shutil
+            shutil.rmtree(destination)
+            destination.symlink_to(outside, target_is_directory=True)
+            original_unlink = pathlib.Path.unlink
+            def deny_destination(path, *args, **kwargs):
+                if path == destination:
+                    raise PermissionError("denied")
+                return original_unlink(path, *args, **kwargs)
+            with mock.patch.object(pathlib.Path, "unlink", deny_destination), mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
+                runner.stage_ci_upload(results, source)
+            self.assertIn("cleanup failed", err.getvalue())
+            self.assertTrue(destination.is_symlink())
+            self.assertFalse((outside / "STAGED_OK").exists())
+
+    def test_ci_upload_write_failure_leaves_failure_marker_not_partial_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            (source / "report-1.json").write_text("{}")
+            original_write_text = pathlib.Path.write_text
+            def fail_report(path, data, *args, **kwargs):
+                if path.name == "report-1.json":
+                    raise OSError("disk full")
+                return original_write_text(path, data, *args, **kwargs)
+            with mock.patch.object(pathlib.Path, "write_text", fail_report):
+                staged = runner.stage_ci_upload(results, source)
+            self.assertEqual([path.name for path in staged.iterdir()], ["SANITIZE_FAILED"])
 
     def test_ci_upload_sanitizer_failure_leaves_only_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -386,6 +521,26 @@ class FailureReportingLifecycleTests(unittest.TestCase):
                 except BaseException as exc:
                     error = exc
                 return error, tail.call_count
+
+    def test_interruption_before_staging_leaves_no_upload_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            results = root / "frontend/test-results"
+            results.mkdir(parents=True)
+            stale = results / "ci-upload"
+            stale.mkdir(); (stale / "STAGED_OK").write_text("stale")
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children"),
+                  mock.patch.object(runner, "run_suite", side_effect=KeyboardInterrupt()),
+                  mock.patch.object(runner, "write_redacted_process_log", return_value=None),
+                  mock.patch.object(runner, "print_failure_log_tail"),
+                  mock.patch.object(runner, "stage_ci_upload") as stage,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                with self.assertRaises(KeyboardInterrupt):
+                    runner.main()
+            self.assertFalse(stale.exists())
+            stage.assert_not_called()
 
     def test_success_does_not_write_redacted_log(self):
         with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
