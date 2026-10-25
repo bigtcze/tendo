@@ -1,4 +1,7 @@
-import { expect, request, test, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
+import { chromium, expect, request, test, type BrowserContext, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
@@ -73,10 +76,13 @@ async function trackInFlightApiFetches(page: Page) {
   });
 }
 
-function watch(page: Page) {
+// fullChromium: pages of the full Chromium build (n23) also fetch /favicon.ico on their own; Tendo ships
+// no favicon, so exactly that browser-initiated 404 is expected there and nowhere else.
+function watch(page: Page, options: { fullChromium?: boolean } = {}) {
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() !== 'error') return;
     const path = new URL(message.location().url || 'about:blank').pathname;
+    if (options.fullChromium && path === '/favicon.ico' && message.text().includes('status of 404')) return;
     if (n17OfflineActive && message.text().includes('Failed to load resource') && message.text().includes('ERR_INTERNET_DISCONNECTED') && n17OfflineExpectedResources.some((expected) => expected.test(message.location().url))) return;
     if (n17FailurePhaseActive && n17ExpectedFailurePaths.has(path) && message.text().includes('Failed to load resource')) return;
     // The response check below asserts the exact expected HTTP failures.
@@ -3334,6 +3340,200 @@ test.describe('Tendo production journey', () => {
         } catch (error) { cleanupFailure ??= error; }
       }
       await page.setViewportSize({ width: 1280, height: 800 }).catch((error) => { cleanupFailure ??= error; });
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
+  // n14/n21 emulate zoom with CDP device metrics. This test uses Chromium's own page zoom instead: the
+  // full Chromium build (channel "chromium", not the headless shell) launched with the profile preference
+  // that chrome://settings "Page zoom" writes (partition.default_zoom_level, log base 1.2 of the factor),
+  // with no viewport emulation. The browser itself then lays out a 1280 px window at 640 CSS px and
+  // DPR 2 (200 %) or 320 CSS px and DPR 4 (400 %), as when a user picks that zoom level.
+  test('n23. real browser page zoom: sign in and manage an item at 200 %, every household route at 400 %', async () => {
+    test.setTimeout(180_000);
+    const title = 'Native zoom: clean the cooker hood';
+    const renamed = 'Native zoom: clean the cooker hood filter';
+    const anchor = addDays(pragueToday(), -3);
+    const measured: Array<{ zoom: number; state: string; cssWidth: number; dpr: number; outerWidth: number; bodyFont: number; overflow: number }> = [];
+    const profiles: string[] = [];
+    const contexts: BrowserContext[] = [];
+    const launchAtZoom = async (percent: 200 | 400) => {
+      const profile = mkdtempSync(join(tmpdir(), `tendo-zoom-${percent}-`));
+      profiles.push(profile);
+      mkdirSync(join(profile, 'Default'));
+      writeFileSync(join(profile, 'Default', 'Preferences'), JSON.stringify({ partition: { default_zoom_level: { x: Math.log(percent / 100) / Math.log(1.2) } } }));
+      const context = await chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true, viewport: null, locale: 'en-US', baseURL, args: ['--window-size=1280,900'] });
+      contexts.push(context);
+      const zoomed = context.pages()[0] ?? await context.newPage();
+      await trackInFlightApiFetches(zoomed);
+      watch(zoomed, { fullChromium: true });
+      return { context, zoomed };
+    };
+    const measure = async (target: Page, percent: 200 | 400, state: string) => {
+      const metrics = await target.evaluate(() => ({ cssWidth: window.innerWidth, dpr: window.devicePixelRatio, outerWidth: window.outerWidth, bodyFont: parseFloat(getComputedStyle(document.body).fontSize), overflow: document.documentElement.scrollWidth - window.innerWidth }));
+      measured.push({ zoom: percent, state, ...metrics });
+      // The window stays 1280 px wide; only the browser's zoom shrinks the CSS layout width.
+      expect(metrics.outerWidth, `${state} window width`).toBe(1280);
+      expect(metrics.cssWidth, `${state} layout width at ${percent}%`).toBe(1280 / (percent / 100));
+      expect(metrics.dpr, `${state} device pixel ratio at ${percent}%`).toBe(percent / 100);
+      expect(metrics.bodyFont, `${state} body text`).toBe(16);
+      expect(metrics.overflow, `${state} horizontal overflow at ${percent}%`).toBeLessThanOrEqual(0);
+    };
+    const inView = async (control: Locator, label: string) => {
+      await control.scrollIntoViewIfNeeded();
+      // ratio 1: the whole control must lie inside the viewport, not merely touch it.
+      await expect(control, label).toBeInViewport({ ratio: 1 });
+      const box = await control.boundingBox();
+      expect(box, `${label} has a box`).not.toBeNull();
+      expect(box!.x, `${label} left edge`).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width, `${label} right edge`).toBeLessThanOrEqual(await control.page().evaluate(() => window.innerWidth));
+    };
+    const currentItem = async (id: string) => {
+      const response = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
+      expect(response.status()).toBe(200);
+      return (await response.json()) as ServerItem & { workflowState: string; archived: boolean };
+    };
+    let itemId = '';
+    let primaryFailure: unknown;
+    try {
+      // 200 %: sign in, then add, complete, undo, pause, resume, edit, archive and restore one item.
+      const { context, zoomed } = await launchAtZoom(200);
+      const main = zoomed.getByRole('main');
+      await zoomed.goto('/');
+      await expect(zoomed.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await measure(zoomed, 200, 'login');
+      await inView(zoomed.getByRole('button', { name: en['login.submit'], exact: true }), 'Sign in at 200%');
+      await signIn(zoomed, ownerPassword);
+      await waitForSettledHome(zoomed, householdName);
+      await measure(zoomed, 200, 'home');
+
+      await main.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const addForm = main.getByRole('form', { name: en['items.add.formLabel'] });
+      await expect(addForm.getByLabel(en['items.title'])).toBeFocused();
+      await addForm.getByLabel(en['items.title']).fill(title);
+      await addForm.getByLabel(en['items.subject'], { exact: true }).selectOption({ label: 'Anička' });
+      await addForm.getByLabel(en['items.attentionDate']).fill(anchor);
+      await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await addForm.getByRole('spinbutton').fill('3');
+      await addForm.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption('week');
+      await addForm.getByRole('switch', { name: en['items.fluid'] }).check();
+      await measure(zoomed, 200, 'home add form with Repeat and Fluid on');
+      await inView(addForm.getByRole('button', { name: en['items.add.submit'], exact: true }), 'Add item submit at 200%');
+      await inView(addForm.getByRole('button', { name: en['items.cancel'], exact: true }), 'Cancel at 200%');
+      await addForm.getByRole('button', { name: en['items.add.submit'], exact: true }).click();
+      await expect(addForm).toHaveCount(0);
+      const created = await serverItem(title);
+      itemId = created.id;
+      expect(created).toMatchObject({ attentionOn: anchor, attention: 'needs_attention', recurrence: { intervalValue: 3, intervalUnit: 'week', mode: 'after_completion' } });
+
+      const homeRow = main.getByRole('listitem').filter({ hasText: title });
+      await expect(homeRow).toBeVisible();
+      await measure(zoomed, 200, 'home with the new row');
+      const done = homeRow.getByRole('button', { name: en['items.done.label'].replace('{title}', title), exact: true });
+      await inView(done, 'Done at 200%');
+      await done.click();
+      await expect(zoomed.getByRole('status').filter({ hasText: title })).toContainText('Next time:');
+      await measure(zoomed, 200, 'home with the completion notice');
+      await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
+      const [receipt] = await serverCompletions(itemId);
+      expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: addDays(receipt.completedOn, 21), undoneAt: null });
+      const undo = zoomed.getByRole('button', { name: en['items.undo'], exact: true });
+      await inView(undo, 'Undo at 200%');
+      await undo.click();
+      await expect.poll(async () => (await serverCompletions(itemId))[0]?.undoneAt ?? null).not.toBeNull();
+      expect(await currentItem(itemId)).toMatchObject({ attentionOn: anchor, lastCompletedOn: null, done: false });
+      await expect(homeRow).toBeVisible();
+
+      await zoomed.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
+      await expect(zoomed.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      await waitForSettledHouseholdRequests(zoomed);
+      await measure(zoomed, 200, 'item detail');
+      for (const [action, state] of [[en['itemDetail.pause'], 'paused'], [en['itemDetail.resume'], 'open']] as const) {
+        const button = main.getByRole('button', { name: action, exact: true });
+        await inView(button, `${action} at 200%`);
+        await button.click();
+        await expect.poll(async () => (await currentItem(itemId)).workflowState).toBe(state);
+        await waitForSettledHouseholdRequests(zoomed);
+        await measure(zoomed, 200, `item detail ${state}`);
+      }
+      const edit = main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true });
+      await inView(edit, 'Edit at 200%');
+      await edit.click();
+      const editForm = main.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(editForm.getByLabel(en['items.title'])).toHaveValue(title);
+      await editForm.getByLabel(en['items.title']).fill(renamed);
+      await measure(zoomed, 200, 'item edit form');
+      const save = editForm.getByRole('button', { name: en['itemDetail.save'], exact: true });
+      await inView(save, 'Save changes at 200%');
+      await save.click();
+      await expect(editForm).toHaveCount(0);
+      await expect(zoomed.getByRole('heading', { level: 1, name: renamed })).toBeVisible();
+      expect(await currentItem(itemId)).toMatchObject({ title: renamed, attentionOn: anchor, recurrence: { intervalValue: 3, intervalUnit: 'week', mode: 'after_completion' } });
+      const archive = main.getByRole('button', { name: en['subjects.archive'], exact: true });
+      await inView(archive, 'Archive at 200%');
+      await archive.click();
+      await expect.poll(async () => (await currentItem(itemId)).archived).toBe(true);
+      const restore = main.getByRole('button', { name: en['subjects.restore'], exact: true });
+      await expect(restore).toBeVisible();
+      await waitForSettledHouseholdRequests(zoomed);
+      await measure(zoomed, 200, 'item detail archived');
+      await inView(restore, 'Restore at 200%');
+      await restore.click();
+      await expect.poll(async () => (await currentItem(itemId)).archived).toBe(false);
+      await measure(zoomed, 200, 'item detail after restore');
+
+      // All items finds the renamed item by search, in English and then Czech.
+      await zoomed.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.allItems'], exact: true }).click();
+      await expect(zoomed.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      await main.getByRole('searchbox').fill('cooker hood filter');
+      await main.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      const result = zoomed.getByRole('region', { name: en['allItems.results'] }).getByRole('link', { name: renamed, exact: true });
+      await expect(result).toBeVisible();
+      await measure(zoomed, 200, 'All items with a search');
+      await inView(result, 'search result at 200%');
+      const czech = zoomed.getByRole('button', { name: 'Čeština', exact: true });
+      await inView(czech, 'language switch at 200%');
+      await czech.click();
+      await expect(zoomed.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+      await expect(zoomed.getByRole('region', { name: cs['allItems.results'] }).getByRole('link', { name: renamed, exact: true })).toBeVisible();
+      await measure(zoomed, 200, 'All items with a search in Czech');
+      await zoomed.getByRole('button', { name: 'English', exact: true }).click();
+      await expect(zoomed.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      const cookies = await context.cookies();
+
+      // 400 %: every household route and the item detail in a 320 CSS px layout, with its primary action reachable.
+      const { zoomed: deep } = await launchAtZoom(400);
+      await deep.context().addCookies(cookies);
+      const deepMain = deep.getByRole('main');
+      const routes: Array<{ path: string; name: string; heading: string; ready: Locator; action?: Locator }> = [
+        { path: '/', name: 'home', heading: householdName, ready: deepMain.getByRole('listitem').first(), action: deepMain.getByRole('button', { name: en['items.add'], exact: true }) },
+        { path: '/items', name: 'All items', heading: en['allItems.title'], ready: deep.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem').first(), action: deepMain.getByRole('button', { name: en['allItems.searchButton'], exact: true }) },
+        { path: `/items/${itemId}`, name: 'item detail', heading: renamed, ready: deepMain.getByRole('heading', { level: 2, name: en['itemDetail.history'] }), action: deepMain.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }) },
+        { path: '/people', name: 'People and things', heading: en['subjects.title'], ready: deepMain.getByRole('listitem').first(), action: deepMain.getByRole('button', { name: en['subjects.add'], exact: true }) },
+        { path: '/members', name: 'Members', heading: en['members.title'], ready: deepMain.getByRole('listitem').filter({ hasText: ownerLogin }).first(), action: deepMain.getByRole('button', { name: en['members.invite.action'], exact: true }) },
+        { path: '/account', name: 'Account', heading: en['account.title'], ready: deepMain.getByRole('heading', { level: 2, name: en['account.preferences.title'] }) },
+      ];
+      for (const route of routes) {
+        await deep.goto(route.path);
+        await expect(deep.getByRole('heading', { level: 1, name: route.heading }), `${route.name} heading at 400%`).toBeVisible();
+        await expect(route.ready, `${route.name} content at 400%`).toBeVisible();
+        await waitForSettledHouseholdRequests(deep);
+        await measure(deep, 400, route.name);
+        if (route.action) await inView(route.action, `${route.name} primary action at 400%`);
+        await inView(deep.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.home'], exact: true }), `${route.name} navigation at 400%`);
+        await measure(deep, 400, `${route.name} after scrolling to its controls`);
+      }
+    } catch (error) {
+      primaryFailure = error;
+    }
+    // Every cleanup step runs even if an earlier one fails; the journey's own failure is reported first.
+    let cleanupFailure: unknown;
+    console.log(`native-zoom-measurements ${JSON.stringify(measured)}`);
+    await test.info().attach('native-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' }).catch((error) => { cleanupFailure ??= error; });
+    for (const context of contexts) await context.close().catch((error) => { cleanupFailure ??= error; });
+    for (const profile of profiles) {
+      try { rmSync(profile, { recursive: true, force: true }); } catch (error) { cleanupFailure ??= error; }
     }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
