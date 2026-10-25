@@ -342,21 +342,27 @@ def run_playwright(root, env, children, *args, timeout=600):
 
 
 def run_screen_reader(root: Path, env: dict[str, str], children: Children, artifact_dir: Path, audit_dir: Path):
-    if os.environ.get("TENDO_SR_ORCA_NO_START") == "1":
-        raise RuntimeError("Orca is required for screen-reader audit but TENDO_SR_ORCA_NO_START=1 disabled it")
     audit_dir = audit_dir.resolve()
     audit_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(audit_dir, 0o700)
+    # Invalidate previous results first so no failed invocation can leave earlier evidence looking current.
     for name in ("transcript.json", "transcript.md", "manifest.json", "orca-debug.out"):
         (audit_dir / name).unlink(missing_ok=True)
-    runtime = Path(env["E2E_SR_RUN_DIR"])
+    if os.environ.get("TENDO_SR_ORCA_NO_START") == "1":
+        raise RuntimeError("Orca is required for screen-reader audit but TENDO_SR_ORCA_NO_START=1 disabled it")
+    # Runtime and debug paths are always derived from the canonical audit directory; caller-supplied
+    # paths are never trusted for destructive cleanup.
+    runtime = audit_dir / "runtime"
+    debug = audit_dir / "orca-debug.out"
+    if runtime.is_symlink() or (runtime.exists() and not runtime.is_dir()):
+        raise RuntimeError(f"screen-reader runtime path is not a real directory: {runtime}")
     if runtime.exists():
         import shutil
         shutil.rmtree(runtime)
-    runtime.mkdir(parents=True, mode=0o700)
+    runtime.mkdir(mode=0o700)
     os.chmod(runtime, 0o700)
-    debug = Path(env["E2E_SR_DEBUG_FILE"])
-    debug.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    env["E2E_SR_RUN_DIR"] = str(runtime)
+    env["E2E_SR_DEBUG_FILE"] = str(debug)
     with debug.open("w", encoding="utf-8"):
         pass
     os.chmod(debug, 0o600)

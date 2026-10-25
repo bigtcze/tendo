@@ -225,17 +225,42 @@ class ChildProcessTests(unittest.TestCase):
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
 
-    def test_screen_reader_no_orca_toggle_fails_fast(self):
-        with mock.patch.dict("os.environ", {"TENDO_SR_ORCA_NO_START": "1"}):
-            with self.assertRaisesRegex(RuntimeError, "Orca is required.*disabled"):
-                runner.run_screen_reader(pathlib.Path("/tmp"), {}, mock.Mock(), pathlib.Path("/tmp"), pathlib.Path("/tmp"))
+    def test_screen_reader_no_orca_toggle_fails_fast_after_invalidating_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit = pathlib.Path(tmp) / "audit"; audit.mkdir()
+            for name in ("transcript.json", "transcript.md", "manifest.json", "orca-debug.out"):
+                (audit / name).write_text("previous passing evidence")
+            children = mock.Mock()
+            with mock.patch.dict("os.environ", {"TENDO_SR_ORCA_NO_START": "1"}):
+                with self.assertRaisesRegex(RuntimeError, "Orca is required.*disabled"):
+                    runner.run_screen_reader(pathlib.Path(tmp), {}, children, pathlib.Path(tmp), audit)
+            self.assertEqual(sorted(p.name for p in audit.iterdir()), [])
+            children.start.assert_not_called()
+
+    def test_screen_reader_ignores_caller_runtime_and_rejects_symlinked_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            outside = root / "outside"; outside.mkdir(); (outside / "sentinel").write_text("keep")
+            audit = root / "audit"; audit.mkdir()
+            children = mock.Mock(); children.start.side_effect = RuntimeError("stop before session")
+            env = {"E2E_SR_RUN_DIR": str(outside), "E2E_SR_DEBUG_FILE": str(outside / "sentinel")}
+            with self.assertRaisesRegex(RuntimeError, "stop before session"):
+                runner.run_screen_reader(root, env, children, root, audit)
+            self.assertEqual((outside / "sentinel").read_text(), "keep")
+            self.assertEqual(env["E2E_SR_RUN_DIR"], str(audit.resolve() / "runtime"))
+            (audit / "runtime").rmdir(); (audit / "runtime").symlink_to(outside, target_is_directory=True)
+            children.start.reset_mock()
+            with self.assertRaisesRegex(RuntimeError, "not a real directory"):
+                runner.run_screen_reader(root, {}, children, root, audit)
+            self.assertEqual((outside / "sentinel").read_text(), "keep")
+            children.start.assert_not_called()
 
     def test_screen_reader_run_owns_private_runtime_and_stops_session(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp); runtime = root / "runtime"; logs = runtime / "logs"
+            root = pathlib.Path(tmp).resolve(); audit = root / "audit"; audit.mkdir()
+            runtime = audit / "runtime"; logs = runtime / "logs"
             logs.mkdir(parents=True); (runtime / "display").write_text(":123"); (logs / "ready").touch(); (logs / "bus-address").write_text("unix:path=private")
-            debug = root / "orca-debug.out"; debug.write_text("stale debug")
-            audit = root / "audit"; audit.mkdir()
+            debug = audit / "orca-debug.out"; debug.write_text("stale debug")
             for name in ("transcript.json", "transcript.md", "manifest.json"):
                 (audit / name).write_text("stale result")
             env = {"E2E_SR_RUN_DIR": str(runtime), "E2E_SR_DEBUG_FILE": str(debug)}
