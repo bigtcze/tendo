@@ -41,7 +41,14 @@ members and one or two batched subject-label requests; the count does not grow w
 every group at 1200 items takes 13 Show more clicks and stops at 390 rows / 3275 DOM elements: Needs attention
 (505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
 
-Route captures: 163 production-build screenshots (123 full-page plus 40 viewport-fold captures of home), all
+Find and manage at 500 items (added 2026-10-25, phone 390 px, en): from Home the harness opens All items,
+searches an unaccented Czech phrase and checks the range heading against the server summary (21 active
+matches), then searches one item title, gets exactly one row (76–78 ms in two runs, one summary and one list request, no
+paging), opens it, pauses it, returns with the search restored and the row marked Paused, reopens it and
+resumes it; both changes are confirmed through the API. Screenshot `audit-500-find-manage-detail-en-390.png`.
+The 1000+ case is the required journey n12 (1,050 items).
+
+Route captures: 164 production-build screenshots (124 full-page plus 40 viewport-fold captures of home), all
 taken through one helper that records horizontal overflow (the run fails on any overflow; none of the 40
 measured home stages and no route capture overflowed). People and things, Members and Account are captured
 only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after
@@ -224,6 +231,24 @@ changes/Cancel, Save/Cancel, Search and the result link, Edit, Done), then re-ch
 states, plus Czech All items, also gets a real 320 CSS px viewport with an overflow check, the same control
 checks and an axe scan.
 
+**Real browser zoom (n23):** n14 and n21 emulate zoom. n23 instead starts the full Chromium build (Playwright
+channel `chromium`; the default headless shell ignores zoom settings) with the profile preference that
+chrome://settings "Page zoom" writes (`partition.default_zoom_level`, log base 1.2 of the factor) and no
+viewport emulation, in a 1280 px window. Chromium itself then lays the page out at 640 CSS px and DPR 2 (200 %)
+or 320 CSS px and DPR 4 (400 %). At 200 % the test signs in and, through visible controls, adds a repeating
+Fluid item, completes it, undoes the completion, pauses, resumes, edits, archives and restores it, then finds it
+in All items in English and Czech; each step's server state is asserted. At 400 % it opens Home, All items, the
+item detail, People and things, Members and Account. Measured states: login, home, the add form with Repeat and
+Fluid on, the new row, the completion notice with Undo, item detail open, paused, resumed, archived and restored,
+the edit form, All items with a search in English and Czech, and each 400 % route before and after scrolling to
+its controls. Each asserts window width 1280, the zoomed layout width and DPR, 16 px body text and no horizontal
+overflow. Each checked control (Sign in, Add item and Cancel, Done, Undo, Pause, Resume, Edit, Save changes,
+Archive, Restore, the search result, the language switch, and each 400 % route's primary action and Home
+navigation link) is scrolled into view and must lie entirely inside the viewport (`toBeInViewport` with
+ratio 1, plus left and right edges within the layout width). Mutation-checked: without the full Chromium channel
+the zoom is not applied and n23 fails; with Done stretched to twice the viewport height, the default
+any-intersection check passes at ratio 0.5 and the ratio 1 check fails.
+
 **Reduced motion:** n14 measures computed transition and animation duration-plus-delay on every document element
 and its `::before`/`::after`, plus active Web Animations timings and root scroll behavior. It checks Home, the Home
 add form with Repeat on, item detail, item edit form, All items, People and things and its edit form, Members, and
@@ -249,5 +274,6 @@ forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase
 Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the
 control. Setup has finished before n21 runs, so onboarding is covered elsewhere: test b measures rendered-colour
 contrast and runs axe on its error state, `OnboardingScreen.test.tsx` checks error focus, and the opt-in audit
-checks widths. Zoom is emulated in headless Chromium, not set through the browser's zoom control. None of this
+checks widths. n14 and n21 emulate zoom; n23 uses Chromium's own page zoom, set as a profile preference rather than
+through the zoom menu or keyboard shortcut, and only in Chromium. None of this
 is a WCAG conformance certification.

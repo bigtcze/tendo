@@ -209,6 +209,60 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       expect(completion.status(), `complete one-off item ${item.id}`).toBe(201);
     }
     previousTarget = target;
+    if (stage === '500') {
+      // V2 DoD scale item: at 500 items a phone user finds one item by search, manages it, and keeps context.
+      let target: { id: string; title: string; etag: string } | undefined;
+      for (const candidate of createdItems.filter(item => item.generatorIndex > 250)) {
+        const current = await api(page, 'get', `${root}/items/${candidate.id}`);
+        expect(current.status()).toBe(200);
+        const detail = await current.json() as { title: string; done: boolean; archived: boolean; workflowState: string };
+        if (!detail.done && !detail.archived && detail.workflowState === 'open' && /^Audit task \d{4}$/.test(detail.title)) { target = { id: candidate.id, title: detail.title, etag: current.headers()['etag']! }; break; }
+      }
+      expect(target, '500-stage open target item').toBeTruthy();
+      const query = target!.title.toLowerCase();
+      const accentQuery = 'kontrola nejneobhospodarovavatelnejsiho';
+      const accentSummary = await api(page, 'get', `${root}/items/summary?q=${encodeURIComponent(accentQuery)}`);
+      expect(accentSummary.status()).toBe(200);
+      const accentCounts = await accentSummary.json() as { needsAttention: number; inProgress: number; waiting: number; upcoming: number; paused: number };
+      const accentActive = accentCounts.needsAttention + accentCounts.inProgress + accentCounts.waiting + accentCounts.upcoming + accentCounts.paused;
+      expect(accentActive, '500-stage accent-insensitive matches').toBeGreaterThan(0);
+      const range = (from: number, to: number, total: number) => en['allItems.range'].replace('{from}', String(from)).replace('{to}', String(to)).replace('{total}', String(total));
+      const apiCalls: string[] = [];
+      const onApi = (req: import('@playwright/test').Request) => { const url = new URL(req.url()); if (url.pathname.startsWith('/api/')) apiCalls.push(`${req.method()} ${url.pathname}`); };
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.goto('/');
+      await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.allItems'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      const searchbox = page.getByRole('searchbox', { name: en['allItems.search'], exact: true });
+      await searchbox.fill(accentQuery);
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await expect(page.getByRole('main').getByRole('heading', { level: 2, name: range(1, Math.min(25, accentActive), accentActive), exact: true })).toBeVisible();
+      page.on('request', onApi);
+      const findStarted = Date.now();
+      await searchbox.fill(query);
+      await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      await expect(page.getByRole('main').getByRole('heading', { level: 2, name: range(1, 1, 1), exact: true })).toBeVisible();
+      await expect(page.locator('main li[data-item-id]')).toHaveCount(1);
+      const findMs = Date.now() - findStarted;
+      page.off('request', onApi);
+      const searchUrl = page.url();
+      expect(new URL(searchUrl).searchParams.get('q')).toBe(query);
+      await page.getByRole('link', { name: target!.title, exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: target!.title })).toBeVisible();
+      await page.getByRole('button', { name: en['itemDetail.pause'], exact: true }).click();
+      await expect.poll(async () => (await (await api(page, 'get', `${root}/items/${target!.id}`)).json() as { workflowState: string }).workflowState).toBe('paused');
+      await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
+      await expect(page).toHaveURL(searchUrl);
+      await expect(searchbox).toHaveValue(query);
+      await expect(page.locator(`main li[data-item-id="${target!.id}"]`)).toContainText(en['items.group.paused']);
+      await page.getByRole('link', { name: target!.title, exact: true }).click();
+      await page.getByRole('button', { name: en['itemDetail.resume'], exact: true }).click();
+      await expect.poll(async () => (await (await api(page, 'get', `${root}/items/${target!.id}`)).json() as { workflowState: string }).workflowState).toBe('open');
+      await expect(page.getByRole('button', { name: en['itemDetail.pause'], exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: en['itemDetail.resume'], exact: true })).toHaveCount(0);
+      await capture(page, join(dir, 'audit-500-find-manage-detail-en-390.png'));
+      metrics.stages['500-find-manage-en-390'] = { accentQuery, accentActive, findQuery: query, findMs, findApiCalls: apiCalls, domElements: await page.evaluate(() => document.getElementsByTagName('*').length) };
+    }
     if (stage === '1200') {
       const tall = createdItems.find(item => item.recurrence?.mode === 'fixed' && !item.archived);
       expect(tall, 'recurring item fixture').toBeTruthy();
