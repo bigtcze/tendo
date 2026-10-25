@@ -15,7 +15,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | oapi-codegen | v2.8.0 | v2.8.0 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
-| GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
+| GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0, upload-artifact v7.0.2 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
 
 ## Go modules (`backend/go.mod`)
 

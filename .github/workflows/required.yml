@@ -294,8 +294,21 @@ jobs:
         working-directory: frontend
         run: npx --no-install playwright install --with-deps chromium
       - name: Browser E2E against native production build and PostgreSQL
+        id: e2e
         timeout-minutes: 15
+        env:
+          E2E_CI_UPLOAD_DIR: ${{ runner.temp }}/e2e-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_DIAGNOSTICS_RECIPIENT: ci/e2e-artifact-recipient.asc
         run: bash scripts/e2e-smoke.sh
+      - name: Upload E2E failure diagnostics
+        if: ${{ (failure() || cancelled()) && steps.e2e.outputs.ci_upload == 'ready' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/e2e-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}/
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: false
 
   deployment:
     name: deployment (${{ matrix.smoke }})

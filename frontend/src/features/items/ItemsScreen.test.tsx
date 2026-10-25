@@ -736,7 +736,7 @@ describe('Home items', () => {
     expect(screen.queryByText('s-1')).not.toBeInTheDocument();
     const before = requestsOf(fake.requests, 'GET', `${base}/subjects`).length;
     failArchived = false;
-    await userEvent.click(screen.getByRole('button', { name: 'Retry names' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Load names again' }));
     await screen.findByText('Known two');
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(before + 2);
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).slice(before).every((request) => request.query.getAll('id').join() === 's-2')).toBe(true);
@@ -776,7 +776,7 @@ describe('Home items', () => {
     expect(new Set(requestedSets.flat()).size).toBe(26);
   });
 
-  it('keeps Retry names mounted while its batch runs, then focuses the outcome', async () => {
+  it('keeps Load names again mounted while its batch runs, then focuses the outcome', async () => {
     let mode: 'fail' | 'defer' | 'ok' = 'fail';
     const releases: Array<() => void> = [];
     const respond = (request: RecordedRequest) => json(200, { items: request.query.get('archived') === 'true' ? [] : [{ ...subject, name: 'Retried name' }], nextCursor: null });
@@ -789,21 +789,22 @@ describe('Home items', () => {
     await screen.findByText('Renew passport');
     const main = screen.getByRole('main');
     expect(await within(main).findByText('Couldn’t load some names.')).toBeVisible();
-    const retry = await within(main).findByRole('button', { name: 'Retry names' });
+    const retry = await within(main).findByRole('button', { name: 'Load names again' });
+    expect(retry).toHaveTextContent(/^Load names again$/);
     mode = 'defer';
     await userEvent.click(retry);
     await waitFor(() => expect(releases).toHaveLength(2));
-    expect(within(main).getByRole('button', { name: 'Retry names' })).toHaveAttribute('aria-disabled', 'true');
-    expect(document.activeElement).toBe(within(main).getByRole('button', { name: 'Retry names' }));
+    expect(within(main).getByRole('button', { name: 'Load names again' })).toHaveAttribute('aria-disabled', 'true');
+    expect(document.activeElement).toBe(within(main).getByRole('button', { name: 'Load names again' }));
     await act(async () => { releases.splice(0).forEach((release) => release()); });
-    await waitFor(() => expect(within(main).getByRole('button', { name: 'Retry names' })).not.toHaveAttribute('aria-disabled', 'true'));
-    expect(document.activeElement).toBe(within(main).getByRole('button', { name: 'Retry names' }));
-    await userEvent.click(within(main).getByRole('button', { name: 'Retry names' }));
+    await waitFor(() => expect(within(main).getByRole('button', { name: 'Load names again' })).not.toHaveAttribute('aria-disabled', 'true'));
+    expect(document.activeElement).toBe(within(main).getByRole('button', { name: 'Load names again' }));
+    await userEvent.click(within(main).getByRole('button', { name: 'Load names again' }));
     await waitFor(() => expect(releases).toHaveLength(2));
     mode = 'ok';
     await act(async () => { releases.splice(0).forEach((release) => release()); });
     await within(main).findByText('Retried name');
-    expect(within(main).queryByRole('button', { name: 'Retry names' })).not.toBeInTheDocument();
+    expect(within(main).queryByRole('button', { name: 'Load names again' })).not.toBeInTheDocument();
     expect(document.activeElement).toBe(within(main).getByRole('heading', { name: /Needs attention/ }));
   });
 
@@ -828,7 +829,7 @@ describe('Home items', () => {
     expect(await screen.findByText('Couldn’t load some names.')).toBeVisible();
     expect(screen.getByText('Batch label 0').closest('li')).toHaveTextContent('Person or thing');
     failFirst = false;
-    await userEvent.click(screen.getByRole('button', { name: 'Retry names' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Load names again' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(6));
     const retryCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`).slice(4);
     expect(retryCalls.every((request) => request.query.getAll('id').join() === firstIDs.join())).toBe(true);
@@ -861,7 +862,7 @@ describe('Home items', () => {
     expect(containingRow).not.toHaveTextContent('does-not-exist');
     const initialCalls = requestsOf(fake.requests, 'GET', `${base}/subjects`).length;
     expect(initialCalls).toBe(2);
-    await userEvent.click(screen.getByRole('button', { name: 'Retry names' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Load names again' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);
@@ -1325,7 +1326,7 @@ describe('Home items', () => {
     expect(write).toBeGreaterThanOrEqual(0);
     expect(write).toBeLessThan(firstRead);
     expect(done).toBe(action === 'complete');
-    if (action === 'complete') expect(await screen.findByText('No items match.')).toBeInTheDocument();
+    if (action === 'complete') expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
     else expect(await screen.findByRole('link', { name: 'Renew passport' })).toBeInTheDocument();
   });
 

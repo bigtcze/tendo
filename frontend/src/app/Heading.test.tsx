@@ -45,3 +45,19 @@ it('on the first screen the heading appears without taking focus', async () => {
   const { active } = await activeElementWhenHeadingAppears(false);
   expect(active).toBe(document.body);
 });
+
+it('names the document after the current heading and resets the title when the heading goes', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const { act } = await import('react');
+  actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  document.title = 'Tendo';
+  await act(async () => root.render(<Heading>All items</Heading>));
+  expect(document.title).toBe('All items — Tendo');
+  await act(async () => root.render(<Heading>Renew passport soon</Heading>));
+  expect(document.title).toBe('Renew passport soon — Tendo');
+  await act(async () => root.render(<p>Loading…</p>));
+  expect(document.title).toBe('Tendo');
+  await act(async () => root.unmount());
+});

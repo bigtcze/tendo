@@ -1518,6 +1518,7 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(accented.length);
       await expect(page).toHaveURL(/q=vymena\+filtru\+skoda/);
       await expect(page.getByRole('heading', { level: 2, name: `Showing 1–${accented.length} of ${accented.length}` })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: `Showing 1–${accented.length} of ${accented.length}` })).toHaveAttribute('aria-atomic', 'true');
 
       await searchInput.fill('All items seed');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
@@ -1588,7 +1589,8 @@ test.describe('Tendo production journey', () => {
       await archivedSearchItem.click();
       await page.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
       await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
-      await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
+      await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['allItems.noMatch'] })).toHaveAttribute('aria-atomic', 'true');
       await statusSelect.selectOption('archived');
       await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(1);
 
@@ -1984,7 +1986,8 @@ test.describe('Tendo production journey', () => {
       await at320('all-items-search-and-filters', () => allItemsControls('at 320px'));
       await page.getByRole('searchbox').fill(noMatch);
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(page.getByText(en['allItems.noMatch'])).toBeVisible();
+      await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['allItems.noMatch'] })).toHaveAttribute('aria-atomic', 'true');
       await expectNoAxeViolations(page, 'all-items-no-match');
 
       await page.getByRole('link', { name: en['home.people'], exact: true }).click();
@@ -2353,7 +2356,8 @@ test.describe('Tendo production journey', () => {
     await page.context().setOffline(true);
     try {
       await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
-      await expect(main.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      await expect(main.locator('p:not(.sr-only)').filter({ hasText: en['app.error.body'] })).toBeVisible();
+    await expect(main.getByRole('status').filter({ hasText: en['app.error.body'] })).toHaveAttribute('aria-atomic', 'true');
       await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
       await page.setViewportSize({ width: 320, height: 720 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px offline horizontal overflow').toBeLessThanOrEqual(0);
@@ -2376,7 +2380,8 @@ test.describe('Tendo production journey', () => {
     n17FailurePhaseActive = true;
     await ownRoute(`**${allItemsPath}`, summaryRoute);
     await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
-    await expect(main.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+    await expect(main.locator('p:not(.sr-only)').filter({ hasText: en['app.error.body'] })).toBeVisible();
+    await expect(main.getByRole('status').filter({ hasText: en['app.error.body'] })).toHaveAttribute('aria-atomic', 'true');
     await expect(main.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
     await page.unroute(`**${allItemsPath}`, summaryRoute);
     ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === summaryRoute), 1);
@@ -2498,7 +2503,7 @@ test.describe('Tendo production journey', () => {
     await page.context().setOffline(true);
     try {
       await page.getByRole('link', { name: cs['nav.allItems'], exact: true }).click();
-      await expect(page.getByRole('main').getByText(cs['app.error.body'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').locator('p:not(.sr-only)').filter({ hasText: cs['app.error.body'] })).toBeVisible();
       await expect(page.getByRole('main').getByRole('button', { name: cs['app.error.retry'], exact: true })).toBeVisible();
     } finally {
       await page.context().setOffline(false);
@@ -2608,7 +2613,7 @@ test.describe('Tendo production journey', () => {
 
       await main.getByRole('searchbox').fill('N18 no matching household item query');
       await main.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(main.getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
+      await expect(main.locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
       await main.getByRole('button', { name: en['allItems.clear'], exact: true }).click();
       await expect(main.getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
 
@@ -3013,6 +3018,7 @@ test.describe('Tendo production journey', () => {
         await auditPage.setViewportSize({ width: 1280, height: 800 });
         await auditPage.goto(route.path);
         await expectReady(auditPage, route);
+        await expect(auditPage).toHaveTitle(`${route.heading} — Tendo`);
         await measureContrast(auditPage, route.name, route.name === 'all-items');
         const aria = await auditPage.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
@@ -3055,6 +3061,20 @@ test.describe('Tendo production journey', () => {
       expect(editRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'item-edit-form has a measured [value] text row').toBe(true);
       await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
       await expect(editForm).toHaveCount(0);
+
+      // An undone receipt is readable history, not an inactive control: it must meet 1.4.3 like any text.
+      // n1 left "Book dental check" done with one undone and one active receipt.
+      const undoneHistoryItem = await serverItem('Book dental check', true);
+      const undoneReceipts = (await serverCompletions(undoneHistoryItem.id)).filter((completion) => completion.undoneAt !== null);
+      expect(undoneReceipts.length, 'item detail fixture has an undone receipt').toBeGreaterThan(0);
+      await auditPage.goto(`/items/${undoneHistoryItem.id}`);
+      await expect(auditPage).toHaveTitle('Book dental check — Tendo');
+      const historySection = auditPage.getByRole('main').getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
+      const undoneDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${undoneReceipts[0]!.completedOn}T00:00:00Z`));
+      const undoneText = en['itemDetail.historyUndone'].replace('{date}', undoneDate);
+      await expect(historySection.getByText(undoneText, { exact: true }).first()).toBeVisible();
+      const historyRows = await measureContrast(auditPage, 'item-detail-undone-history');
+      expect(historyRows.filter((row) => row.kind === 'text' && !row.exempt && row.ratio !== null).length, 'undone history text measured').toBeGreaterThan(0);
 
       // Readiness includes asynchronously loaded content: login's OIDC provider button.
       const signedOutRoutes: Array<{ path: string; name: string; findTitle: string; content: (target: Page) => Locator }> = [

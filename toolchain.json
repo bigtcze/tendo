@@ -24,12 +24,13 @@
     "oidcProviderRuntime": "gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99",
     "postgres": "postgres:18.6-bookworm",
     "caddy": "caddy:2.11.7-alpine",
-    "nginx": "nginx:1.30.5-alpine",
-    "traefik": "traefik:v3.7.15"
+    "nginx": "nginx:1.30.6-alpine",
+    "traefik": "traefik:v3.7.16"
   },
   "actions": {
     "actions/checkout": "v7.0.1",
     "actions/setup-go": "v7.0.0",
-    "actions/setup-node": "v7.1.0"
+    "actions/setup-node": "v7.1.0",
+    "actions/upload-artifact": "v7.0.2"
   }
 }

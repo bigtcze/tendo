@@ -44,6 +44,8 @@ find "$root/backend/internal/platform/webui/dist/assets" -type f -print -quit | 
 (cd "$root/backend" && go build -trimpath -o "$tmp/tendo" ./cmd/tendo && go build -trimpath -o "$tmp/oidc-provider" ./test/oidc-provider)
 [[ -s "$tmp/tendo" && -s "$tmp/oidc-provider" ]] || { printf 'native production binaries were not built\n' >&2; exit 1; }
 export TENDO_E2E_BINARY="$tmp/tendo" TENDO_OIDC_PROVIDER_BINARY="$tmp/oidc-provider" TENDO_E2E_ROOT="$root"
+if [[ -n "${E2E_CI_UPLOAD_DIR:-}" ]]; then export E2E_CI_UPLOAD_DIR; fi
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then export GITHUB_OUTPUT; fi
 wrapper_child=""
 forward_signal() {
   local sig=$1 status=0
@@ -68,8 +70,12 @@ forward_signal() {
 trap 'forward_signal INT' INT
 trap 'forward_signal TERM' TERM
 runner_args=(--root "$root" --app "$tmp/tendo" --provider "$tmp/oidc-provider")
-if [[ -n "${TENDO_README_SCREENSHOT:-}" && -n "${TENDO_UX_AUDIT_DIR:-}" ]]; then
-  printf 'TENDO_README_SCREENSHOT and TENDO_UX_AUDIT_DIR are mutually exclusive\n' >&2
+mode_count=0
+for mode in TENDO_README_SCREENSHOT TENDO_UX_AUDIT_DIR TENDO_SR_AUDIT_DIR; do
+  [[ -n "${!mode:-}" ]] && ((mode_count+=1))
+done
+if (( mode_count > 1 )); then
+  printf 'TENDO_README_SCREENSHOT, TENDO_UX_AUDIT_DIR and TENDO_SR_AUDIT_DIR are mutually exclusive\n' >&2
   exit 1
 fi
 if [[ -n "${TENDO_README_SCREENSHOT:-}" ]]; then
@@ -80,6 +86,10 @@ elif [[ -n "${TENDO_UX_AUDIT_DIR:-}" ]]; then
   audit_path=$(realpath -m -- "$TENDO_UX_AUDIT_DIR")
   mkdir -p "$audit_path"
   runner_args+=(--audit-dir "$audit_path")
+elif [[ -n "${TENDO_SR_AUDIT_DIR:-}" ]]; then
+  audit_path=$(realpath -m -- "$TENDO_SR_AUDIT_DIR")
+  mkdir -p "$audit_path"
+  runner_args+=(--sr-audit-dir "$audit_path")
 fi
 set +e
 python3 "$root/scripts/postgres-test-service.py" python3 "$root/scripts/e2e-native-runner.py" "${runner_args[@]}" &
