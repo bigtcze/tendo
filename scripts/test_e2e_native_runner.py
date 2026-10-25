@@ -52,6 +52,19 @@ class AdminPsqlTests(unittest.TestCase):
 
 
 class ChildProcessTests(unittest.TestCase):
+    def test_default_playwright_discovery_excludes_screen_reader_spec_without_sr_env(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        env.pop("E2E_SR_AUDIT_DIR", None)
+        env.pop("E2E_SR_DEBUG_FILE", None)
+        env.update({"E2E_BASE_URL": "http://127.0.0.1:1", "E2E_SETUP_TOKEN": "test-token", "E2E_OWNER_PASSWORD": "test-password", "E2E_CLOCK_NOW": "2026-05-14T08:00:00Z", "E2E_FOREIGN_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000001", "E2E_FOREIGN_SUBJECT_ID": "01890000-0000-7000-8000-000000000002", "E2E_FOREIGN_ITEM_ID": "01890000-0000-7000-8000-000000000003"})
+        result = subprocess.run(
+            [str(root / "frontend/node_modules/.bin/playwright"), "test", "--list"],
+            cwd=root / "frontend", env=env, text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("screen-reader.spec.ts", result.stdout + result.stderr)
+
     def test_cleanup_terminates_only_owned_process_group_and_reaps_ignoring_child(self):
         with tempfile.TemporaryDirectory() as tmp:
             pidfile = pathlib.Path(tmp) / "child.pid"
@@ -190,7 +203,8 @@ class ChildProcessTests(unittest.TestCase):
                 runner.main()
             capture.assert_called_once()
             self.assertEqual(capture.call_args.args[1], app.resolve())
-            self.assertEqual(capture.call_args.args[-2], screenshot)
+            self.assertEqual(capture.call_args.args[-3], screenshot)
+            self.assertIsNone(capture.call_args.args[-2])
             self.assertIsNone(capture.call_args.args[-1])
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
@@ -207,9 +221,99 @@ class ChildProcessTests(unittest.TestCase):
                   mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--audit-dir", str(audit)])):
                 runner.main()
             capture.assert_called_once()
+            self.assertIsNone(capture.call_args.args[-3])
+            self.assertEqual(capture.call_args.args[-2], audit)
+            self.assertIsNone(capture.call_args.args[-1])
+            suite.assert_not_called()
+            children_cls.return_value.close.assert_called_once()
+
+    def test_screen_reader_no_orca_toggle_fails_fast_after_invalidating_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit = pathlib.Path(tmp) / "audit"; audit.mkdir()
+            for name in ("transcript.json", "transcript.md", "manifest.json", "orca-debug.out"):
+                (audit / name).write_text("previous passing evidence")
+            children = mock.Mock()
+            with mock.patch.dict("os.environ", {"TENDO_SR_ORCA_NO_START": "1"}):
+                with self.assertRaisesRegex(RuntimeError, "Orca is required.*disabled"):
+                    runner.run_screen_reader(pathlib.Path(tmp), {}, children, pathlib.Path(tmp), audit)
+            self.assertEqual(sorted(p.name for p in audit.iterdir()), [])
+            children.start.assert_not_called()
+
+    def test_screen_reader_ignores_caller_runtime_and_rejects_symlinked_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            outside = root / "outside"; outside.mkdir(); (outside / "sentinel").write_text("keep")
+            audit = root / "audit"; audit.mkdir()
+            children = mock.Mock(); children.start.side_effect = RuntimeError("stop before session")
+            env = {"E2E_SR_RUN_DIR": str(outside), "E2E_SR_DEBUG_FILE": str(outside / "sentinel")}
+            with self.assertRaisesRegex(RuntimeError, "stop before session"):
+                runner.run_screen_reader(root, env, children, root, audit)
+            self.assertEqual((outside / "sentinel").read_text(), "keep")
+            self.assertEqual(env["E2E_SR_RUN_DIR"], str(audit.resolve() / "runtime"))
+            (audit / "runtime").rmdir(); (audit / "runtime").symlink_to(outside, target_is_directory=True)
+            children.start.reset_mock()
+            with self.assertRaisesRegex(RuntimeError, "not a real directory"):
+                runner.run_screen_reader(root, {}, children, root, audit)
+            self.assertEqual((outside / "sentinel").read_text(), "keep")
+            children.start.assert_not_called()
+
+    def test_screen_reader_run_owns_private_runtime_and_stops_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve(); audit = root / "audit"; audit.mkdir()
+            runtime = audit / "runtime"; logs = runtime / "logs"
+            logs.mkdir(parents=True); (runtime / "display").write_text(":123"); (logs / "ready").touch(); (logs / "bus-address").write_text("unix:path=private")
+            debug = audit / "orca-debug.out"; debug.write_text("stale debug")
+            for name in ("transcript.json", "transcript.md", "manifest.json"):
+                (audit / name).write_text("stale result")
+            env = {"E2E_SR_RUN_DIR": str(runtime), "E2E_SR_DEBUG_FILE": str(debug)}
+            children = mock.Mock(); proc = mock.Mock(); children.start.return_value = proc
+            def start_session(*args):
+                runtime.mkdir(mode=0o700, exist_ok=True)
+                new_logs = runtime / "logs"; new_logs.mkdir()
+                (runtime / "display").write_text(":123"); (new_logs / "ready").touch(); (new_logs / "bus-address").write_text("unix:path=private")
+                return proc
+            children.start.side_effect = start_session
+            with mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.subprocess, "check_output", side_effect=["commit\n", ""]), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
+                runner.run_screen_reader(root, env, children, root / "artifacts", audit)
+            children.start.assert_called_once_with([str(root / "scripts/sr-orca-session.sh"), str(runtime), str(debug), str(logs)], env, "private Orca session")
+            children.stop.assert_called_once_with(proc, grace=5)
+            self.assertEqual(list(audit.glob("transcript.*")), [])
+            self.assertFalse((audit / "manifest.json").exists())
+            self.assertEqual(debug.read_text(), "")
+            self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(audit.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(debug.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(env["HOME"], str(runtime / "home"))
+            self.assertEqual(env["DISPLAY"], ":123")
+            self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=private")
+            self.assertEqual(playwright.call_args.args[1]["E2E_SR_HEADFUL"], "1")
+            self.assertEqual(playwright.call_args.args[1]["DISPLAY"], ":123")
+            self.assertEqual(playwright.call_args.args[1]["XDG_RUNTIME_DIR"], str(runtime / "xdg-runtime"))
+
+    def test_screen_reader_argument_selects_opt_in_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            app = root / "app"; provider = root / "provider"; audit = root / "sr-audit"
+            app.write_text("fake"); provider.write_text("fake")
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children") as children_cls,
+                  mock.patch.object(runner, "run_screenshot") as capture,
+                  mock.patch.object(runner, "run_suite") as suite,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--sr-audit-dir", str(audit)])):
+                runner.main()
+            capture.assert_called_once()
             self.assertEqual(capture.call_args.args[-1], audit)
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
+
+    def test_all_three_opt_in_modes_are_mutually_exclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            argv = ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--screenshot", str(root / "home.png"), "--audit-dir", str(root / "audit"), "--sr-audit-dir", str(root / "sr-audit")]
+            with mock.patch.object(sys, "argv", argv), self.assertRaises(SystemExit) as raised:
+                runner.main()
+            self.assertEqual(raised.exception.code, 2)
 
     def test_screenshot_and_audit_arguments_are_mutually_exclusive(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,6 +409,9 @@ class FailureLogTests(unittest.TestCase):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
+        for line in ('password="!KeepMePrivate$"', "password='!KeepMePrivate$'", "password=!KeepMePrivate$"):
+            with self.subTest(line=line):
+                self.assertNotIn("!KeepMePrivate$", runner.redact(line))
         self.assertIn("Received string: \"#[redacted]!\"", runner.redact('Received string: "#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE!"'))
         readable = runner.redact("e2e/journey.spec.ts:12:3 report-0123456789abcdef0123456789abcdef")
         self.assertIn("e2e/journey.spec.ts:12:3", readable)
