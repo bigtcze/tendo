@@ -273,6 +273,25 @@ motion, guarding against a vacuous measurement.
 
 No other defect was found in the snapshots, keyboard sequences, target scans, axe results or zoom measurements.
 
+### Independent AI-assisted review (2026-10-25)
+
+A separate AI reviewer, not the agent that implemented the fixes, examined the production build: n21 ARIA
+snapshots and keyboard sequences, zoom and contrast output, and an Orca transcript from the opt-in harness. It
+reported five blocking defects, all fixed in one PR. A second independent AI review of the fix asked for two
+changes (the item-detail load-error state had no title, and E2E locators matched the new hidden status text)
+and then approved it. No human auditor or human screen-reader user took part.
+
+| ID | WCAG SC | Finding | Fix |
+|---|---|---|---|
+| A5 | 4.1.3 | All items announced nothing after a search, filter or page change while focus stayed on the control. | One persistent hidden `role=status` (polite, atomic) region gives the settled outcome: range, count, no match, empty household or load error. Vitest checks the text for each state. n21 and n17 check that the region exists. |
+| A6 | 3.3.1 / 4.1.3 | The error for a search longer than 200 characters was not announced, and focus stayed on Search. | The error is a `role=alert` tied to the field with `aria-invalid` and `aria-describedby`. Focus goes back to the field, and each rejected submit remounts the alert. Vitest regressions (mutation-checked). |
+| A7 | 1.4.3 | Undone history rows used `opacity-65`, which dropped muted text below 4.5:1. | Opacity removed (muted on the row is about 5.85:1). The "Undone" text still marks these rows. n21 measures the contrast of a real undone row. |
+| A8 | 2.5.3 | The subject-name retry button showed "Try again", but its `aria-label` was "Retry names". | The button text is its name: "Load names again" / "Načíst názvy znovu". |
+| A9 | 2.4.2 | The document title was always "Tendo". | `Heading` sets the title to "‹h1› — Tendo". The item-detail load-error state now has an h1. n21 checks the title on every route and on item detail. |
+
+Limit: DOM tests cannot prove what a screen reader says when quick, identical outcomes follow each other. The
+Orca harness does not yet cover All items results or pagination.
+
 ### Limits
 
 This is an agent review. No human screen-reader user took part, and ARIA snapshots do not prove what a screen
