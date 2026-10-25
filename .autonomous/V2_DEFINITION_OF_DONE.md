@@ -29,6 +29,16 @@ status=locked_human_authorized
       pass; main is green, branch protections respected and no known blocker.
 - [ ] User/admin/developer documentation is updated for changed workflows and
       server-side list/search/filter contract; V1 data upgrades without loss.
+- [ ] Before the v2.0.0 release tag, the root README.md professionally
+      presents the actual V2 product, its main workflows and current
+      installation instructions, without obsolete V1-only claims.
+      It prominently includes at least one authentic, high-quality
+      screenshot captured with Playwright from the production-built V2
+      application using representative synthetic household data.
+      The image is committed to the repository, has descriptive alt text,
+      contains no personal data or secrets, and renders correctly on GitHub.
+      No mockups, AI-generated UI images, placeholders or outdated images.
+      The README and screenshot must be reviewed before release.
 - [ ] Human-facing release notes are merged; annotated v2.0.0 tag points to
       green main; existing release workflow publishes GitHub Release and public
       ghcr.io/bigtcze/tendo:v2.0.0 image (amd64/arm64) with release assets.
