@@ -172,8 +172,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('bash "scripts/${SMOKE}.sh"', self.text)
         self.assertNotIn("docker exec", self.text)
         e2e = job_section(self.text, "e2e")
-        self.assertIn("hashFiles('frontend/test-results/ci-upload/STAGED_OK', 'frontend/test-results/ci-upload/SANITIZE_FAILED') != ''", e2e)
-        self.assertIn("path: frontend/test-results/ci-upload/", e2e)
+        self.assertIn("id: e2e", e2e)
+        self.assertIn("E2E_CI_UPLOAD_DIR: ${{ runner.temp }}/e2e-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}", e2e)
+        self.assertIn("steps.e2e.outputs.ci_upload == 'ready'", e2e)
+        self.assertIn("path: ${{ runner.temp }}/e2e-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}/", e2e)
 
     def test_each_deployment_smoke_is_present(self):
         for smoke in SMOKES:

@@ -125,21 +125,26 @@ def sanitize_json_value(value):
     return value
 
 
-def remove_upload_destination(test_results_dir: Path) -> None:
-    destination = test_results_dir / "ci-upload"
-    if destination.is_symlink() or destination.is_file():
-        destination.unlink()
-    elif destination.exists():
-        shutil.rmtree(destination)
+def validate_upload_destination(destination: Path) -> None:
+    parent = destination.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise RuntimeError(f"E2E CI upload parent must be an existing real directory: {parent}")
+    if os.path.lexists(destination):
+        raise RuntimeError(f"E2E CI upload destination already exists: {destination}")
 
 
-def stage_ci_upload(test_results_dir: Path, source_dir: Path) -> Path:
-    """Build a fail-closed allowlist in a fresh sibling and publish it atomically."""
-    destination = test_results_dir / "ci-upload"
+def write_ci_upload_ready() -> None:
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write("ci_upload=ready\n")
+
+
+def stage_ci_upload(destination: Path, source_dir: Path) -> bool:
+    """Sanitize to a new sibling and publish only by non-overwriting rename."""
     temporary = None
     try:
-        remove_upload_destination(test_results_dir)
-        temporary = Path(tempfile.mkdtemp(prefix=".ci-upload-", dir=test_results_dir))
+        temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
         redacted_log = source_dir / "process.redacted.log"
         if redacted_log.is_symlink() or not redacted_log.is_file():
             raise FileNotFoundError("redacted process log missing or symlinked")
@@ -157,32 +162,49 @@ def stage_ci_upload(test_results_dir: Path, source_dir: Path) -> Path:
                 elif path.name == "error-context.md":
                     (temporary / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
         (temporary / "STAGED_OK").write_text("ok\n", encoding="utf-8")
-        os.replace(temporary, destination)
-        return destination
     except BaseException as exc:
-        print(f"E2E artifact staging failed: {exc}", file=sys.stderr)
-        cleanup_errors = []
-        try:
-            remove_upload_destination(test_results_dir)
-        except OSError as cleanup_error:
-            cleanup_errors.append(cleanup_error)
-            print(f"E2E artifact staging cleanup failed: {cleanup_error}", file=sys.stderr)
+        print(f"E2E artifact sanitization failed: {exc}", file=sys.stderr)
         if temporary is not None:
             try:
-                if temporary.is_symlink():
-                    temporary.unlink()
-                elif temporary.exists():
-                    shutil.rmtree(temporary)
+                shutil.rmtree(temporary)
             except OSError as cleanup_error:
-                cleanup_errors.append(cleanup_error)
                 print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
-        if not cleanup_errors:
-            try:
-                destination.mkdir()
-                (destination / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
-            except OSError as marker_error:
-                print(f"E2E artifact failure marker could not be written: {marker_error}", file=sys.stderr)
-        return destination
+                return False
+        try:
+            temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+            (temporary / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
+        except OSError as marker_error:
+            print(f"E2E artifact failure marker staging failed: {marker_error}", file=sys.stderr)
+            if temporary is not None:
+                try:
+                    shutil.rmtree(temporary)
+                except OSError as cleanup_error:
+                    print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
+            return False
+    try:
+        if os.path.lexists(destination):
+            raise FileExistsError(f"E2E CI upload destination appeared during staging: {destination}")
+        os.rename(temporary, destination)
+    except OSError as rename_error:
+        print(f"E2E artifact publication failed: {rename_error}", file=sys.stderr)
+        try:
+            shutil.rmtree(temporary)
+        except OSError as cleanup_error:
+            print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
+        return False
+    try:
+        write_ci_upload_ready()
+    except OSError as output_error:
+        print(f"E2E CI upload output could not be written: {output_error}", file=sys.stderr)
+        try:
+            if destination.is_symlink():
+                destination.unlink()
+            elif destination.exists():
+                shutil.rmtree(destination)
+        except OSError as cleanup_error:
+            print(f"E2E CI upload cleanup failed: {cleanup_error}", file=sys.stderr)
+        return False
+    return True
 
 
 def print_failure_log_tail(log_path: Path, lines: int = FAILURE_LOG_TAIL_LINES):
@@ -626,11 +648,9 @@ def main():
         register_database_url(os.environ.get(key, ""))
     test_results_dir = root / "frontend/test-results"
     test_results_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        remove_upload_destination(test_results_dir)
-    except OSError as exc:
-        print(f"Cannot clear stale E2E upload directory: {exc}", file=sys.stderr)
-        raise RuntimeError("cannot safely start E2E run with stale ci-upload content") from exc
+    upload_destination = Path(os.environ["E2E_CI_UPLOAD_DIR"]) if os.environ.get("E2E_CI_UPLOAD_DIR") else None
+    if upload_destination is not None:
+        validate_upload_destination(upload_destination)
     children = Children()
     artifact_dir = test_results_dir / f"native-{uuid.uuid4().hex}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
@@ -671,8 +691,8 @@ def main():
         # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
         if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
             redacted_log = write_redacted_process_log(artifact_dir / "process.log")
-            if redacted_log is not None:
-                stage_ci_upload(root / "frontend/test-results", artifact_dir)
+            if redacted_log is not None and upload_destination is not None:
+                stage_ci_upload(upload_destination, artifact_dir)
             print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
         if result_error is None and cleanup_error_seen is not None:
