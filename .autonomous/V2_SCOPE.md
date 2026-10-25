@@ -51,6 +51,30 @@ Czech/English support. This release is a deliberate GUI/UX upgrade, not new modu
 10. User-facing copy must be simple, non-technical, non-judgmental, and localized.
     Keep the V1 product principle: complexity lives in the system, not the interface.
 
+## Release-facing README and screenshot
+
+Before releasing v2.0.0:
+
+1. Refresh the root README.md to present the real, finished V2 product
+   professionally. Keep it concise, accurate and useful for new users.
+   Update screenshots, feature descriptions, deployment information
+   and links affected by V2. Preserve relevant migration instructions.
+2. Capture at least one polished desktop screenshot of the real
+   production-built V2 GUI using Playwright with deterministic,
+   realistic synthetic household data. Prefer a useful populated
+   home screen that demonstrates the new UX. No mockups or generated UI.
+3. Commit the screenshot as a durable repository asset, preferably
+   docs/images/v2-overview.png, and display it prominently near the
+   beginning of README.md with meaningful alternative text.
+4. Inspect the actual captured image for legibility, useful content,
+   visual quality, clipping, privacy and consistency with the shipped
+   application. Additional mobile imagery is optional when useful.
+5. Verify the Markdown, image paths and GitHub-rendered presentation.
+   Ensure references and version claims are truthful at release time.
+6. Treat these requirements as mandatory release blockers. Complete
+   them through the protected branch/PR workflow before the release
+   tag and before V2_COMPLETE. Record verifiable evidence.
+
 ## Review references
 Use W3C WCAG 2.2 AA (https://www.w3.org/TR/WCAG22/), WAI ARIA Authoring
 Practices (https://www.w3.org/WAI/ARIA/apg/), and proven progressive-disclosure
