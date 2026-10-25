@@ -47,3 +47,45 @@ status=locked_human_authorized
       or human intervention block publishing.
 - [ ] Only AFTER all above, merge `.autonomous/V2_COMPLETE` via normal PR,
       sync clean main and end autonomous cycles. Preserve `PROJECT_COMPLETE`.
+
+## Autonomous resolution of V2 release blockers
+
+The V2 release remains subject to all existing functional,
+security, testing, review and deployment requirements.
+
+The following clarifies how technical blockers are resolved
+without transferring engineering decisions to the owner.
+
+Historical CI incident 39872577652:
+
+- Preserve the fact that the original root cause is unknown.
+- Correct diagnostic artifact retention and prove it works.
+- Reproduce relevant failure scenarios and fix identified bugs.
+- Require three successful complete CI E2E runs and twenty
+  targeted reproduction runs after diagnostic hardening.
+- No new unexplained failures may be present.
+- Document supporting evidence and residual uncertainty.
+- The historical incident may be closed autonomously when
+  these criteria are met, without inventing a root cause
+  or requiring a human exception.
+
+Accessibility:
+
+- Perform independent AI-assisted accessibility review.
+- Verify production-build keyboard interaction, automated
+  checks and semantic accessibility information.
+- Perform real screen-reader checks where feasible.
+- Document unavailable coverage and remaining limitations.
+- Fix identified blocking defects before release.
+- Do not represent AI review as a human accessibility audit.
+
+The autonomous agent is responsible for obtaining the
+required evidence and resolving technical blockers.
+
+Earlier requirements for owner approval solely because
+historical artifacts are unavailable or an external human
+reviewer is unavailable are superseded by this clarification.
+
+All other Definition of Done requirements remain mandatory.
+The release cannot proceed with failing required CI,
+new unexplained test failures, or known blocking defects.
