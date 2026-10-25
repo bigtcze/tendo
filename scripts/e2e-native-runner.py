@@ -52,7 +52,8 @@ STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
-    (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
+    (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[A-Za-z0-9+/_=-]+"), r"\1\2[redacted]"),
+    (re.compile(r"\b[A-Za-z0-9+/_-]{40,}={0,2}\b"), "[redacted token]"),
 )
 
 
@@ -341,7 +342,50 @@ def run_playwright(root, env, children, *args, timeout=600):
     children.run(cmd, env, "Playwright", root / "frontend", timeout)
 
 
-def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path, screenshot_path: Path | None = None, audit_dir: Path | None = None):
+def run_screen_reader(root: Path, env: dict[str, str], children: Children, artifact_dir: Path, audit_dir: Path):
+    if os.environ.get("TENDO_SR_ORCA_NO_START") == "1":
+        raise RuntimeError("Orca is required for screen-reader audit but TENDO_SR_ORCA_NO_START=1 disabled it")
+    runtime = Path(env["E2E_SR_RUN_DIR"])
+    runtime.mkdir(parents=True, exist_ok=True)
+    debug = Path(env["E2E_SR_DEBUG_FILE"])
+    logs = runtime / "logs"
+    session = root / "scripts/sr-orca-session.sh"
+    proc = children.start([str(session), str(runtime), str(debug), str(logs)], env, "private Orca session")
+    try:
+        ready = logs / "ready"
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not ready.exists():
+            if proc.poll() is not None:
+                raise RuntimeError("Orca session exited before startup (check host prerequisites)")
+            time.sleep(.1)
+        if not ready.exists():
+            raise RuntimeError("Orca session did not become ready within 15 seconds")
+        env.update({"HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"), "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"), "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"), "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(), "DBUS_SESSION_BUS_ADDRESS": (logs / "bus-address").read_text(encoding="utf-8").strip(), "E2E_SR_DEBUG_FILE": str(debug), "E2E_SR_AUDIT_DIR": str(audit_dir.resolve()), "E2E_SR_HEADFUL": "1", "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false"})
+        # The helper owns the display choice and publishes it to its ready file for the browser process.
+        display_file = runtime / "display"
+        if display_file.exists():
+            env["DISPLAY"] = display_file.read_text(encoding="utf-8").strip()
+        env["PLAYWRIGHT_OUTPUT_DIR"] = str(artifact_dir / "artifacts")
+        run_playwright(root, env, children, "e2e/screen-reader.spec.ts", timeout=1800)
+    finally:
+        children.stop(proc, grace=5)
+        # speech-dispatcher may daemonize into a separate session; stop only those processes
+        # whose command line points at this run's private runtime.
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                command = (entry / "cmdline").read_bytes().decode(errors="replace")
+            except OSError:
+                continue
+            if str(runtime) in command:
+                try:
+                    os.kill(int(entry.name), signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+
+
+def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], children: Children, artifact_dir: Path, screenshot_path: Path | None = None, audit_dir: Path | None = None, sr_audit_dir: Path | None = None):
     env = {key: inherited[key] for key in ("PATH", "HOME", "TMPDIR", "LANG") if key in inherited}
     for key in ("PLAYWRIGHT_BROWSERS_PATH", "CI"):
         if key in inherited:
@@ -377,13 +421,26 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
     app = children.start([str(app_path)], env, "Tendo app",)
     wait_http(f"http://127.0.0.1:{host_port}/health/ready", app, children)
     base = env.copy()
+    SENSITIVE_VALUES.add(setup_token)
     base.update({
         "E2E_BASE_URL": app_origin,
         "E2E_SETUP_TOKEN": setup_token,
         "E2E_OWNER_PASSWORD": generated_secret(24),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
     })
-    if audit_dir is not None:
+    if sum(value is not None for value in (screenshot_path, audit_dir, sr_audit_dir)) > 1:
+        raise RuntimeError("screenshot, UX audit and screen-reader audit modes are mutually exclusive")
+    if sr_audit_dir is not None:
+        base["E2E_SR_AUDIT_DIR"] = str(sr_audit_dir.resolve())
+        base["E2E_SR_DEBUG_FILE"] = str(sr_audit_dir.resolve() / "orca-debug.out")
+        base["E2E_SR_RUN_DIR"] = str(sr_audit_dir.resolve() / "runtime")
+        base["E2E_TEST_CLOCK_NOW"] = env["TENDO_TEST_CLOCK_NOW"]
+        base["TENDO_SR_AUDIT_DIR"] = str(sr_audit_dir.resolve())
+        exact_command = ["bash", "scripts/dev-exec.sh", "--", "bash", "scripts/e2e-smoke.sh"]
+        base["TENDO_SR_COMMAND"] = " ".join(f"{key}={value}" for key, value in sorted(os.environ.items()) if key in {"TENDO_SR_AUDIT_DIR", "TENDO_SR_ITEM_PROBE"} and value) + " " + " ".join(exact_command)
+        base["TENDO_SR_COMMAND"] = base["TENDO_SR_COMMAND"].strip()
+        run_screen_reader(root, base, children, artifact_dir, sr_audit_dir)
+    elif audit_dir is not None:
         base["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
         run_playwright(root, base, children, "e2e/ux-audit.spec.ts", timeout=1800)
     else:
@@ -491,9 +548,11 @@ def main():
     parser.add_argument("--provider", type=Path, required=True)
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--audit-dir", type=Path)
+    parser.add_argument("--sr-audit-dir", type=Path)
     args = parser.parse_args()
-    if args.screenshot and args.audit_dir:
-        parser.error("--screenshot and --audit-dir are mutually exclusive")
+    selected = [args.screenshot, args.audit_dir, args.sr_audit_dir]
+    if sum(value is not None for value in selected) > 1:
+        parser.error("--screenshot, --audit-dir and --sr-audit-dir are mutually exclusive")
     root = args.root.resolve()
     for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
         register_database_url(os.environ.get(key, ""))
@@ -511,9 +570,11 @@ def main():
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
-        if args.screenshot or args.audit_dir:
-            run_screenshot(root, args.app.resolve(), os.environ.copy(), children, artifact_dir, args.screenshot, args.audit_dir)
-            if args.audit_dir:
+        if args.screenshot or args.audit_dir or args.sr_audit_dir:
+            run_screenshot(root, args.app.resolve(), os.environ.copy(), children, artifact_dir, args.screenshot, args.audit_dir, args.sr_audit_dir)
+            if args.sr_audit_dir:
+                print(f"Screen-reader audit artifacts saved at {args.sr_audit_dir.resolve()}")
+            elif args.audit_dir:
                 print(f"UX audit artifacts saved at {args.audit_dir.resolve()}")
             else:
                 print(f"README screenshot saved at {args.screenshot.resolve()}")

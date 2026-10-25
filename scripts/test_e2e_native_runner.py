@@ -188,7 +188,8 @@ class ChildProcessTests(unittest.TestCase):
                 runner.main()
             capture.assert_called_once()
             self.assertEqual(capture.call_args.args[1], app.resolve())
-            self.assertEqual(capture.call_args.args[-2], screenshot)
+            self.assertEqual(capture.call_args.args[-3], screenshot)
+            self.assertIsNone(capture.call_args.args[-2])
             self.assertIsNone(capture.call_args.args[-1])
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
@@ -205,9 +206,59 @@ class ChildProcessTests(unittest.TestCase):
                   mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--audit-dir", str(audit)])):
                 runner.main()
             capture.assert_called_once()
+            self.assertIsNone(capture.call_args.args[-3])
+            self.assertEqual(capture.call_args.args[-2], audit)
+            self.assertIsNone(capture.call_args.args[-1])
+            suite.assert_not_called()
+            children_cls.return_value.close.assert_called_once()
+
+    def test_screen_reader_no_orca_toggle_fails_fast(self):
+        with mock.patch.dict("os.environ", {"TENDO_SR_ORCA_NO_START": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "Orca is required.*disabled"):
+                runner.run_screen_reader(pathlib.Path("/tmp"), {}, mock.Mock(), pathlib.Path("/tmp"), pathlib.Path("/tmp"))
+
+    def test_screen_reader_run_owns_private_runtime_and_stops_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); runtime = root / "runtime"; logs = runtime / "logs"
+            logs.mkdir(parents=True); (runtime / "display").write_text(":123"); (logs / "ready").touch(); (logs / "bus-address").write_text("unix:path=private")
+            debug = root / "orca-debug.out"; debug.write_text("speech")
+            env = {"E2E_SR_RUN_DIR": str(runtime), "E2E_SR_DEBUG_FILE": str(debug)}
+            children = mock.Mock(); proc = mock.Mock(); children.start.return_value = proc
+            with mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.subprocess, "check_output", side_effect=["commit\n", ""]), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
+                runner.run_screen_reader(root, env, children, root / "artifacts", root / "audit")
+            children.start.assert_called_once_with([str(root / "scripts/sr-orca-session.sh"), str(runtime), str(debug), str(logs)], env, "private Orca session")
+            children.stop.assert_called_once_with(proc, grace=5)
+            self.assertEqual(env["HOME"], str(runtime / "home"))
+            self.assertEqual(env["DISPLAY"], ":123")
+            self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=private")
+            self.assertEqual(playwright.call_args.args[1]["E2E_SR_HEADFUL"], "1")
+            self.assertEqual(playwright.call_args.args[1]["DISPLAY"], ":123")
+            self.assertEqual(playwright.call_args.args[1]["XDG_RUNTIME_DIR"], str(runtime / "xdg-runtime"))
+
+    def test_screen_reader_argument_selects_opt_in_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            app = root / "app"; provider = root / "provider"; audit = root / "sr-audit"
+            app.write_text("fake"); provider.write_text("fake")
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children") as children_cls,
+                  mock.patch.object(runner, "run_screenshot") as capture,
+                  mock.patch.object(runner, "run_suite") as suite,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--sr-audit-dir", str(audit)])):
+                runner.main()
+            capture.assert_called_once()
             self.assertEqual(capture.call_args.args[-1], audit)
             suite.assert_not_called()
             children_cls.return_value.close.assert_called_once()
+
+    def test_all_three_opt_in_modes_are_mutually_exclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            argv = ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), "--screenshot", str(root / "home.png"), "--audit-dir", str(root / "audit"), "--sr-audit-dir", str(root / "sr-audit")]
+            with mock.patch.object(sys, "argv", argv), self.assertRaises(SystemExit) as raised:
+                runner.main()
+            self.assertEqual(raised.exception.code, 2)
 
     def test_screenshot_and_audit_arguments_are_mutually_exclusive(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -272,6 +323,8 @@ class FailureLogTests(unittest.TestCase):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
+        generated_setup_token = "Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG="
+        self.assertNotIn(generated_setup_token, runner.redact(f"Setup code: {generated_setup_token}"))
 
     def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
         with tempfile.TemporaryDirectory() as tmp:

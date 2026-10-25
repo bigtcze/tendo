@@ -68,8 +68,12 @@ forward_signal() {
 trap 'forward_signal INT' INT
 trap 'forward_signal TERM' TERM
 runner_args=(--root "$root" --app "$tmp/tendo" --provider "$tmp/oidc-provider")
-if [[ -n "${TENDO_README_SCREENSHOT:-}" && -n "${TENDO_UX_AUDIT_DIR:-}" ]]; then
-  printf 'TENDO_README_SCREENSHOT and TENDO_UX_AUDIT_DIR are mutually exclusive\n' >&2
+mode_count=0
+for mode in TENDO_README_SCREENSHOT TENDO_UX_AUDIT_DIR TENDO_SR_AUDIT_DIR; do
+  [[ -n "${!mode:-}" ]] && ((mode_count+=1))
+done
+if (( mode_count > 1 )); then
+  printf 'TENDO_README_SCREENSHOT, TENDO_UX_AUDIT_DIR and TENDO_SR_AUDIT_DIR are mutually exclusive\n' >&2
   exit 1
 fi
 if [[ -n "${TENDO_README_SCREENSHOT:-}" ]]; then
@@ -80,6 +84,10 @@ elif [[ -n "${TENDO_UX_AUDIT_DIR:-}" ]]; then
   audit_path=$(realpath -m -- "$TENDO_UX_AUDIT_DIR")
   mkdir -p "$audit_path"
   runner_args+=(--audit-dir "$audit_path")
+elif [[ -n "${TENDO_SR_AUDIT_DIR:-}" ]]; then
+  audit_path=$(realpath -m -- "$TENDO_SR_AUDIT_DIR")
+  mkdir -p "$audit_path"
+  runner_args+=(--sr-audit-dir "$audit_path")
 fi
 set +e
 python3 "$root/scripts/postgres-test-service.py" python3 "$root/scripts/e2e-native-runner.py" "${runner_args[@]}" &
