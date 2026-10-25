@@ -53,6 +53,7 @@ STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
     (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[A-Za-z0-9+/_=-]+"), r"\1\2[redacted]"),
+    (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
     (re.compile(r"\b[A-Za-z0-9+/_-]{40,}={0,2}\b"), "[redacted token]"),
 )
 
@@ -345,9 +346,22 @@ def run_playwright(root, env, children, *args, timeout=600):
 def run_screen_reader(root: Path, env: dict[str, str], children: Children, artifact_dir: Path, audit_dir: Path):
     if os.environ.get("TENDO_SR_ORCA_NO_START") == "1":
         raise RuntimeError("Orca is required for screen-reader audit but TENDO_SR_ORCA_NO_START=1 disabled it")
+    audit_dir = audit_dir.resolve()
+    audit_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(audit_dir, 0o700)
+    for name in ("transcript.json", "transcript.md", "manifest.json", "orca-debug.out"):
+        (audit_dir / name).unlink(missing_ok=True)
     runtime = Path(env["E2E_SR_RUN_DIR"])
-    runtime.mkdir(parents=True, exist_ok=True)
+    if runtime.exists():
+        import shutil
+        shutil.rmtree(runtime)
+    runtime.mkdir(parents=True, mode=0o700)
+    os.chmod(runtime, 0o700)
     debug = Path(env["E2E_SR_DEBUG_FILE"])
+    debug.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with debug.open("w", encoding="utf-8"):
+        pass
+    os.chmod(debug, 0o600)
     logs = runtime / "logs"
     session = root / "scripts/sr-orca-session.sh"
     proc = children.start([str(session), str(runtime), str(debug), str(logs)], env, "private Orca session")

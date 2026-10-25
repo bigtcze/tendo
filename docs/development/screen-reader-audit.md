@@ -15,8 +15,11 @@ renderer accessibility enabled. The harness makes a real xdotool click in web
 content (accounting for browser-chrome offsets), focuses the intended DOM control,
 and sends real xdotool keys so Orca observes keyboard events and AT-SPI changes.
 It rejects clicks that land in browser chrome. Output includes per-step JSON and
-Markdown transcripts plus a run manifest. Transcripts are sanitized; review
-sensitive outputs before sharing.
+Markdown transcripts plus a run manifest. Only `transcript.json`, `transcript.md`,
+and `manifest.json` are sanitized.
+`orca-debug.out`, `runtime/` logs, and `runtime/logs/audio.raw` are unsanitized,
+owner-only local outputs that may contain sensitive data; do not upload or commit
+them. Keep the audit directory private and review sanitized artifacts before sharing.
 
 Host prerequisites on Linux: `orca`, `at-spi2-core`, `speech-dispatcher`,
 `espeak-ng`, `xdotool`, `openbox`, `dbus-x11`, `xvfb`, Chromium runtime

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 runtime=$1
 debug=$2
 out=$3
 mkdir -p "$runtime/home/.config/speech-dispatcher" "$runtime/home/orca" "$runtime/xdg-runtime" "$runtime/xdg-config/speech-dispatcher" "$runtime/xdg-data" "$out" "$(dirname "$debug")"
-chmod 700 "$runtime/xdg-runtime"
+chmod 700 "$runtime" "$runtime/home" "$runtime/xdg-runtime" "$out" "$(dirname "$debug")"
+: > "$debug"
+chmod 600 "$debug"
 export HOME="$runtime/home" XDG_RUNTIME_DIR="$runtime/xdg-runtime" XDG_CONFIG_HOME="$runtime/xdg-config" XDG_DATA_HOME="$runtime/xdg-data"
 printf 'pcm.!default { type file slave.pcm "null" file "%s/audio.raw" format "raw" }\npcm.null { type null }\n' "$out" > "$HOME/.asoundrc"
 cp /etc/speech-dispatcher/speechd.conf "$XDG_CONFIG_HOME/speech-dispatcher/speechd.conf"

@@ -5,8 +5,8 @@ import { resolve } from 'node:path';
 import { en } from '../src/i18n/en';
 import { cs } from '../src/i18n/cs';
 
-const dir = resolve(process.env.E2E_SR_AUDIT_DIR!);
-const debugPath = resolve(process.env.E2E_SR_DEBUG_FILE!);
+const dir = process.env.E2E_SR_AUDIT_DIR ? resolve(process.env.E2E_SR_AUDIT_DIR) : '';
+const debugPath = process.env.E2E_SR_DEBUG_FILE ? resolve(process.env.E2E_SR_DEBUG_FILE) : '';
 const setupToken = process.env.E2E_SETUP_TOKEN!;
 const expectedFor = (locale: 'en' | 'cs') => locale === 'en' ? en : cs;
 const transcript: Array<{ step: string; locale: string; action: string; expected: string[]; spoken: string[]; focused: { tag: string; id: string | null; name: string | null } | null; focusExpected: string; focusMatches: boolean; expectedLiveText?: string; liveTextMatches?: boolean; speechBytes: number; speechCountBefore: number; speechCountAfter: number; actionCorrelated: boolean; result: 'pass' | 'finding' | 'fail' }> = [];
@@ -104,8 +104,8 @@ async function evidence(
   focusedSelector: string,
   expectedLiveText?: string,
 ) {
-  const quiet = await waitForSpeechQuiet(page);
   activateBrowserWindow();
+  const quiet = await waitForSpeechQuiet(page);
   const offset = quiet.bytes;
   const beforeSpeechCount = quiet.speechCount;
   execFileSync('xdotool', ['key', '--clearmodifiers', key]);
@@ -188,6 +188,7 @@ test.describe.configure({ mode: 'serial' });
 test.setTimeout(600_000);
 
 test('Orca speaks localized screen-reader evidence', async ({ page }) => {
+  if (!dir || !debugPath) throw new Error('E2E_SR_AUDIT_DIR and E2E_SR_DEBUG_FILE are required for the screen-reader audit');
   mkdirSync(dir, { recursive: true });
   assertRedaction();
   await page.route('**/api/v1/auth/setup', async (route) => {

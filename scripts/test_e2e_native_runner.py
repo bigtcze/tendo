@@ -50,6 +50,19 @@ class AdminPsqlTests(unittest.TestCase):
 
 
 class ChildProcessTests(unittest.TestCase):
+    def test_default_playwright_discovery_excludes_screen_reader_spec_without_sr_env(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        env.pop("E2E_SR_AUDIT_DIR", None)
+        env.pop("E2E_SR_DEBUG_FILE", None)
+        env.update({"E2E_BASE_URL": "http://127.0.0.1:1", "E2E_SETUP_TOKEN": "test-token", "E2E_OWNER_PASSWORD": "test-password", "E2E_CLOCK_NOW": "2026-05-14T08:00:00Z", "E2E_FOREIGN_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000001", "E2E_FOREIGN_SUBJECT_ID": "01890000-0000-7000-8000-000000000002", "E2E_FOREIGN_ITEM_ID": "01890000-0000-7000-8000-000000000003"})
+        result = subprocess.run(
+            [str(root / "frontend/node_modules/.bin/playwright"), "test", "--list"],
+            cwd=root / "frontend", env=env, text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("screen-reader.spec.ts", result.stdout + result.stderr)
+
     def test_cleanup_terminates_only_owned_process_group_and_reaps_ignoring_child(self):
         with tempfile.TemporaryDirectory() as tmp:
             pidfile = pathlib.Path(tmp) / "child.pid"
@@ -221,13 +234,28 @@ class ChildProcessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp); runtime = root / "runtime"; logs = runtime / "logs"
             logs.mkdir(parents=True); (runtime / "display").write_text(":123"); (logs / "ready").touch(); (logs / "bus-address").write_text("unix:path=private")
-            debug = root / "orca-debug.out"; debug.write_text("speech")
+            debug = root / "orca-debug.out"; debug.write_text("stale debug")
+            audit = root / "audit"; audit.mkdir()
+            for name in ("transcript.json", "transcript.md", "manifest.json"):
+                (audit / name).write_text("stale result")
             env = {"E2E_SR_RUN_DIR": str(runtime), "E2E_SR_DEBUG_FILE": str(debug)}
             children = mock.Mock(); proc = mock.Mock(); children.start.return_value = proc
+            def start_session(*args):
+                runtime.mkdir(mode=0o700, exist_ok=True)
+                new_logs = runtime / "logs"; new_logs.mkdir()
+                (runtime / "display").write_text(":123"); (new_logs / "ready").touch(); (new_logs / "bus-address").write_text("unix:path=private")
+                return proc
+            children.start.side_effect = start_session
             with mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.subprocess, "check_output", side_effect=["commit\n", ""]), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
-                runner.run_screen_reader(root, env, children, root / "artifacts", root / "audit")
+                runner.run_screen_reader(root, env, children, root / "artifacts", audit)
             children.start.assert_called_once_with([str(root / "scripts/sr-orca-session.sh"), str(runtime), str(debug), str(logs)], env, "private Orca session")
             children.stop.assert_called_once_with(proc, grace=5)
+            self.assertEqual(list(audit.glob("transcript.*")), [])
+            self.assertFalse((audit / "manifest.json").exists())
+            self.assertEqual(debug.read_text(), "")
+            self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(audit.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(debug.stat().st_mode & 0o777, 0o600)
             self.assertEqual(env["HOME"], str(runtime / "home"))
             self.assertEqual(env["DISPLAY"], ":123")
             self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=private")
@@ -325,6 +353,9 @@ class FailureLogTests(unittest.TestCase):
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
         generated_setup_token = "Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG="
         self.assertNotIn(generated_setup_token, runner.redact(f"Setup code: {generated_setup_token}"))
+        for line in ('password="!KeepMePrivate$"', "password='!KeepMePrivate$'", "password=!KeepMePrivate$"):
+            with self.subTest(line=line):
+                self.assertNotIn("!KeepMePrivate$", runner.redact(line))
 
     def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
