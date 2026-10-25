@@ -238,9 +238,14 @@ viewport emulation, in a 1280 px window. Chromium itself then lays the page out 
 or 320 CSS px and DPR 4 (400 %). At 200 % the test signs in and, through visible controls, adds a repeating
 Fluid item, completes it, undoes the completion, pauses, resumes, edits, archives and restores it, then finds it
 in All items in English and Czech; each step's server state is asserted. At 400 % it opens Home, All items, the
-item detail, People and things, Members and Account. Every state asserts window width 1280, the zoomed layout
-width and DPR, 16 px body text and no horizontal overflow; each action is scrolled into view and must lie fully
-inside the viewport. Mutation-checked: without the full Chromium channel the zoom is not applied and n23 fails.
+item detail, People and things, Members and Account. Measured states: login, home, the add form with Repeat and
+Fluid on, the new row, the completion notice with Undo, item detail open, paused, resumed, archived and restored,
+the edit form, All items with a search in English and Czech, and each 400 % route before and after scrolling to
+its controls. Each asserts window width 1280, the zoomed layout width and DPR, 16 px body text and no horizontal
+overflow. Each action is scrolled into view and must lie entirely inside the viewport (`toBeInViewport` with
+ratio 1, plus left and right edges within the layout width). Mutation-checked: without the full Chromium channel
+the zoom is not applied and n23 fails; with Done stretched to twice the viewport height, the default
+any-intersection check passes at ratio 0.5 and the ratio 1 check fails.
 
 **Reduced motion:** n14 measures computed transition and animation duration-plus-delay on every document element
 and its `::before`/`::after`, plus active Web Animations timings and root scroll behavior. It checks Home, the Home

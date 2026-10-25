@@ -3382,7 +3382,8 @@ test.describe('Tendo production journey', () => {
     };
     const inView = async (control: Locator, label: string) => {
       await control.scrollIntoViewIfNeeded();
-      await expect(control, label).toBeInViewport();
+      // ratio 1: the whole control must lie inside the viewport, not merely touch it.
+      await expect(control, label).toBeInViewport({ ratio: 1 });
       const box = await control.boundingBox();
       expect(box, `${label} has a box`).not.toBeNull();
       expect(box!.x, `${label} left edge`).toBeGreaterThanOrEqual(0);
@@ -3394,6 +3395,7 @@ test.describe('Tendo production journey', () => {
       return (await response.json()) as ServerItem & { workflowState: string; archived: boolean };
     };
     let itemId = '';
+    let primaryFailure: unknown;
     try {
       // 200 %: sign in, then add, complete, undo, pause, resume, edit, archive and restore one item.
       const { context, zoomed } = await launchAtZoom(200);
@@ -3432,6 +3434,7 @@ test.describe('Tendo production journey', () => {
       await inView(done, 'Done at 200%');
       await done.click();
       await expect(zoomed.getByRole('status').filter({ hasText: title })).toContainText('Next time:');
+      await measure(zoomed, 200, 'home with the completion notice');
       await expect.poll(async () => (await serverCompletions(itemId)).length).toBe(1);
       const [receipt] = await serverCompletions(itemId);
       expect(receipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: addDays(receipt.completedOn, 21), undoneAt: null });
@@ -3451,6 +3454,8 @@ test.describe('Tendo production journey', () => {
         await inView(button, `${action} at 200%`);
         await button.click();
         await expect.poll(async () => (await currentItem(itemId)).workflowState).toBe(state);
+        await waitForSettledHouseholdRequests(zoomed);
+        await measure(zoomed, 200, `item detail ${state}`);
       }
       const edit = main.getByRole('button', { name: en['itemDetail.edit.button'], exact: true });
       await inView(edit, 'Edit at 200%');
@@ -3470,6 +3475,9 @@ test.describe('Tendo production journey', () => {
       await archive.click();
       await expect.poll(async () => (await currentItem(itemId)).archived).toBe(true);
       const restore = main.getByRole('button', { name: en['subjects.restore'], exact: true });
+      await expect(restore).toBeVisible();
+      await waitForSettledHouseholdRequests(zoomed);
+      await measure(zoomed, 200, 'item detail archived');
       await inView(restore, 'Restore at 200%');
       await restore.click();
       await expect.poll(async () => (await currentItem(itemId)).archived).toBe(false);
@@ -3516,12 +3524,19 @@ test.describe('Tendo production journey', () => {
         await inView(deep.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.home'], exact: true }), `${route.name} navigation at 400%`);
         await measure(deep, 400, `${route.name} after scrolling to its controls`);
       }
-    } finally {
-      console.log(`native-zoom-measurements ${JSON.stringify(measured)}`);
-      await test.info().attach('native-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
-      for (const context of contexts) await context.close();
-      for (const profile of profiles) rmSync(profile, { recursive: true, force: true });
+    } catch (error) {
+      primaryFailure = error;
     }
+    // Every cleanup step runs even if an earlier one fails; the journey's own failure is reported first.
+    let cleanupFailure: unknown;
+    console.log(`native-zoom-measurements ${JSON.stringify(measured)}`);
+    await test.info().attach('native-zoom-measurements.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' }).catch((error) => { cleanupFailure ??= error; });
+    for (const context of contexts) await context.close().catch((error) => { cleanupFailure ??= error; });
+    for (const profile of profiles) {
+      try { rmSync(profile, { recursive: true, force: true }); } catch (error) { cleanupFailure ??= error; }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {
