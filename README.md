@@ -85,4 +85,4 @@ Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
 
 ## Project status and license
 
-Tendo 2.0 is the current release. It keeps all your 1.x data; to update from 1.x, follow [Updating from 1.x to 2.0](docs/admin/update.md#updating-from-1x-to-20). Images are published at `ghcr.io/bigtcze/tendo` with the tags `latest`, `v2`, `v2.0`, and the exact version; `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
+This README describes Tendo 2.0, which is not released yet. The latest published release is 1.0.0, and the quick start above installs it until 2.0 is published. Tendo 2.0 will keep all your 1.x data; to update from 1.x once it is out, follow [Updating from 1.x to 2.0](docs/admin/update.md#updating-from-1x-to-20). When 2.0 is published, its images will be at `ghcr.io/bigtcze/tendo` with the tags `latest`, `v2`, `v2.0`, and the exact version; `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
