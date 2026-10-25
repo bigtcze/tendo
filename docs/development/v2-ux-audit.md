@@ -231,6 +231,17 @@ changes/Cancel, Save/Cancel, Search and the result link, Edit, Done), then re-ch
 states, plus Czech All items, also gets a real 320 CSS px viewport with an overflow check, the same control
 checks and an axe scan.
 
+**Real browser zoom (n23):** n14 and n21 emulate zoom. n23 instead starts the full Chromium build (Playwright
+channel `chromium`; the default headless shell ignores zoom settings) with the profile preference that
+chrome://settings "Page zoom" writes (`partition.default_zoom_level`, log base 1.2 of the factor) and no
+viewport emulation, in a 1280 px window. Chromium itself then lays the page out at 640 CSS px and DPR 2 (200 %)
+or 320 CSS px and DPR 4 (400 %). At 200 % the test signs in and, through visible controls, adds a repeating
+Fluid item, completes it, undoes the completion, pauses, resumes, edits, archives and restores it, then finds it
+in All items in English and Czech; each step's server state is asserted. At 400 % it opens Home, All items, the
+item detail, People and things, Members and Account. Every state asserts window width 1280, the zoomed layout
+width and DPR, 16 px body text and no horizontal overflow; each action is scrolled into view and must lie fully
+inside the viewport. Mutation-checked: without the full Chromium channel the zoom is not applied and n23 fails.
+
 **Reduced motion:** n14 measures computed transition and animation duration-plus-delay on every document element
 and its `::before`/`::after`, plus active Web Animations timings and root scroll behavior. It checks Home, the Home
 add form with Repeat on, item detail, item edit form, All items, People and things and its edit form, Members, and
@@ -256,5 +267,6 @@ forms and dialogs, such as focus after save, cancel, undo, errors and 412 rebase
 Vitest focus tests, not by n21. Focus-indicator contrast is measured only against the surface around the
 control. Setup has finished before n21 runs, so onboarding is covered elsewhere: test b measures rendered-colour
 contrast and runs axe on its error state, `OnboardingScreen.test.tsx` checks error focus, and the opt-in audit
-checks widths. Zoom is emulated in headless Chromium, not set through the browser's zoom control. None of this
+checks widths. n14 and n21 emulate zoom; n23 uses Chromium's own page zoom, set as a profile preference rather than
+through the zoom menu or keyboard shortcut, and only in Chromium. None of this
 is a WCAG conformance certification.
