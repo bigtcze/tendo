@@ -243,6 +243,8 @@ test.describe('Tendo production journey', () => {
     expect(sessionCookie?.sameSite).toBe('Lax');
     sessionToken = sessionCookie?.value ?? '';
     expect(sessionToken).not.toBe('');
+    // PROBE: intentional failure to prove encrypted CI diagnostics; never merge.
+    await expect(page.getByText('ENCRYPTED DIAGNOSTICS PROBE FAILURE')).toBeVisible({ timeout: 2000 });
   });
 
   test('d. reload keeps the session and setup is closed afterwards', async () => {
