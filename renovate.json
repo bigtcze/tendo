@@ -223,7 +223,7 @@
     },
     {
       "description": "Each action updates its manifest and every workflow reference, without unrelated actions",
-      "matchPackageNames": ["actions/checkout", "actions/setup-go", "actions/setup-node"],
+      "matchPackageNames": ["actions/checkout", "actions/setup-go", "actions/setup-node", "actions/upload-artifact"],
       "groupName": "{{depName}} action",
       "groupSlug": "{{depName}}-action",
       "addLabels": ["toolchain", "migration-required"],
