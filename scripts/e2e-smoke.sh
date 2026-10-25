@@ -44,6 +44,8 @@ find "$root/backend/internal/platform/webui/dist/assets" -type f -print -quit | 
 (cd "$root/backend" && go build -trimpath -o "$tmp/tendo" ./cmd/tendo && go build -trimpath -o "$tmp/oidc-provider" ./test/oidc-provider)
 [[ -s "$tmp/tendo" && -s "$tmp/oidc-provider" ]] || { printf 'native production binaries were not built\n' >&2; exit 1; }
 export TENDO_E2E_BINARY="$tmp/tendo" TENDO_OIDC_PROVIDER_BINARY="$tmp/oidc-provider" TENDO_E2E_ROOT="$root"
+if [[ -n "${E2E_CI_UPLOAD_DIR:-}" ]]; then export E2E_CI_UPLOAD_DIR; fi
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then export GITHUB_OUTPUT; fi
 wrapper_child=""
 forward_signal() {
   local sig=$1 status=0

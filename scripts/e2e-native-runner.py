@@ -7,6 +7,9 @@ import base64
 import os
 import re
 import secrets
+import shutil
+import json
+import tempfile
 import signal
 import socket
 import subprocess
@@ -26,9 +29,25 @@ FAILURE_LOG_TAIL_LINES = 200
 ROUTINE_ACCESS_LINE = re.compile(r" INFO http request .* status=[23]\d\d ")
 
 
+def register_sensitive_value(value: str) -> None:
+    if not value:
+        return
+    variants = {
+        value,
+        urllib.parse.quote(value, safe=""),
+        urllib.parse.quote_plus(value),
+        json.dumps(value)[1:-1],
+        json.dumps(value)[1:-1].replace("/", "\\/"),
+    }
+    for encoded in (base64.b64encode(value.encode()), base64.urlsafe_b64encode(value.encode())):
+        variants.add(encoded.decode())
+        variants.add(encoded.decode().rstrip("="))
+    SENSITIVE_VALUES.update(variants)
+
+
 def generated_secret(nbytes: int) -> str:
     value = base64.b64encode(secrets.token_bytes(nbytes)).decode("ascii")
-    SENSITIVE_VALUES.add(value)
+    register_sensitive_value(value)
     return value
 
 
@@ -36,11 +55,11 @@ def register_database_url(value: str):
     """Register a database URL plus its encoded and decoded password for failure-log redaction."""
     if not value:
         return
-    SENSITIVE_VALUES.add(value)
+    register_sensitive_value(value)
     password = urllib.parse.urlsplit(value).password
     if password:
-        SENSITIVE_VALUES.add(password)
-        SENSITIVE_VALUES.add(urllib.parse.unquote(password))
+        register_sensitive_value(password)
+        register_sensitive_value(urllib.parse.unquote(password))
 
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -52,6 +71,11 @@ STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
+    (re.compile(r'(?i)(["\'](?:password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
+    (re.compile(r'(?is)(["\']name["\']\s*:\s*["\'](?:tendo_session[^"\']*|[^"\']*cookie[^"\']*)["\'][^{}]*?["\']value["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
+    (re.compile(r'(?i)(["\']value["\']\s*:\s*)["\'][^"\']*["\'](?=\s*[,}])'), r'\1"[redacted]"'),
+    (re.compile(r"(?i)(?<![A-Za-z0-9_-])#([A-Za-z0-9_-]{20,})"), r"#[redacted]"),
+    (re.compile(r"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_+/=-]{24,}(?![A-Za-z0-9_+/=-]))(?=[A-Za-z0-9_+/-]*[A-Z])(?=[A-Za-z0-9_+/-]*[a-z])(?=[A-Za-z0-9_+/-]*[0-9])[A-Za-z0-9_+/=-]{24,}"), "[redacted]"),
     (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
 )
 
@@ -63,6 +87,124 @@ def redact(text: str) -> str:
     for pattern, replacement in STRUCTURAL_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def write_redacted_process_log(log_path: Path) -> Path | None:
+    """Write the full process output after applying the same credential redaction used for CI logs."""
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        redacted_path = log_path.with_name("process.redacted.log")
+        redacted_path.write_text(redact(text), encoding="utf-8")
+        return redacted_path
+    except OSError as exc:
+        print(f"Redacted E2E process log unavailable: {exc}", file=sys.stderr)
+        return None
+
+
+def sanitize_json_value(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            lowered = key.lower()
+            # Raw output streams and inline attachment bodies (base64, unredactable) are dropped.
+            if lowered in {"stdout", "stderr", "body"}:
+                continue
+            if lowered in {"password", "passwd", "secret", "client_secret", "setup_token", "cookie", "set-cookie", "authorization"}:
+                sanitized[key] = "[redacted]"
+            else:
+                sanitized[key] = sanitize_json_value(item)
+        return sanitized
+    if isinstance(value, list):
+        return [
+            sanitize_json_value(item)
+            for item in value
+            if not (isinstance(item, dict) and str(item.get("name", "")).lower() in {"stdout", "stderr"})
+        ]
+    if isinstance(value, str):
+        return redact(value)
+    return value
+
+
+def validate_upload_destination(destination: Path) -> None:
+    parent = destination.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise RuntimeError(f"E2E CI upload parent must be an existing real directory: {parent}")
+    if os.path.lexists(destination):
+        raise RuntimeError(f"E2E CI upload destination already exists: {destination}")
+
+
+def write_ci_upload_ready() -> None:
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write("ci_upload=ready\n")
+
+
+def stage_ci_upload(destination: Path, source_dir: Path) -> bool:
+    """Sanitize to a new sibling and publish only by non-overwriting rename."""
+    temporary = None
+    try:
+        temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+        redacted_log = source_dir / "process.redacted.log"
+        if redacted_log.is_symlink() or not redacted_log.is_file():
+            raise FileNotFoundError("redacted process log missing or symlinked")
+        (temporary / "process.redacted.log").write_text(redact(redacted_log.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+        for current, dirs, files in os.walk(source_dir, followlinks=False):
+            current_path = Path(current)
+            dirs[:] = [name for name in dirs if not (current_path / name).is_symlink()]
+            for name in files:
+                path = current_path / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if path.name.startswith("report-") and path.suffix == ".json":
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    (temporary / path.name).write_text(json.dumps(sanitize_json_value(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+                elif path.name == "error-context.md":
+                    (temporary / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+        (temporary / "STAGED_OK").write_text("ok\n", encoding="utf-8")
+    except BaseException as exc:
+        print(f"E2E artifact sanitization failed: {exc}", file=sys.stderr)
+        if temporary is not None:
+            try:
+                shutil.rmtree(temporary)
+            except OSError as cleanup_error:
+                print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
+                return False
+        try:
+            temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+            (temporary / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
+        except OSError as marker_error:
+            print(f"E2E artifact failure marker staging failed: {marker_error}", file=sys.stderr)
+            if temporary is not None:
+                try:
+                    shutil.rmtree(temporary)
+                except OSError as cleanup_error:
+                    print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
+            return False
+    try:
+        if os.path.lexists(destination):
+            raise FileExistsError(f"E2E CI upload destination appeared during staging: {destination}")
+        os.rename(temporary, destination)
+    except OSError as rename_error:
+        print(f"E2E artifact publication failed: {rename_error}", file=sys.stderr)
+        try:
+            shutil.rmtree(temporary)
+        except OSError as cleanup_error:
+            print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
+        return False
+    try:
+        write_ci_upload_ready()
+    except OSError as output_error:
+        print(f"E2E CI upload output could not be written: {output_error}", file=sys.stderr)
+        try:
+            if destination.is_symlink():
+                destination.unlink()
+            elif destination.exists():
+                shutil.rmtree(destination)
+        except OSError as cleanup_error:
+            print(f"E2E CI upload cleanup failed: {cleanup_error}", file=sys.stderr)
+        return False
+    return True
 
 
 def print_failure_log_tail(log_path: Path, lines: int = FAILURE_LOG_TAIL_LINES):
@@ -337,6 +479,11 @@ def assert_foreign_seed_unchanged(inherited: dict[str, str], household_id: str, 
 
 
 def run_playwright(root, env, children, *args, timeout=600):
+    env = env.copy()
+    report_dir = Path(env.get("E2E_ARTIFACT_DIR", root / "frontend/test-results"))
+    invocation = uuid.uuid4().hex
+    env["PLAYWRIGHT_HTML_OUTPUT_DIR"] = str(report_dir / f"html-report-{invocation}")
+    env["PLAYWRIGHT_JSON_OUTPUT_FILE"] = str(report_dir / f"report-{invocation}.json")
     cmd = [str(root / "frontend/node_modules/.bin/playwright"), "test", *args]
     children.run(cmd, env, "Playwright", root / "frontend", timeout)
 
@@ -445,6 +592,7 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         "E2E_SETUP_TOKEN": setup_token,
         "E2E_OWNER_PASSWORD": generated_secret(24),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
+        "E2E_ARTIFACT_DIR": str(artifact_dir),
     })
     if sum(value is not None for value in (screenshot_path, audit_dir, sr_audit_dir)) > 1:
         raise RuntimeError("screenshot, UX audit and screen-reader audit modes are mutually exclusive")
@@ -541,6 +689,7 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
         "E2E_CLOCK_NOW": "2026-01-15T22:59:59Z",
         "E2E_CLOCK_FIXTURE_PATH": str(artifact_dir / "attention-clock.json"),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
+        "E2E_ARTIFACT_DIR": str(artifact_dir),
         "E2E_FOREIGN_HOUSEHOLD_ID": foreign_household_id,
         "E2E_FOREIGN_SUBJECT_ID": foreign_subject_id,
         "E2E_FOREIGN_ITEM_ID": foreign_item_id,
@@ -574,8 +723,13 @@ def main():
     root = args.root.resolve()
     for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
         register_database_url(os.environ.get(key, ""))
+    test_results_dir = root / "frontend/test-results"
+    test_results_dir.mkdir(parents=True, exist_ok=True)
+    upload_destination = Path(os.environ["E2E_CI_UPLOAD_DIR"]) if os.environ.get("E2E_CI_UPLOAD_DIR") else None
+    if upload_destination is not None:
+        validate_upload_destination(upload_destination)
     children = Children()
-    artifact_dir = root / "frontend/test-results" / f"native-{uuid.uuid4().hex}"
+    artifact_dir = test_results_dir / f"native-{uuid.uuid4().hex}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
     signal_seen = None
     previous_handlers = {}
@@ -615,6 +769,9 @@ def main():
                 signal.signal(signum, previous)
         # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
         if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
+            redacted_log = write_redacted_process_log(artifact_dir / "process.log")
+            if redacted_log is not None and upload_destination is not None:
+                stage_ci_upload(upload_destination, artifact_dir)
             print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
         if result_error is None and cleanup_error_seen is not None:

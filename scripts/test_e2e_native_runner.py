@@ -1,3 +1,5 @@
+import base64
+import json
 import importlib.util
 import pathlib
 import signal
@@ -322,6 +324,18 @@ class ChildProcessTests(unittest.TestCase):
                 runner.main()
             self.assertEqual(raised.exception.code, 2)
 
+    def test_run_playwright_uses_distinct_report_paths_without_mutating_caller_env(self):
+        root = pathlib.Path("/repo")
+        env = {"E2E_ARTIFACT_DIR": "/repo/frontend/test-results/native-test", "KEEP": "value"}
+        children = mock.Mock()
+        runner.run_playwright(root, env, children, "e2e/journey.spec.ts")
+        first = children.run.call_args.args[1]
+        runner.run_playwright(root, env, children, "e2e/attention-clock.spec.ts")
+        second = children.run.call_args.args[1]
+        self.assertNotEqual(first["PLAYWRIGHT_HTML_OUTPUT_DIR"], second["PLAYWRIGHT_HTML_OUTPUT_DIR"])
+        self.assertNotEqual(first["PLAYWRIGHT_JSON_OUTPUT_FILE"], second["PLAYWRIGHT_JSON_OUTPUT_FILE"])
+        self.assertEqual(env, {"E2E_ARTIFACT_DIR": "/repo/frontend/test-results/native-test", "KEEP": "value"})
+
     def test_run_playwright_forwards_default_and_audit_timeouts(self):
         root = pathlib.Path("/repo")
         children = mock.Mock()
@@ -344,6 +358,17 @@ class ChildProcessTests(unittest.TestCase):
 
 
 class FailureLogTests(unittest.TestCase):
+    def test_full_redacted_process_log_is_written_without_registered_secret(self):
+        token = runner.generated_secret(32)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "process.log"
+            log.write_text(f"early password={token}\nlate useful failure detail\n")
+            redacted = runner.write_redacted_process_log(log)
+            self.assertEqual(redacted, pathlib.Path(tmp) / "process.redacted.log")
+            content = redacted.read_text()
+        self.assertEqual(content, "early password=[redacted]\nlate useful failure detail\n")
+        self.assertNotIn(token, content)
+
     def test_failure_log_tail_is_bounded_and_redacts_generated_credentials(self):
         token = runner.generated_secret(32)
         with tempfile.TemporaryDirectory() as tmp:
@@ -358,7 +383,14 @@ class FailureLogTests(unittest.TestCase):
         self.assertNotIn("line 296", out)
         self.assertIn("line 297", out)
 
-    def test_structural_redaction_covers_cookies_oidc_invites_db_urls_and_ansi(self):
+    def test_registered_secret_redaction_in_neutral_text(self):
+        runner.SENSITIVE_VALUES.clear()
+        token = runner.generated_secret(24)
+        out = runner.redact(f"event detail: {token}")
+        self.assertNotIn(token, out)
+        self.assertEqual(out, "event detail: [redacted]")
+
+    def test_structural_redaction_covers_cookies_oidc_invites_db_urls_json_and_ansi(self):
         runner.register_database_url("postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e")
         lines = [
             "\x1b[31m    Cookie: tendo_session=abcSESSION123; other=1\x1b[39m",
@@ -368,17 +400,242 @@ class FailureLogTests(unittest.TestCase):
             "Received: \"http://localhost:1234/invite#INVITEsecretfragment0123456789abcdefghijklmn\"",
             "headers: { Cookie: `tendo_session=${'TOKENVALUE42'}` }",
             "dial postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e failed",
+            'report {"password":"json-password-value"}',
             "auth failed for password p@ss-W0rd",
             "  1) e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4",
         ]
         out = "\n".join(runner.redact(line) for line in lines)
-        for leaked in ("abcSESSION123", "zzzSESSION999", "CODE777", "STATE888", "NONCE555", "INVITEsecretfragment", "TOKENVALUE42", "p%40ss-W0rd", "p@ss-W0rd", "\x1b["):
+        for leaked in ("abcSESSION123", "zzzSESSION999", "CODE777", "STATE888", "NONCE555", "INVITEsecretfragment", "TOKENVALUE42", "json-password-value", "p%40ss-W0rd", "p@ss-W0rd", "\x1b["):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
         for line in ('password="!KeepMePrivate$"', "password='!KeepMePrivate$'", "password=!KeepMePrivate$"):
             with self.subTest(line=line):
                 self.assertNotIn("!KeepMePrivate$", runner.redact(line))
+        self.assertIn("Received string: \"#[redacted]!\"", runner.redact('Received string: "#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE!"'))
+        readable = runner.redact("e2e/journey.spec.ts:12:3 report-0123456789abcdef0123456789abcdef")
+        self.assertIn("e2e/journey.spec.ts:12:3", readable)
+        self.assertIn("report-0123456789abcdef0123456789abcdef", readable)
+
+    def test_registered_secret_encodings_are_redacted(self):
+        runner.SENSITIVE_VALUES.clear()
+        secret = "Owner secret /+"
+        runner.register_sensitive_value(secret)
+        variants = {
+            __import__("urllib.parse", fromlist=["quote"]).quote(secret, safe=""),
+            __import__("urllib.parse", fromlist=["quote"]).quote_plus(secret),
+            json.dumps(secret)[1:-1],
+            json.dumps(secret)[1:-1].replace("/", "\\/"),
+            base64.b64encode(secret.encode()).decode(),
+            base64.b64encode(secret.encode()).decode().rstrip("="),
+            base64.urlsafe_b64encode(secret.encode()).decode(),
+            base64.urlsafe_b64encode(secret.encode()).decode().rstrip("="),
+        }
+        for variant in variants:
+            with self.subTest(variant=variant):
+                self.assertNotIn(variant, runner.redact(f"failure {variant}"))
+
+    def test_cookie_object_diagnostics_are_redacted(self):
+        diagnostics = '{"name":"tendo_session","value":"cookie-secret"} {"name":"other-cookie","value":"other-secret"}'
+        out = runner.redact(diagnostics)
+        self.assertNotIn("cookie-secret", out)
+        self.assertNotIn("other-secret", out)
+
+    def test_predictable_encodings_are_redacted_in_every_staged_text_channel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            secret = "secret/with+symbols"
+            runner.SENSITIVE_VALUES.clear()
+            runner.register_sensitive_value(secret)
+            percent = __import__("urllib.parse", fromlist=["quote"]).quote(secret, safe="")
+            encoded = base64.b64encode(secret.encode()).decode()
+            escaped = json.dumps({"detail": secret})[1:-1].replace("/", "\\/")
+            (source / "process.redacted.log").write_text(f"process {percent} {encoded} {escaped}\n")
+            artifacts = source / "artifacts" / "test-failed-7"
+            artifacts.mkdir(parents=True)
+            (artifacts / "error-context.md").write_text(f"context {percent} {encoded} {escaped}\n")
+            (artifacts / "report-7.json").write_text(json.dumps({"errors": [{"message": f"{percent} {encoded}", "stack": escaped, "snippet": f"cookie={{\"name\":\"tendo_session\",\"value\":\"{secret}\"}}"}]}))
+            with mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(results / "upload"), "GITHUB_OUTPUT": str(results / "github-output")}):
+                staged = results / "upload"
+                self.assertTrue(runner.stage_ci_upload(staged, source))
+                self.assertEqual((results / "github-output").read_text(), "ci_upload=ready\n")
+            for path in staged.iterdir():
+                if path.is_file() and path.name != "STAGED_OK":
+                    contents = path.read_text()
+                    for leaked in (secret, percent, encoded):
+                        self.assertNotIn(leaked, contents)
+
+    def test_preexisting_upload_paths_abort_before_children_without_deletion(self):
+        for kind in ("file", "directory", "symlink", "dangling"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+                app.write_text("fake"); provider.write_text("fake")
+                results = root / "frontend/test-results"
+                results.mkdir(parents=True)
+                destination = pathlib.Path(tmp) / "upload"
+                outside = pathlib.Path(tmp) / "outside"
+                if kind == "file":
+                    destination.write_text("sentinel")
+                elif kind == "directory":
+                    destination.mkdir(); (destination / "sentinel").write_text("outside")
+                elif kind == "symlink":
+                    outside.write_text("sentinel"); destination.symlink_to(outside)
+                else:
+                    destination.symlink_to(pathlib.Path(tmp) / "missing")
+                with (mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(destination)}, clear=True),
+                      mock.patch.object(runner, "Children") as children,
+                      mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                    with self.assertRaisesRegex(RuntimeError, "already exists"):
+                        runner.main()
+                children.assert_not_called()
+                if kind == "file":
+                    self.assertEqual(destination.read_text(), "sentinel")
+                elif kind == "directory":
+                    self.assertEqual((destination / "sentinel").read_text(), "outside")
+                elif kind == "symlink":
+                    self.assertEqual(outside.read_text(), "sentinel")
+                else:
+                    self.assertTrue(destination.is_symlink())
+
+    def test_symlinked_upload_parent_aborts_before_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            actual = root / "actual"; actual.mkdir()
+            parent_link = root / "parent-link"; parent_link.symlink_to(actual, target_is_directory=True)
+            destination = parent_link / "upload"
+            with (mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(destination)}, clear=True),
+                  mock.patch.object(runner, "Children") as children,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                with self.assertRaisesRegex(RuntimeError, "real directory"):
+                    runner.main()
+            children.assert_not_called()
+            self.assertFalse((actual / "upload").exists())
+
+    def test_ci_upload_staging_is_allowlisted_and_sanitized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-fake"
+            source.mkdir(parents=True)
+            runner.SENSITIVE_VALUES.clear()
+            runner.register_sensitive_value("owner-secret-123")
+            runner.register_sensitive_value("database-secret-456")
+            (source / "process.redacted.log").write_text("owner-secret-123 should be hidden\n{\"password\":\"database-secret-456\"}\n")
+            artifacts = source / "artifacts" / "test-failed-1"
+            artifacts.mkdir(parents=True)
+            (artifacts / "trace.zip").write_bytes(b"raw trace")
+            (artifacts / "resource.json").write_text('{"password":"owner-secret-123"}')
+            (artifacts / "error-context.md").write_text("Invite http://localhost/invite#database-secret-456\n")
+            (artifacts / "report-1.json").write_text(json.dumps({"errors": [{"message": f"percent={__import__('urllib.parse', fromlist=['quote']).quote('owner-secret-123', safe='')} base64={base64.b64encode(b'owner-secret-123').decode()}", "stack": f"nested={{\"detail\":\"x\\/y\"}} cookie={{\"name\":\"tendo_session\",\"value\":\"database-secret-456\"}}", "snippet": "password=database-secret-456"}], "attachments": [{"name": "stdout", "body": "owner-secret-123"}]}))
+            (artifacts / "test-failed-1.png").write_bytes(b"png")
+            (source / "html-report").mkdir()
+            (source / "html-report" / "index.html").write_text("secret")
+            staged = results / "ci-upload"
+            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(results / "github-output")}):
+                self.assertTrue(runner.stage_ci_upload(staged, source))
+            files = {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
+            self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md", "STAGED_OK"})
+            combined = "\n".join(p.read_text() for p in staged.rglob("*") if p.is_file())
+            self.assertNotIn("owner-secret-123", combined)
+            self.assertNotIn("database-secret-456", combined)
+            self.assertNotIn("stdout", combined)
+            self.assertNotIn(base64.b64encode(b"owner-secret-123").decode(), combined)
+            self.assertNotIn('"body"', combined)
+            self.assertIn('x\\\\/y', combined)
+            self.assertFalse(any(p.suffix == ".zip" or p.name == "index.html" for p in staged.rglob("*")))
+            self.assertTrue((staged / "STAGED_OK").is_file())
+
+    def test_ci_upload_skips_symlinked_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            destination = results / "ci-upload"
+            external = pathlib.Path(tmp) / "outside.json"
+            external.write_text('{"message":"should not copy"}')
+            (source / "report-evil.json").symlink_to(external)
+            staged = results / "upload"
+            self.assertTrue(runner.stage_ci_upload(staged, source))
+            names = {path.name for path in staged.iterdir()}
+            self.assertIn("STAGED_OK", names)
+            self.assertNotIn("report-evil.json", names)
+
+    def test_upload_symlink_destination_is_rejected_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            results.mkdir()
+            source = results / "native-run"
+            source.mkdir()
+            (source / "process.redacted.log").write_text("safe\n")
+            destination = results / "upload"
+            outside = pathlib.Path(tmp) / "outside"
+            outside.mkdir()
+            (outside / "sentinel").write_text("safe")
+            destination.symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(RuntimeError, "already exists"):
+                runner.validate_upload_destination(destination)
+            self.assertTrue(destination.is_symlink())
+            self.assertEqual((outside / "sentinel").read_text(), "safe")
+
+    def test_ci_upload_rename_collision_never_emits_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            destination = results / "upload"
+            output = results / "github-output"
+            def collide(_src, dst):
+                pathlib.Path(dst).mkdir()
+                raise FileExistsError("collision")
+            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(runner.os, "rename", side_effect=collide):
+                self.assertFalse(runner.stage_ci_upload(destination, source))
+            self.assertFalse(output.exists())
+
+    def test_ci_upload_write_failure_publishes_failure_marker_not_partial_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-run"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            (source / "report-1.json").write_text("{}")
+            original_write_text = pathlib.Path.write_text
+            def fail_report(path, data, *args, **kwargs):
+                if path.name == "report-1.json":
+                    raise OSError("disk full")
+                return original_write_text(path, data, *args, **kwargs)
+            output = results / "github-output"
+            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(pathlib.Path, "write_text", fail_report):
+                self.assertTrue(runner.stage_ci_upload(results / "upload", source))
+            staged = results / "upload"
+            self.assertEqual([path.name for path in staged.iterdir()], ["SANITIZE_FAILED"])
+            self.assertEqual(output.read_text(), "ci_upload=ready\n")
+
+    def test_github_output_unset_does_not_crash_after_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp)
+            source = results / "native-run"
+            source.mkdir()
+            (source / "process.redacted.log").write_text("safe\n")
+            with mock.patch.dict("os.environ", {}, clear=True):
+                self.assertTrue(runner.stage_ci_upload(results / "upload", source))
+
+    def test_ci_upload_sanitizer_failure_leaves_only_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-fake"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            (source / "report-1.json").write_text("{}")
+            destination = results / "upload"
+            output = results / "github-output"
+            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(runner, "sanitize_json_value", side_effect=ValueError("invalid")):
+                self.assertTrue(runner.stage_ci_upload(destination, source))
+            self.assertEqual([p.name for p in destination.iterdir()], ["SANITIZE_FAILED"])
+            self.assertEqual(output.read_text(), "ci_upload=ready\n")
 
     def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -421,9 +678,56 @@ class FailureReportingLifecycleTests(unittest.TestCase):
                     error = exc
                 return error, tail.call_count
 
+    def test_interruption_before_staging_leaves_no_upload_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            results = root / "frontend/test-results"
+            results.mkdir(parents=True)
+            destination = root / "runner-temp/upload"
+            destination.parent.mkdir()
+            with (mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(destination)}, clear=True),
+                  mock.patch.object(runner, "Children"),
+                  mock.patch.object(runner, "run_suite", side_effect=KeyboardInterrupt()),
+                  mock.patch.object(runner, "write_redacted_process_log", return_value=None),
+                  mock.patch.object(runner, "print_failure_log_tail"),
+                  mock.patch.object(runner, "stage_ci_upload") as stage,
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                with self.assertRaises(KeyboardInterrupt):
+                    runner.main()
+            self.assertFalse(destination.exists())
+            stage.assert_not_called()
+
+    def test_success_does_not_write_redacted_log(self):
+        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+            error, tails = self._main()
+        self.assertIsNone(error); self.assertEqual(tails, 0)
+        write_redacted.assert_not_called()
+
     def test_success_prints_no_failure_log(self):
         error, tails = self._main()
         self.assertIsNone(error); self.assertEqual(tails, 0)
+
+    def test_suite_failure_writes_full_redacted_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            def fail_suite(_root, _app, _provider, _inherited, _children, artifact_dir):
+                artifact_dir.joinpath("process.log").write_text("password=registered-secret\nfull failure details\n")
+                raise RuntimeError("Playwright failed")
+
+            output = root / "github-output"
+            upload_dir = root / "runner-temp/upload"
+            upload_dir.parent.mkdir()
+            with (mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(upload_dir), "GITHUB_OUTPUT": str(output)}, clear=True),
+                  mock.patch.object(runner, "Children"),
+                  mock.patch.object(runner, "run_suite", side_effect=fail_suite),
+                  mock.patch.object(runner, "print_failure_log_tail"),
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                with self.assertRaisesRegex(RuntimeError, "Playwright failed"):
+                    runner.main()
+            self.assertIn("process.redacted.log", {path.name for path in upload_dir.iterdir()})
+            self.assertEqual(output.read_text(), "ci_upload=ready\n")
 
     def test_suite_failure_prints_log_and_keeps_primary_error(self):
         error, tails = self._main(suite=RuntimeError("Playwright exited with status 1"))
@@ -435,18 +739,28 @@ class FailureReportingLifecycleTests(unittest.TestCase):
             self.assertIsInstance(error, RuntimeError); self.assertEqual(tails, 1)
 
     def test_cleanup_only_failure_prints_log_and_fails(self):
-        error, tails = self._main(close=RuntimeError("process group survived"))
+        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+            error, tails = self._main(close=RuntimeError("process group survived"))
         self.assertIsInstance(error, RuntimeError); self.assertIn("survived", str(error)); self.assertEqual(tails, 1)
+        write_redacted.assert_called_once()
 
     def test_cleanup_failure_after_suite_failure_keeps_primary_error(self):
         error, tails = self._main(suite=RuntimeError("primary"), close=RuntimeError("secondary"))
         self.assertEqual(str(error), "primary"); self.assertEqual(tails, 1)
 
+    def test_missing_process_log_does_not_replace_primary_error(self):
+        error, tails = self._main(suite=RuntimeError("primary failure"))
+        self.assertIsInstance(error, RuntimeError)
+        self.assertEqual(str(error), "primary failure")
+        self.assertEqual(tails, 1)
+
     def test_cancellation_after_suite_returns_prints_log_and_exits_nonzero(self):
         def cancelled(*_args, **_kwargs):
             signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
-        error, tails = self._main(suite=cancelled)
+        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+            error, tails = self._main(suite=cancelled)
         self.assertIsInstance(error, SystemExit); self.assertEqual(error.code, 128 + signal.SIGTERM); self.assertEqual(tails, 1)
+        write_redacted.assert_called_once()
 
     def test_database_credentials_are_registered_before_children_start(self):
         runner.SENSITIVE_VALUES.clear()
