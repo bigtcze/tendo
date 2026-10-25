@@ -2052,6 +2052,7 @@ test.describe('Tendo production journey', () => {
       const reducedMeasurements: Array<{ route: string; measurement: Awaited<ReturnType<typeof measureMotion>> }> = [];
       try {
         const reducedPage = await reduced.newPage();
+        await trackInFlightApiFetches(reducedPage);
         const measureState = async (route: string) => {
           const measurement = await measureMotion(reducedPage);
           expect(measurement.elements, `${route} has measured document elements`).toBeGreaterThan(0);
