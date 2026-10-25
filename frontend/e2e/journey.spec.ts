@@ -196,6 +196,8 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByLabel(en['onboarding.householdName'])).toHaveValue(householdName);
     await expect(page.locator('#onboarding-login')).toHaveValue(ownerLogin);
     await expect(page.locator('#onboarding-timezone')).toHaveValue('America/New_York');
+    // THROWAWAY PROBE (never merge): proves CI failure artifact retention.
+    await expect(page.getByRole('heading', { level: 1 }), 'intentional artifact-retention probe').toHaveText('intentional-artifact-probe-mismatch', { timeout: 2_000 });
     await expectNoAxeViolations(page, 'onboarding-error');
     const contrastRows = await auditContrast(page, 'onboarding-error');
     expect(contrastRows.some((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null), 'onboarding-error has measured non-exempt text').toBe(true);
