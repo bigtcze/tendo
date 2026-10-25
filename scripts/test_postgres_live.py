@@ -33,7 +33,7 @@ class LivePostgresProvisioningTests(unittest.TestCase):
         primary_error = None
         try:
             for future in futures:
-                future.result(timeout=30)
+                future.result(timeout=service_module.CREATE_DATABASE_DEADLINE_SECONDS + 40)
             first, second = services
             self.assertNotEqual(first.database, second.database)
             self.assertNotEqual(first.migrator, second.migrator)
@@ -68,7 +68,7 @@ class LivePostgresProvisioningTests(unittest.TestCase):
         roles_query = "SELECT rolname FROM pg_roles WHERE rolname LIKE 'tendo_m_%' OR rolname LIKE 'tendo_r_%'"
         roles_before = set(filter(None, self.probe.run(roles_query, tuples=True).splitlines()))
         allocated = service_module.Service(self.url)
-        self.probe.run(f"CREATE DATABASE {self.probe.ident(db_name)} TEMPLATE template0")
+        self.probe.run(f"CREATE DATABASE {self.probe.ident(db_name)} TEMPLATE template0", deadline=service_module.CREATE_DATABASE_DEADLINE_SECONDS)
         try:
             existing_oid = int(self.probe.run(f"SELECT oid FROM pg_database WHERE datname={self.probe.literal(db_name)}", tuples=True))
             with mock.patch.object(service_module.secrets, "token_hex", return_value=suffix):
@@ -123,7 +123,7 @@ class LivePostgresProvisioningTests(unittest.TestCase):
 
     def test_fixed_upgrade_name_sentinel_survives_service_cleanup(self):
         sentinel = "tendo_upgrade_v3_subjects_test"
-        self.probe.run(f"CREATE DATABASE {self.probe.ident(sentinel)} TEMPLATE template0")
+        self.probe.run(f"CREATE DATABASE {self.probe.ident(sentinel)} TEMPLATE template0", deadline=service_module.CREATE_DATABASE_DEADLINE_SECONDS)
         oid = int(self.probe.run(f"SELECT oid FROM pg_database WHERE datname={self.probe.literal(sentinel)}", tuples=True))
         owner_oid = int(self.probe.run(f"SELECT datdba FROM pg_database WHERE oid={oid}", tuples=True))
         candidate = service_module.Service(self.url)

@@ -34,6 +34,16 @@ def parse_url(value: str) -> dict[str, str]:
     return result
 
 
+# Hang guard for catalog statements. CREATE DATABASE copies and fsyncs
+# template0; on a shared CI runner it outlived the 10 s guard by ~2 s (run
+# 40148690838), so it gets its own bound. A signal does not interrupt an
+# in-flight psql call, so CREATE plus the ownership readback that follows must
+# leave cleanup headroom inside the 35 s signal watchdog in e2e-smoke.sh
+# (asserted by test_postgres_test_service.py).
+PSQL_DEADLINE_SECONDS = 10
+CREATE_DATABASE_DEADLINE_SECONDS = 20
+
+
 class Service:
     def __init__(self, url: str):
         self.conn = parse_url(url)
@@ -50,7 +60,7 @@ class Service:
         self.runtime = ""
         self.database = ""
 
-    def run(self, sql: str, *, database: str | None = None, tuples: bool = False, allow_cancelled: bool = False) -> str:
+    def run(self, sql: str, *, database: str | None = None, tuples: bool = False, allow_cancelled: bool = False, deadline: int = PSQL_DEADLINE_SECONDS) -> str:
         env = {key: value for key, value in os.environ.items() if not key.startswith("PG") and key not in {"TENDO_TEST_POSTGRES_ADMIN_URL", "TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL"}}
         env.update({"PATH": os.environ.get("PATH", ""), "PGHOST": self.conn["host"], "PGPORT": self.conn["port"], "PGDATABASE": database or self.conn["dbname"]})
         for key in ("user", "password", "sslmode", "sslrootcert", "sslcert", "sslkey", "options", "application_name", "connect_timeout"):
@@ -60,9 +70,9 @@ class Service:
         if self.cancelled.is_set() and not self.cleaning and not allow_cancelled:
             raise RuntimeError("PostgreSQL test setup cancelled before SQL execution")
         try:
-            proc = subprocess.run(args, input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=10)
+            proc = subprocess.run(args, input=sql, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=deadline)
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("psql command exceeded 10-second deadline") from exc
+            raise RuntimeError(f"psql command exceeded {deadline}-second deadline") from exc
         if proc.returncode:
             detail = proc.stderr.strip()
             for secret in (self.conn.get("password", ""),):
@@ -129,7 +139,7 @@ class Service:
         self.role_transaction_uncertain = False
         self.database_creation_uncertain = True
         try:
-            self.run(f"CREATE DATABASE {self.ident(self.database)} OWNER {self.ident(self.migrator)} TEMPLATE template0")
+            self.run(f"CREATE DATABASE {self.ident(self.database)} OWNER {self.ident(self.migrator)} TEMPLATE template0", deadline=CREATE_DATABASE_DEADLINE_SECONDS)
         except BaseException as exc:
             if "SQLSTATE" in str(exc):
                 self.database_creation_uncertain = False
