@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import pathlib
 import signal
@@ -218,6 +219,18 @@ class ChildProcessTests(unittest.TestCase):
                 runner.main()
             self.assertEqual(raised.exception.code, 2)
 
+    def test_run_playwright_uses_distinct_report_paths_without_mutating_caller_env(self):
+        root = pathlib.Path("/repo")
+        env = {"E2E_ARTIFACT_DIR": "/repo/frontend/test-results/native-test", "KEEP": "value"}
+        children = mock.Mock()
+        runner.run_playwright(root, env, children, "e2e/journey.spec.ts")
+        first = children.run.call_args.args[1]
+        runner.run_playwright(root, env, children, "e2e/attention-clock.spec.ts")
+        second = children.run.call_args.args[1]
+        self.assertNotEqual(first["PLAYWRIGHT_HTML_OUTPUT_DIR"], second["PLAYWRIGHT_HTML_OUTPUT_DIR"])
+        self.assertNotEqual(first["PLAYWRIGHT_JSON_OUTPUT_FILE"], second["PLAYWRIGHT_JSON_OUTPUT_FILE"])
+        self.assertEqual(env, {"E2E_ARTIFACT_DIR": "/repo/frontend/test-results/native-test", "KEEP": "value"})
+
     def test_run_playwright_forwards_default_and_audit_timeouts(self):
         root = pathlib.Path("/repo")
         children = mock.Mock()
@@ -248,8 +261,7 @@ class FailureLogTests(unittest.TestCase):
             redacted = runner.write_redacted_process_log(log)
             self.assertEqual(redacted, pathlib.Path(tmp) / "process.redacted.log")
             content = redacted.read_text()
-        self.assertIn("early password=[redacted]", content)
-        self.assertIn("late useful failure detail", content)
+        self.assertEqual(content, "early password=[redacted]\nlate useful failure detail\n")
         self.assertNotIn(token, content)
 
     def test_failure_log_tail_is_bounded_and_redacts_generated_credentials(self):
@@ -266,7 +278,14 @@ class FailureLogTests(unittest.TestCase):
         self.assertNotIn("line 296", out)
         self.assertIn("line 297", out)
 
-    def test_structural_redaction_covers_cookies_oidc_invites_db_urls_and_ansi(self):
+    def test_registered_secret_redaction_in_neutral_text(self):
+        runner.SENSITIVE_VALUES.clear()
+        token = runner.generated_secret(24)
+        out = runner.redact(f"event detail: {token}")
+        self.assertNotIn(token, out)
+        self.assertEqual(out, "event detail: [redacted]")
+
+    def test_structural_redaction_covers_cookies_oidc_invites_db_urls_json_and_ansi(self):
         runner.register_database_url("postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e")
         lines = [
             "\x1b[31m    Cookie: tendo_session=abcSESSION123; other=1\x1b[39m",
@@ -276,14 +295,56 @@ class FailureLogTests(unittest.TestCase):
             "Received: \"http://localhost:1234/invite#INVITEsecretfragment0123456789abcdefghijklmn\"",
             "headers: { Cookie: `tendo_session=${'TOKENVALUE42'}` }",
             "dial postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e failed",
+            'report {"password":"json-password-value"}',
             "auth failed for password p@ss-W0rd",
             "  1) e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4",
         ]
         out = "\n".join(runner.redact(line) for line in lines)
-        for leaked in ("abcSESSION123", "zzzSESSION999", "CODE777", "STATE888", "NONCE555", "INVITEsecretfragment", "TOKENVALUE42", "p%40ss-W0rd", "p@ss-W0rd", "\x1b["):
+        for leaked in ("abcSESSION123", "zzzSESSION999", "CODE777", "STATE888", "NONCE555", "INVITEsecretfragment", "TOKENVALUE42", "json-password-value", "p%40ss-W0rd", "p@ss-W0rd", "\x1b["):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
+
+    def test_ci_upload_staging_is_allowlisted_and_sanitized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-fake"
+            source.mkdir(parents=True)
+            runner.SENSITIVE_VALUES.clear()
+            runner.SENSITIVE_VALUES.update({"owner-secret-123", "database-secret-456"})
+            (source / "process.redacted.log").write_text("owner-secret-123 should be hidden\n{\"password\":\"database-secret-456\"}\n")
+            artifacts = source / "artifacts" / "test-failed-1"
+            artifacts.mkdir(parents=True)
+            (artifacts / "trace.zip").write_bytes(b"raw trace")
+            (artifacts / "resource.json").write_text('{"password":"owner-secret-123"}')
+            (artifacts / "error-context.md").write_text("Invite http://localhost/invite#database-secret-456\n")
+            (artifacts / "report-1.json").write_text('{"attachments":[{"name":"aria.txt","body":"' + base64.b64encode(b"owner-secret-123").decode() + '"}],"stdout":[{"text":"x"}],"message":"password=database-secret-456"}')
+            (artifacts / "test-failed-1.png").write_bytes(b"png")
+            (source / "html-report").mkdir()
+            (source / "html-report" / "index.html").write_text("secret")
+            staged = runner.stage_ci_upload(results, source)
+            files = {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
+            self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md"})
+            combined = "\\n".join(p.read_text() for p in staged.rglob("*") if p.is_file())
+            self.assertNotIn("owner-secret-123", combined)
+            self.assertNotIn("database-secret-456", combined)
+            self.assertNotIn("stdout", combined)
+            self.assertNotIn(base64.b64encode(b"owner-secret-123").decode(), combined)
+            self.assertNotIn('"body"', combined)
+            self.assertNotIn("database-secret-456", combined)
+            self.assertNotIn("INVITEsecretfragment0123456789", combined)
+            self.assertFalse(any(p.suffix == ".zip" or p.name == "index.html" for p in staged.rglob("*")))
+
+    def test_ci_upload_sanitizer_failure_leaves_only_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = pathlib.Path(tmp) / "test-results"
+            source = results / "native-fake"
+            source.mkdir(parents=True)
+            (source / "process.redacted.log").write_text("safe\n")
+            with mock.patch.object(runner, "sanitize_json_value", side_effect=ValueError("invalid")):
+                (source / "report-1.json").write_text("{}")
+                staged = runner.stage_ci_upload(results, source)
+            self.assertEqual([p.name for p in staged.iterdir()], ["SANITIZE_FAILED"])
 
     def test_routine_access_lines_do_not_push_playwright_report_out_of_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -351,7 +412,9 @@ class FailureReportingLifecycleTests(unittest.TestCase):
                   mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
                 with self.assertRaisesRegex(RuntimeError, "Playwright failed"):
                     runner.main()
-            self.assertTrue(next((root / "frontend/test-results").glob("native-*/process.redacted.log"), None))
+            staged = next((root / "frontend/test-results").glob("ci-upload"), None)
+            self.assertIsNotNone(staged)
+            self.assertIn("process.redacted.log", {path.name for path in staged.iterdir()})
 
     def test_suite_failure_prints_log_and_keeps_primary_error(self):
         error, tails = self._main(suite=RuntimeError("Playwright exited with status 1"))
@@ -363,18 +426,28 @@ class FailureReportingLifecycleTests(unittest.TestCase):
             self.assertIsInstance(error, RuntimeError); self.assertEqual(tails, 1)
 
     def test_cleanup_only_failure_prints_log_and_fails(self):
-        error, tails = self._main(close=RuntimeError("process group survived"))
+        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+            error, tails = self._main(close=RuntimeError("process group survived"))
         self.assertIsInstance(error, RuntimeError); self.assertIn("survived", str(error)); self.assertEqual(tails, 1)
+        write_redacted.assert_called_once()
 
     def test_cleanup_failure_after_suite_failure_keeps_primary_error(self):
         error, tails = self._main(suite=RuntimeError("primary"), close=RuntimeError("secondary"))
         self.assertEqual(str(error), "primary"); self.assertEqual(tails, 1)
 
+    def test_missing_process_log_does_not_replace_primary_error(self):
+        error, tails = self._main(suite=RuntimeError("primary failure"))
+        self.assertIsInstance(error, RuntimeError)
+        self.assertEqual(str(error), "primary failure")
+        self.assertEqual(tails, 1)
+
     def test_cancellation_after_suite_returns_prints_log_and_exits_nonzero(self):
         def cancelled(*_args, **_kwargs):
             signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
-        error, tails = self._main(suite=cancelled)
+        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+            error, tails = self._main(suite=cancelled)
         self.assertIsInstance(error, SystemExit); self.assertEqual(error.code, 128 + signal.SIGTERM); self.assertEqual(tails, 1)
+        write_redacted.assert_called_once()
 
     def test_database_credentials_are_registered_before_children_start(self):
         runner.SENSITIVE_VALUES.clear()

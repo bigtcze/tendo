@@ -29,7 +29,6 @@ export default defineConfig({
   use: {
     baseURL,
     launchOptions: {},
-    screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     locale: 'en-US',
   },

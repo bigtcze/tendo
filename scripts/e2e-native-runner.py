@@ -7,6 +7,8 @@ import base64
 import os
 import re
 import secrets
+import shutil
+import json
 import signal
 import socket
 import subprocess
@@ -52,6 +54,7 @@ STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
+    (re.compile(r'(?i)(["\'](?:password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
     (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
 )
 
@@ -75,6 +78,66 @@ def write_redacted_process_log(log_path: Path) -> Path | None:
     except OSError as exc:
         print(f"Redacted E2E process log unavailable: {exc}", file=sys.stderr)
         return None
+
+
+def sanitize_json_value(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            lowered = key.lower()
+            # Raw output streams and inline attachment bodies (base64, unredactable) are dropped.
+            if lowered in {"stdout", "stderr", "body"}:
+                continue
+            if lowered in {"password", "passwd", "secret", "client_secret", "setup_token", "cookie", "set-cookie", "authorization"}:
+                sanitized[key] = "[redacted]"
+            else:
+                sanitized[key] = sanitize_json_value(item)
+        return sanitized
+    if isinstance(value, list):
+        return [
+            sanitize_json_value(item)
+            for item in value
+            if not (isinstance(item, dict) and str(item.get("name", "")).lower() in {"stdout", "stderr"})
+        ]
+    if isinstance(value, str):
+        return redact(value)
+    return value
+
+
+def stage_ci_upload(test_results_dir: Path, source_dir: Path) -> Path:
+    """Build a fail-closed allowlist for public CI artifact upload."""
+    destination = test_results_dir / "ci-upload"
+    try:
+        if destination.is_symlink():
+            destination.unlink()
+        elif destination.exists():
+            shutil.rmtree(destination)
+        destination.mkdir(parents=True)
+        redacted_log = source_dir / "process.redacted.log"
+        if not redacted_log.is_file():
+            raise FileNotFoundError("redacted process log missing")
+        (destination / "process.redacted.log").write_text(redact(redacted_log.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+        for path in source_dir.rglob("*"):
+            if not path.is_file() or destination in path.parents:
+                continue
+            if path.name.startswith("report-") and path.suffix == ".json":
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                (destination / path.name).write_text(json.dumps(sanitize_json_value(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+            elif path.name == "error-context.md":
+                (destination / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+            # Failure screenshots are deliberately omitted: invite links are rendered in-page and
+            # Playwright has no global mask for its automatic failure screenshots.
+        return destination
+    except BaseException as exc:
+        try:
+            if destination.exists():
+                shutil.rmtree(destination)
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
+        except OSError:
+            # If even the clean marker cannot be written, leave no uploadable fallback.
+            pass
+        return destination
 
 
 def print_failure_log_tail(log_path: Path, lines: int = FAILURE_LOG_TAIL_LINES):
@@ -556,6 +619,7 @@ def main():
         # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
         if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
             write_redacted_process_log(artifact_dir / "process.log")
+            stage_ci_upload(root / "frontend/test-results", artifact_dir)
             print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
         if result_error is None and cleanup_error_seen is not None:
