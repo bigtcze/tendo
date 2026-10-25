@@ -42,7 +42,7 @@ every group at 1200 items takes 13 Show more clicks and stops at 390 rows / 3275
 (505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
 
 Route captures: 163 production-build screenshots (123 full-page plus 40 viewport-fold captures of home), all
-taken through one helper that records horizontal overflow (the run fails on any overflow; none of the 42
+taken through one helper that records horizontal overflow (the run fails on any overflow; none of the 40
 measured home stages and no route capture overflowed). People and things, Members and Account are captured
 only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after
 setup, login and login error, invitation acceptance, home at every stage (full page and fold), add form, item
