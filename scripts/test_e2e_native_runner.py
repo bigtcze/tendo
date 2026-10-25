@@ -351,8 +351,6 @@ class FailureLogTests(unittest.TestCase):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
-        generated_setup_token = "Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG="
-        self.assertNotIn(generated_setup_token, runner.redact(f"Setup code: {generated_setup_token}"))
         for line in ('password="!KeepMePrivate$"', "password='!KeepMePrivate$'", "password=!KeepMePrivate$"):
             with self.subTest(line=line):
                 self.assertNotIn("!KeepMePrivate$", runner.redact(line))

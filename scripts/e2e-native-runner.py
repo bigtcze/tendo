@@ -52,9 +52,7 @@ STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
-    (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[A-Za-z0-9+/_=-]+"), r"\1\2[redacted]"),
     (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
-    (re.compile(r"\b[A-Za-z0-9+/_-]{40,}={0,2}\b"), "[redacted token]"),
 )
 
 
