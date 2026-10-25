@@ -242,7 +242,9 @@ item detail, People and things, Members and Account. Measured states: login, hom
 Fluid on, the new row, the completion notice with Undo, item detail open, paused, resumed, archived and restored,
 the edit form, All items with a search in English and Czech, and each 400 % route before and after scrolling to
 its controls. Each asserts window width 1280, the zoomed layout width and DPR, 16 px body text and no horizontal
-overflow. Each action is scrolled into view and must lie entirely inside the viewport (`toBeInViewport` with
+overflow. Each checked control (Sign in, Add item and Cancel, Done, Undo, Pause, Resume, Edit, Save changes,
+Archive, Restore, the search result, the language switch, and each 400 % route's primary action and Home
+navigation link) is scrolled into view and must lie entirely inside the viewport (`toBeInViewport` with
 ratio 1, plus left and right edges within the layout width). Mutation-checked: without the full Chromium channel
 the zoom is not applied and n23 fails; with Done stretched to twice the viewport height, the default
 any-intersection check passes at ratio 0.5 and the ratio 1 check fails.
