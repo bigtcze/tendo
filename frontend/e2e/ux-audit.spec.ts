@@ -201,6 +201,8 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     }
     for (const item of oneOffs.filter((_, index) => index % 10 === 0)) {
       if (item.generatorIndex % 20 === 4) continue;
+      // Keep generator item 0 active so the 1-item stage really shows one row on Home.
+      if (item.generatorIndex === 0) continue;
       const current = await api(page, 'get', `${root}/items/${item.id}`);
       expect(current.status()).toBe(200);
       const completion = await api(page, 'post', `${root}/items/${item.id}/completions`, {}, { 'Idempotency-Key': key(), 'If-Match': current.headers()['etag']! });
@@ -234,18 +236,18 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
         await capture(page, join(dir, `audit-all-items-en-${width}.png`));
-        await page.getByLabel(en['allItems.search'], { exact: true }).fill('nejneobhospodařovávatelnějšího');
+        await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('nejneobhospodařovávatelnějšího');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await page.getByLabel(en['allItems.status.label']).selectOption('active');
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
         await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
         await capture(page, join(dir, `audit-all-items-search-en-${width}.png`));
-        await page.getByLabel(en['allItems.search'], { exact: true }).fill('');
+        await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await page.getByLabel(en['allItems.status.label']).selectOption('done');
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
         await capture(page, join(dir, `audit-all-items-done-en-${width}.png`));
-        await page.getByLabel(en['allItems.search'], { exact: true }).fill('audit-no-such-item-xyz');
+        await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('audit-no-such-item-xyz');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await expect(page.getByText(en['allItems.noMatch'], { exact: true })).toBeVisible();
         await capture(page, join(dir, `audit-all-items-nomatch-en-${width}.png`));
@@ -366,6 +368,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         const offenders = [...document.querySelectorAll<HTMLElement>('*')].filter(element => element.getBoundingClientRect().right > clientWidth + 0.5).slice(0, 10).map(element => ({ tag: element.tagName.toLowerCase(), itemId: element.getAttribute('data-item-id'), text: (element.innerText || element.textContent || '').trim().slice(0, 80), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width }));
         return { dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, height: document.documentElement.scrollHeight, overflowOffenders: offenders };
       });
+      if (stage === '1') expect(observed.rows, `1-item stage shows exactly one Home row (${locale} ${width}px)`).toBe(1);
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
       await capture(targetPage, join(dir, `${file}-fold.png`), false);

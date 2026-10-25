@@ -15,37 +15,42 @@ Seeded through the public API only: two members (owner + invited member), 15 sub
 some archived), cumulative stages of 0 / 1 / 30 / 500 / 1200 items from a seeded generator mixing one-off,
 fixed and fluid recurrence (day/week/month/year), past/future/no attention dates, historical completion
 dates, owner/member/no assignee, ~5 % long titles with long unbreakable Czech words, notes. Lifecycle changes
-are applied in generator order, so two consecutive runs produced identical final counts, verified by a full
-API page walk: 882 open, 76 in progress, 56 waiting, 57 paused, 69 done, 60 archived (1071 active).
+are applied in generator order, so final counts are deterministic for a given generator (two consecutive
+runs matched in 2026-10). The 2026-10-25 run, verified by a full API page walk: 882 open, 77 in progress, 56 waiting, 57 paused, 68 done, 60 archived (1072 active).
+Generator item 0 is never completed, so the 1-item stage really shows one Home row (asserted by the harness;
+before 2026-10-25 that stage completed its only item and captured an empty Home).
 
 ## Measurements (home, en)
 
-Re-run 2026-10-22 on main `8e4423a` (after slices 2–10a), same dataset and clock; replaces the baseline table.
-Time to content = navigation start until the first item row or the empty state is visible (local loopback,
-single run, indicative only).
+Re-run 2026-10-25 on main `656db65` (after slices 2–10a, R1–R4 and the bounded-list, history-paging,
+accessibility and race-fix PRs), same dataset and clock; replaces the 2026-10-22 table. Time to content =
+navigation start until the first item row or the empty state is visible (local loopback, single run,
+indicative only).
 
 | Stage | Width | API requests | Response bytes | Time to content | DOM elements | Rows rendered | Horizontal overflow |
 |---|---:|---:|---:|---:|---:|---:|---|
-| empty | 390 | 4 | 0.6 kB | 71 ms | 44 | 0 | no |
-| 30 | 390 | 11 | 14 kB | 72 ms | 249 | 24 | no |
-| 500 | 390 | 11 | 59 kB | 102 ms | 1051 | 121 | no |
-| 1200 | 390 | 11 | 62 kB | 226 ms | 1086 | 125 | no |
-| 1200 | 1440 | 11 | 62 kB | 224 ms | 1086 | 125 | no |
+| empty | 390 | 4 | 0.6 kB | 46 ms | 44 | 0 | no |
+| 1 | 390 | 7 | 1.4 kB | 57 ms | 53 | 1 | no |
+| 30 | 390 | 11 | 14 kB | 75 ms | 263 | 25 | no |
+| 500 | 390 | 11 | 59 kB | 274 ms | 1057 | 121 | no |
+| 1200 | 390 | 11 | 62 kB | 239 ms | 1091 | 125 | no |
+| 1200 | 1440 | 11 | 62 kB | 123 ms | 1091 | 125 | no |
 
 A populated home makes one summary request, one 25-item page per non-empty group (5), session, household,
-members and one or two batched subject-label requests; the count no longer grows with the backlog. Expanding
-every group at 1200 items takes 13 Show more clicks and stops at 389 rows / 3261 DOM elements (was 1071 rows /
-8041+): Needs attention (505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
+members and one or two batched subject-label requests; the count does not grow with the backlog. Expanding
+every group at 1200 items takes 13 Show more clicks and stops at 390 rows / 3275 DOM elements: Needs attention
+(505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
 
-Route captures: 147 production-build screenshots (115 full-page plus 32 viewport-fold captures of home), all
-taken through one helper that records horizontal overflow (the run fails on any overflow; none overflowed).
-People and things, Members and Account are captured only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after setup, login and login
-error, invitation acceptance, home at every stage (full page and fold), add form, item detail, item edit, All
-items unfiltered, search with filter, done and no match, People and things, Members and Members with invite
-link, Account. Narrower coverage: done and archived item detail at 390/1440 only; fully expanded 1200-item home
-at 390/1440; 640 px reflow proxy for the 1200-item home. Czech: add form and item detail at all four widths;
-home at 390/1440 (plus 320 for empty and 30 items); All items at 390/1440; login and invitation acceptance at
-390 only.
+Route captures: 163 production-build screenshots (123 full-page plus 40 viewport-fold captures of home), all
+taken through one helper that records horizontal overflow (the run fails on any overflow; none of the 42
+measured home stages and no route capture overflowed). People and things, Members and Account are captured
+only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after
+setup, login and login error, invitation acceptance, home at every stage (full page and fold), add form, item
+detail, item edit, All items unfiltered, search with filter, done and no match, People and things, Members
+and Members with invite link, Account. Czech home at every stage and all four widths. Narrower coverage: done
+and archived item detail at 390/1440 only; fully expanded 1200-item home at 390/1440; 640 px reflow proxy for
+the 1200-item home. Czech: add form and item detail at all four widths; All items at 390/1440; login and
+invitation acceptance at 390 only.
 
 Designer re-review of the full capture set: consistent restrained design language across all routes, no
 clipped actions at the captured widths (200 % zoom not evidenced by screenshots); open items listed as R1–R4
