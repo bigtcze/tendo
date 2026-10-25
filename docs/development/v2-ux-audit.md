@@ -224,6 +224,12 @@ changes/Cancel, Save/Cancel, Search and the result link, Edit, Done), then re-ch
 states, plus Czech All items, also gets a real 320 CSS px viewport with an overflow check, the same control
 checks and an axe scan.
 
+**Reduced motion:** n14 measures computed transition and animation duration-plus-delay on every document element
+and its `::before`/`::after`, plus active Web Animations timings and root scroll behavior. It checks Home, the Home
+add form with Repeat on, item detail, item edit form, All items, People and things and its edit form, Members, and
+Account under `prefers-reduced-motion: reduce`. A Home visit with `no-preference` must detect at least 300 ms of
+motion, guarding against a vacuous measurement.
+
 ### Findings
 
 | ID | WCAG SC | Finding | Fix |

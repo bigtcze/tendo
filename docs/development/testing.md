@@ -132,7 +132,7 @@ This opt-in production-build run captures staged home screenshots and viewport-f
 | Backup | archive round trip, Unicode/null rows, ownership/FK/CHECK/runtime permissions, existing target/truncation safety |
 | Household backup | API-populated restore with fresh credentials; counts/ledger/API bodies/ETags/session/password/idempotency/undo/new writes/invitations/restrictions |
 | Quick start | Exact install-guide shell blocks and README command consistency; release-asset install into an empty directory with a locally built image, settings permissions/secrets, Compose startup, HTTP first-owner setup/login/household/UI, then token-disabled restart |
-| Browser | 39 serial production journeys; onboarding, CRUD, authorization, OIDC, viewports/keyboard/localization/security, axe WCAG 2.2 A/AA scans, 200 % zoom-equivalent reflow and reduced motion; persisted item across app-only midnight restart |
+| Browser | 42 serial production journeys plus a two-phase fixed-clock midnight test; onboarding, CRUD, authorization, OIDC, viewports/keyboard/localization/security, axe WCAG 2.2 A/AA scans, 200 % zoom-equivalent reflow and reduced-motion measurements on household routes/forms; persisted item across app-only midnight restart |
 
 The E2E runner seeds an unowned foreign household as migrator; browser and API assertions verify cross-household denial, and a post-suite database check confirms the seed is unchanged. Home/create/detail layouts are checked at 360, 768 and 1280px widths.
 
