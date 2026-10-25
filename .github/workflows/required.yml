@@ -298,6 +298,7 @@ jobs:
         timeout-minutes: 15
         env:
           E2E_CI_UPLOAD_DIR: ${{ runner.temp }}/e2e-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_DIAGNOSTICS_RECIPIENT: ci/e2e-artifact-recipient.asc
         run: bash scripts/e2e-smoke.sh
       - name: Upload E2E failure diagnostics
         if: ${{ (failure() || cancelled()) && steps.e2e.outputs.ci_upload == 'ready' }}

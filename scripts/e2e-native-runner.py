@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import io
 import os
 import re
 import secrets
@@ -15,6 +17,7 @@ import socket
 import subprocess
 import sys
 import threading
+import tarfile
 import time
 import uuid
 import urllib.error
@@ -26,6 +29,13 @@ from pathlib import Path
 # Generated credentials are registered here so failure output can be redacted before printing.
 SENSITIVE_VALUES: set[str] = set()
 FAILURE_LOG_TAIL_LINES = 200
+EXPECTED_DIAGNOSTICS_FINGERPRINT = "249E445F0DB60EC10F16136EA1E1C31A529EE4CA"
+MAX_DIAGNOSTIC_FILES = 10_000
+MAX_DIAGNOSTIC_FILE_SIZE = 256 * 1024 * 1024
+MAX_DIAGNOSTIC_TOTAL_SIZE = 512 * 1024 * 1024
+MAX_DIAGNOSTIC_CIPHERTEXT_SIZE = 550 * 1024 * 1024
+CANCELLED_STAGING_BUDGET = 15
+_cancel_deadline: float | None = None
 ROUTINE_ACCESS_LINE = re.compile(r" INFO http request .* status=[23]\d\d ")
 
 
@@ -133,6 +143,165 @@ def validate_upload_destination(destination: Path) -> None:
         raise RuntimeError(f"E2E CI upload destination already exists: {destination}")
 
 
+def verify_diagnostics_recipient(recipient_file: Path, expected_fpr: str, gpg: str = "gpg") -> bool:
+    """Check exactly one expected primary fingerprint from the public certificate."""
+    try:
+        with tempfile.TemporaryDirectory(prefix="tendo-gpg-check-") as temporary:
+            home = Path(temporary) / "home"
+            home.mkdir(mode=0o700)
+            result = subprocess.run(
+                [gpg, "--no-options", "--batch", "--no-tty", "--homedir", str(home),
+                 "--with-colons", "--import-options", "show-only", "--import", str(recipient_file)],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False,
+            )
+        records = [line.split(":") for line in result.stdout.decode(errors="replace").splitlines()]
+        fingerprints = [parts[9].upper() for parts in records if parts[0] == "fpr" and len(parts) > 9]
+        primaries = [parts for parts in records if parts[0] in {"pub", "sec"}]
+        if len(primaries) != 1:
+            return False
+        primary = primaries[0]
+        now = int(time.time())
+        expiry = int(primary[6]) if primary and len(primary) > 6 and primary[6] else 0
+        return (result.returncode == 0 and fingerprints and fingerprints[0] == expected_fpr.upper()
+                and primary is not None and primary[1] not in {"e", "r", "d"} and (not expiry or expiry > now))
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _effective_staging_deadline(deadline: float) -> float:
+    return min(deadline, _cancel_deadline) if _cancel_deadline is not None else deadline
+
+
+def stage_encrypted_diagnostics(destination_dir: Path, source_dir: Path, recipient_file: Path,
+                                expected_fpr: str = EXPECTED_DIAGNOSTICS_FINGERPRINT) -> bool:
+    """Encrypt an allowlisted per-run artifact tree; publish only complete ciphertext and manifest."""
+    ciphertext = destination_dir / "diagnostics.tar.gpg"
+    manifest_path = destination_dir / "diagnostics.manifest.json"
+    reason = "ENCRYPTION_FAILED"
+    try:
+        if not verify_diagnostics_recipient(recipient_file, expected_fpr):
+            reason = "RECIPIENT_INVALID"
+            raise RuntimeError
+        deadline = _effective_staging_deadline(time.monotonic() + 120)
+        source_root = source_dir.resolve(strict=True)
+        items = []
+        total_size = 0
+        for current, dirs, files in os.walk(source_root, followlinks=False):
+            current_path = Path(current)
+            dirs[:] = sorted(name for name in dirs if not (current_path / name).is_symlink())
+            for name in sorted(files):
+                path = current_path / name
+                if path.is_symlink() or not path.is_file() or name == "process.log":
+                    continue
+                relative_candidate = path.relative_to(source_root).as_posix()
+                if not (relative_candidate.startswith("html-report-") or relative_candidate.startswith("artifacts/")
+                        or ("/html-report-" in relative_candidate) or ("/artifacts/" in relative_candidate)
+                        or ("/" not in relative_candidate and ((name.startswith("report-") and path.suffix == ".json")
+                            or name in {"attention-clock.json", "process.redacted.log"}))):
+                    continue
+                deadline = _effective_staging_deadline(deadline)
+                if time.monotonic() > deadline:
+                    reason = "TIMEOUT"
+                    raise RuntimeError
+                resolved = path.resolve(strict=True)
+                relative = resolved.relative_to(source_root).as_posix()
+                if relative.startswith("../") or relative == "..":
+                    reason = "SOURCE_INVALID"
+                    raise RuntimeError
+                size = path.stat().st_size
+                if size > MAX_DIAGNOSTIC_FILE_SIZE:
+                    reason = "SIZE_LIMIT"
+                    raise RuntimeError
+                total_size += size
+                items.append((relative, path, size))
+                if len(items) > MAX_DIAGNOSTIC_FILES or total_size > MAX_DIAGNOSTIC_TOTAL_SIZE:
+                    reason = "SIZE_LIMIT"
+                    raise RuntimeError
+        with tempfile.TemporaryDirectory(prefix="tendo-encrypted-diag-", dir=destination_dir.parent) as private:
+            private_dir = Path(private)
+            os.chmod(private_dir, 0o700)
+            tar_path = private_dir / "diagnostics.tar"
+            encrypted_path = private_dir / "diagnostics.tar.gpg"
+            entries = []
+            with tarfile.open(tar_path, "w", format=tarfile.PAX_FORMAT) as archive:
+                for relative, path, size in items:
+                    deadline = _effective_staging_deadline(deadline)
+                    if time.monotonic() > deadline:
+                        reason = "TIMEOUT"
+                        raise RuntimeError
+                    hasher = hashlib.sha256()
+                    with path.open("rb") as source:
+                        for block in iter(lambda: source.read(1024 * 1024), b""):
+                            hasher.update(block)
+                    digest = hasher.hexdigest()
+                    entries.append({"path": relative, "size": size, "sha256": digest})
+                    info = archive.gettarinfo(str(path), arcname=relative)
+                    info.uid = info.gid = 0
+                    info.uname = info.gname = ""
+                    info.mtime = 0
+                    with path.open("rb") as stream:
+                        archive.addfile(info, stream)
+                manifest_data = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+                info = tarfile.TarInfo("MANIFEST.json")
+                info.size = len(manifest_data); info.uid = info.gid = 0; info.mtime = 0
+                archive.addfile(info, io.BytesIO(manifest_data))
+            gpg = shutil.which("gpg")
+            if not gpg:
+                reason = "GPG_UNAVAILABLE"
+                raise RuntimeError
+            home = private_dir / "gnupg"
+            home.mkdir(mode=0o700)
+            command = [gpg, "--no-options", "--batch", "--no-tty", "--homedir", str(home),
+                       "--trust-model", "always", "--compress-algo", "none", "--cipher-algo", "AES256",
+                       "--recipient-file", str(recipient_file), "--output", str(encrypted_path), "--encrypt"]
+            process = subprocess.Popen([*command, str(tar_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            while process.poll() is None:
+                deadline = _effective_staging_deadline(deadline)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    process.kill()
+                    process.wait()
+                    reason = "TIMEOUT"
+                    raise RuntimeError
+                try:
+                    process.wait(timeout=min(0.1, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
+            if process.returncode:
+                reason = "GPG_FAILED"
+                raise RuntimeError
+            size = encrypted_path.stat().st_size
+            if size > MAX_DIAGNOSTIC_CIPHERTEXT_SIZE:
+                reason = "SIZE_LIMIT"
+                raise RuntimeError
+            hasher = hashlib.sha256()
+            with encrypted_path.open("rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    hasher.update(block)
+            digest = hasher.hexdigest()
+            public_manifest = {"format_version": 1, "recipient_fingerprint": expected_fpr.upper(),
+                               "ciphertext_sha256": digest, "ciphertext_size": size}
+            for key, variable in (("github_run_id", "GITHUB_RUN_ID"), ("github_run_attempt", "GITHUB_RUN_ATTEMPT"), ("github_sha", "GITHUB_SHA")):
+                if os.environ.get(variable): public_manifest[key] = os.environ[variable]
+            staged_ciphertext = destination_dir / ".diagnostics.tar.gpg.tmp"
+            shutil.copyfile(encrypted_path, staged_ciphertext)
+            os.replace(staged_ciphertext, ciphertext)
+            staged_manifest = destination_dir / ".diagnostics.manifest.json.tmp"
+            staged_manifest.write_text(json.dumps(public_manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            os.replace(staged_manifest, manifest_path)
+        return True
+    except BaseException:
+        ciphertext.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
+        (destination_dir / ".diagnostics.tar.gpg.tmp").unlink(missing_ok=True)
+        (destination_dir / ".diagnostics.manifest.json.tmp").unlink(missing_ok=True)
+        try:
+            (destination_dir / "ENCRYPTED_DIAGNOSTICS_FAILED").write_text(reason + "\n", encoding="ascii")
+        except OSError:
+            pass
+        return False
+
+
 def write_ci_upload_ready() -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     if output_path:
@@ -145,6 +314,10 @@ def stage_ci_upload(destination: Path, source_dir: Path) -> bool:
     temporary = None
     try:
         temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+        recipient = Path(os.environ.get("E2E_DIAGNOSTICS_RECIPIENT", str(Path(__file__).resolve().parents[1] / "ci/e2e-artifact-recipient.asc")))
+        encrypted_ok = stage_encrypted_diagnostics(temporary, source_dir, recipient)
+        if not encrypted_ok and not (temporary / "ENCRYPTED_DIAGNOSTICS_FAILED").exists():
+            (temporary / "ENCRYPTED_DIAGNOSTICS_FAILED").write_text("ENCRYPTION_FAILED\n", encoding="ascii")
         redacted_log = source_dir / "process.redacted.log"
         if redacted_log.is_symlink() or not redacted_log.is_file():
             raise FileNotFoundError("redacted process log missing or symlinked")
@@ -163,16 +336,19 @@ def stage_ci_upload(destination: Path, source_dir: Path) -> bool:
                     (temporary / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
         (temporary / "STAGED_OK").write_text("ok\n", encoding="utf-8")
     except BaseException as exc:
-        print(f"E2E artifact sanitization failed: {exc}", file=sys.stderr)
+        print("E2E artifact sanitization failed; only safe artifacts will be staged.", file=sys.stderr)
         if temporary is not None:
             try:
-                shutil.rmtree(temporary)
+                for child in list(temporary.iterdir()):
+                    if child.name not in {"diagnostics.tar.gpg", "diagnostics.manifest.json", "ENCRYPTED_DIAGNOSTICS_FAILED"}:
+                        shutil.rmtree(child) if child.is_dir() else child.unlink()
             except OSError as cleanup_error:
                 print(f"E2E artifact temporary cleanup failed: {cleanup_error}", file=sys.stderr)
                 return False
         try:
-            temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
-            (temporary / "SANITIZE_FAILED").write_text(f"E2E artifact sanitization failed: {type(exc).__name__}\n", encoding="utf-8")
+            if temporary is None:
+                temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+            (temporary / "SANITIZE_FAILED").write_text("E2E artifact sanitization failed\n", encoding="utf-8")
         except OSError as marker_error:
             print(f"E2E artifact failure marker staging failed: {marker_error}", file=sys.stderr)
             if temporary is not None:
@@ -726,19 +902,26 @@ def main():
     test_results_dir = root / "frontend/test-results"
     test_results_dir.mkdir(parents=True, exist_ok=True)
     upload_destination = Path(os.environ["E2E_CI_UPLOAD_DIR"]) if os.environ.get("E2E_CI_UPLOAD_DIR") else None
+    recipient_file = Path(os.environ.get("E2E_DIAGNOSTICS_RECIPIENT", str(root / "ci/e2e-artifact-recipient.asc")))
     if upload_destination is not None:
         validate_upload_destination(upload_destination)
+        if not shutil.which("gpg") or not verify_diagnostics_recipient(recipient_file, EXPECTED_DIAGNOSTICS_FINGERPRINT):
+            print("Encrypted E2E diagnostics preflight failed; failure marker will be staged.", file=sys.stderr)
     children = Children()
     artifact_dir = test_results_dir / f"native-{uuid.uuid4().hex}"
     artifact_dir.mkdir(parents=True, exist_ok=False)
+    global _cancel_deadline
+    _cancel_deadline = None
     signal_seen = None
     previous_handlers = {}
     result_error = None
     cleanup_error_seen = None
     def handle_signal(signum, _frame):
         nonlocal signal_seen
+        global _cancel_deadline
         signal_seen = signum
         children.cancelled = True
+        _cancel_deadline = time.monotonic() + CANCELLED_STAGING_BUDGET
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
@@ -759,26 +942,28 @@ def main():
         raise
     finally:
         try:
-            children.close()
-        except BaseException as cleanup_error:
-            cleanup_error_seen = cleanup_error
-            if result_error is not None:
-                print(f"secondary E2E child cleanup failure: {cleanup_error}", file=sys.stderr)
+            try:
+                children.close()
+            except BaseException as cleanup_error:
+                cleanup_error_seen = cleanup_error
+                if result_error is not None:
+                    print(f"secondary E2E child cleanup failure: {cleanup_error}", file=sys.stderr)
+            if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
+                if signal_seen is not None:
+                    _cancel_deadline = time.monotonic() + CANCELLED_STAGING_BUDGET
+                write_redacted_process_log(artifact_dir / "process.log")
+                if upload_destination is not None:
+                    stage_ci_upload(upload_destination, artifact_dir)
+                print_failure_log_tail(artifact_dir / "process.log")
+                print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
+            if result_error is None and cleanup_error_seen is not None:
+                raise cleanup_error_seen
+            if signal_seen is not None:
+                raise SystemExit(128 + signal_seen)
         finally:
             for signum, previous in previous_handlers.items():
                 signal.signal(signum, previous)
-        # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
-        if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
-            redacted_log = write_redacted_process_log(artifact_dir / "process.log")
-            if redacted_log is not None and upload_destination is not None:
-                stage_ci_upload(upload_destination, artifact_dir)
-            print_failure_log_tail(artifact_dir / "process.log")
-            print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
-        if result_error is None and cleanup_error_seen is not None:
-            raise cleanup_error_seen
-        if signal_seen is not None:
-            # raise after cleanup rather than returning success on cancellation
-            raise SystemExit(128 + signal_seen)
+            _cancel_deadline = None
 
 
 if __name__ == "__main__":
