@@ -17,7 +17,11 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   forbidOnly: true,
-  reporter: 'list',
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ?? 'test-results/html-report', open: 'never' }],
+    ['json', { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE ?? 'test-results/report.json' }],
+  ],
   // The opt-in TENDO_E2E_READ_DELAY_MS stress mode slows every household read, so read-heavy tests get a
   // larger default budget there; required runs keep 30 s. Tests that set their own timeout keep it.
   timeout: process.env.TENDO_E2E_READ_DELAY_MS ? 90_000 : 30_000,
@@ -25,6 +29,7 @@ export default defineConfig({
   use: {
     baseURL,
     launchOptions: {},
+    screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     locale: 'en-US',
   },

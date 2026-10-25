@@ -65,6 +65,18 @@ def redact(text: str) -> str:
     return text
 
 
+def write_redacted_process_log(log_path: Path) -> Path | None:
+    """Write the full process output after applying the same credential redaction used for CI logs."""
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        redacted_path = log_path.with_name("process.redacted.log")
+        redacted_path.write_text(redact(text), encoding="utf-8")
+        return redacted_path
+    except OSError as exc:
+        print(f"Redacted E2E process log unavailable: {exc}", file=sys.stderr)
+        return None
+
+
 def print_failure_log_tail(log_path: Path, lines: int = FAILURE_LOG_TAIL_LINES):
     """CI keeps no runner files; surface Playwright/app output so a failure is diagnosable from the job log."""
     try:
@@ -337,6 +349,11 @@ def assert_foreign_seed_unchanged(inherited: dict[str, str], household_id: str, 
 
 
 def run_playwright(root, env, children, *args, timeout=600):
+    env = env.copy()
+    report_dir = Path(env.get("E2E_ARTIFACT_DIR", root / "frontend/test-results"))
+    invocation = uuid.uuid4().hex
+    env["PLAYWRIGHT_HTML_OUTPUT_DIR"] = str(report_dir / f"html-report-{invocation}")
+    env["PLAYWRIGHT_JSON_OUTPUT_FILE"] = str(report_dir / f"report-{invocation}.json")
     cmd = [str(root / "frontend/node_modules/.bin/playwright"), "test", *args]
     children.run(cmd, env, "Playwright", root / "frontend", timeout)
 
@@ -382,6 +399,7 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         "E2E_SETUP_TOKEN": setup_token,
         "E2E_OWNER_PASSWORD": generated_secret(24),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
+        "E2E_ARTIFACT_DIR": str(artifact_dir),
     })
     if audit_dir is not None:
         base["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
@@ -466,6 +484,7 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
         "E2E_CLOCK_NOW": "2026-01-15T22:59:59Z",
         "E2E_CLOCK_FIXTURE_PATH": str(artifact_dir / "attention-clock.json"),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
+        "E2E_ARTIFACT_DIR": str(artifact_dir),
         "E2E_FOREIGN_HOUSEHOLD_ID": foreign_household_id,
         "E2E_FOREIGN_SUBJECT_ID": foreign_subject_id,
         "E2E_FOREIGN_ITEM_ID": foreign_item_id,
@@ -536,6 +555,7 @@ def main():
                 signal.signal(signum, previous)
         # Execution, cleanup, and cancellation failures all surface the redacted log before exiting nonzero.
         if result_error is not None or cleanup_error_seen is not None or signal_seen is not None:
+            write_redacted_process_log(artifact_dir / "process.log")
             print_failure_log_tail(artifact_dir / "process.log")
             print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
         if result_error is None and cleanup_error_seen is not None:

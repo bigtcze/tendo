@@ -240,6 +240,18 @@ class ChildProcessTests(unittest.TestCase):
 
 
 class FailureLogTests(unittest.TestCase):
+    def test_full_redacted_process_log_is_written_without_registered_secret(self):
+        token = runner.generated_secret(32)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "process.log"
+            log.write_text(f"early password={token}\nlate useful failure detail\n")
+            redacted = runner.write_redacted_process_log(log)
+            self.assertEqual(redacted, pathlib.Path(tmp) / "process.redacted.log")
+            content = redacted.read_text()
+        self.assertIn("early password=[redacted]", content)
+        self.assertIn("late useful failure detail", content)
+        self.assertNotIn(token, content)
+
     def test_failure_log_tail_is_bounded_and_redacts_generated_credentials(self):
         token = runner.generated_secret(32)
         with tempfile.TemporaryDirectory() as tmp:
@@ -314,9 +326,32 @@ class FailureReportingLifecycleTests(unittest.TestCase):
                     error = exc
                 return error, tail.call_count
 
+    def test_success_does_not_write_redacted_log(self):
+        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+            error, tails = self._main()
+        self.assertIsNone(error); self.assertEqual(tails, 0)
+        write_redacted.assert_not_called()
+
     def test_success_prints_no_failure_log(self):
         error, tails = self._main()
         self.assertIsNone(error); self.assertEqual(tails, 0)
+
+    def test_suite_failure_writes_full_redacted_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); app = root / "app"; provider = root / "provider"
+            app.write_text("fake"); provider.write_text("fake")
+            def fail_suite(_root, _app, _provider, _inherited, _children, artifact_dir):
+                artifact_dir.joinpath("process.log").write_text("password=registered-secret\nfull failure details\n")
+                raise RuntimeError("Playwright failed")
+
+            with (mock.patch.dict("os.environ", {}, clear=True),
+                  mock.patch.object(runner, "Children"),
+                  mock.patch.object(runner, "run_suite", side_effect=fail_suite),
+                  mock.patch.object(runner, "print_failure_log_tail"),
+                  mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
+                with self.assertRaisesRegex(RuntimeError, "Playwright failed"):
+                    runner.main()
+            self.assertTrue(next((root / "frontend/test-results").glob("native-*/process.redacted.log"), None))
 
     def test_suite_failure_prints_log_and_keeps_primary_error(self):
         error, tails = self._main(suite=RuntimeError("Playwright exited with status 1"))

@@ -296,6 +296,17 @@ jobs:
       - name: Browser E2E against native production build and PostgreSQL
         timeout-minutes: 15
         run: bash scripts/e2e-smoke.sh
+      - name: Upload E2E failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            frontend/test-results/
+            !frontend/test-results/**/process.log
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: false
 
   deployment:
     name: deployment (${{ matrix.smoke }})
