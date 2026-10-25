@@ -2,6 +2,7 @@ import { expect, request, test, type ConsoleMessage, type Locator, type Page } f
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
+import { measureMotion } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
 
@@ -2034,22 +2035,86 @@ test.describe('Tendo production journey', () => {
         await expect(page.locator('html')).toHaveAttribute('lang', 'en');
       }
 
-      // Reduced motion: the app's media query must neutralise transitions and animations.
+      // Confirm the helper detects the known 400ms Home settle animation without reduced motion.
+      const normal = await browser.newContext({ baseURL, locale: 'en-US', reducedMotion: 'no-preference', storageState: await page.context().storageState() });
+      try {
+        const normalPage = await normal.newPage();
+        await normalPage.goto('/');
+        await expect(normalPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+        const normalMeasurement = await measureMotion(normalPage);
+        expect(normalMeasurement.elements).toBeGreaterThan(0);
+        expect(normalMeasurement.longestMs, 'normal-motion Home detects .settle animation').toBeGreaterThanOrEqual(300);
+      } finally {
+        await normal.close();
+      }
+
       const reduced = await browser.newContext({ baseURL, locale: 'en-US', reducedMotion: 'reduce', storageState: await page.context().storageState() });
+      const reducedMeasurements: Array<{ route: string; measurement: Awaited<ReturnType<typeof measureMotion>> }> = [];
       try {
         const reducedPage = await reduced.newPage();
-        await reducedPage.goto('/');
-        await expect(reducedPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
-        const durations = await reducedPage.evaluate(() => {
-          const longest = (value: string) => Math.max(...value.split(',').map((part) => parseFloat(part) * (part.trim().endsWith('ms') ? 1 : 1000)));
-          return [...document.querySelectorAll('a, button, .settle')].map((element) => {
-            const style = getComputedStyle(element);
-            return Math.max(longest(style.transitionDuration), longest(style.animationDuration));
-          });
-        });
-        expect(durations.length).toBeGreaterThan(0);
-        expect(Math.max(...durations), 'longest motion under reduced motion (ms)').toBeLessThanOrEqual(1);
+        const measureState = async (route: string) => {
+          const measurement = await measureMotion(reducedPage);
+          expect(measurement.elements, `${route} has measured document elements`).toBeGreaterThan(0);
+          expect(measurement.longestMs, `${route} longest motion (ms): ${JSON.stringify(measurement.offender)}`).toBeLessThanOrEqual(1);
+          expect(measurement.rootScrollBehavior, `${route} root scroll behavior`).not.toBe('smooth');
+          for (const [index, animation] of measurement.animationTimings.entries()) {
+            expect(Number.isFinite(animation.iterations), `${route} animation ${index} has finite iterations`).toBe(true);
+            expect(animation.durationMs + animation.delayMs + animation.endDelayMs, `${route} animation ${index} duration+delay`).toBeLessThanOrEqual(1);
+          }
+          reducedMeasurements.push({ route, measurement });
+        };
+        const openHome = async () => {
+          await reducedPage.goto('/');
+          await waitForSettledHome(reducedPage, householdName);
+        };
+        await openHome();
+        await measureState('Home');
+        await reducedPage.getByRole('button', { name: en['items.add'], exact: true }).click();
+        const reducedAddForm = reducedPage.getByRole('form', { name: en['items.add.formLabel'] });
+        await reducedAddForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+        await expect(reducedAddForm).toBeVisible();
+        await measureState('Home with Add item form and Repeat on');
+        await reducedAddForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+
+        await openHome();
+        await reducedPage.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
+        await expect(reducedPage.getByRole('heading', { level: 1, name: title })).toBeVisible();
+        await waitForSettledHouseholdRequests(reducedPage);
+        await measureState('Item detail');
+        await reducedPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+        const reducedEditForm = reducedPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+        await expect(reducedEditForm.getByLabel(en['items.title'])).toHaveValue(title);
+        await measureState('Item edit form');
+        await reducedEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+
+        await openHome();
+        await reducedPage.getByRole('link', { name: en['home.allItems'], exact: true }).click();
+        await expect(reducedPage.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+        await waitForSettledHouseholdRequests(reducedPage);
+        await measureState('All items');
+        await reducedPage.getByRole('link', { name: en['home.people'], exact: true }).click();
+        await expect(reducedPage.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+        await waitForSettledHouseholdRequests(reducedPage);
+        await measureState('People and things');
+        await reducedPage.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', 'Anička') }).click();
+        const reducedPeopleForm = reducedPage.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') });
+        await expect(reducedPeopleForm).toBeVisible();
+        await measureState('People and things edit form');
+        await reducedPeopleForm.getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
+
+        await openHome();
+        await reducedPage.getByRole('link', { name: en['home.members'], exact: true }).click();
+        await expect(reducedPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+        await waitForSettledHouseholdRequests(reducedPage);
+        await measureState('Members');
+        await openHome();
+        await reducedPage.getByRole('link', { name: en['home.account'], exact: true }).click();
+        await expect(reducedPage.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+        await waitForSettledHouseholdRequests(reducedPage);
+        await measureState('Account');
       } finally {
+        console.log(`reduced-motion-n14 ${JSON.stringify(reducedMeasurements)}`);
+        await test.info().attach('reduced-motion-n14.json', { body: JSON.stringify(reducedMeasurements, null, 2), contentType: 'application/json' });
         await reduced.close();
       }
     } finally {
