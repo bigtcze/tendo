@@ -88,7 +88,7 @@ describe('All items', () => {
     window.history.replaceState(null, '', '/items?status=bogus&recurring=maybe&q=%20%20&subject=unknown-id');
     const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
     app();
-    expect(await screen.findByText('No items match.')).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
     expect(window.location.search).toBe('?subject=unknown-id');
     expect(screen.getByLabelText('Show')).toHaveValue('active');
     expect(screen.getByLabelText('For')).toHaveValue('unknown-id');
@@ -106,6 +106,7 @@ describe('All items', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'Item');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('Item 1')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Showing 1–1 of 1'));
     expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('q')).toBe('Item');
 
     cleanup();
@@ -130,7 +131,10 @@ describe('All items', () => {
     await userEvent.clear(input);
     await userEvent.type(input, 'x'.repeat(201));
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByText('Search needs to be 200 characters or fewer.')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Search needs to be 200 characters or fewer.');
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', 'all-items-search-error');
     expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
   });
 
@@ -146,6 +150,7 @@ describe('All items', () => {
 
   it('names the search landmark and the results region', async () => {
     await openAllItems([makeItem(1, { title: 'Named result' })]);
+    await waitFor(() => expect(document.title).toBe('All items — Tendo'));
     const search = screen.getByRole('search', { name: 'Search items' });
     expect(within(search).getByRole('searchbox')).toBeVisible();
     expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
@@ -219,6 +224,7 @@ describe('All items', () => {
     expect(await screen.findByText('Item 1')).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('Show'), 'archived');
     expect(await screen.findByText('Item 2')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Showing 1–1 of 1'));
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('done') === 'true')).toBe(true);
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
@@ -256,13 +262,15 @@ describe('All items', () => {
 
   it('distinguishes household-empty and no-match states, and Clear resets filters', async () => {
     await openAllItems([]);
-    expect(await screen.findByText('There are no items in this household yet.')).toBeInTheDocument();
+    expect(await screen.findByText('There are no items in this household yet.', { selector: 'p.font-display' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('There are no items in this household yet.'));
     cleanup();
     window.history.replaceState(null, '', '/');
     const fake = await openAllItems([makeItem(1)]);
     await userEvent.type(screen.getByRole('searchbox'), 'missing');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByText('No items match.')).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('No items match.'));
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
     await screen.findByText('Item 1');
     expect(window.location.pathname + window.location.search).toBe('/items');
@@ -299,7 +307,8 @@ describe('All items', () => {
     expect(screen.getByRole('searchbox')).toHaveValue('Unique archive target');
 
     await act(async () => releasePatch());
-    expect(await screen.findByText('No items match.')).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('No items match.'));
     expect(window.location.pathname + window.location.search).toBe(filteredUrl);
     expect(screen.getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
     expect(fake.requests.slice(readsBeforeBack).some((request) => request.path === `${base}/items/summary` && request.query.get('q') === 'Unique archive target')).toBe(true);
@@ -485,7 +494,11 @@ describe('All items', () => {
     expect(await screen.findByRole('link', { name: 'Všechny položky' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('link', { name: 'Všechny položky' }));
     expect(await screen.findByRole('heading', { name: 'Všechny položky' })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('Všechny položky — Tendo'));
     expect(fake.requests.length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole('button', { name: 'English' }));
+    await screen.findByRole('heading', { name: 'All items' });
+    await waitFor(() => expect(document.title).toBe('All items — Tendo'));
   });
 
   it('does not rewrite a popped home URL when leaving the list route', async () => {
@@ -605,6 +618,7 @@ describe('All items', () => {
     await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
     await screen.findByRole('heading', { name: 'All items' });
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Check your connection and try again.'));
     expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));

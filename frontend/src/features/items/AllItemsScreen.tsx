@@ -151,6 +151,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const focusResults = useRef(false);
   const skipNextContextLoad = useRef(false);
   const resultRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     mounted.current = true;
     const generationRef = generation;
@@ -287,7 +288,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   function submit(event: FormEvent) {
     event.preventDefault();
     const q = search.trim();
-    if (q.length > 200) { setSearchError(true); return; }
+    if (q.length > 200) { setSearchError(true); searchRef.current?.focus(); return; }
     setSearchError(false);
     update({ q: q || undefined });
   }
@@ -308,6 +309,14 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const pageKnown = !context.cursor || stack[0] === '';
   const selectedCount = summary ? countFor(context.status, summary) : 0;
   const anyFilters = Boolean(context.q || context.subjectId || context.responsibleUserId || context.recurring !== undefined);
+  // WCAG 4.1.3: one persistent polite region reports each settled outcome while focus stays on the control.
+  const outcome = error ? t('app.error.body') : !loading && rowsCurrent && summary
+    ? !items.length && summary.total === 0 && !anyFilters ? t('allItems.none')
+      : !items.length ? t('allItems.noMatch')
+        : pageKnown ? t('allItems.range', {
+          from: String((pageNumber - 1) * 25 + 1), to: String((pageNumber - 1) * 25 + items.length), total: String(selectedCount),
+        }) : t(countKey(selectedCount, locale), { count: String(selectedCount) })
+    : '';
   function goToCursor(cursor: string | undefined, nextStack: string[]) {
     generation.current++;
     const next = { ...context, cursor };
@@ -320,15 +329,16 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle space-y-5">
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcome}</p>
       <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
       <form role="search" aria-label={t('allItems.search')} onSubmit={submit} className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
           <label htmlFor="all-items-search" className="block text-sm font-medium">{t('allItems.search')}</label>
-          <input id="all-items-search" type="search" value={search}
+          <input ref={searchRef} id="all-items-search" type="search" value={search}
             onChange={(event) => { setSearch(event.target.value); setSearchError(false); }}
             aria-invalid={searchError} aria-describedby={searchError ? 'all-items-search-error' : undefined}
             className="mt-1 min-h-11 w-full rounded-xl border border-field bg-white px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" />
-          {searchError ? <p id="all-items-search-error" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p> : null}
+          {searchError ? <p id="all-items-search-error" role="alert" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p> : null}
         </div>
         <Button type="submit">{t('allItems.searchButton')}</Button>
       </form>
