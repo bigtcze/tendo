@@ -2,18 +2,19 @@
 
 Tendo is a self-hosted shared list for the things a household needs to remember, without forcing everything into a calendar.
 
-![Tendo home screen showing what needs attention, what is in progress, and what is coming up](docs/images/home.png)
+![Tendo Home for a sample household: navigation to Home, All items, People and things, Members, and Account; links to each group with its count; and items grouped under Needs attention, In progress, Waiting, and Coming up, each showing who or what it is for, its dates, who is looking after it, and how it repeats](docs/images/v2-overview.png)
 
 ## What Tendo does
 
+- Shows what needs attention first on Home, then what you are already handling or waiting on, then what is coming up. Each group shows how many items it has.
 - Keeps one-off tasks visible until someone actually does them. Nothing disappears just because a date passed.
 - Repeats a task when you turn on **Repeat**: on a fixed schedule, or counted from the day you last did it.
-- Connects each item to the person or thing it is for: a family member, your home, a vehicle, a pet, or anything else.
-- Shows what needs attention now, what is coming up, and what you are already handling or waiting on.
+- Finds any item with **All items**: search titles and notes, and filter by status, by person or thing, by who is looking after it, and by whether it repeats. Search and counts cover every matching item, even in a household with thousands of items.
+- Connects each item to the person or thing it is for, such as a family member, your home, a vehicle, or a pet, and to the household member looking after it.
 - Keeps a history of completions, and lets you undo a completion you marked by mistake.
 - Lets an owner invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
 
-The interface is available in English and Czech and works on phones, tablets, and computers in a web browser.
+The interface is available in English and Czech and works in a web browser on phones, tablets, and computers, with a keyboard, and with browser zoom.
 
 ## Quick start
 
@@ -84,4 +85,4 @@ Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
 
 ## Project status and license
 
-Tendo 1.0 is the first stable release. Images are published at `ghcr.io/bigtcze/tendo` with the tags `latest`, `v1`, and the exact version; see [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
+Tendo 2.0 is the current release. It keeps all your 1.x data; to update from 1.x, follow [Updating from 1.x to 2.0](docs/admin/update.md#updating-from-1x-to-20). Images are published at `ghcr.io/bigtcze/tendo` with the tags `latest`, `v2`, `v2.0`, and the exact version; `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
