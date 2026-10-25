@@ -54,6 +54,67 @@ class ConnectionURLTests(unittest.TestCase):
                 service.parse_url(value)
 
 
+class FakePsqlCatalog:
+    """Stateful stand-in for the psql subprocess, used to exercise Service.run deadlines."""
+
+    def __init__(self, *, create_seconds=0, during_create=None):
+        self.create_seconds = create_seconds
+        self.during_create = during_create
+        self.roles = {}
+        self.databases = {}
+        self.statements = []
+        self.deadlines = []
+        self.next_oid = 500
+
+    def deadline_for(self, prefix):
+        return next(deadline for sql, deadline in self.deadlines if sql.startswith(prefix))
+
+    def _oid(self):
+        self.next_oid += 1
+        return self.next_oid
+
+    def __call__(self, args, *, input, timeout, **kwargs):
+        import re
+        sql = input
+        self.statements.append(sql)
+        self.deadlines.append((sql, timeout))
+        out = ""
+        if sql.startswith("CREATE DATABASE"):
+            if self.during_create:
+                self.during_create()
+            if timeout < self.create_seconds:
+                raise service.subprocess.TimeoutExpired(args, timeout)
+            self.databases[sql.split('"')[1]] = (self._oid(), self.roles[sql.split('"')[3]])
+        elif sql == "SHOW server_version_num":
+            out = "180006"
+        elif "rolcanlogin" in sql:
+            out = "1|f|f|f|f|f|f"
+        elif "string_agg(r.rolname" in sql:
+            out = ""
+        elif sql.startswith("BEGIN; CREATE ROLE"):
+            oids = []
+            for name in re.findall(r'CREATE ROLE "([^"]+)"', sql):
+                self.roles[name] = self._oid()
+                oids.append(str(self.roles[name]))
+            out = "\n".join(oids)
+        elif sql.startswith("SELECT oid FROM pg_roles WHERE rolname="):
+            name = sql.split("rolname='")[1].split("'")[0]
+            out = str(self.roles.get(name, ""))
+        elif "left(datname, 14)='tendo_upgrade_'" in sql:
+            out = ""
+        elif sql.startswith("SELECT oid FROM pg_database WHERE datname="):
+            name = sql.split("datname='")[1].split("'")[0]
+            out = str(self.databases[name][0]) if name in self.databases else ""
+        elif sql.startswith("SELECT oid || '|' || datdba FROM pg_database WHERE datname="):
+            name = sql.split("datname='")[1].split("'")[0]
+            out = "|".join(map(str, self.databases[name])) if name in self.databases else ""
+        elif sql.startswith("DROP DATABASE"):
+            self.databases.pop(sql.split('"')[1])
+        elif sql.startswith("DROP ROLE"):
+            self.roles.pop(sql.split('"')[1])
+        return mock.Mock(returncode=0, stdout=out, stderr="")
+
+
 class FakeService(service.Service):
     def __init__(self, *, version="180006", role="1|f|f|f|f|f|f", inherited="", fail_on=""):
         super().__init__("postgresql://admin:secret@localhost/postgres")
@@ -146,38 +207,45 @@ class ProvisioningTests(unittest.TestCase):
         self.assertTrue(any("TEMPLATE template0" in sql for sql, _, _ in first.statements))
         self.assertEqual(first.run("SELECT 1"), "")
 
-    def test_slow_create_database_within_its_deadline_provisions_and_cleans_up(self):
+    def test_slow_create_database_within_its_deadline_records_ownership_and_cleans_up(self):
         # CI run 40148690838: CREATE DATABASE finished after ~12 s, but the
         # 10-second psql deadline killed the client and left an orphan database.
         instance = service.Service("postgresql://admin:secret@localhost/postgres")
-        oids = iter(range(500, 600))
-        created = {}
-
-        def fake_psql(args, *, input, timeout, **kwargs):
-            if input.startswith("CREATE DATABASE"):
-                if timeout < 12:
-                    raise service.subprocess.TimeoutExpired(args, timeout)
-                created[input.split('"')[1]] = next(oids)
-                out = ""
-            elif input == "SHOW server_version_num":
-                out = "180006"
-            elif "rolcanlogin" in input:
-                out = "1|f|f|f|f|f|f"
-            elif input.startswith("BEGIN; CREATE ROLE"):
-                out = f"{next(oids)}\n{next(oids)}"
-            elif input.startswith("SELECT oid FROM pg_database"):
-                out = str(next(iter(created.values())))
-            else:
-                out = ""
-            return mock.Mock(returncode=0, stdout=out, stderr="")
-
-        with mock.patch.object(service.subprocess, "run", side_effect=fake_psql) as run:
+        catalog = FakePsqlCatalog(create_seconds=12)
+        with mock.patch.object(service.subprocess, "run", side_effect=catalog):
             instance.provision()
-        self.assertIn(instance.database, instance.created_dbs)
-        self.assertFalse(instance.database_creation_uncertain)
-        deadlines = {call.kwargs["input"].split(" ")[0]: call.kwargs["timeout"] for call in run.call_args_list}
-        self.assertEqual(deadlines["CREATE"], service.CREATE_DATABASE_DEADLINE_SECONDS)
-        self.assertEqual(deadlines["SHOW"], service.PSQL_DEADLINE_SECONDS)
+            self.assertIn(instance.database, instance.created_dbs)
+            self.assertFalse(instance.database_creation_uncertain)
+            self.assertEqual(catalog.deadline_for("CREATE DATABASE"), service.CREATE_DATABASE_DEADLINE_SECONDS)
+            self.assertEqual(catalog.deadline_for("SHOW server_version_num"), service.PSQL_DEADLINE_SECONDS)
+            instance.cleanup()
+        self.assertEqual(catalog.databases, {})
+        self.assertEqual(catalog.roles, {})
+
+    def test_signal_during_create_database_records_ownership_then_cleans_up(self):
+        instance = service.Service("postgresql://admin:secret@localhost/postgres")
+        catalog = FakePsqlCatalog(create_seconds=12, during_create=instance.cancelled.set)
+        with mock.patch.object(service.subprocess, "run", side_effect=catalog):
+            with self.assertRaisesRegex(RuntimeError, "cancelled after recording database ownership"):
+                instance.provision()
+            self.assertEqual(set(instance.created_dbs), {instance.database})
+            self.assertFalse(instance.database_creation_uncertain)
+            instance.cleanup()
+        self.assertEqual(catalog.databases, {})
+        self.assertEqual(catalog.roles, {})
+        self.assertFalse(any(sql.startswith("REVOKE CREATE ON SCHEMA") for sql in catalog.statements))
+
+    def test_interrupted_create_readback_and_cleanup_fit_e2e_signal_watchdog(self):
+        # A signal does not interrupt an in-flight psql call: a create started just
+        # before SIGTERM still runs to its deadline, then the ownership readback
+        # (default deadline) must finish so cleanup can adopt and drop it before
+        # e2e-smoke.sh SIGKILLs the wrapper.
+        import re
+        smoke = MODULE.with_name("e2e-smoke.sh").read_text()
+        watchdog = int(re.search(r"(?m)^\s*wait_for=(\d+)\s*$", smoke).group(1))
+        cleanup_headroom = 5
+        self.assertLessEqual(service.CREATE_DATABASE_DEADLINE_SECONDS + service.PSQL_DEADLINE_SECONDS + cleanup_headroom, watchdog)
+        self.assertGreater(service.CREATE_DATABASE_DEADLINE_SECONDS, 12, "must exceed the slowest observed CI create")
 
     def test_timeout_message_reports_the_applied_deadline(self):
         instance = service.Service("postgresql://admin:secret@localhost/postgres")

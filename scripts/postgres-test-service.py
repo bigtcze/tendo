@@ -35,11 +35,13 @@ def parse_url(value: str) -> dict[str, str]:
 
 
 # Hang guard for catalog statements. CREATE DATABASE copies and fsyncs
-# template0; on a shared CI runner it completed after ~12 s (run 40148690838),
-# so it gets its own bound. Keep it below the 35 s signal-cleanup watchdog in
-# e2e-smoke.sh, which must also cover an in-flight create before cleanup runs.
+# template0; on a shared CI runner it outlived the 10 s guard by ~2 s (run
+# 40148690838), so it gets its own bound. A signal does not interrupt an
+# in-flight psql call, so CREATE plus the ownership readback that follows must
+# leave cleanup headroom inside the 35 s signal watchdog in e2e-smoke.sh
+# (asserted by test_postgres_test_service.py).
 PSQL_DEADLINE_SECONDS = 10
-CREATE_DATABASE_DEADLINE_SECONDS = 30
+CREATE_DATABASE_DEADLINE_SECONDS = 20
 
 
 class Service:
