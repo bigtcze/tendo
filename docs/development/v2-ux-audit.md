@@ -41,7 +41,14 @@ members and one or two batched subject-label requests; the count does not grow w
 every group at 1200 items takes 13 Show more clicks and stops at 390 rows / 3275 DOM elements: Needs attention
 (505) and Coming up (377) stop at 100 rows and offer "See all … in All items".
 
-Route captures: 163 production-build screenshots (123 full-page plus 40 viewport-fold captures of home), all
+Find and manage at 500 items (added 2026-10-25, phone 390 px, en): from Home the harness opens All items,
+searches an unaccented Czech phrase and checks the range heading against the server summary (21 active
+matches), then searches one item title, gets exactly one row (76–78 ms in two runs, one summary and one list request, no
+paging), opens it, pauses it, returns with the search restored and the row marked Paused, reopens it and
+resumes it; both changes are confirmed through the API. Screenshot `audit-500-find-manage-detail-en-390.png`.
+The 1000+ case is the required journey n12 (1,050 items).
+
+Route captures: 164 production-build screenshots (124 full-page plus 40 viewport-fold captures of home), all
 taken through one helper that records horizontal overflow (the run fails on any overflow; none of the 40
 measured home stages and no route capture overflowed). People and things, Members and Account are captured
 only after their loaded content is asserted. English at 320, 390, 768 and 1440 px: onboarding, home after
