@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -26,8 +27,6 @@ class MaintainabilityTests(unittest.TestCase):
             "frontend/src/a.test.tsx",
             "frontend/e2e/home.spec.ts",
             "scripts/test_ci.py",
-            "frontend/src/i18n/cs.ts",
-            "frontend/src/i18n/en.ts",
         ):
             with self.subTest(path=path):
                 self.assertTrue(check.excluded(path))
@@ -46,7 +45,29 @@ class MaintainabilityTests(unittest.TestCase):
         self.assertTrue(any(expected in error for error in errors), errors)
 
     def test_base_ref_absent_baseline_bootstraps(self):
-        self.assertIsNone(check.load_base_baseline("origin/main"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+            self.assertIsNone(check.load_base_baseline("HEAD", root))
+
+    def test_base_ref_errors_fail_closed(self):
+        with self.assertRaises(RuntimeError):
+            check.load_base_baseline("not-a-real-ref")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+            (root / "ci").mkdir()
+            (root / "ci/maintainability-baseline.json").write_text("{bad", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "ci/maintainability-baseline.json"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "malformed baseline"], check=True)
+            with self.assertRaises(Exception):
+                check.load_base_baseline("HEAD", root)
+
+    def test_discover_go_files_preserves_backend_paths(self):
+        paths = ["backend/cmd/tendo/items.go", "frontend/src/App.tsx"]
+        self.assertEqual(check.discover_go_files(check.ROOT, paths), ["cmd/tendo/items.go"])
 
     def test_base_ref_rejects_raised_and_new_exceptions(self):
         prior = [{"kind": "file_lines", "path": "backend/a.go", "allowed": 510}]

@@ -8,6 +8,13 @@
   },
   {
     "kind": "file_lines",
+    "path": "backend/internal/subject/subject.go",
+    "allowed": 505,
+    "reason": "Subject service file contains CRUD and shared validators; preserve stored type/link invariants and validation order while splitting cohesive checks.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "file_lines",
     "path": "frontend/src/features/items/AllItemsScreen.tsx",
     "allowed": 392,
     "reason": "All-items screen coordinates filters, URL state, catalogs, paging and rendering; extract cohesive navigation and list responsibilities.",
@@ -26,6 +33,20 @@
     "allowed": 669,
     "reason": "Subjects screen coordinates paging, member lookup, archive/restore, create/edit recovery and rendering; extract focused hooks/components.",
     "owner": "frontend-subjects"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/i18n/cs.ts",
+    "allowed": 418,
+    "reason": "Czech locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
+    "owner": "frontend-localization"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/i18n/en.ts",
+    "allowed": 417,
+    "reason": "English locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
+    "owner": "frontend-localization"
   },
   {
     "kind": "file_lines",
@@ -304,13 +325,6 @@
     "owner": "backend-subject"
   },
   {
-    "kind": "file_lines",
-    "path": "backend/internal/subject/subject.go",
-    "allowed": 505,
-    "reason": "Subject service file contains CRUD and shared validators; preserve stored type/link invariants and validation order while splitting cohesive checks.",
-    "owner": "backend-subject"
-  },
-  {
     "kind": "func_complexity",
     "path": "backend/internal/subject/subject.go",
     "name": "Service.Update",
@@ -413,6 +427,20 @@
     "allowed": 5,
     "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
     "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "api/check-generation.mjs",
+    "allowed": 24,
+    "reason": "API code-generation checker compares generated declarations against current OpenAPI inputs; keep drift failures actionable and reformat compact checks.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "api/check-health.mjs",
+    "allowed": 2,
+    "reason": "Health contract checker validates endpoint/model agreement across API artifacts; retain fail-closed contract checks while reformatting assertions.",
+    "owner": "tooling-scripts"
   },
   {
     "kind": "long_lines",
@@ -850,6 +878,13 @@
   },
   {
     "kind": "long_lines",
+    "path": "frontend/src/i18n/cs.ts",
+    "allowed": 1,
+    "reason": "Czech locale catalog contains one existing long line; retain file-size and long-line measurements rather than excluding the catalog.",
+    "owner": "frontend-localization"
+  },
+  {
+    "kind": "long_lines",
     "path": "frontend/src/test/fakeItems.ts",
     "allowed": 2,
     "reason": "Frontend test fixture/setup helper supports deterministic component tests; maintain with its test consumers.",
@@ -972,27 +1007,6 @@
     "path": "scripts/verify-local.sh",
     "allowed": 4,
     "reason": "Operational script coordinates verify-local.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
-    "owner": "tooling-scripts"
-  },
-  {
-    "kind": "long_lines",
-    "path": "api/check-generation.mjs",
-    "allowed": 24,
-    "reason": "API code-generation checker compares generated declarations against current OpenAPI inputs; keep drift failures actionable and reformat compact checks.",
-    "owner": "tooling-scripts"
-  },
-  {
-    "kind": "long_lines",
-    "path": "api/check-health.mjs",
-    "allowed": 2,
-    "reason": "Health contract checker validates endpoint/model agreement across API artifacts; retain fail-closed contract checks while reformatting assertions.",
-    "owner": "tooling-scripts"
-  },
-  {
-    "kind": "long_lines",
-    "path": "scripts/maintainability_check.py",
-    "allowed": 0,
-    "reason": "Checker discovers authored files, applies explicit exclusions, invokes Go metrics, and validates downward-only baselines; keep policy paths explicit and tested.",
     "owner": "tooling-scripts"
   }
 ]

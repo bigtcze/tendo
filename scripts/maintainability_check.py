@@ -97,12 +97,6 @@ EXCLUSIONS = (
         and re.fullmatch(r"\d{3}_.+\.sql", n) is not None,
         "Embedded numbered migration history is immutable.",
     ),
-    (
-        "frontend/src/i18n/{cs,en}.ts",
-        lambda p, n: p[:3] == ("frontend", "src", "i18n")
-        and n in {"cs.ts", "en.ts"},
-        "Cohesive static locale catalogs are not split to satisfy line limits.",
-    ),
     *(
         (
             f"backend/internal/{package}/postgres/dbgen/",
@@ -276,7 +270,7 @@ def gather(root: Path) -> dict[tuple[str, str, str], int]:
     source_list = Path(handle.name)
     try:
         command = [
-            "go", "run", "./tools/funcmetrics", "-prefix", "backend",
+            "go", "run", "./tools/funcmetrics", "-repo-root", str(backend),
             "-files", str(source_list),
         ]
         result = subprocess.run(
@@ -324,20 +318,44 @@ def write_baseline(
     return result
 
 
-def load_base_baseline(ref: str | None) -> list[dict] | None:
+def load_base_baseline(ref: str | None, root: Path = ROOT) -> list[dict] | None:
     if not ref:
         return None
-    command = ["git", "show", f"{ref}:ci/maintainability-baseline.json"]
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
+    resolved = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+        cwd=root,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    if result.returncode != 0:
+    if resolved.returncode != 0:
+        raise RuntimeError(f"cannot resolve base ref {ref}: {resolved.stderr.strip()}")
+    commit = resolved.stdout.strip()
+    path = "ci/maintainability-baseline.json"
+    exists = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}:{path}"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if exists.returncode != 0:
+        missing = subprocess.run(
+            ["git", "ls-tree", "--name-only", commit, path], cwd=root,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        if missing.returncode != 0:
+            raise RuntimeError(f"cannot inspect baseline at {ref}: {missing.stderr.strip()}")
         return None
-    return json.loads(result.stdout)
+    result = subprocess.run(
+        ["git", "show", f"{commit}:{path}"], cwd=root,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"cannot read baseline at {ref}: {result.stderr.strip()}")
+    baseline = json.loads(result.stdout)
+    if not isinstance(baseline, list):
+        raise ValueError(f"baseline at {ref} must be a JSON array")
+    return baseline
 
 
 def main() -> int:

@@ -24,8 +24,9 @@ type metric struct {
 }
 
 func main() {
-	prefix := flag.String("prefix", "backend", "repository-relative path prefix")
-	files := flag.String("files", "", "newline-delimited exact Go file list")
+	prefix := flag.String("prefix", "backend", "repository-relative output path prefix")
+	repoRoot := flag.String("repo-root", "", "repository root for file-list paths")
+	files := flag.String("files", "", "newline-delimited repository-relative Go file list")
 	flag.Parse()
 	var results []metric
 	var err error
@@ -34,7 +35,7 @@ func main() {
 		if readErr != nil {
 			fail(readErr)
 		}
-		results, err = collectFiles(strings.Split(strings.TrimSpace(string(data)), "\n"), *prefix)
+		results, err = collectFiles(strings.Split(strings.TrimSpace(string(data)), "\n"), *repoRoot, *prefix)
 	} else {
 		roots := flag.Args()
 		if len(roots) == 0 {
@@ -54,18 +55,16 @@ func main() {
 
 func fail(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
 
-func collectFiles(paths []string, prefix string) ([]metric, error) {
+func collectFiles(paths []string, root, prefix string) ([]metric, error) {
 	var results []metric
-	for _, path := range paths {
+	for _, relativePath := range paths {
+		path := filepath.Join(root, relativePath)
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", path, err)
 		}
-		name := filepath.ToSlash(path)
-		if prefix != "" {
-			name = filepath.ToSlash(filepath.Join(prefix, name))
-		}
+		name := filepath.ToSlash(filepath.Join(prefix, relativePath))
 		results = append(results, declarations(fset, name, file)...)
 	}
 	sortMetrics(results)
@@ -155,18 +154,29 @@ func packageLiteralMetrics(fset *token.FileSet, path string, declaration *ast.Ge
 func valueLiterals(fset *token.FileSet, path string, value *ast.ValueSpec) []metric {
 	var results []metric
 	for index, expression := range value.Values {
-		literal, ok := expression.(*ast.FuncLit)
-		if !ok {
-			continue
-		}
 		name := "var"
 		if index < len(value.Names) {
 			name = value.Names[index].Name
 		}
-		qualified := name + ".func1"
-		results = append(results, measureLiteral(fset, path, qualified, literal))
-		results = append(results, literalMetrics(fset, path, qualified, literal.Body)...)
+		results = append(results, literalsInNode(fset, path, name, expression)...)
 	}
+	return results
+}
+
+func literalsInNode(fset *token.FileSet, path, parent string, node ast.Node) []metric {
+	var results []metric
+	ordinal := 0
+	ast.Inspect(node, func(current ast.Node) bool {
+		literal, ok := current.(*ast.FuncLit)
+		if !ok {
+			return true
+		}
+		ordinal++
+		name := fmt.Sprintf("%s.func%d", parent, ordinal)
+		results = append(results, measureLiteral(fset, path, name, literal))
+		results = append(results, literalMetrics(fset, path, name, literal.Body)...)
+		return false
+	})
 	return results
 }
 

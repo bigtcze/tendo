@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import tseslint from 'typescript-eslint';
-import { compareAgainstBase, compareMaintainability, maintainabilityPlugin, metricKey } from './lint-ratchet-core.mjs';
+import { compareAgainstBase, compareMaintainability, loadBaseBaseline, maintainabilityPlugin, metricKey } from './lint-ratchet-core.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const BASELINE_PATH = resolve(ROOT, 'maintainability-baseline.json');
@@ -14,10 +14,15 @@ const baseRef = process.argv.includes('--base-ref')
   : process.env.MAINTAINABILITY_BASE_REF;
 let baseBaseline;
 if (baseRef) {
-  try { baseBaseline = JSON.parse(execFileSync('git', ['show', `${baseRef}:frontend/maintainability-baseline.json`], { cwd: ROOT, encoding: 'utf8' })); }
-  catch { /* no baseline at base is bootstrap */ }
+  try {
+    baseBaseline = loadBaseBaseline(baseRef, ROOT);
+  } catch (error) {
+    console.error(`cannot load maintainability baseline at ${baseRef}: ${error.message}`);
+    process.exit(1);
+  }
 }
 const eslint = new ESLint({ cwd: ROOT, overrideConfigFile: true, overrideConfig: [ratchetConfig()] });
+const allowedInlineRule = 'react-hooks/set-state-in-effect';
 
 function ratchetConfig() {
   return {
@@ -30,10 +35,21 @@ function ratchetConfig() {
   };
 }
 const results = await eslint.lintFiles(['src/**/*.{ts,tsx}']);
+for (const result of results) {
+  const fatal = result.messages.filter(message => message.fatal
+    || (message.severity === 2 && message.ruleId !== 'maintainability/metrics'));
+  const unexpectedInline = result.messages.filter(message => message.ruleId === null
+    && message.messageId === 'inlineConfig'
+    && !message.message.includes(allowedInlineRule));
+  fatal.push(...unexpectedInline);
+  for (const message of fatal) {
+    console.error(`${result.filePath}:${message.line ?? 0} ${message.message}`);
+    process.exitCode = 1;
+  }
+}
 const tracked = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: ROOT });
 const sourceFiles = tracked.toString().split('\0').filter(isProductionSource);
 const maintainabilityDirective = /eslint(?:-disable|-enable|-next-line|-line)?[^\n]*(?:complexity|max-depth|max-lines-per-function)/i;
-
 function isProductionSource(file) {
   return file.startsWith('src/') && /\.tsx?$/.test(file)
     && !file.endsWith('.test.ts') && !file.endsWith('.test.tsx') && !file.startsWith('src/test/');
@@ -52,8 +68,19 @@ async function hasMaintainabilityDirective(file, directive) {
 const measured = new Map();
 for (const result of results) {
   for (const message of result.messages) {
-    if (message.ruleId !== 'maintainability/metrics') continue;
+    if (message.ruleId !== 'maintainability/metrics') {
+      if (message.message.startsWith('Duplicate function identity')) {
+        console.error(message.message);
+        process.exitCode = 1;
+      }
+      continue;
+    }
     const payload = JSON.parse(message.message);
+    if (payload.duplicateIdentity) {
+      console.error(`${payload.file} duplicate function identity: ${payload.duplicateIdentity}`);
+      process.exitCode = 1;
+      continue;
+    }
     for (const rule of payload.violations) {
       const key = metricKey(payload.file, payload.function, rule);
       measured.set(key, Math.max(measured.get(key) ?? 0, payload[rule]));

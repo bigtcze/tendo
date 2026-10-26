@@ -111,7 +111,11 @@ func F(x int) {
 func TestCollectsFunctionLiteralsWithParentNames(t *testing.T) {
 	root := t.TempDir()
 	source := `package sample
+import "net/http"
 var packageHandler = func() { if true {} }
+var wrappedHandler = http.HandlerFunc(func() { if true {} })
+var callbacks = []func(){func() { if true {} }, func() { if true {} }}
+var nested = map[string]any{"callback": http.HandlerFunc(func() { if true {} })}
 func MakeHandler() func() { return func() { if true {} } }
 func Local() {
  callback := func() { if true {} }
@@ -129,7 +133,10 @@ func Local() {
 	for _, item := range metrics {
 		got[item.Name] = item
 	}
-	for _, name := range []string{"packageHandler.func1", "MakeHandler.func1", "Local.func1", "Local.func2", "Local.func2.func1"} {
+	for _, name := range []string{
+		"packageHandler.func1", "wrappedHandler.func1", "callbacks.func1", "callbacks.func2", "nested.func1",
+		"MakeHandler.func1", "Local.func1", "Local.func2", "Local.func2.func1",
+	} {
 		if _, ok := got[name]; !ok {
 			t.Errorf("missing literal metric %q; got %#v", name, got)
 		}
