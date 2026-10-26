@@ -1,14 +1,48 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import type { RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
-import type { ItemGroup, ItemSummary } from './itemsApi';
+import type { Completion, ItemGroup, ItemSummary } from './itemsApi';
 import { countPluralKey } from './itemsScreenHelpers';
 import { groups, type GroupData } from './homeGroups';
-import { NoticeView, type Notice } from './HomeGroupSection';
 import type { CreateNotice } from './useAddItem';
 
 const overviewLinkClass = 'inline-flex min-h-6 items-center rounded-sm underline decoration-line underline-offset-4 '
   + 'hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+/** Completion/undo outcome shown in the home notice area; Undo and retry controls depend on its fields. */
+export type Notice = {
+  text: string;
+  completion?: Completion;
+  itemId?: string;
+  retryKey?: string;
+  retryKind?: 'complete' | 'undo';
+  undoAvailable?: boolean;
+};
+function NoticeView({ notice, busy, onUndo, onRetry, onRetryFocus }: {
+  notice: Notice | null;
+  busy: boolean;
+  onUndo: () => void;
+  onRetry: () => void;
+  onRetryFocus: () => void;
+}) {
+  const { t } = useI18n();
+  if (!notice) return null;
+  return (
+    <div role='status' aria-live='polite' className='flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2'>
+      <p>{notice.text}</p>
+      {notice.undoAvailable && notice.completion?.id ? (
+        <Button type='button' variant='quiet' disabled={busy} onClick={onUndo}>
+          {t('items.undo')}
+        </Button>
+      ) : null}
+      {notice.retryKey && notice.retryKind ? (
+        <Button type='button' data-action='completion-trigger' variant='quiet' disabled={busy} onFocus={onRetryFocus} onClick={onRetry}>
+          {t('items.retry')}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 type NoticeAreaProps = {
   noticeRef: RefObject<HTMLDivElement | null>;
@@ -35,36 +69,25 @@ export function ItemsNoticeArea({ noticeRef, createNotice, notice, busy, onUndo,
 }
 
 type LabelRetryProps = {
-  labels: { loading: boolean; hasFailures: boolean; retry: () => void };
-  groupData: Record<ItemGroup, GroupData>;
-  sectionHeadingRefs: RefObject<Map<ItemGroup, HTMLHeadingElement>>;
+  hasFailures: boolean;
+  pending: boolean;
+  retryRef: RefObject<HTMLButtonElement | null>;
+  onRetry: () => void;
 };
 
-/** Subject-label failure notice with a retry that keeps focus on its outcome. */
-export function SubjectLabelRetry({ labels, groupData, sectionHeadingRefs }: LabelRetryProps) {
+/** Subject-label failure notice; its retry stays mounted while pending (outcome focus: useLabelRetryFocus). */
+export function SubjectLabelRetry({ hasFailures, pending, retryRef, onRetry }: LabelRetryProps) {
   const { t } = useI18n();
-  const labelRetryRef = useRef<HTMLButtonElement>(null);
-  const [labelRetryPending, setLabelRetryPending] = useState(false);
-  useEffect(() => {
-    if (!labelRetryPending || labels.loading) return;
-    // The retry control stays mounted while its batch runs; afterwards focus follows the outcome unless the user moved it.
-    if (document.activeElement === labelRetryRef.current || document.activeElement === document.body) {
-      if (labels.hasFailures) labelRetryRef.current?.focus();
-      else sectionHeadingRefs.current.get(groups.find((group) => groupData[group.id].items.length)?.id ?? 'needs')?.focus();
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- settle the retry once its batch completes.
-    setLabelRetryPending(false);
-  }, [labelRetryPending, labels.loading, labels.hasFailures, groupData, sectionHeadingRefs]);
-  if (!labels.hasFailures && !labelRetryPending) return null;
+  if (!hasFailures && !pending) return null;
   return <div className="flex items-center gap-2">
     <p className="text-sm text-muted">{t('items.subjectLabels.error')}</p>
     <Button
-      ref={labelRetryRef}
+      ref={retryRef}
       type="button"
       variant="quiet"
       data-action="subject-label-retry"
-      aria-disabled={labelRetryPending}
-      onClick={() => { if (labelRetryPending) return; setLabelRetryPending(true); labels.retry(); }}
+      aria-disabled={pending}
+      onClick={onRetry}
     >{t('items.subjectLabels.retry')}</Button>
   </div>;
 }

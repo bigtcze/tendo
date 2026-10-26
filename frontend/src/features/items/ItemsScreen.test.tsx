@@ -808,6 +808,37 @@ describe('Home items', () => {
     expect(document.activeElement).toBe(within(main).getByRole('heading', { name: /Needs attention/ }));
   });
 
+  it('keeps catalogue-retry focus when label and catalogue retries settle in the same commit', async () => {
+    let mode: 'fail' | 'defer' = 'fail';
+    const releases: Array<() => void> = [];
+    installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [memberList]: memberPage(), [subjectList]: (request) => {
+      if (mode === 'fail') return json(503);
+      const labelLookup = request.query.getAll('id').length > 0;
+      const items = labelLookup && request.query.get('archived') !== 'true' ? [{ ...subject, name: 'Retried name' }] : [];
+      return new Promise<Response>((resolve) => { releases.push(() => resolve(json(200, { items, nextCursor: null }))); });
+    } });
+    app();
+    await screen.findByText('Renew passport');
+    const main = screen.getByRole('main');
+    const labelRetry = await within(main).findByRole('button', { name: 'Load names again' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const catalogueError = await screen.findByText('People and things could not be loaded. Try again.');
+    const catalogueRetry = within(catalogueError.parentElement!).getByRole('button', { name: 'Try again' });
+    mode = 'defer';
+    await userEvent.click(labelRetry);
+    await waitFor(() => expect(releases).toHaveLength(2));
+    await userEvent.click(catalogueRetry);
+    await waitFor(() => expect(releases).toHaveLength(3));
+    // The disabled catalogue retry drops focus to body, which both retry outcomes treat as unclaimed.
+    expect(document.activeElement).toBe(document.body);
+    await act(async () => { releases.splice(0).forEach((release) => release()); });
+    await within(main).findByText('Retried name');
+    const empty = await screen.findByText('Add a person or thing before adding an item.');
+    // The catalogue outcome focuses first; the label outcome then sees focus was claimed and keeps it.
+    await waitFor(() => expect(document.activeElement).toBe(within(empty.parentElement!).getByRole('button', { name: 'People and things' })));
+    expect(within(main).queryByRole('button', { name: 'Load names again' })).not.toBeInTheDocument();
+  });
+
   it('keeps names from later successful batches while earlier failed IDs stay retryable', async () => {
     const firstIDs = Array.from({ length: 100 }, (_, index) => `fail-${String(index).padStart(2, '0')}`);
     const allIDs = [...firstIDs, 'succeed-later'];
@@ -1463,6 +1494,27 @@ describe('Home items', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
     const patch = requestsOf(fake.requests, 'PATCH', `${donePath}/c-old`)[0]!;
     expect(patch.headers.get('If-Match')).toBe('"8"');
+  });
+
+  it('drops Undo without a PATCH when the item is gone before Undo can read it', async () => {
+    let itemReads = 0;
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: () => itemReads++ === 0
+        ? json(200, item(), { ETag: '"7"' })
+        : json(404, { type: 'about:blank', title: 'Not Found', status: 404 }),
+      [`POST ${donePath}`]: json(201, { id: 'c-old', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('That item is gone. The list is up to date.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(itemReads).toBe(2);
+    expect(fake.requests.filter((request) => request.method === 'PATCH')).toHaveLength(0);
   });
 
   it('maps a notes 422 to the expanded, focused accessible notes field', async () => {

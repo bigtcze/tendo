@@ -1,8 +1,8 @@
 import { clearPendingCompletion } from './pendingCompletions';
 import { formatDate } from './formatDate';
 import { focusUnclaimed } from './itemsScreenHelpers';
-import type { Completion, ItemRead, ItemGroup } from './itemsApi';
-import type { Notice } from './HomeGroupSection';
+import type { CompleteResult, Completion, ItemGroup, ItemRead, UndoResult } from './itemsApi';
+import type { Notice } from './HomeOverview';
 
 export function completionInvalidNoticeKey(code: string) {
   return code === 'idempotency_key_reused'
@@ -19,15 +19,14 @@ export function completionConflictNoticeKey(code: string) {
 export type CompletionTools = {
   userId: string; householdId: string; t: ReturnType<typeof import('../../i18n').useI18n>['t']; locale: string;
   refresh: () => Promise<void>; setNotice: (notice: Notice | null) => void; onSignedOut: () => void;
+  /** Set when a completion outcome should move focus to the notice once it renders. */
   focusedRowRef: { current: boolean };
-  focusedRow: { current: boolean };
-  retryHadFocus: { current: boolean };
-  focusOriginRef: { current: HTMLElement | null };
-  focusOrigin: { current: HTMLElement | null };
+  /** Restored after the mutation lock clears, once a successful Undo re-renders the row. */
   undoFocusRef: { current: { itemId: string; group: ItemGroup | null } | null };
-  undoFocus: { current: { itemId: string; group: ItemGroup | null } | null };
   noticeRef: { current: HTMLDivElement | null };
 };
+/** The prerequisite item read and, only when it returned an ETag, the guarded write. */
+export type ReadThenWrite<R> = { current: ItemRead; result?: R };
 
 async function completionSuccess(
   tools: CompletionTools,
@@ -69,31 +68,35 @@ export async function handleCompletionResult(
   attemptKey: string,
   focused: boolean,
   focusedControl: HTMLElement | null,
-  current: ItemRead,
-  result: { kind: string; completion?: Completion; code?: string },
+  { current, result }: ReadThenWrite<CompleteResult>,
 ) {
   const { userId, householdId, t, refresh, setNotice, onSignedOut } = tools;
-  if (current.kind === 'unauthenticated' || result.kind === 'unauthenticated') { onSignedOut(); return; }
-  if (current.kind === 'notFound' || result.kind === 'notFound') {
+  if (current.kind === 'unauthenticated') { onSignedOut(); return; }
+  if (current.kind === 'notFound') {
     clearPendingCompletion(userId, householdId, itemId);
     await refresh();
     setNotice({ text: t('items.notice.gone') });
     return;
   }
-  if (current.kind !== 'ok' || result.kind === 'readFailure') {
+  if (current.kind !== 'ok' || !result) {
     await refresh();
     setNotice({ text: t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action'), itemId, retryKey: attemptKey, retryKind: 'complete' });
     return;
   }
-  if (result.kind === 'ok' && result.completion) return completionSuccess(tools, itemId, focused, focusedControl, current, result.completion);
-  if (result.kind === 'conflict') {
+  if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+  if (result.kind === 'ok') return completionSuccess(tools, itemId, focused, focusedControl, current, result.completion);
+  if (result.kind === 'notFound') {
     clearPendingCompletion(userId, householdId, itemId);
     await refresh();
-    setNotice({ text: t(completionConflictNoticeKey(result.code ?? 'unknown')) });
+    setNotice({ text: t('items.notice.gone') });
+  } else if (result.kind === 'conflict') {
+    clearPendingCompletion(userId, householdId, itemId);
+    await refresh();
+    setNotice({ text: t(completionConflictNoticeKey(result.code)) });
   } else if (result.kind === 'changed') { await refresh(); setNotice({ text: t('items.notice.changed') }); }
   else if (result.kind === 'invalid') {
     clearPendingCompletion(userId, householdId, itemId);
-    setNotice({ text: t(completionInvalidNoticeKey(result.code ?? 'unknown')) });
+    setNotice({ text: t(completionInvalidNoticeKey(result.code)) });
   }
   else setNotice({ text: t('items.notice.retry'), itemId, retryKey: attemptKey, retryKind: 'complete' });
 }
@@ -103,27 +106,29 @@ export async function handleUndoResult(
   previous: Notice,
   itemId: string,
   focusedGroup: ItemGroup | null,
-  current: ItemRead,
-  result: { kind: string; code?: string },
+  { current, result }: ReadThenWrite<UndoResult>,
 ) {
   const { t, refresh, setNotice, onSignedOut, undoFocusRef } = tools;
-  if (current.kind === 'unauthenticated' || result.kind === 'unauthenticated') { onSignedOut(); return; }
-  if (current.kind !== 'ok' || result.kind === 'readFailure') {
+  if (current.kind === 'unauthenticated') { onSignedOut(); return; }
+  // A deleted item cannot be undone: refresh and drop Undo instead of offering it again.
+  if (current.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); return; }
+  if (current.kind !== 'ok' || !result) {
     await refresh();
     setNotice({ ...previous, text: t('items.notice.changed'), undoAvailable: true });
+    return;
   }
-  else if (result.kind === 'ok') { setNotice(null); await refresh(); undoFocusRef.current = { itemId, group: focusedGroup }; }
-  else if (result.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); }
+  if (result.kind === 'unauthenticated') { onSignedOut(); return; }
+  if (result.kind === 'ok') {
+    setNotice(null);
+    await refresh();
+    // Restored after busy clears (useCompletionFocus): the row's Done is disabled until then and cannot take focus.
+    undoFocusRef.current = { itemId, group: focusedGroup };
+  } else if (result.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); }
   else if (result.kind === 'conflict') {
     await refresh();
-    setNotice({
-      text: t(
-        result.code === 'completion_not_latest'
-          ? 'items.notice.notLatest'
-          : 'items.notice.archived',
-      ),
-    });
-  }
-  else if (result.kind === 'changed') { await refresh(); setNotice({ ...previous, text: t('items.notice.changed'), retryKind: 'undo', undoAvailable: true }); }
-  else setNotice({ ...previous, text: t('items.notice.retry'), retryKind: 'undo', undoAvailable: true });
+    setNotice({ text: t(result.code === 'completion_not_latest' ? 'items.notice.notLatest' : 'items.notice.archived') });
+  } else if (result.kind === 'changed') {
+    await refresh();
+    setNotice({ ...previous, text: t('items.notice.changed'), retryKind: 'undo', undoAvailable: true });
+  } else setNotice({ ...previous, text: t('items.notice.retry'), retryKind: 'undo', undoAvailable: true });
 }

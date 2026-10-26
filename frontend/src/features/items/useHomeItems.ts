@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItemsSummary, listItemGroup, type ItemGroup, type ItemSummary } from './itemsApi';
 import { HOME_GROUP_ROW_CAP, type GroupData } from './homeGroups';
 import { emptyGroups, mergeGroupPage, fetchHomeGroups, isShowMoreBlocked } from './homeItemsHelpers';
-import { useShowMoreFocus } from './useShowMoreFocus';
 
 type HomeItemGroups = Record<ItemGroup, GroupData>;
 type HomeItemsOptions = { householdId: string; mounted: { current: boolean }; onSignedOut: () => void };
@@ -19,7 +18,7 @@ export function useHomeItems({ householdId, mounted, onSignedOut }: HomeItemsOpt
   const sectionHeadingRefs = useRef(new Map<ItemGroup, HTMLHeadingElement>());
   const showMoreButtons = useRef(new Map<ItemGroup, HTMLButtonElement>());
   const showMoreInFlight = useRef(new Set<ItemGroup>());
-  const focusedMoreGroup = useRef<ItemGroup | null>(null);
+  const focusedMoreGroupRef = useRef<ItemGroup | null>(null);
 
   const loadHome = useCallback(async ({ allowStaleRestart }: { allowStaleRestart: boolean }) => {
     const started = ++generation.current;
@@ -72,23 +71,22 @@ export function useHomeItems({ householdId, mounted, onSignedOut }: HomeItemsOpt
     if (!currentSummary || !cursor) return;
     const focused = document.activeElement === showMoreButtons.current.get(id);
     showMoreInFlight.current.add(id);
-    focusedMoreGroup.current = focused ? id : null;
+    focusedMoreGroupRef.current = focused ? id : null;
     setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: true } }));
     const result = await listItemGroup(householdId, id, currentSummary.evaluatedOn, cursor);
     if (!mounted.current || started !== generation.current) return;
     showMoreInFlight.current.delete(id);
     if (result.kind === 'unauthenticated') { onSignedOut(); setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: false } })); }
-    else if (result.kind === 'stale') { focusedMoreGroup.current = null; await loadHome({ allowStaleRestart: false }); }
+    else if (result.kind === 'stale') { focusedMoreGroupRef.current = null; await loadHome({ allowStaleRestart: false }); }
     else if (result.kind === 'ok') {
       setGroupData((current) => {
         return { ...current, [id]: mergeGroupPage(current[id], result) };
       });
     } else { setGroupData((current) => ({ ...current, [id]: { ...current[id], loadingMore: false } })); setError(true); }
-    if (focused && mounted.current && started === generation.current && result.kind === 'ok') focusedMoreGroup.current = id;
+    if (focused && mounted.current && started === generation.current && result.kind === 'ok') focusedMoreGroupRef.current = id;
   }
 
-  useShowMoreFocus(groupData, focusedMoreGroup, showMoreButtons, sectionHeadingRefs);
   return { groupData, summary, loading, error, itemsRequestComplete, dataHousehold,
     refresh, loadHome, showMore, invalidate: () => { generation.current++; },
-    sectionHeadingRefs, showMoreButtons, memberLoadGeneration: memberLoadGenerationRef };
+    sectionHeadingRefs, showMoreButtons, focusedMoreGroupRef, memberLoadGeneration: memberLoadGenerationRef };
 }

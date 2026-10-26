@@ -42,7 +42,7 @@ export function useAddItem(options: AddItemOptions) {
   const { pendingCreate, createUncertain, recoveryEditable } = recovery;
   const [adding, setAdding] = useState(() => Boolean(getPendingItemCreate(userId, householdId)));
   const addingRef = useRef(Boolean(getPendingItemCreate(userId, householdId)));
-  const returnFocus = useRef(false);
+  const returnFocusRef = useRef(false);
   const catalogue = useAddSubjectCatalogue({
     userId, householdId, mounted, addingRef, adding, pendingCreate, labelNames, onSignedOut,
   });
@@ -68,19 +68,15 @@ export function useAddItem(options: AddItemOptions) {
     catalogue.cancel();
     addingRef.current = false;
     setAdding(false);
-    returnFocus.current = true;
+    returnFocusRef.current = true;
   }
-
-  useEffect(() => {
-    if (!adding && returnFocus.current) { addRef.current?.focus(); returnFocus.current = false; }
-  }, [adding, addRef]);
 
   async function finishCreated(title: string, hadFocus: boolean): Promise<SubmitOutcome> {
     recovery.created();
     invalidateHome();
     memberLoadGenerationRef.current++;
     addingRef.current = false;
-    returnFocus.current = true;
+    returnFocusRef.current = true;
     setAdding(false);
     await refresh();
     setNotice({ text: t('items.notice.added', { title }) });
@@ -108,9 +104,19 @@ export function useAddItem(options: AddItemOptions) {
     members, pendingCreate, createUncertain, recoveryEditable, adding, createNotice: recovery.createNotice, pendingValues,
     retryDraft: recoveryEditable && !createUncertain ? pendingValues : undefined,
     recoverySubjects: recoveryCatalogue(recoveryTarget, catalogue.activeSubjects, labelNames, t('items.subject.unknown')),
-    openAddForm, cancelAddForm, create,
+    returnFocusRef, openAddForm, cancelAddForm, create,
     cancelForPeople() { cancelAddForm(); addRef.current?.focus(); },
   };
+}
+
+/**
+ * Returns focus to Add item after the form closes. The screen calls this after the label-retry and
+ * completion-notice focus effects so that, as before the split, it wins when they settle together.
+ */
+export function useAddReturnFocus(adding: boolean, returnFocusRef: RefObject<boolean>, addRef: RefObject<HTMLButtonElement | null>) {
+  useEffect(() => {
+    if (!adding && returnFocusRef.current) { addRef.current?.focus(); returnFocusRef.current = false; }
+  }, [adding, addRef, returnFocusRef]);
 }
 
 function applyOutcome(

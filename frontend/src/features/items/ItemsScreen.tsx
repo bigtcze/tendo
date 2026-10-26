@@ -3,10 +3,10 @@ import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
 import type { ItemGroup } from './itemsApi';
-import { useAddItem } from './useAddItem';
+import { useAddItem, useAddReturnFocus } from './useAddItem';
 import { AddItemCatalogueStatus, AddItemPanel } from './AddItemPanel';
 import { groups, HOME_GROUP_ROW_CAP } from './homeGroups';
-import type { Notice } from './HomeGroupSection';
+import type { Notice } from './HomeOverview';
 import { HomeGroupList } from './HomeGroupList';
 import { EmptyHome, HomeOverviewNav, ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
 import { useHomeItems } from './useHomeItems';
@@ -14,6 +14,9 @@ import { useHomeMembers } from './useHomeMembers';
 import { useMutationLock } from './useMutationLock';
 import { useMountedRef } from './useMountedRef';
 import { useCompletionActions } from './useCompletionActions';
+import { useCompletionNoticeFocus, useUndoFocus } from './useCompletionFocus';
+import { useLabelRetryFocus } from './useLabelRetryFocus';
+import { useShowMoreFocus } from './useShowMoreFocus';
 
 export { HOME_GROUP_ROW_CAP };
 
@@ -49,10 +52,14 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
   });
   const { adding, createNotice, names, pendingCreate, createUncertain } = add;
   const recovering = createUncertain && !!pendingCreate;
-  const completion = useCompletionActions({
-    userId, householdId, lock, refresh, groupData, onSignedOut, createNotice, sectionHeadingRefs, noticeRef, addRef,
-    notice, setNotice,
-  });
+  // Focus effects run in declaration order and several may settle in one commit; this order is behavior.
+  // The catalogue-retry effect runs inside useAddItem, before every effect below.
+  const labelRetry = useLabelRetryFocus(labels, groupData, sectionHeadingRefs);
+  const completion = useCompletionActions({ userId, householdId, lock, refresh, groupData, onSignedOut, noticeRef, notice, setNotice });
+  useCompletionNoticeFocus(completion.focusRefs, { notice, createNotice, noticeRef });
+  useAddReturnFocus(adding, add.returnFocusRef, addRef);
+  useUndoFocus(completion.focusRefs, { busy, sectionHeadingRefs, noticeRef, addRef });
+  useShowMoreFocus(groupData, home.focusedMoreGroupRef, home.showMoreButtons, sectionHeadingRefs);
 
   function cancelAddAndFocus() {
     add.cancelAddForm();
@@ -70,7 +77,7 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
   const emptyHome = showHome && !error && groups.every((group) => summary[group.count] === 0) && !adding;
 
   return {
-    t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, add, recovering, completion,
+    t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
     cancelAddAndFocus, subjectName, emptyHome,
   };
 }
@@ -79,7 +86,7 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
 export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
-  const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, add, recovering, completion } = screen;
+  const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
   const { cancelAddAndFocus, subjectName, emptyHome } = screen;
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
@@ -111,7 +118,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
     {labels.loading && visibleSubjectIDs.some((id) => !names.has(id))
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
-    <SubjectLabelRetry labels={labels} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
+    <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
     {emptyHome ? <EmptyHome /> : null}
     {!loading && summary && !adding
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />

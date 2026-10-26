@@ -4,42 +4,8 @@ import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
 import { repeatSummary } from './repeatSummary';
 import { formatDate } from './formatDate';
-import type { Completion, Item, ItemGroup } from './itemsApi';
+import type { Item, ItemGroup } from './itemsApi';
 import { HOME_GROUP_ROW_CAP, groups, type GroupData } from './homeGroups';
-
-export type Notice = {
-  text: string;
-  completion?: Completion;
-  itemId?: string;
-  retryKey?: string;
-  retryKind?: 'complete' | 'undo';
-  undoAvailable?: boolean;
-};
-export function NoticeView({ notice, busy, onUndo, onRetry, onRetryFocus }: {
-  notice: Notice | null;
-  busy: boolean;
-  onUndo: () => void;
-  onRetry: () => void;
-  onRetryFocus: () => void;
-}) {
-  const { t } = useI18n();
-  if (!notice) return null;
-  return (
-    <div role='status' aria-live='polite' className='flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand px-4 py-2'>
-      <p>{notice.text}</p>
-      {notice.undoAvailable && notice.completion?.id ? (
-        <Button type='button' variant='quiet' disabled={busy} onClick={onUndo}>
-          {t('items.undo')}
-        </Button>
-      ) : null}
-      {notice.retryKey && notice.retryKind ? (
-        <Button type='button' data-action='completion-trigger' variant='quiet' disabled={busy} onFocus={onRetryFocus} onClick={onRetry}>
-          {t('items.retry')}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
 
 export function ItemRow({ item, group, subjectName, locale, userId, members, membersLoaded, busy, onDone, onOpenItem, rowRef }: {
   item: Item;
