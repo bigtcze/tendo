@@ -3,7 +3,7 @@ import test from 'node:test';
 import { compareMaintainability, collectFunctionMetrics, metricKey } from './lint-ratchet-core.mjs';
 
 const entry = (allowed = 20, reason = 'technical exception') => ({
-  file: 'src/example.ts', rule: 'complexity', allowed, reason, owner: 'frontend-app',
+  file: 'src/example.ts', function: 'Example', rule: 'complexity', allowed, reason, owner: 'frontend-app',
 });
 const fn = 'Example';
 const observed = (value) => [[metricKey('src/example.ts', fn, 'complexity'), value]];
