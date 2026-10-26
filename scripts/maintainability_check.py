@@ -250,6 +250,17 @@ def discover_go_files(root: Path, paths: list[str]) -> list[str]:
     return go_paths
 
 
+def add_function_metrics(metrics: dict[tuple[str, str, str], int], items: list[dict]) -> None:
+    for item in items:
+        name = item["name"]
+        path = item["path"]
+        for field, kind in FUNCTION_METRICS:
+            metric_key = (kind, path, name)
+            if metric_key in metrics:
+                raise RuntimeError(f"duplicate Go function metric identity: {path}:{name}:{kind}")
+            metrics[metric_key] = item[field]
+
+
 def gather(root: Path) -> dict[tuple[str, str, str], int]:
     paths = enumerate_files(root)
     metrics = {}
@@ -287,11 +298,7 @@ def gather(root: Path) -> dict[tuple[str, str, str], int]:
         ) from error
     finally:
         source_list.unlink(missing_ok=True)
-    for item in json.loads(result.stdout):
-        name = item["name"]
-        path = item["path"]
-        for field, kind in FUNCTION_METRICS:
-            metrics[(kind, path, name)] = item[field]
+    add_function_metrics(metrics, json.loads(result.stdout))
     return metrics
 
 
@@ -345,6 +352,10 @@ def load_base_baseline(ref: str | None, root: Path = ROOT) -> list[dict] | None:
         )
         if missing.returncode != 0:
             raise RuntimeError(f"cannot inspect baseline at {ref}: {missing.stderr.strip()}")
+        if missing.stdout.strip():
+            raise RuntimeError(
+                f"baseline object at {ref} exists in tree but cannot be read: {exists.stderr.decode(errors='replace').strip()}"
+            )
         return None
     result = subprocess.run(
         ["git", "show", f"{commit}:{path}"], cwd=root,

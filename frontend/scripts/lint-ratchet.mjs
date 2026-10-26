@@ -82,7 +82,7 @@ for (const result of results) {
       continue;
     }
     for (const rule of payload.violations) {
-      const key = metricKey(payload.file, payload.function, rule);
+      const key = metricKey(payload.file, payload.displayFunction ?? payload.function, rule);
       measured.set(key, Math.max(measured.get(key) ?? 0, payload[rule]));
     }
   }

@@ -108,6 +108,35 @@ func F(x int) {
 	}
 }
 
+func TestRepeatedInitAndBlankVarLiteralIdentitiesAreUnique(t *testing.T) {
+	root := t.TempDir()
+	source := `package sample
+var _ = func() { if true {} }
+var _ = func() { }
+func init() { if true {} }
+func init() { }
+`
+	if err := os.WriteFile(filepath.Join(root, "identity.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := collect([]string{root}, "backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]metric{}
+	for _, item := range metrics {
+		got[item.Name] = item
+	}
+	for _, name := range []string{"_#19.1.func1", "_#49.1.func1", "init#1", "init#2"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("missing unique metric %q: %#v", name, got)
+		}
+	}
+	if got["init#1"].Complexity <= got["init#2"].Complexity {
+		t.Fatalf("first complex init should exceed final trivial init: %#v", got)
+	}
+}
+
 func TestCollectsFunctionLiteralsWithParentNames(t *testing.T) {
 	root := t.TempDir()
 	source := `package sample

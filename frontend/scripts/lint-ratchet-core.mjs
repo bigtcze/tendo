@@ -9,11 +9,12 @@ export const MAINTAINABILITY_THRESHOLDS = Object.freeze({
 export const MAINTAINABILITY_RULES = new Set(Object.keys(MAINTAINABILITY_THRESHOLDS));
 
 export function loadBaseBaseline(ref, cwd) {
-  const commit = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd, encoding: 'utf8' }).trim();
+  const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim();
+  const commit = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: repoRoot, encoding: 'utf8' }).trim();
   const path = 'frontend/maintainability-baseline.json';
-  const treeEntry = execFileSync('git', ['ls-tree', '-r', '--name-only', commit, path], { cwd, encoding: 'utf8' });
+  const treeEntry = execFileSync('git', ['ls-tree', '-r', '--name-only', commit, `:(top)${path}`], { cwd: repoRoot, encoding: 'utf8' });
   if (!treeEntry.trim()) return null;
-  const content = execFileSync('git', ['show', `${commit}:${path}`], { cwd, encoding: 'utf8' });
+  const content = execFileSync('git', ['show', `${commit}:${path}`], { cwd: repoRoot, encoding: 'utf8' });
   let baseline;
   try {
     baseline = JSON.parse(content);
@@ -144,6 +145,20 @@ export function collectFunctionNodes(ast) {
       for (const child of children(node)) visit(child, node, nestedScope, scopeOrdinals);
       return;
     }
+    if (node.type === 'PropertyDefinition' && node.value) {
+      const name = qualified(scope, `<field:${propertyName(node.key) ?? 'computed'}>`);
+      functions.push({ node, name, start: node.loc.start, end: node.loc.end, implicit: true, displayName: 'class field initializer' });
+      visit(node.value, node, name, new Map());
+      return;
+    }
+    if (node.type === 'StaticBlock') {
+      const ordinal = (ordinals.get(`${scope}:static`) ?? 0) + 1;
+      ordinals.set(`${scope}:static`, ordinal);
+      const name = qualified(scope, `<static#${ordinal}>`);
+      functions.push({ node, name, start: node.loc.start, end: node.loc.end, implicit: true, displayName: 'class static block' });
+      for (const child of children(node)) visit(child, node, name, new Map());
+      return;
+    }
     if (FUNCTION_TYPES.has(node.type)) {
       const named = declarationName(node, parentNode);
       const ordinal = (ordinals.get(scope) ?? 0) + 1;
@@ -171,7 +186,11 @@ export function collectFunctionNodes(ast) {
   return { functions, duplicateIdentities };
 }
 
-function functionForReport(node, functions) {
+function functionForReport(node, functions, reportLoc) {
+  if (reportLoc?.start) {
+    const implicit = functions.find(entry => entry.implicit && entry.start.line === reportLoc.start.line);
+    if (implicit) return implicit;
+  }
   const methodFunction = ['MethodDefinition', 'Property'].includes(node?.type) ? node.value : undefined;
   if (methodFunction) {
     const method = functions.find(entry => entry.node === methodFunction);
@@ -181,6 +200,11 @@ function functionForReport(node, functions) {
   while (current) {
     const exact = functions.find(entry => entry.node === current);
     if (exact) return exact;
+    if (current.type === 'PropertyDefinition' || current.type === 'StaticBlock') {
+      const implicit = functions.find(entry => entry.node === current);
+      if (implicit) return implicit;
+    }
+    if (current.type === 'ClassBody') return undefined;
     current = current.parent;
   }
   return undefined;
@@ -203,7 +227,7 @@ function coreRuleListener(context, state, ruleName) {
 }
 
 function collectRuleReport(context, state, ruleName, descriptor) {
-  const fn = functionForReport(descriptor.node, state.functions);
+  const fn = functionForReport(descriptor.node, state.functions, descriptor.loc);
   const identity = fn?.name;
   const data = descriptor.data ?? {};
   const value = data.complexity ?? data.depth ?? data.lineCount;
@@ -212,7 +236,12 @@ function collectRuleReport(context, state, ruleName, descriptor) {
     return;
   }
   const key = metricKey(state.file, identity, ruleName);
-  state.measured.set(key, Math.max(state.measured.get(key) ?? 0, value));
+  const measuredValue = Math.max(state.measured.get(key) ?? 0, value);
+  state.measured.set(key, measuredValue);
+  if (fn.displayName) {
+    const displayedKey = metricKey(state.file, fn.displayName, ruleName);
+    state.measured.set(displayedKey, Math.max(state.measured.get(displayedKey) ?? 0, measuredValue));
+  }
 }
 
 function exactCoreListeners(context, state) {
@@ -239,7 +268,9 @@ export const maintainabilityPlugin = {
           result[selector] = (...args) => handlers.forEach(handler => handler(...args));
         }
         (merged.Program ??= []).push(node => {
-          state.file = context.filename.replaceAll('\\', '/').split('/frontend/').at(-1);
+          const normalizedFilename = context.filename.replaceAll('\\', '/');
+          const sourceIndex = normalizedFilename.lastIndexOf('/src/');
+          state.file = sourceIndex >= 0 ? normalizedFilename.slice(sourceIndex + 1) : normalizedFilename;
           const collected = collectFunctionNodes(node);
           state.functions = collected.functions;
           for (const duplicate of collected.duplicateIdentities) {
@@ -260,7 +291,7 @@ export const maintainabilityPlugin = {
             const functionEntry = state.functions.find(item => item.name === fn);
             context.report({
               node: functionEntry?.node ?? context.sourceCode.ast,
-              message: JSON.stringify({ file, function: fn, violations: [rule], [rule]: value }),
+              message: JSON.stringify({ file, function: fn, displayFunction: functionEntry?.displayName ?? fn, violations: [rule], [rule]: value }),
             });
           }
         };

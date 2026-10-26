@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import subprocess
+from unittest.mock import patch
 import tempfile
 import unittest
 
@@ -64,6 +65,25 @@ class MaintainabilityTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "commit", "-qm", "malformed baseline"], check=True)
             with self.assertRaises(Exception):
                 check.load_base_baseline("HEAD", root)
+
+    def test_base_path_present_but_unreadable_fails_closed(self):
+        def run(command, **kwargs):
+            if command[1] == "rev-parse":
+                return subprocess.CompletedProcess(command, 0, stdout="deadbeef\n", stderr="")
+            if command[1] == "cat-file":
+                return subprocess.CompletedProcess(command, 1, stdout=b"", stderr=b"object unavailable")
+            if command[1] == "ls-tree":
+                return subprocess.CompletedProcess(command, 0, stdout="ci/maintainability-baseline.json\n", stderr="")
+            raise AssertionError(command)
+
+        with patch.object(check.subprocess, "run", side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, "exists in tree but cannot be read"):
+                check.load_base_baseline("HEAD")
+
+    def test_duplicate_go_metric_identity_is_rejected(self):
+        item = {"path": "backend/a.go", "name": "init#1", "lines": 20, "complexity": 17, "nesting": 1}
+        with self.assertRaisesRegex(RuntimeError, "duplicate Go function metric identity"):
+            check.add_function_metrics({}, [item, item])
 
     def test_discover_go_files_preserves_backend_paths(self):
         paths = ["backend/cmd/tendo/items.go", "frontend/src/App.tsx"]

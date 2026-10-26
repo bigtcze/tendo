@@ -71,8 +71,54 @@ test('delegated ESLint rules preserve core complexity and report attribution', a
     const { mkdir } = await import('node:fs/promises');
     await mkdir(join(directory, 'src'), { recursive: true });
     const path = join(directory, 'src/core.ts');
-    const branches = Array.from({ length: 16 }, (_, index) => `  if (value && value?.valueOf() === ${index}) return value ? (value ?? false) : false;`).join('\n');
-    await writeFile(path, `function measured(value = true) {\n${branches}\n  return value || value?.valueOf();\n}\n`);
+    const branches = Array.from({ length: 18 }, (_, index) => `  if (value && value?.valueOf() === ${index}) { if (value) { if (value) { count += value ? (value ?? false) : 0; } } }`).join('\n');
+    const padding = Array.from({ length: 82 }, (_, index) => `  count += ${index};`).join('\n');
+    await writeFile(path, `function measured(value = true) {\n  let count = value ? 1 : 0;\n  count ??= 2;\n  count ||= 3;\n  for (const key in { a: 1 }) {\n    try {\n${branches}\n    } catch (error) {\n      count += error ? 1 : 0;\n    }\n  }\n${padding}\n  return count ?? value?.valueOf();\n}\nfunction parameterClosure(callback = (value) => value ? value ?? false : value?.valueOf()) {\n  return callback(false);\n}\n`);
+    const languageOptions = { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } };
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'], languageOptions,
+      plugins: { maintainability: maintainabilityPlugin }, rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const core = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'], languageOptions,
+      rules: { complexity: ['error', 0], 'max-depth': ['error', 0], 'max-lines-per-function': ['error', { max: 0, skipBlankLines: true, skipComments: true, IIFEs: true }] },
+    }] });
+    const [result] = await eslint.lintFiles([path]);
+    const [coreResult] = await core.lintFiles([path]);
+    const reports = result.messages.filter(message => message.ruleId === 'maintainability/metrics').map(message => JSON.parse(message.message));
+    const coreMetrics = new Map();
+    for (const message of coreResult.messages) {
+      const rule = message.ruleId;
+      const value = message.message.includes('complexity') ? message.message.match(/complexity of (\d+)/)?.[1]
+        : rule === 'max-depth' ? message.message.match(/too deeply \((\d+)\)/)?.[1]
+          : message.message.match(/lines \((\d+)\)/)?.[1];
+      assert.ok(value, `${rule} message had a parseable metric: ${message.message}`);
+      const key = `${message.node?.type}:${message.line}:${rule}`;
+      coreMetrics.set(key, Number(value));
+    }
+    const measured = Object.assign({}, ...reports.filter(payload => payload.function === 'measured'));
+    assert.ok(measured.function, JSON.stringify(reports));
+    assert.ok(!result.messages.some(message => message.message.includes('Unable to attribute')));
+    const complexity = Math.max(...coreResult.messages.filter(message => message.ruleId === 'complexity').map(message => Number(message.message.match(/complexity of (\d+)/)?.[1] ?? 0)));
+    const depth = Math.max(...coreResult.messages.filter(message => message.ruleId === 'max-depth').map(message => Number(message.message.match(/too deeply \((\d+)\)/)?.[1] ?? 0)));
+    const linesMessage = coreResult.messages.find(message => message.ruleId === 'max-lines-per-function' && message.message.includes('measured'));
+    const lines = Number(linesMessage.message.match(/lines \((\d+)\)/)?.[1]);
+    assert.equal(measured.complexity, complexity);
+    assert.equal(measured['max-depth'], depth);
+    assert.equal(measured['max-lines-per-function'], lines);
+    assert.ok(coreMetrics.size >= 3, 'core rules report the fixture code paths and rules');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('class field initializers and static blocks have independent identities', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-implicit-functions-'));
+  try {
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'src'), { recursive: true }));
+    const path = join(directory, 'src/implicit.ts');
+    const branches = Array.from({ length: 17 }, (_, index) => `if (value === ${index}) return ${index};`).join('\n');
+    await writeFile(path, `class Example {\n  method(value: number) {\n    return value;\n  }\n  field = (() => {\n${branches}\n    return 0;\n  })();\n  static {\n${branches}\n  }\n}\n`);
     const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
       files: ['src/**/*.ts'],
       languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
@@ -80,11 +126,10 @@ test('delegated ESLint rules preserve core complexity and report attribution', a
       rules: { 'maintainability/metrics': 'error' },
     }] });
     const [result] = await eslint.lintFiles([path]);
-    const report = result.messages.find(message => message.ruleId === 'maintainability/metrics');
-    assert.ok(report);
-    const payload = JSON.parse(report.message);
-    assert.equal(payload.function, 'measured');
-    assert.ok(payload.complexity > 1, 'ternary and logical/nullish operators count in core complexity');
+    const reports = result.messages.filter(message => message.ruleId === 'maintainability/metrics').map(message => JSON.parse(message.message));
+    assert.ok(reports.some(item => item.function.includes('<field:field>')));
+    assert.ok(reports.some(item => item.function.includes('<static#1>')), JSON.stringify(reports));
+    assert.ok(!reports.some(item => item.function === 'Example.method'));
     assert.ok(!result.messages.some(message => message.message.includes('Unable to attribute')));
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -132,10 +177,16 @@ test('base loader bootstraps only when a resolved ref has no baseline', async ()
     assert.equal(loadBaseBaseline('HEAD', directory), null);
     assert.throws(() => loadBaseBaseline('missing-ref', directory));
     await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'frontend'), { recursive: true }));
+    await writeFile(join(directory, 'frontend/maintainability-baseline.json'), JSON.stringify([{ file: 'src/a.ts', function: 'A', rule: 'complexity', allowed: 15 }]));
+    git('add', 'frontend/maintainability-baseline.json');
+    git('commit', '-qm', 'valid baseline');
+    const frontendDirectory = join(directory, 'frontend');
+    assert.equal(loadBaseBaseline('HEAD', frontendDirectory)[0].allowed, 15);
+    assert.match(compareAgainstBase([{ file: 'src/a.ts', function: 'A', rule: 'complexity', allowed: 16 }], loadBaseBaseline('HEAD', frontendDirectory))[0], /allowed raised=16 base=15/);
     await writeFile(join(directory, 'frontend/maintainability-baseline.json'), '{bad');
     git('add', 'frontend/maintainability-baseline.json');
     git('commit', '-qm', 'malformed baseline');
-    assert.throws(() => loadBaseBaseline('HEAD', directory), /malformed baseline/);
+    assert.throws(() => loadBaseBaseline('HEAD', frontendDirectory), /malformed baseline/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

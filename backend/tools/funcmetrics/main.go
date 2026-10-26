@@ -110,7 +110,13 @@ func collect(roots []string, prefix string) ([]metric, error) {
 
 func declarations(fset *token.FileSet, path string, file *ast.File) []metric {
 	var results []metric
+	initOrdinal := 0
 	for _, declaration := range file.Decls {
+		if function, ok := declaration.(*ast.FuncDecl); ok && function.Name.Name == "init" {
+			initOrdinal++
+			results = append(results, functionMetricsNamed(fset, path, function, fmt.Sprintf("init#%d", initOrdinal))...)
+			continue
+		}
 		results = append(results, declarationMetrics(fset, path, declaration)...)
 	}
 	return results
@@ -128,12 +134,16 @@ func declarationMetrics(fset *token.FileSet, path string, declaration ast.Decl) 
 }
 
 func functionMetrics(fset *token.FileSet, path string, function *ast.FuncDecl) []metric {
-	if function.Body == nil {
-		return nil
-	}
 	name := function.Name.Name
 	if function.Recv != nil && len(function.Recv.List) > 0 {
 		name = receiverName(function.Recv.List[0].Type) + "." + name
+	}
+	return functionMetricsNamed(fset, path, function, name)
+}
+
+func functionMetricsNamed(fset *token.FileSet, path string, function *ast.FuncDecl, name string) []metric {
+	if function.Body == nil {
+		return nil
 	}
 	results := []metric{measure(fset, path, name, function)}
 	return append(results, literalMetrics(fset, path, name, function.Body)...)
@@ -141,22 +151,27 @@ func functionMetrics(fset *token.FileSet, path string, function *ast.FuncDecl) [
 
 func packageLiteralMetrics(fset *token.FileSet, path string, declaration *ast.GenDecl) []metric {
 	var results []metric
-	for _, specification := range declaration.Specs {
+	for specIndex, specification := range declaration.Specs {
 		value, ok := specification.(*ast.ValueSpec)
 		if !ok {
 			continue
 		}
-		results = append(results, valueLiterals(fset, path, value)...)
+		results = append(results, valueLiterals(fset, path, value, specIndex+1)...)
 	}
 	return results
 }
 
-func valueLiterals(fset *token.FileSet, path string, value *ast.ValueSpec) []metric {
+func valueLiterals(fset *token.FileSet, path string, value *ast.ValueSpec, specOrdinal int) []metric {
 	var results []metric
+	blankOrdinal := 0
 	for index, expression := range value.Values {
 		name := "var"
 		if index < len(value.Names) {
 			name = value.Names[index].Name
+			if name == "_" {
+				blankOrdinal++
+				name = fmt.Sprintf("_#%d.%d", fset.Position(value.Pos()).Offset, blankOrdinal)
+			}
 		}
 		results = append(results, literalsInNode(fset, path, name, expression)...)
 	}
