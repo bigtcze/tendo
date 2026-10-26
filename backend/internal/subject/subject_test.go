@@ -27,6 +27,7 @@ type memRepo struct {
 	creationIDs  map[string]string
 	findCalls    int
 	err          error
+	getErr       error
 	createErr    error
 	updateErr    error
 	rows         []Subject
@@ -104,6 +105,9 @@ func (m *memRepo) Row(id string) (Subject, bool) {
 
 func (m *memRepo) Get(_ context.Context, hid, sid string) (Subject, error) {
 	m.calls++
+	if m.getErr != nil {
+		return Subject{}, m.getErr
+	}
 	if m.err != nil {
 		return Subject{}, m.err
 	}
@@ -743,6 +747,65 @@ func TestFilteredListCanonicalizationAndCursorBinding(t *testing.T) {
 func decodeRaw(cursor string) string {
 	raw, _ := base64.RawURLEncoding.DecodeString(cursor)
 	return string(raw)
+}
+
+func TestUpdateEvaluationOrderAndStaleRequiresPerson(t *testing.T) {
+	linked := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Flat", Version: 2, LinkedUserID: &linked}}}
+	svc := NewService(repo, allow, nil)
+	ctx := context.Background()
+	blank := " "
+	_, err := svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Name: &blank})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || validation.Field != "name" {
+		t.Fatalf("existing target invalid input: %v", err)
+	}
+	_, err = svc.Update(ctx, userID, householdID, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99", 1, Patch{Name: &blank})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing target invalid input: %v", err)
+	}
+	typ := TypeHome
+	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
+	if !errors.As(err, &validation) || validation.Code != "requires_person" {
+		t.Fatalf("stale type change invalid against stored link: %v", err)
+	}
+	typ = TypePerson
+	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
+	if !errors.Is(err, ErrVersionMismatch) {
+		t.Fatalf("stale but valid resulting state: %v", err)
+	}
+	repo.getErr = ErrNotFound
+	typ = TypeHome
+	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("target disappeared during stale invariant check: %v", err)
+	}
+	repo.getErr = nil
+	repo.rows[0].Type = TypePerson
+	before := repo.calls
+	name := "Changed"
+	if _, err := svc.Update(ctx, userID, householdID, subjectID, 2, Patch{Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	if got := repo.calls - before; got != 1 {
+		t.Fatalf("successful PATCH repository calls=%d, want only Update", got)
+	}
+}
+
+func TestUpdateEvaluationProbeFailure(t *testing.T) {
+	linked := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+	repo := &memRepo{getErr: errors.New("repository unavailable"), rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, LinkedUserID: &linked, Version: 2}}}
+	svc := NewService(repo, allow, nil)
+	blank := " "
+	_, err := svc.Update(context.Background(), userID, householdID, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99", 1, Patch{Name: &blank})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("validation probe failure: %v", err)
+	}
+	typ := TypeHome
+	_, err = svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{Type: &typ})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("stale invariant probe failure: %v", err)
+	}
 }
 
 func TestUpdateValidatesPatchAndAppliesVersioning(t *testing.T) {

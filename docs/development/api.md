@@ -70,7 +70,7 @@ Collections return `{"items": [...], "nextCursor": string | null}`. `nextCursor`
 
 ## Evaluation order
 
-Checks run in this order and the first failure is returned: 403/421 origin and authority (global middleware), 401 session, 428/412 `If-Match` syntax, 415/413/400 request body, 404 household membership and subject existence, 422 field validation, 412 stale version. The `PATCH` consequence: a non-member who omits `If-Match` gets 428, and one who sends a well-formed `If-Match` gets the uniform 404. `If-Match: *`, weak tags and lists are rejected with 412.
+Checks run in this order and the first failure is returned: 403/421 origin and authority (global middleware), 401 session, 428/412 `If-Match` syntax, 415/413/400 request body, 404 household membership and target existence, 422 field validation, 412 stale version. If a PATCH would fail field/reference validation first, the service performs a household-scoped target lookup to preserve 404-before-422; a lookup outage returns 503 unavailable. This lookup is not made on a valid PATCH. For subjects, a stale update that changes only type or link may also require reading the stored counterpart to evaluate `requires_person`: a missing target returns 404, a lookup outage returns 503, an invalid resulting type/link combination returns 422, and otherwise the stale ETag returns 412. The `PATCH` consequence: a non-member who omits `If-Match` gets 428, and one who sends a well-formed `If-Match` gets the uniform 404. `If-Match: *`, weak tags and lists are rejected with 412.
 
 ## Items
 

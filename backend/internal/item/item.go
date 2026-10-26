@@ -390,6 +390,25 @@ func (s *Service) checkSubject(ctx context.Context, userID, householdID, subject
 	return subjectID, nil
 }
 
+// validationAfterExistenceCheck preserves PATCH evaluation order without adding
+// reads to valid updates. The scoped probe maps infrastructure failures normally.
+func (s *Service) validationAfterExistenceCheck(ctx context.Context, householdID, itemID string, validationErr error) error {
+	var validation *ValidationError
+	if !errors.As(validationErr, &validation) {
+		return validationErr
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	_, err := s.repository.Get(probeCtx, householdID, itemID)
+	if errors.Is(err, ErrNotFound) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return ErrUnavailable
+	}
+	return validationErr
+}
+
 func (s *Service) Create(ctx context.Context, userID, householdID, key string, n NewItem) (Item, error) {
 	householdID, today, err := s.check(ctx, userID, householdID)
 	if err != nil {
@@ -671,14 +690,14 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 	if p.Title != nil {
 		title, err := ValidateTitle(*p.Title)
 		if err != nil {
-			return Item{}, err
+			return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, err)
 		}
 		c.Title = &title
 	}
 	if p.Notes.Set {
 		if p.Notes.Value != nil {
 			if err := ValidateNotes(*p.Notes.Value); err != nil {
-				return Item{}, err
+				return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, err)
 			}
 		}
 		c.Notes = p.Notes
@@ -688,14 +707,14 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		if p.AttentionOn.Value != nil {
 			d, err := ParseDate(*p.AttentionOn.Value)
 			if err != nil {
-				return Item{}, err
+				return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, err)
 			}
 			c.AttentionOn.Value = &d
 		}
 	}
 	if p.Recurrence.Set {
 		if err := validateRecurrence(p.Recurrence.Value); err != nil {
-			return Item{}, err
+			return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, err)
 		}
 		p.Recurrence.Value = canonicalRecurrence(p.Recurrence.Value)
 		c.Recurrence = p.Recurrence
@@ -703,7 +722,8 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 	if p.WorkflowState != nil {
 		state, ok := ParseWorkflowState(*p.WorkflowState)
 		if !ok {
-			return Item{}, &ValidationError{"workflowState", "invalid_workflow_state"}
+			validationErr := &ValidationError{"workflowState", "invalid_workflow_state"}
+			return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, validationErr)
 		}
 		c.WorkflowState = &state
 	}
@@ -713,7 +733,7 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 	if p.SubjectID != nil {
 		subjectID, err := s.checkSubject(ctx, userID, householdID, *p.SubjectID)
 		if err != nil {
-			return Item{}, err
+			return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, err)
 		}
 		c.SubjectID = &subjectID
 	}
@@ -722,7 +742,7 @@ func (s *Service) Update(ctx context.Context, userID, householdID, itemID string
 		if p.ResponsibleUserID.Value != nil {
 			responsibleID, err := s.checkResponsibleMember(ctx, householdID, p.ResponsibleUserID.Value)
 			if err != nil {
-				return Item{}, err
+				return Item{}, s.validationAfterExistenceCheck(ctx, householdID, itemID, err)
 			}
 			c.ResponsibleUserID.Value = responsibleID
 		}

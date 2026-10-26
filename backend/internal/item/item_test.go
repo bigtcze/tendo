@@ -752,6 +752,45 @@ func TestPatchNullClearVersusOmitted(t *testing.T) {
 	}
 }
 
+func TestPatchEvaluationOrderChecksTargetBeforeValidation(t *testing.T) {
+	e := newEnv("UTC")
+	created := e.create(t, item.NewItem{Title: "x"})
+	ctx := context.Background()
+	_, err := e.svc.Update(ctx, userID, householdID, missingID, 1, item.Patch{Title: ptr(" ")})
+	if !errors.Is(err, item.ErrNotFound) {
+		t.Fatalf("missing target with invalid title: %v", err)
+	}
+	foreign := created
+	foreign.ID = foreignID
+	foreign.HouseholdID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+	e.repo.Seed(foreign)
+	_, err = e.svc.Update(ctx, userID, householdID, foreignID, 1, item.Patch{SubjectID: ptr("bad")})
+	if !errors.Is(err, item.ErrNotFound) {
+		t.Fatalf("foreign target with invalid reference: %v", err)
+	}
+	_, err = e.svc.Update(ctx, userID, householdID, created.ID, 1, item.Patch{Title: ptr(" ")})
+	validation(t, err, "title", "invalid_length")
+	_, err = e.svc.Update(ctx, userID, householdID, created.ID, 0, item.Patch{Title: ptr(" ")})
+	validation(t, err, "title", "invalid_length")
+}
+
+func TestPatchValidationProbeFailureAndSuccessfulUpdateNoExtraGet(t *testing.T) {
+	e := newEnv("UTC")
+	created := e.create(t, item.NewItem{Title: "x"})
+	before := e.repo.Calls
+	if _, err := e.svc.Update(context.Background(), userID, householdID, created.ID, 1, item.Patch{Title: ptr("updated")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.repo.Calls - before; got != 1 {
+		t.Fatalf("successful PATCH repository calls=%d, want only Update", got)
+	}
+	e.repo.Err = errors.New("repository unavailable")
+	_, err := e.svc.Update(context.Background(), userID, householdID, missingID, 1, item.Patch{Title: ptr(" ")})
+	if !errors.Is(err, item.ErrUnavailable) {
+		t.Fatalf("probe error: %v", err)
+	}
+}
+
 func TestPatchValidationAndEmpty(t *testing.T) {
 	e := newEnv("UTC")
 	created := e.create(t, item.NewItem{Title: "x"})
