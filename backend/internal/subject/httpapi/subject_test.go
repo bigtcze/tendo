@@ -529,6 +529,15 @@ func TestValidationFailureIs422WithFieldAndCode(t *testing.T) {
 	}
 }
 
+func TestPatchInvalidInputMissingTargetIsNotFound(t *testing.T) {
+	f := newFixture(true)
+	missing := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
+	w := f.do("PATCH", base+"/"+missing, `{"name":" "}`, ifMatch1)
+	if w.Code != 404 || !jsonEqual(t, w.Body.String(), problemBody(404, "Not Found", "not_found")) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestMediaTypeAndSizeLimits(t *testing.T) {
 	f := newFixture(true)
 	w := f.do("POST", base, `{"name":"a","type":"home"}`, map[string]string{"Content-Type": "text/plain", "Idempotency-Key": "media-type"})

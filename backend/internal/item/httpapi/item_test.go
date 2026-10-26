@@ -693,6 +693,15 @@ func TestCreateGetListAndPatchPersistence(t *testing.T) {
 	bodyEqual(t, patched.Body.String(), `{"id":"`+id+`","subjectId":"`+sid+`","responsibleUserId":null,"title":"New item","notes":null,"attentionOn":null,"recurrence":null,"workflowState":"paused","attention":"needs_attention","archived":false,"done":false,"lastCompletedOn":null,"createdAt":"2026-10-07T10:00:00Z","updatedAt":"2026-10-07T11:00:00Z"}`)
 }
 
+func TestPatchInvalidInputMissingTargetIsNotFound(t *testing.T) {
+	f := newFixture(true)
+	missing := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
+	w := f.do("PATCH", base+"/"+missing, `{"title":" "}`, map[string]string{"If-Match": `"1"`})
+	if w.Code != 404 || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestRecurrenceStrictDecodingAndValidation(t *testing.T) {
 	f := newFixture(true)
 	for name, policy := range map[string]string{
