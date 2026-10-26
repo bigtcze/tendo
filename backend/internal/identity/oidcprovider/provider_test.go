@@ -12,14 +12,17 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/testoidc"
+	"github.com/coreos/go-oidc/v3/oidc"
 )
 
 func TestProviderValidation(t *testing.T) {
 	cases := []struct {
 		name  string
 		fault testoidc.Faults
+		want  error
 	}{
 		{name: "bad signature", fault: testoidc.Faults{BadSignature: true}},
+		{name: "JWKS unavailable", fault: testoidc.Faults{JWKSUnavailable: true}, want: identity.ErrOIDCProviderUnavailable},
 		{name: "wrong issuer", fault: testoidc.Faults{WrongIssuer: true}},
 		{name: "wrong audience", fault: testoidc.Faults{WrongAudience: true}},
 		{name: "wrong azp", fault: testoidc.Faults{WrongAZP: true}},
@@ -47,10 +50,99 @@ func TestProviderValidation(t *testing.T) {
 			code, authURL := authorize(t, p, fake, identity.OIDCPurposeLogin)
 			_ = authURL
 			_, err = p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
-			if !errors.Is(err, identity.ErrOIDCAuthenticationFailed) {
-				t.Fatalf("error=%v, want authentication failure", err)
+			want := tc.want
+			if want == nil {
+				want = identity.ErrOIDCAuthenticationFailed
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("error=%v, want %v", err, want)
 			}
 		})
+	}
+}
+
+type concurrentKeySet struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *concurrentKeySet) VerifySignature(_ context.Context, jwt string) ([]byte, error) {
+	if jwt == "outage" {
+		close(s.started)
+		<-s.release
+		return nil, errors.New("fetching keys JWKS returned 503")
+	}
+	<-s.started
+	return []byte("valid payload"), nil
+}
+
+func TestParallelJWKSOutageDoesNotMisclassifyValidVerification(t *testing.T) {
+	set := &concurrentKeySet{started: make(chan struct{}), release: make(chan struct{})}
+	observed := &observedKeySet{remote: set}
+	outageObserver, validObserver := &verificationObserver{}, &verificationObserver{}
+	outageDone := make(chan error, 1)
+	go func() {
+		_, _ = observed.VerifySignature(context.WithValue(context.Background(), verificationObserverKey{}, outageObserver), "outage")
+		outageDone <- classifyVerificationError(outageObserver)
+	}()
+	_, validErr := observed.VerifySignature(context.WithValue(context.Background(), verificationObserverKey{}, validObserver), "valid")
+	close(set.release)
+	outageErr := <-outageDone
+	if validErr != nil || validObserver.keySetErr != nil {
+		t.Fatalf("valid verification contaminated: err=%v recorded=%v", validErr, validObserver.keySetErr)
+	}
+	if !errors.Is(outageErr, identity.ErrOIDCProviderUnavailable) {
+		t.Fatalf("outage error=%v", outageErr)
+	}
+}
+
+func TestJWKSUnavailableIsProviderUnavailable(t *testing.T) {
+	fake, err := testoidc.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fake.Close()
+	p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, &http.Client{Timeout: 2 * time.Second}, time.Now, true)
+	code, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
+	fake.Faults.JWKSUnavailable = true
+	_, err = p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
+	if !errors.Is(err, identity.ErrOIDCProviderUnavailable) {
+		t.Fatalf("error=%v, want provider unavailable", err)
+	}
+}
+
+func TestSupportedSigningAlgorithmsFiltersUnsupportedValues(t *testing.T) {
+	fake, err := testoidc.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fake.Close()
+	fake.SigningAlgorithms = []string{"HS256", "RS256"}
+	p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, nil, nil, true)
+	_, _, algorithms, err := p.discovery(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(algorithms) != 1 || algorithms[0] != oidc.RS256 {
+		t.Fatalf("stored algorithms=%v, want [%s]", algorithms, oidc.RS256)
+	}
+	if got := supportedSigningAlgorithms([]string{"HS256", "none"}); len(got) != 0 {
+		t.Fatalf("unsupported-only algorithms=%v, want empty for go-oidc default", got)
+	}
+}
+
+func TestUnsupportedDiscoveryAlgorithmsKeepGoOIDCDefault(t *testing.T) {
+	fake, err := testoidc.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fake.Close()
+	fake.SigningAlgorithms = []string{"HS256", "none"}
+	p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, nil, nil, true)
+	code, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
+	verified, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
+	if err != nil || verified.Subject != "subject-1" {
+		t.Fatalf("unsupported-only discovery did not retain RS256 default: identity=%+v err=%v", verified, err)
 	}
 }
 
@@ -103,6 +195,12 @@ func TestProviderSuccessAndAuthorizationParameters(t *testing.T) {
 	verified, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
 	if err != nil || verified.Issuer != fake.Issuer() || verified.Subject != "subject-1" {
 		t.Fatalf("identity=%+v err=%v", verified, err)
+	}
+	cachedCode, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
+	fake.Faults.JWKSUnavailable = true
+	cachedIdentity, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: cachedCode, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: verifier, Nonce: "nonce-value"})
+	if err != nil || cachedIdentity.Subject != "subject-1" {
+		t.Fatalf("cached-key verification identity=%+v err=%v", cachedIdentity, err)
 	}
 }
 

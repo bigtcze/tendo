@@ -25,6 +25,8 @@ type Provider struct {
 	allowHTTP                      bool
 	mu                             sync.Mutex
 	discovered                     *oidc.Provider
+	keySet                         *observedKeySet
+	algorithms                     []string
 }
 
 func New(issuer, clientID, secret string, client *http.Client, clock func() time.Time, allowHTTP bool) *Provider {
@@ -61,26 +63,27 @@ type discoveryClaims struct {
 	TokenEndpoint          string   `json:"token_endpoint"`
 	JWKSURI                string   `json:"jwks_uri"`
 	ResponseTypesSupported []string `json:"response_types_supported"`
+	SigningAlgorithms      []string `json:"id_token_signing_alg_values_supported"`
 }
 
-func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, error) {
+func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, *observedKeySet, []string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.discovered != nil {
-		return p.discovered, nil
+		return p.discovered, p.keySet, p.algorithms, nil
 	}
 	ctx = oidc.ClientContext(ctx, p.client)
 	provider, err := oidc.NewProvider(ctx, p.issuer)
 	if err != nil {
-		return nil, identity.ErrOIDCProviderUnavailable
+		return nil, nil, nil, identity.ErrOIDCProviderUnavailable
 	}
 	var claims discoveryClaims
 	if err = provider.Claims(&claims); err != nil {
-		return nil, identity.ErrOIDCProviderUnavailable
+		return nil, nil, nil, identity.ErrOIDCProviderUnavailable
 	}
 	for _, endpoint := range []string{claims.AuthorizationEndpoint, claims.TokenEndpoint, claims.JWKSURI} {
 		if endpoint == "" || validateEndpoint(endpoint, p.allowHTTP) != nil {
-			return nil, identity.ErrOIDCProviderUnavailable
+			return nil, nil, nil, identity.ErrOIDCProviderUnavailable
 		}
 	}
 	if len(claims.ResponseTypesSupported) > 0 {
@@ -92,11 +95,31 @@ func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, error) {
 			}
 		}
 		if !found {
-			return nil, identity.ErrOIDCProviderUnavailable
+			return nil, nil, nil, identity.ErrOIDCProviderUnavailable
 		}
 	}
 	p.discovered = provider
-	return provider, nil
+	p.algorithms = supportedSigningAlgorithms(claims.SigningAlgorithms)
+	p.keySet = &observedKeySet{remote: oidc.NewRemoteKeySet(ctx, claims.JWKSURI)}
+	return provider, p.keySet, p.algorithms, nil
+}
+
+func supportedSigningAlgorithms(advertised []string) []string {
+	// Mirror go-oidc v3.21.0's supportedAlgorithms allowlist. Do not admit
+	// algorithms such as HS256 or none from provider metadata.
+	allowed := map[string]bool{
+		oidc.RS256: true, oidc.RS384: true, oidc.RS512: true,
+		oidc.ES256: true, oidc.ES384: true, oidc.ES512: true,
+		oidc.PS256: true, oidc.PS384: true, oidc.PS512: true,
+		oidc.EdDSA: true,
+	}
+	filtered := make([]string, 0, len(advertised))
+	for _, alg := range advertised {
+		if allowed[alg] {
+			filtered = append(filtered, alg)
+		}
+	}
+	return filtered
 }
 
 func validateEndpoint(raw string, allowHTTP bool) error {
@@ -108,7 +131,7 @@ func validateEndpoint(raw string, allowHTTP bool) error {
 }
 
 func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthorizationParams) (string, error) {
-	provider, err := p.discovery(ctx)
+	provider, _, _, err := p.discovery(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -124,11 +147,43 @@ func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthoriz
 	return cfg.AuthCodeURL(a.State, options...), nil
 }
 
+type verificationObserver struct {
+	keySetErr error
+}
+
+type verificationObserverKey struct{}
+
+type observedKeySet struct {
+	remote oidc.KeySet
+}
+
+func (s *observedKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
+	payload, err := s.remote.VerifySignature(ctx, jwt)
+	if observer, ok := ctx.Value(verificationObserverKey{}).(*verificationObserver); ok {
+		observer.keySetErr = err
+	}
+	return payload, err
+}
+
+func classifyVerificationError(observer *verificationObserver) error {
+	if observer != nil && isKeySetFetchError(observer.keySetErr) {
+		return identity.ErrOIDCProviderUnavailable
+	}
+	return identity.ErrOIDCAuthenticationFailed
+}
+
+func isKeySetFetchError(err error) bool {
+	// RemoteKeySet wraps fetch errors with this prefix; it exposes no typed fetch
+	// error, and its fetch uses the construction context rather than this call's
+	// context. The outage test pins this dependency behavior across upgrades.
+	return err != nil && strings.HasPrefix(err.Error(), "fetching keys ")
+}
+
 func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) (identity.OIDCVerifiedIdentity, error) {
 	if x.CallbackIssuer != "" && x.CallbackIssuer != p.issuer {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
-	provider, err := p.discovery(ctx)
+	provider, keySet, algorithms, err := p.discovery(ctx)
 	if err != nil {
 		return identity.OIDCVerifiedIdentity{}, err
 	}
@@ -146,9 +201,12 @@ func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) 
 	if !ok || raw == "" {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
-	id, err := provider.Verifier(&oidc.Config{ClientID: p.clientID, Now: p.clock}).Verify(ctx, raw)
+	observer := &verificationObserver{}
+	ctx = context.WithValue(ctx, verificationObserverKey{}, observer)
+	verifier := oidc.NewVerifier(p.issuer, keySet, &oidc.Config{ClientID: p.clientID, Now: p.clock, SupportedSigningAlgs: algorithms})
+	id, err := verifier.Verify(ctx, raw)
 	if err != nil {
-		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
+		return identity.OIDCVerifiedIdentity{}, classifyVerificationError(observer)
 	}
 	if id.Nonce != x.Nonce || id.Issuer != p.issuer || id.Subject == "" || len(id.Subject) > 255 || id.IssuedAt.After(p.clock().Add(time.Minute)) {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed

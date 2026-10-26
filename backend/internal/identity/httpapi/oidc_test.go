@@ -269,6 +269,28 @@ func TestOIDCStartCookiePolicy(t *testing.T) {
 		}
 	}
 }
+func TestOIDCJWKSOutageCallbackUnavailableAndClearsFlow(t *testing.T) {
+	repo, provider, _, _, mux := newRealOIDCHTTP(t, "subject-1")
+	query, flow := doOIDCStart(t, mux, "login", "")
+	provider.Faults.JWKSUnavailable = true
+	w := performOIDCCallback(t, provider, mux, query, flow, "")
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login#oidcError=unavailable" {
+		t.Fatalf("status=%d location=%s", w.Code, w.Header().Get("Location"))
+	}
+	cleared := false
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "tendo_oidc" && cookie.MaxAge < 0 {
+			cleared = true
+		}
+		if cookie.Name == "tendo_session" && cookie.Value != "" && cookie.MaxAge >= 0 {
+			t.Fatalf("session issued: %+v", cookie)
+		}
+	}
+	if !cleared || len(repo.sessions) != 1 || len(repo.flows) != 0 {
+		t.Fatalf("cleared=%v sessions=%d flows=%d", cleared, len(repo.sessions), len(repo.flows))
+	}
+}
+
 func TestOIDCLoginActiveSessionHTTPRejectedBeforeExchange(t *testing.T) {
 	repo, provider, _, _, mux := newRealOIDCHTTP(t, "subject-1")
 	repo.identities[provider.Issuer()+"\x00subject-1"] = "user-1"
