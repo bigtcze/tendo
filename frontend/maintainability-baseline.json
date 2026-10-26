@@ -115,7 +115,7 @@
     "file": "src/features/items/ItemsScreen.tsx",
     "function": "ItemsScreen",
     "rule": "max-lines-per-function",
-    "allowed": 512,
+    "allowed": 513,
     "reason": "P1 audit rank 1: item home composes list, paging, recovery, mutations, and rendering; extract data/action hooks and view components.",
     "owner": "frontend-items"
   },

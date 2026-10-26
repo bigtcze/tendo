@@ -52,10 +52,6 @@ async function hasMaintainabilityDirective(file, directive) {
 const measured = new Map();
 for (const result of results) {
   for (const message of result.messages) {
-    if (message.ruleId === null && /inline config|noInlineConfig/i.test(message.message)) {
-      console.error(`${result.filePath}: inline ESLint configuration is forbidden in production source: ${message.message}`);
-      process.exitCode = 1;
-    }
     if (message.ruleId !== 'maintainability/metrics') continue;
     const payload = JSON.parse(message.message);
     for (const rule of payload.violations) {

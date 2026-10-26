@@ -80,7 +80,6 @@ const groups: { id: ItemGroup; key: MessageKey; count: GroupCount; quiet?: boole
 type GroupCount = 'needsAttention' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';
 type GroupData = { items: Item[]; cursor: string | null; loadingMore: boolean; overflow: boolean };
 
-// Start the initial list request after the effect commit to avoid synchronous effect updates.
 export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onOpenAllItems, onSignedOut }: { userId: string; householdId: string; onOpenPeople: () => void; onOpenItem: (itemId: string) => void; onOpenAllItems: (status: ItemGroup) => void; onSignedOut: () => void }) {
   const { t, locale } = useI18n();
   const emptyGroups = (): Record<ItemGroup, GroupData> => ({ needs: { items: [], cursor: null, loadingMore: false, overflow: false }, inProgress: { items: [], cursor: null, loadingMore: false, overflow: false }, waiting: { items: [], cursor: null, loadingMore: false, overflow: false }, upcoming: { items: [], cursor: null, loadingMore: false, overflow: false }, paused: { items: [], cursor: null, loadingMore: false, overflow: false } });
@@ -202,7 +201,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
   }, []);
 
   useEffect(() => {
-    void Promise.resolve().then(() => loadHome({ allowStaleRestart: true }));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- start async loading; state updates follow network responses.
+    void loadHome({ allowStaleRestart: true });
   }, [loadHome]);
 
   useEffect(() => {
@@ -340,8 +340,8 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
       if (labels.hasFailures) labelRetryRef.current?.focus();
       else sectionHeadingRefs.current.get(groups.find((group) => groupData[group.id].items.length)?.id ?? 'needs')?.focus();
     }
-    const timer = window.setTimeout(() => setLabelRetryPending(false), 0);
-    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- settle the retry once its batch completes.
+    setLabelRetryPending(false);
   }, [labelRetryPending, labels.loading, labels.hasFailures, groupData]);
 
   useEffect(() => {

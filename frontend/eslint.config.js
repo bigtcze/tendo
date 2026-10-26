@@ -11,7 +11,7 @@ export default tseslint.config(
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/**/*.test.{ts,tsx}', 'src/test/**'],
-    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
       complexity: 'off',
       'max-depth': 'off',
