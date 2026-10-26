@@ -115,7 +115,7 @@
     "file": "src/features/items/ItemsScreen.tsx",
     "function": "ItemsScreen",
     "rule": "max-lines-per-function",
-    "allowed": 513,
+    "allowed": 511,
     "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
     "owner": "frontend-items"
   },
