@@ -1,4 +1,4 @@
-// Command funcmetrics reports deterministic size and control-flow metrics for Go functions.
+// Command funcmetrics reports Go function and literal control-flow metrics.
 package main
 
 import (
@@ -24,23 +24,52 @@ type metric struct {
 }
 
 func main() {
-	prefix := flag.String("prefix", "backend", "path prefix for output relative to repository root")
+	prefix := flag.String("prefix", "backend", "repository-relative path prefix")
+	files := flag.String("files", "", "newline-delimited exact Go file list")
 	flag.Parse()
-	roots := flag.Args()
-	if len(roots) == 0 {
-		roots = []string{"."}
+	var results []metric
+	var err error
+	if *files != "" {
+		data, readErr := os.ReadFile(*files)
+		if readErr != nil {
+			fail(readErr)
+		}
+		results, err = collectFiles(strings.Split(strings.TrimSpace(string(data)), "\n"), *prefix)
+	} else {
+		roots := flag.Args()
+		if len(roots) == 0 {
+			roots = []string{"."}
+		}
+		results, err = collect(roots, *prefix)
 	}
-	metrics, err := collect(roots, *prefix)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fail(err)
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(metrics); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if err := encoder.Encode(results); err != nil {
+		fail(err)
 	}
+}
+
+func fail(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+
+func collectFiles(paths []string, prefix string) ([]metric, error) {
+	var results []metric
+	for _, path := range paths {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		name := filepath.ToSlash(path)
+		if prefix != "" {
+			name = filepath.ToSlash(filepath.Join(prefix, name))
+		}
+		results = append(results, declarations(fset, name, file)...)
+	}
+	sortMetrics(results)
+	return results, nil
 }
 
 func collect(roots []string, prefix string) ([]metric, error) {
@@ -56,7 +85,7 @@ func collect(roots []string, prefix string) ([]metric, error) {
 				}
 				return nil
 			}
-			if entry.Name() == "" || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".gen.go") || excludedPath(path) || filepath.Ext(path) != ".go" {
+			if entry.Name() == "" || strings.HasSuffix(path, "_test.go") || excludedPath(path) || filepath.Ext(path) != ".go" {
 				return nil
 			}
 			fset := token.NewFileSet()
@@ -68,82 +97,102 @@ func collect(roots []string, prefix string) ([]metric, error) {
 			if err != nil {
 				return err
 			}
-			outputPath := filepath.ToSlash(filepath.Join(prefix, rel))
-			for _, declaration := range file.Decls {
-				switch value := declaration.(type) {
-				case *ast.FuncDecl:
-					if value.Body == nil {
-						continue
-					}
-					name := value.Name.Name
-					if value.Recv != nil && len(value.Recv.List) > 0 {
-						name = receiverName(value.Recv.List[0].Type) + "." + name
-					}
-					results = append(results, measure(fset, outputPath, name, value))
-					results = append(results, literalMetrics(fset, outputPath, name, value.Body)...)
-				case *ast.GenDecl:
-					for _, spec := range value.Specs {
-						valueSpec, ok := spec.(*ast.ValueSpec)
-						if !ok {
-							continue
-						}
-						for i, expression := range valueSpec.Values {
-							literal, ok := expression.(*ast.FuncLit)
-							if !ok {
-								continue
-							}
-							name := "var"
-							if i < len(valueSpec.Names) {
-								name = valueSpec.Names[i].Name
-							}
-							results = append(results, measureLiteral(fset, outputPath, name+".func1", literal))
-							results = append(results, nestedLiteralMetrics(fset, outputPath, name+".func1", literal.Body)...)
-						}
-					}
-				}
-			}
+			output := filepath.ToSlash(filepath.Join(prefix, rel))
+			results = append(results, declarations(fset, output, file)...)
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Path != results[j].Path {
-			return results[i].Path < results[j].Path
-		}
-		return results[i].Name < results[j].Name
-	})
+	sortMetrics(results)
 	return results, nil
 }
 
-func literalMetrics(fset *token.FileSet, path, parent string, node ast.Node) []metric {
+func declarations(fset *token.FileSet, path string, file *ast.File) []metric {
 	var results []metric
-	count := 0
-	ast.Inspect(node, func(current ast.Node) bool {
-		if current == node {
+	for _, declaration := range file.Decls {
+		results = append(results, declarationMetrics(fset, path, declaration)...)
+	}
+	return results
+}
+
+func declarationMetrics(fset *token.FileSet, path string, declaration ast.Decl) []metric {
+	switch value := declaration.(type) {
+	case *ast.FuncDecl:
+		return functionMetrics(fset, path, value)
+	case *ast.GenDecl:
+		return packageLiteralMetrics(fset, path, value)
+	default:
+		return nil
+	}
+}
+
+func functionMetrics(fset *token.FileSet, path string, function *ast.FuncDecl) []metric {
+	if function.Body == nil {
+		return nil
+	}
+	name := function.Name.Name
+	if function.Recv != nil && len(function.Recv.List) > 0 {
+		name = receiverName(function.Recv.List[0].Type) + "." + name
+	}
+	results := []metric{measure(fset, path, name, function)}
+	return append(results, literalMetrics(fset, path, name, function.Body)...)
+}
+
+func packageLiteralMetrics(fset *token.FileSet, path string, declaration *ast.GenDecl) []metric {
+	var results []metric
+	for _, specification := range declaration.Specs {
+		value, ok := specification.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		results = append(results, valueLiterals(fset, path, value)...)
+	}
+	return results
+}
+
+func valueLiterals(fset *token.FileSet, path string, value *ast.ValueSpec) []metric {
+	var results []metric
+	for index, expression := range value.Values {
+		literal, ok := expression.(*ast.FuncLit)
+		if !ok {
+			continue
+		}
+		name := "var"
+		if index < len(value.Names) {
+			name = value.Names[index].Name
+		}
+		qualified := name + ".func1"
+		results = append(results, measureLiteral(fset, path, qualified, literal))
+		results = append(results, literalMetrics(fset, path, qualified, literal.Body)...)
+	}
+	return results
+}
+
+func literalMetrics(fset *token.FileSet, path, parent string, body *ast.BlockStmt) []metric {
+	var results []metric
+	ordinal := 0
+	ast.Inspect(body, func(node ast.Node) bool {
+		if node == body {
 			return true
 		}
-		literal, ok := current.(*ast.FuncLit)
+		literal, ok := node.(*ast.FuncLit)
 		if !ok {
 			return true
 		}
-		count++
-		name := fmt.Sprintf("%s.func%d", parent, count)
+		ordinal++
+		name := fmt.Sprintf("%s.func%d", parent, ordinal)
 		results = append(results, measureLiteral(fset, path, name, literal))
-		results = append(results, nestedLiteralMetrics(fset, path, name, literal.Body)...)
+		results = append(results, literalMetrics(fset, path, name, literal.Body)...)
 		return false
 	})
 	return results
 }
 
-func nestedLiteralMetrics(fset *token.FileSet, path, parent string, body *ast.BlockStmt) []metric {
-	return literalMetrics(fset, path, parent, body)
-}
-
 func excludedPath(path string) bool {
-	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
-		if segment == "dbgen" || segment == "testdata" {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == "testdata" {
 			return true
 		}
 	}
@@ -174,11 +223,9 @@ func measureLiteral(fset *token.FileSet, path, name string, fn *ast.FuncLit) met
 }
 
 func measureBody(fset *token.FileSet, path, name string, startPos, endPos token.Pos, body *ast.BlockStmt) metric {
-	start := fset.Position(startPos).Line
-	end := fset.Position(endPos).Line
-	result := metric{Path: path, Name: name, Lines: end - start + 1, Complexity: 1}
+	result := metric{Path: path, Name: name, Lines: fset.Position(endPos).Line - fset.Position(startPos).Line + 1, Complexity: 1}
 	ast.Inspect(body, func(node ast.Node) bool {
-		if _, nestedFunction := node.(*ast.FuncLit); nestedFunction {
+		if _, ok := node.(*ast.FuncLit); ok {
 			return false
 		}
 		switch value := node.(type) {
@@ -203,43 +250,36 @@ func measureBody(fset *token.FileSet, path, name string, startPos, endPos token.
 	return result
 }
 
-// Else-if is a continuation of the same conditional level, not another nested level.
+// Else-if branches continue the same nesting level; a braced else is nested.
 func maxNesting(statements []ast.Stmt, depth int) int {
 	maximum := depth
 	for _, statement := range statements {
-		if conditional, ok := statement.(*ast.IfStmt); ok {
-			if value := maxNesting(conditional.Body.List, depth+1); value > maximum {
-				maximum = value
-			}
-			if value := maxElseNesting(conditional.Else, depth); value > maximum {
-				maximum = value
-			}
-			if depth+1 > maximum {
-				maximum = depth + 1
-			}
-			continue
-		}
-		nested, counted := childBlocks(statement)
-		nextDepth := depth
-		if counted {
-			nextDepth++
-		}
-		if nextDepth > maximum {
-			maximum = nextDepth
-		}
-		if value := maxNesting(nested, nextDepth); value > maximum {
+		if value := nestingForStatement(statement, depth); value > maximum {
 			maximum = value
 		}
 	}
 	return maximum
 }
 
+func nestingForStatement(statement ast.Stmt, depth int) int {
+	conditional, ok := statement.(*ast.IfStmt)
+	if ok {
+		return max(depth+1, maxNesting(conditional.Body.List, depth+1), maxElseNesting(conditional.Else, depth))
+	}
+	children, counted := childBlocks(statement)
+	next := depth
+	if counted {
+		next++
+	}
+	return max(next, maxNesting(children, next))
+}
+
 func maxElseNesting(statement ast.Stmt, depth int) int {
 	if statement == nil {
 		return depth
 	}
-	if nextIf, ok := statement.(*ast.IfStmt); ok {
-		return maxNesting([]ast.Stmt{nextIf}, depth)
+	if _, ok := statement.(*ast.IfStmt); ok {
+		return nestingForStatement(statement, depth)
 	}
 	return maxNesting([]ast.Stmt{statement}, depth)
 }
@@ -268,4 +308,13 @@ func childBlocks(statement ast.Stmt) ([]ast.Stmt, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func sortMetrics(items []metric) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Path != items[j].Path {
+			return items[i].Path < items[j].Path
+		}
+		return items[i].Name < items[j].Name
+	})
 }

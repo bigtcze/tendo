@@ -64,7 +64,8 @@ func F() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := measure(fset, "labeled.go", "F", file.Decls[0].(*ast.FuncDecl))
+	fn := file.Decls[0].(*ast.FuncDecl)
+	got := measure(fset, "labeled.go", "F", fn)
 	if got.Nesting != 2 {
 		t.Fatalf("nesting = %d, want 2", got.Nesting)
 	}
@@ -83,7 +84,8 @@ func F(value any, ch chan int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := measure(fset, "nested.go", "F", file.Decls[0].(*ast.FuncDecl))
+	fn := file.Decls[0].(*ast.FuncDecl)
+	got := measure(fset, "nested.go", "F", fn)
 	if got.Nesting != 2 {
 		t.Fatalf("nesting = %d, want 2", got.Nesting)
 	}
@@ -99,7 +101,8 @@ func F(x int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := measure(fset, "chain.go", "F", file.Decls[0].(*ast.FuncDecl))
+	fn := file.Decls[0].(*ast.FuncDecl)
+	got := measure(fset, "chain.go", "F", fn)
 	if got.Nesting != 1 {
 		t.Fatalf("nesting = %d, want 1", got.Nesting)
 	}
@@ -134,14 +137,22 @@ func Local() {
 	if got["Local"].Complexity != 1 {
 		t.Fatalf("enclosing function counted literal complexity: %#v", got["Local"])
 	}
+	for _, name := range []string{"packageHandler.func1", "MakeHandler.func1", "Local.func1", "Local.func2.func1"} {
+		if got[name].Complexity != 2 {
+			t.Errorf("literal %s complexity=%d, want 2", name, got[name].Complexity)
+		}
+	}
+	if got["Local.func2"].Complexity != 1 {
+		t.Errorf("goroutine literal complexity=%d, want 1", got["Local.func2"].Complexity)
+	}
 }
 
-func TestCollectExcludesGeneratedTestsAndDirectories(t *testing.T) {
+func TestCollectExcludesOnlyTestFilesAndTestdata(t *testing.T) {
 	root := t.TempDir()
 	for name, source := range map[string]string{
 		"a.go":                      "package p\nfunc A() {}\n",
-		"a_test.go":                 "package p\nfunc TestA() {}\n",
 		"a.gen.go":                  "package p\nfunc Generated() {}\n",
+		"a_test.go":                 "package p\nfunc TestA() {}\n",
 		"dbgen/generated.go":        "package p\nfunc GeneratedDB() {}\n",
 		"testdata/sample/sample.go": "package p\nfunc Fixture() {}\n",
 	} {
@@ -157,7 +168,7 @@ func TestCollectExcludesGeneratedTestsAndDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Path != "backend/a.go" {
+	if len(got) != 3 || got[0].Path != "backend/a.gen.go" || got[1].Path != "backend/a.go" || got[2].Path != "backend/dbgen/generated.go" {
 		t.Fatalf("metrics = %#v", got)
 	}
 }
