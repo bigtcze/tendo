@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// Patch is the unvalidated partial update input. Unset fields are unchanged.
+// Notes, AttentionOn, and ResponsibleUserID distinguish omitted from null to
+// support explicit clearing; a non-null ResponsibleUserID assigns a member.
 type Patch struct {
 	Title             *string
 	SubjectID         *string
@@ -23,6 +26,7 @@ func (p Patch) empty() bool {
 		p.WorkflowState == nil && p.Archived == nil
 }
 
+// Change is a validated patch handed to the repository.
 type Change struct {
 	Title             *string
 	SubjectID         *string

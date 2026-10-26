@@ -292,9 +292,11 @@ func decodeBoundCursor(
 	}
 	return strings.ToLower(parts[5]), afterDate, nil
 }
+// EncodeCursor returns the opaque, versioned cursor for the last returned id.
 func EncodeCursor(id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(cursorPrefix + strings.ToLower(id)))
 }
+// DecodeCursor returns the canonical lowercase id inside a cursor.
 func DecodeCursor(cursor string) (string, error) {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(cursor)
 	if err != nil {
@@ -306,6 +308,7 @@ func DecodeCursor(cursor string) (string, error) {
 	}
 	return strings.ToLower(id), nil
 }
+// validUUID accepts only the canonical 8-4-4-4-12 hexadecimal form.
 func validUUID(s string) bool {
 	if len(s) != 36 {
 		return false

@@ -12,6 +12,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
+// Draft is a validated new item handed to the repository.
 type Draft struct {
 	ActorID               string
 	CreationKey           string

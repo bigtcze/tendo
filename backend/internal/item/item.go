@@ -1,3 +1,7 @@
+// Package item holds the household-scoped backlog item domain and application
+// service for one-off items. It does not import other modules or adapters;
+// household membership/timezone and subject lookups are injected through
+// Households and Subjects.
 package item
 
 import (
@@ -63,6 +67,9 @@ func ParseWorkflowState(s string) (WorkflowState, bool) {
 	return "", false
 }
 
+// Item is a household-scoped backlog item. HouseholdID and Version are
+// populated by repositories but are not part of the public representation.
+// Attention is derived by the Service and is never stored.
 type Item struct {
 	ID                string
 	HouseholdID       string
@@ -81,14 +88,19 @@ type Item struct {
 	UpdatedAt         time.Time
 	Version           int64
 }
+// Nullable is an optional value that distinguishes "not provided" (Set false)
+// from an explicit null (Set true, Value nil).
 type Nullable[T any] struct {
 	Set   bool
 	Value *T
 }
 
+// Some returns a provided non-null value.
 func Some[T any](v T) Nullable[T] { return Nullable[T]{Set: true, Value: &v} }
+// Null returns a provided explicit null.
 func Null[T any]() Nullable[T]    { return Nullable[T]{Set: true} }
 
+// NewItem is the unvalidated create input.
 type NewItem struct {
 	SubjectID             string
 	ResponsibleUserID     *string
@@ -115,6 +127,18 @@ type Summary struct {
 	EvaluatedOn schedule.Date
 	SummaryCounts
 }
+// Repository persists items. Every method is scoped by household; Get and
+// Update return ErrNotFound for rows outside that household. Update returns
+// ErrVersionMismatch when the item exists with another version. Create and
+// Update return ErrInvalidReference when the subject reference is rejected by
+// storage, or ErrInvalidResponsibleReference when the responsible-member
+// reference is rejected. List returns at most limit items after the keyset
+// boundary in the selected sort: SortCreated orders by ascending id after
+// AfterID; SortAttention orders null attentionOn first, then ascending
+// attentionOn and id, after (AfterAttentionOn, AfterID) where a nil
+// AfterAttentionOn denotes a null-date boundary. Repositories never populate
+// Item.Attention.
+// Any other error is an infrastructure failure.
 type Repository interface {
 	CreateIdempotent(ctx context.Context, householdID string, d Draft) (Item, bool, error)
 	FindCreation(ctx context.Context, householdID, actorID, key string) (Item, []byte, error)
@@ -126,6 +150,9 @@ type Repository interface {
 	ListCompletions(ctx context.Context, householdID, itemID, boundary string, limit int, newest bool) ([]Completion, error)
 	Update(ctx context.Context, householdID, itemID string, expectedVersion int64, c Change) (Item, error)
 }
+// Households authorizes userID in householdID and returns the household IANA
+// timezone. It returns ErrNotFound for a non-member or nonexistent household;
+// other errors are infrastructure failures.
 type Households func(ctx context.Context, userID, householdID string) (timezone string, err error)
 
 // Subjects reports whether a subject of the household is archived. It returns
@@ -149,6 +176,9 @@ type Service struct {
 func NewService(repository Repository, households Households, subjects Subjects, members Members, now func() time.Time) *Service {
 	return &Service{repository: repository, households: households, subjects: subjects, members: members, now: now}
 }
+// check validates the household identifier, canonicalizes it to lowercase, and
+// authorizes the caller. It returns the canonical identifier and today's date in
+// the household timezone.
 func (s *Service) check(ctx context.Context, userID, householdID string) (string, schedule.Date, error) {
 	if !validUUID(householdID) {
 		return "", schedule.Date{}, ErrNotFound
@@ -179,6 +209,7 @@ func mapRepoErr(err error) error {
 		return ErrUnavailable
 	}
 }
+// derive fills the derived attention state.
 func derive(i Item, today schedule.Date) (Item, error) {
 	a, err := schedule.DeriveAttention(i.AttentionOn, today)
 	if err != nil {
