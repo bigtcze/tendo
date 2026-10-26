@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -191,6 +192,59 @@ func TestOIDCIdentitySessionAndDisabled(t *testing.T) {
 		})
 	}
 }
+func TestOIDCStartOriginCanonicalDecisionMatchesMiddleware(t *testing.T) {
+	tests := []struct {
+		name      string
+		publicURL string
+		scheme    string
+		authority string
+		origin    string
+		want      int
+	}{
+		{name: "default https port", publicURL: "https://host", scheme: "https", authority: "host", origin: "https://host:443", want: http.StatusOK},
+		{name: "uppercase host", publicURL: "https://host", scheme: "https", authority: "host", origin: "https://HOST", want: http.StatusOK},
+		{name: "default http port", publicURL: "http://host", scheme: "http", authority: "host", origin: "http://host:80", want: http.StatusOK},
+		{name: "other port", publicURL: "https://host", scheme: "https", authority: "host", origin: "https://host:444", want: http.StatusForbidden},
+		{name: "other scheme", publicURL: "https://host", scheme: "https", authority: "host", origin: "http://host", want: http.StatusForbidden},
+		{name: "other host", publicURL: "https://host", scheme: "https", authority: "host", origin: "https://other", want: http.StatusForbidden},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newRequest := func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Set("Origin", tc.origin)
+				r.Host = tc.authority
+				if tc.scheme == "https" {
+					r.TLS = &tls.ConnectionState{}
+				}
+				return r
+			}
+
+			middlewareApp := httpx.NewAppWithRoutes(nil, time.Second, make(chan struct{}), httpx.OriginPolicy{PublicURL: tc.publicURL}, func(r chi.Router) {
+				r.Post("/api/v1/auth/oidc/start", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+			})
+			middlewareResponse := httptest.NewRecorder()
+			middlewareApp.ServeHTTP(middlewareResponse, newRequest())
+
+			service := &oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}
+			oidcApp := httpx.NewAppWithRoutes(nil, time.Second, make(chan struct{}), httpx.OriginPolicy{PublicURL: tc.publicURL}, func(r chi.Router) {
+				NewOIDC(service, NewSession(&fakeSessionService{}, tc.publicURL), tc.publicURL).Register(r)
+			})
+			oidcResponse := httptest.NewRecorder()
+			oidcApp.ServeHTTP(oidcResponse, newRequest())
+
+			if middlewareResponse.Code != tc.want {
+				t.Fatalf("middleware status=%d, want %d; body=%s", middlewareResponse.Code, tc.want, middlewareResponse.Body)
+			}
+			if oidcResponse.Code != middlewareResponse.Code {
+				t.Fatalf("OIDC status=%d differs from middleware status=%d; body=%s", oidcResponse.Code, middlewareResponse.Code, oidcResponse.Body)
+			}
+		})
+	}
+}
+
 func TestOIDCStartOriginDuplicatesAndRateLimit(t *testing.T) {
 	t.Run("foreign origin", func(t *testing.T) {
 		fake := &oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}

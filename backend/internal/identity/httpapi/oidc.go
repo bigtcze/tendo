@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
+	"github.com/bigtcze/tendo/backend/internal/platform/httporigin"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
@@ -107,10 +108,13 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "oidc_disabled")
 		return
 	}
-	origin := r.Header.Get("Origin")
-	if origin != "" && origin != h.publicURL {
-		problem(w, 403, "origin_not_allowed")
-		return
+	if origin := r.Header.Get("Origin"); origin != "" {
+		requestOrigin, requestOK := httporigin.Parse(origin, false)
+		publicOrigin, publicOK := httporigin.Parse(h.publicURL, false)
+		if !requestOK || !publicOK || !httporigin.Same(requestOrigin, publicOrigin) {
+			problem(w, 403, "origin_not_allowed")
+			return
+		}
 	}
 	var session identity.SessionInfo
 	var principal identity.Principal

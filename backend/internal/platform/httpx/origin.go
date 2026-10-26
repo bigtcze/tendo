@@ -294,7 +294,10 @@ func parseAuthority(scheme, authority string) (parsedOrigin, bool) {
 }
 
 func sameParsedOrigin(a, b parsedOrigin) bool {
-	return a.scheme == b.scheme && a.host == b.host && a.port == b.port
+	return httporigin.Same(
+		httporigin.Origin{Scheme: a.scheme, Host: a.host, Port: a.port},
+		httporigin.Origin{Scheme: b.scheme, Host: b.host, Port: b.port},
+	)
 }
 
 func sameAuthority(scheme, a, b string) bool {
