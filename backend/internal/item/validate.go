@@ -18,6 +18,7 @@ func (e *ValidationError) Error() string { return e.Field + ": " + e.Code }
 type InvalidQueryError struct{ Parameter string }
 
 func (e *InvalidQueryError) Error() string { return "invalid query parameter " + e.Parameter }
+
 // checkResponsibleMember requires candidate to be a member of the household and
 // returns its canonical lowercase UUID.
 func (s *Service) checkResponsibleMember(ctx context.Context, householdID string, candidate *string) (*string, error) {
@@ -38,6 +39,7 @@ func (s *Service) checkResponsibleMember(ctx context.Context, householdID string
 	}
 	return &id, nil
 }
+
 // checkSubject requires subjectID to name an active subject of the household.
 func (s *Service) checkSubject(ctx context.Context, userID, householdID, subjectID string) (string, error) {
 	invalid := &ValidationError{"subjectId", "invalid_reference"}
@@ -57,6 +59,7 @@ func (s *Service) checkSubject(ctx context.Context, userID, householdID, subject
 	}
 	return subjectID, nil
 }
+
 // validationAfterExistenceCheck preserves PATCH evaluation order without adding
 // reads to valid updates. The scoped probe maps infrastructure failures normally.
 func (s *Service) validationAfterExistenceCheck(ctx context.Context, householdID, itemID string, validationErr error) error {
@@ -99,6 +102,7 @@ func forbiddenRune(r rune) bool {
 	// characters can hide or reorder text.
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)
 }
+
 // ValidateSearch returns the trimmed search term or an invalid-query error.
 func ValidateSearch(q string) (string, error) {
 	if !utf8.ValidString(q) {
@@ -115,6 +119,7 @@ func ValidateSearch(q string) (string, error) {
 	}
 	return q, nil
 }
+
 // ValidateTitle returns the trimmed title or a ValidationError.
 func ValidateTitle(title string) (string, error) {
 	if !utf8.ValidString(title) {
@@ -131,6 +136,7 @@ func ValidateTitle(title string) (string, error) {
 	}
 	return title, nil
 }
+
 // ValidateNotes checks notes without altering them. Newline, carriage return,
 // and tab are allowed; other control, format, and separator characters are not.
 // The empty string is invalid; clients send null to clear notes.
@@ -151,6 +157,7 @@ func ValidateNotes(notes string) error {
 	}
 	return nil
 }
+
 // ParseDate accepts only a real calendar date written exactly YYYY-MM-DD.
 func ParseDate(s string) (schedule.Date, error) { return ParseDateForField(s, "attentionOn") }
 func ParseDateForField(s, field string) (schedule.Date, error) {

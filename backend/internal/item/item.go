@@ -88,6 +88,7 @@ type Item struct {
 	UpdatedAt         time.Time
 	Version           int64
 }
+
 // Nullable is an optional value that distinguishes "not provided" (Set false)
 // from an explicit null (Set true, Value nil).
 type Nullable[T any] struct {
@@ -97,8 +98,9 @@ type Nullable[T any] struct {
 
 // Some returns a provided non-null value.
 func Some[T any](v T) Nullable[T] { return Nullable[T]{Set: true, Value: &v} }
+
 // Null returns a provided explicit null.
-func Null[T any]() Nullable[T]    { return Nullable[T]{Set: true} }
+func Null[T any]() Nullable[T] { return Nullable[T]{Set: true} }
 
 // NewItem is the unvalidated create input.
 type NewItem struct {
@@ -127,6 +129,7 @@ type Summary struct {
 	EvaluatedOn schedule.Date
 	SummaryCounts
 }
+
 // Repository persists items. Every method is scoped by household; Get and
 // Update return ErrNotFound for rows outside that household. Update returns
 // ErrVersionMismatch when the item exists with another version. Create and
@@ -150,6 +153,7 @@ type Repository interface {
 	ListCompletions(ctx context.Context, householdID, itemID, boundary string, limit int, newest bool) ([]Completion, error)
 	Update(ctx context.Context, householdID, itemID string, expectedVersion int64, c Change) (Item, error)
 }
+
 // Households authorizes userID in householdID and returns the household IANA
 // timezone. It returns ErrNotFound for a non-member or nonexistent household;
 // other errors are infrastructure failures.
@@ -176,6 +180,7 @@ type Service struct {
 func NewService(repository Repository, households Households, subjects Subjects, members Members, now func() time.Time) *Service {
 	return &Service{repository: repository, households: households, subjects: subjects, members: members, now: now}
 }
+
 // check validates the household identifier, canonicalizes it to lowercase, and
 // authorizes the caller. It returns the canonical identifier and today's date in
 // the household timezone.
@@ -209,6 +214,7 @@ func mapRepoErr(err error) error {
 		return ErrUnavailable
 	}
 }
+
 // derive fills the derived attention state.
 func derive(i Item, today schedule.Date) (Item, error) {
 	a, err := schedule.DeriveAttention(i.AttentionOn, today)
