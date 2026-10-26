@@ -12,7 +12,9 @@ WORKFLOW = ROOT / ".github/workflows/required.yml"
 REQUIRED_COMMANDS = (
     "gofmt -l",
     "go vet ./...",
-    "python3 scripts/maintainability_check.py",
+    "python3 scripts/maintainability_check.py --base-ref",
+    "git fetch --no-tags --depth=1 origin",
+    "MAINTAINABILITY_BASE_REF",
     "go test -race",
     "go list ./...",
     "bash scripts/setup-integration.sh",

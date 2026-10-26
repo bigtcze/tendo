@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -13,110 +14,157 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "ci/maintainability-baseline.json"
 THRESHOLDS = {
-    "file_lines": {".go": 500, ".ts": 350, ".tsx": 350, ".js": 350, ".mjs": 350, ".cjs": 350, ".py": 500, ".sh": 500, ".sql": 400},
-    "long_lines": {"*": 0},
-    "func_lines": {"*": 80},
-    "func_complexity": {"*": 15},
-    "func_nesting": {"*": 4},
+    "file_lines": {
+        ".go": 500, ".ts": 350, ".tsx": 350,
+        ".js": 350, ".mjs": 350, ".cjs": 350,
+        ".py": 500, ".sh": 500, ".sql": 400,
+    },
+    "long_lines": {"*": 0}, "func_lines": {"*": 80},
+    "func_complexity": {"*": 15}, "func_nesting": {"*": 4},
 }
 MIGRATION_DIR = ("backend", "internal", "platform", "database")
-
-
-def is_numbered_migration(parts: tuple[str, ...], name: str) -> bool:
-    return parts[:-1] == MIGRATION_DIR and re.fullmatch(r"\d{3}_.+\.sql", name) is not None
-
-
+SQLC_PACKAGES = ("household", "identity", "item", "subject")
+OAPI_FILES = (
+    (
+        "backend/internal/identity/httpapi/setup.gen.go",
+        ("backend", "internal", "identity", "httpapi", "setup.gen.go"),
+        "oapi-codegen setup types; API generation checks detect drift.",
+    ),
+    (
+        "backend/internal/household/httpapi/household.gen.go",
+        ("backend", "internal", "household", "httpapi", "household.gen.go"),
+        "oapi-codegen household types; API generation checks detect drift.",
+    ),
+    (
+        "backend/internal/item/httpapi/item.gen.go",
+        ("backend", "internal", "item", "httpapi", "item.gen.go"),
+        "oapi-codegen item types; API generation checks detect drift.",
+    ),
+    (
+        "backend/internal/subject/httpapi/subject.gen.go",
+        ("backend", "internal", "subject", "httpapi", "subject.gen.go"),
+        "oapi-codegen subject types; API generation checks detect drift.",
+    ),
+    (
+        "backend/internal/platform/httpx/health.gen.go",
+        ("backend", "internal", "platform", "httpx", "health.gen.go"),
+        "oapi-codegen health types; API generation checks detect drift.",
+    ),
+)
+OPENAPI_FILES = (
+    (
+        "api/generated/api.d.ts",
+        ("api", "generated", "api.d.ts"),
+        "openapi-typescript API declaration; generation tests detect drift.",
+    ),
+    (
+        "api/generated/health.d.ts",
+        ("api", "generated", "health.d.ts"),
+        "openapi-typescript health declaration; generation tests detect drift.",
+    ),
+)
 EXCLUSIONS = (
-    ("*_test.go", lambda parts, name: name.endswith("_test.go"),
-     "Go test suites are excluded from structural limits; policy does not require splitting a test suite."),
-    ("frontend/e2e/*.ts", lambda parts, name: parts[:2] == ("frontend", "e2e") and name.endswith(".ts"),
-     "Browser E2E harness utilities are test-support code, not production application sources."),
-    ("frontend/src/test/*.ts(x)", lambda parts, name: parts[:3] == ("frontend", "src", "test"),
-     "Frontend test setup and fixture helpers are test-support code, not production application sources."),
-    ("*.test.ts(x)", lambda parts, name: name.endswith((".test.ts", ".test.tsx")),
-     "Frontend unit test suites are excluded from structural limits."),
-    ("frontend/e2e/*.spec.ts", lambda parts, name: parts[:2] == ("frontend", "e2e") and name.endswith(".spec.ts"),
-     "Browser E2E specifications are test suites, not production code."),
-    ("scripts/test_*.py", lambda parts, name: parts[:1] == ("scripts",) and name.startswith("test_") and name.endswith(".py"),
-     "Python harness test suites are excluded from structural limits."),
-    ("*.gen.go", lambda parts, name: name.endswith(".gen.go"),
-     "Generated Go output is not human-authored."),
-    ("*/testdata/*", lambda parts, name: "testdata" in parts,
-     "Fixture data and test-only source are excluded from maintainability limits."),
-    ("*/dbgen/*", lambda parts, name: "dbgen" in parts,
-     "Generated database code is not human-authored."),
-    ("backend/internal/platform/database/NNN_*.sql", is_numbered_migration,
-     "Numbered embedded database migrations are immutable schema history."),
-    ("frontend/src/i18n/{cs,en}.ts", lambda parts, name: parts[:3] == ("frontend", "src", "i18n") and name in {"cs.ts", "en.ts"},
-     "Cohesive static locale message catalogues are intentionally not split to satisfy size/long-line limits."),
-    ("api/generated/api.d.ts, api/generated/health.d.ts", lambda parts, name: len(parts) == 3 and parts[:2] == ("api", "generated") and name in {"api.d.ts", "health.d.ts"},
-     "openapi-typescript generated declarations; drift checked by api/scripts/check-generated.mjs."),
-    ("backend/internal/{household,identity,item,subject}/postgres/dbgen/", lambda parts, name: len(parts) >= 5 and parts[:2] == ("backend", "internal") and parts[2] in {"household", "identity", "item", "subject"} and parts[3:5] == ("postgres", "dbgen"),
-     "sqlc generated Go; drift checked by scripts/check-sqlc.sh."),
-    ("backend/internal/{household,identity,item,subject}/httpapi/*.gen.go", lambda parts, name: len(parts) == 4 and parts[:2] == ("backend", "internal") and parts[2] in {"household", "identity", "item", "subject"} and parts[3].endswith(".gen.go"),
-     "oapi-codegen generated HTTP types; drift checked by API generation checks."),
-    ("backend/internal/platform/httpx/health.gen.go", lambda parts, name: parts == ("backend", "internal", "platform", "httpx", "health.gen.go"),
-     "oapi-codegen generated health API types; drift checked by API generation checks."),
+    (
+        "*_test.go",
+        lambda p, n: n.endswith("_test.go"),
+        "Go tests are excluded; policy does not require splitting a test suite.",
+    ),
+    (
+        "*.test.*",
+        lambda p, n: ".test." in n,
+        "Test suites are excluded; policy does not require splitting them.",
+    ),
+    (
+        "frontend/e2e/*.spec.ts",
+        lambda p, n: p[:2] == ("frontend", "e2e") and n.endswith(".spec.ts"),
+        "Browser E2E specs are test suites.",
+    ),
+    (
+        "scripts/test_*.py",
+        lambda p, n: p[:1] == ("scripts",)
+        and n.startswith("test_") and n.endswith(".py"),
+        "Python harness suites are test code.",
+    ),
+    (
+        "*/testdata/*",
+        lambda p, n: "testdata" in p,
+        "Fixture data and test-only source are excluded.",
+    ),
+    (
+        "backend/internal/platform/database/NNN_*.sql",
+        lambda p, n: p[:-1] == MIGRATION_DIR
+        and re.fullmatch(r"\d{3}_.+\.sql", n) is not None,
+        "Embedded numbered migration history is immutable.",
+    ),
+    (
+        "frontend/src/i18n/{cs,en}.ts",
+        lambda p, n: p[:3] == ("frontend", "src", "i18n")
+        and n in {"cs.ts", "en.ts"},
+        "Cohesive static locale catalogs are not split to satisfy line limits.",
+    ),
+    *(
+        (
+            f"backend/internal/{package}/postgres/dbgen/",
+            lambda parts, name, package=package: (
+                len(parts) >= 5
+                and parts[:5] == ("backend", "internal", package, "postgres", "dbgen")
+            ),
+            f"sqlc generated {package} code; scripts/check-sqlc.sh checks drift.",
+        )
+        for package in SQLC_PACKAGES
+    ),
+    *(
+        (
+            pattern,
+            lambda parts, name, target=target: (
+                parts == target and name == target[-1]
+            ),
+            reason,
+        )
+        for pattern, target, reason in OAPI_FILES
+    ),
+    *(
+        (
+            pattern,
+            lambda parts, name, target=target: (
+                parts == target and name == target[-1]
+            ),
+            reason,
+        )
+        for pattern, target, reason in OPENAPI_FILES
+    ),
 )
 SUFFIXES = {".go", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".py", ".sh", ".sql"}
 KINDS = set(THRESHOLDS)
+FUNCTION_METRICS = (
+    ("lines", "func_lines"),
+    ("complexity", "func_complexity"),
+    ("nesting", "func_nesting"),
+)
 
 
 def excluded(path: str) -> bool:
     parts = PurePosixPath(path).parts
-    name = parts[-1]
-    return any(predicate(parts, name) for _, predicate, _ in EXCLUSIONS)
+    return any(predicate(parts, parts[-1]) for _, predicate, _ in EXCLUSIONS)
 
 
 def file_metrics(text: str) -> dict[str, int]:
     lines = text.splitlines()
-    return {"file_lines": sum(bool(line.strip()) for line in lines),
-            "long_lines": sum(len(line) > 160 for line in lines)}
+    nonblank = sum(bool(line.strip()) for line in lines)
+    long_lines = sum(len(line) > 160 for line in lines)
+    return {"file_lines": nonblank, "long_lines": long_lines}
 
 
 def key(entry: dict) -> tuple[str, str, str]:
     return entry["kind"], entry["path"], entry.get("name", "")
 
 
-def check_metrics(metrics: dict[tuple[str, str, str], int], baseline: list[dict]) -> list[str]:
-    errors: list[str] = []
-    entries: dict[tuple[str, str, str], dict] = {}
-    for entry in baseline:
-        entry_key = key(entry)
-        if entry_key in entries:
-            errors.append(f"{entry.get('path', '?')} {entry.get('kind', '?')} duplicate baseline entry")
-            continue
-        entries[entry_key] = entry
-        if entry.get("kind") not in KINDS:
-            errors.append(f"{entry.get('path', '?')} invalid baseline kind={entry.get('kind')}")
-        reason = entry.get("reason")
-        if not isinstance(reason, str) or not reason.strip() or reason.startswith("TODO:"):
-            errors.append(f"{entry.get('path', '?')} {entry.get('name', '')} {entry.get('kind', '?')} missing reason")
-        owner = entry.get("owner")
-        if not isinstance(owner, str) or not owner.strip() or owner.startswith("TODO:"):
-            errors.append(f"{entry.get('path', '?')} {entry.get('name', '')} {entry.get('kind', '?')} missing owner")
+def metric_display(path: str, name: str) -> str:
+    return f"{path}:{name}" if name else path
 
-    for metric_key, value in sorted(metrics.items()):
-        kind, path, name = metric_key
-        limit = threshold(kind, path)
-        exception = entries.get(metric_key)
-        if exception is None:
-            if value > limit:
-                errors.append(f"{path}{':' + name if name else ''} {kind} measured={value} allowed={limit}")
-            continue
-        allowed = exception.get("allowed")
-        if not isinstance(allowed, int):
-            errors.append(f"{path}{':' + name if name else ''} {kind} invalid allowed value")
-            continue
-        if value > allowed:
-            errors.append(f"{path}{':' + name if name else ''} {kind} measured={value} allowed={allowed}")
-        elif value < allowed:
-            errors.append(f"{path}{':' + name if name else ''} {kind} stale measured={value} allowed={allowed}; tighten or delete")
-        entries.pop(metric_key, None)
-    for (kind, path, name), entry in sorted(entries.items()):
-        if kind in KINDS and "allowed" in entry:
-            errors.append(f"{path}{':' + name if name else ''} {kind} missing measured entry (exception target no longer exists)")
-    return errors
+
+def violation(kind: str, path: str, name: str, value: int, allowed: int) -> str:
+    return f"{metric_display(path, name)} {kind} measured={value} allowed={allowed}"
 
 
 def threshold(kind: str, path: str) -> int:
@@ -124,52 +172,150 @@ def threshold(kind: str, path: str) -> int:
     return THRESHOLDS[kind].get(suffix, THRESHOLDS[kind].get("*", 0))
 
 
-def enumerate_files(root: Path) -> list[str]:
-    result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root, check=True, stdout=subprocess.PIPE).stdout
-    paths = sorted({item.decode() for item in result.split(b"\0") if item})
-    return sorted(path for path in paths if PurePosixPath(path).suffix in SUFFIXES and not excluded(path))
-
-
-def baseline_errors_against_base(current: list[dict], base: list[dict]) -> list[str]:
+def check_metrics(metrics: dict[tuple[str, str, str], int], baseline: list[dict]) -> list[str]:
     errors = []
-    old = {key(entry): entry for entry in base}
-    new = {key(entry): entry for entry in current}
-    for entry_key, entry in new.items():
-        previous = old.get(entry_key)
-        if previous is None:
-            errors.append(f"{entry.get('path')} {entry.get('name', '')} {entry.get('kind')} new exception relative to base")
-        elif entry.get("allowed", 0) > previous.get("allowed", 0):
-            errors.append(f"{entry.get('path')} {entry.get('name', '')} {entry.get('kind')} allowed raised={entry.get('allowed')} base={previous.get('allowed')}")
+    entries = {}
+    for entry in baseline:
+        item_key = key(entry)
+        if item_key in entries:
+            errors.append(f"{entry.get('path', '?')} {entry.get('kind', '?')} duplicate baseline entry")
+            continue
+        entries[item_key] = entry
+        if entry.get("kind") not in KINDS:
+            errors.append(
+                f"{entry.get('path', '?')} invalid baseline kind={entry.get('kind')}"
+            )
+        for field in ("reason", "owner"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip() or value.startswith("TODO:"):
+                path = entry.get("path", "?")
+                name = entry.get("name", "")
+                kind = entry.get("kind", "?")
+                errors.append(f"{path} {name} {kind} missing {field}")
+    for metric_key, value in sorted(metrics.items()):
+        kind, path, name = metric_key
+        exception = entries.get(metric_key)
+        if exception is None:
+            limit = threshold(kind, path)
+            if value > limit:
+                errors.append(violation(kind, path, name, value, limit))
+            continue
+        allowed = exception.get("allowed")
+        if not isinstance(allowed, int):
+            errors.append(f"{metric_display(path, name)} {kind} invalid allowed value")
+            continue
+        if value > allowed:
+            errors.append(violation(kind, path, name, value, allowed))
+        elif value < allowed:
+            errors.append(f"{metric_display(path, name)} {kind} stale measured={value} allowed={allowed}; tighten")
+        entries.pop(metric_key, None)
+    for (kind, path, name), entry in sorted(entries.items()):
+        if kind in KINDS and "allowed" in entry:
+            errors.append(f"{metric_display(path, name)} {kind} missing measured entry")
     return errors
 
 
+def enumerate_files(root: Path) -> list[str]:
+    command = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
+    result = subprocess.run(
+        command, cwd=root, check=True, stdout=subprocess.PIPE
+    )
+    raw = result.stdout
+    paths = sorted({item.decode() for item in raw.split(b"\0") if item})
+    excluded_paths = {path for path in paths if excluded(path)}
+    exact_generated = {target[0] for target in OAPI_FILES + OPENAPI_FILES}
+    excluded_paths.update(path for path in paths if path in exact_generated)
+    locales = {"frontend/src/i18n/cs.ts", "frontend/src/i18n/en.ts"}
+    openapi_outputs = {entry[0] for entry in OPENAPI_FILES}
+    excluded_paths.update(path for path in paths if path in locales or path in openapi_outputs)
+    return [p for p in paths if PurePosixPath(p).suffix in SUFFIXES and p not in excluded_paths]
+
+
+def baseline_errors_against_base(current: list[dict], base: list[dict]) -> list[str]:
+    old = {key(entry): entry for entry in base}
+    errors = []
+    current_by_key = {key(entry): entry for entry in current}
+    for item_key, entry in current_by_key.items():
+        previous = old.get(item_key)
+        if previous is None:
+            errors.append(
+                f"{entry.get('path')} {entry.get('name', '')} "
+                f"{entry.get('kind')} new exception relative to base"
+            )
+        elif entry.get("allowed", 0) > previous.get("allowed", 0):
+            path = metric_display(entry.get("path", ""), entry.get("name", ""))
+            errors.append(
+                f"{path} {entry.get('kind')} allowed raised={entry.get('allowed')} "
+                f"base={previous.get('allowed')}"
+            )
+    return errors
+
+
+def discover_go_files(root: Path, paths: list[str]) -> list[str]:
+    go_paths = []
+    for path in paths:
+        if not path.startswith("backend/") or not path.endswith(".go"):
+            continue
+        if (root / path).is_file():
+            go_paths.append(path.removeprefix("backend/"))
+    return go_paths
+
+
 def gather(root: Path) -> dict[tuple[str, str, str], int]:
-    metrics: dict[tuple[str, str, str], int] = {}
-    for path in enumerate_files(root):
-        values = file_metrics((root / path).read_text(encoding="utf-8", errors="replace"))
-        for kind, value in values.items():
+    paths = enumerate_files(root)
+    metrics = {}
+    for path in paths:
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
+        for kind, value in file_metrics(text).items():
             metrics[(kind, path, "")] = value
-    modules = [path.parent for path in root.rglob("go.mod") if "node_modules" not in path.parts]
+    modules = [p.parent for p in root.rglob("go.mod") if "node_modules" not in p.parts]
     if not modules:
-        raise RuntimeError("no Go modules found")
-    # The metrics tool belongs to backend's module; pass its authored Go roots.
-    go_roots = [str(path.relative_to(root / "backend")) for path in root.rglob("*.go")
-                if "node_modules" not in path.parts and not excluded(path.relative_to(root).as_posix())]
-    command = ["go", "run", "./tools/funcmetrics", "-prefix", "backend", *go_roots]
+        return {
+            metric_key: value
+            for metric_key, value in metrics.items()
+            if not metric_key[1].startswith("backend/")
+        }
+    backend = root / "backend"
+    if backend not in modules:
+        return metrics
+    go_files = discover_go_files(root, paths)
+    source_list = root / ".maintainability-go-files.tmp"
+    generated = {path for path in go_files if excluded("backend/" + path)}
+    selected = [path for path in go_files if path not in generated]
     try:
-        completed = subprocess.run(command, cwd=root / "backend", check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        source_list.write_text(
+            "\n".join(selected) + "\n", encoding="utf-8"
+        )
+        command = [
+            "go", "run", "./tools/funcmetrics", "-prefix", "backend",
+            "-files", str(source_list),
+        ]
+        result = subprocess.run(
+            command, cwd=backend, check=True, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
     except FileNotFoundError as error:
-        raise RuntimeError("Go is required on PATH to run backend/tools/funcmetrics") from error
+        raise RuntimeError(
+            "Go is required on PATH to run backend/tools/funcmetrics"
+        ) from error
     except subprocess.CalledProcessError as error:
-        raise RuntimeError(f"Go function metrics failed: {error.stderr.strip()}") from error
-    for item in json.loads(completed.stdout):
-        path, name = item["path"], item["name"]
-        for field, kind in (("lines", "func_lines"), ("complexity", "func_complexity"), ("nesting", "func_nesting")):
+        raise RuntimeError(
+            f"Go function metrics failed: {error.stderr.strip()}"
+        ) from error
+    finally:
+        source_list.unlink(missing_ok=True)
+    for item in json.loads(result.stdout):
+        name = item["name"]
+        path = item["path"]
+        for field, kind in FUNCTION_METRICS:
             metrics[(kind, path, name)] = item[field]
     return metrics
 
 
-def write_baseline(metrics: dict[tuple[str, str, str], int], existing: list[dict]) -> list[dict]:
+def write_baseline(
+    metrics: dict[tuple[str, str, str], int],
+    existing: list[dict],
+) -> list[dict]:
     old = {key(entry): entry for entry in existing}
     result = []
     for metric_key, value in sorted(metrics.items()):
@@ -178,19 +324,31 @@ def write_baseline(metrics: dict[tuple[str, str, str], int], existing: list[dict
             continue
         previous = old.get(metric_key)
         if previous and value > previous.get("allowed", 0):
-            raise ValueError(f"refusing to raise {path}{':' + name if name else ''} {kind}: {previous.get('allowed')} -> {value}")
-        if previous and value <= previous.get("allowed", value):
-            reason = previous.get("reason", "TODO: provide a technical rationale")
-            owner = previous.get("owner", "TODO: name owner")
-        else:
-            reason = "TODO: provide a technical rationale and audit reference"
-            owner = "TODO: name owning domain"
+            raise ValueError(f"refusing to raise {path}:{name} {kind}")
         entry = {"kind": kind, "path": path}
         if name:
             entry["name"] = name
+        reason = previous.get("reason", "TODO: provide technical rationale") if previous else "TODO: provide technical rationale"
+        owner = previous.get("owner", "TODO: name owner") if previous else "TODO: name owner"
         entry.update({"allowed": value, "reason": reason, "owner": owner})
         result.append(entry)
     return result
+
+
+def load_base_baseline(ref: str | None) -> list[dict] | None:
+    if not ref:
+        return None
+    command = ["git", "show", f"{ref}:ci/maintainability-baseline.json"]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        return None
+    return json.loads(result.stdout)
 
 
 def main() -> int:
@@ -202,25 +360,25 @@ def main() -> int:
     if args.list_exclusions:
         for pattern, _, reason in EXCLUSIONS:
             print(f"{pattern}: {reason}")
+        for pattern, _, reason in OPENAPI_FILES:
+            print(f"{pattern}: {reason}")
+        print(
+            "Unmeasured formats: YAML, JSON, Markdown, CSS, HTML, and other "
+            "formats without calibrated source metrics."
+        )
         return 0
     try:
         metrics = gather(ROOT)
         existing = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else []
-        base_ref = args.base_ref or __import__("os").environ.get("MAINTAINABILITY_BASE_REF")
-        base_entries = None
-        if base_ref:
-            shown = subprocess.run(["git", "show", f"{base_ref}:ci/maintainability-baseline.json"], cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if shown.returncode == 0:
-                base_entries = json.loads(shown.stdout)
+        base = load_base_baseline(args.base_ref or os.environ.get("MAINTAINABILITY_BASE_REF"))
         if args.write_baseline:
             updated = write_baseline(metrics, existing)
-            BASELINE.parent.mkdir(parents=True, exist_ok=True)
             BASELINE.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
-            print(f"wrote {len(updated)} maintainability exceptions to {BASELINE.relative_to(ROOT)}")
+            print(f"wrote {len(updated)} maintainability exceptions")
             return 0
         errors = check_metrics(metrics, existing)
-        if base_entries is not None:
-            errors.extend(baseline_errors_against_base(existing, base_entries))
+        if base is not None:
+            errors.extend(baseline_errors_against_base(existing, base))
         if errors:
             print("\n".join(errors), file=sys.stderr)
             return 1

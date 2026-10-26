@@ -18,9 +18,15 @@ class MaintainabilityTests(unittest.TestCase):
         self.assertEqual(result, {"file_lines": 2, "long_lines": 1})
 
     def test_exclusions(self):
-        for path in ("backend/foo_test.go", "backend/a.gen.go", "backend/dbgen/x.go",
-                     "backend/internal/platform/database/001_setup.sql", "api/generated/types.ts", "frontend/src/a.test.tsx",
-                     "frontend/e2e/home.spec.ts", "scripts/test_ci.py"):
+        for path in (
+            "backend/foo_test.go",
+            "backend/internal/platform/database/001_setup.sql",
+            "api/generated/api.d.ts",
+            "api/generated/health.d.ts",
+            "frontend/src/a.test.tsx",
+            "frontend/e2e/home.spec.ts",
+            "scripts/test_ci.py",
+        ):
             with self.subTest(path=path):
                 self.assertTrue(check.excluded(path))
         self.assertTrue(check.excluded("backend/internal/platform/database/014_subject_linked_user.sql"))
@@ -28,10 +34,17 @@ class MaintainabilityTests(unittest.TestCase):
         self.assertFalse(check.excluded("backend/internal/platform/migrations/legacy.sql"))
         self.assertFalse(check.excluded("frontend/src/app.tsx"))
         self.assertFalse(check.excluded("frontend/e2e/helper.ts"))
+        self.assertTrue(check.excluded("backend/internal/item/postgres/dbgen/item.sql.go"))
+        self.assertTrue(check.excluded("backend/internal/identity/httpapi/setup.gen.go"))
+        self.assertFalse(check.excluded("backend/internal/identity/httpapi/unknown.gen.go"))
+        self.assertFalse(check.excluded("backend/internal/identity/oidcprovider/provider.go"))
 
     def assert_error(self, metrics, baseline, expected):
         errors = check.check_metrics(metrics, baseline)
         self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_base_ref_absent_baseline_bootstraps(self):
+        self.assertIsNone(check.load_base_baseline("origin/main"))
 
     def test_base_ref_rejects_raised_and_new_exceptions(self):
         prior = [{"kind": "file_lines", "path": "backend/a.go", "allowed": 510}]
