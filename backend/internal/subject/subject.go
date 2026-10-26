@@ -351,7 +351,7 @@ func (s *Service) validationAfterExistenceCheck(ctx context.Context, householdID
 // Stored type/link state matters only when the patch changes one side while
 // omitting the other; explicit type+link or unlinking fully determines validity.
 func subjectTypeLinkDependsOnStoredState(p Patch) bool {
-	return p.Type != nil && !p.LinkedUserIDSet || p.Type == nil && p.LinkedUserIDSet && p.LinkedUserID != nil
+	return (p.Type != nil && !p.LinkedUserIDSet) || (p.Type == nil && p.LinkedUserIDSet && p.LinkedUserID != nil)
 }
 
 func resultingType(p Patch, storedType Type) Type {

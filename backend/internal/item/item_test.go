@@ -40,13 +40,15 @@ type env struct {
 	now             time.Time
 	housErr         error
 	subjectErr      error
+	memberErr       error
+	memberAllow     map[string]bool
 	subjectHit      []string
 	createSeq       int
 	subjectArchived bool
 }
 
 func newEnv(zone string) *env {
-	e := &env{repo: itemtest.New(), zone: zone, now: fixedNow}
+	e := &env{repo: itemtest.New(), zone: zone, now: fixedNow, memberAllow: map[string]bool{userID: true}}
 	houses := func(_ context.Context, uid, hid string) (string, error) {
 		if e.housErr != nil {
 			return "", e.housErr
@@ -79,7 +81,15 @@ func newEnv(zone string) *env {
 		}
 		return e.now
 	}
-	e.svc = item.NewService(e.repo, houses, subjects, func(context.Context, string, string) error { return nil }, clock)
+	e.svc = item.NewService(e.repo, houses, subjects, func(_ context.Context, candidate, household string) error {
+		if e.memberErr != nil {
+			return e.memberErr
+		}
+		if e.memberAllow != nil && !e.memberAllow[candidate] || household != householdID {
+			return item.ErrNotFound
+		}
+		return nil
+	}, clock)
 	return e
 }
 
@@ -753,25 +763,69 @@ func TestPatchNullClearVersusOmitted(t *testing.T) {
 }
 
 func TestPatchEvaluationOrderChecksTargetBeforeValidation(t *testing.T) {
-	e := newEnv("UTC")
-	created := e.create(t, item.NewItem{Title: "x"})
-	ctx := context.Background()
-	_, err := e.svc.Update(ctx, userID, householdID, missingID, 1, item.Patch{Title: ptr(" ")})
-	if !errors.Is(err, item.ErrNotFound) {
-		t.Fatalf("missing target with invalid title: %v", err)
+	validPolicy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 0, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
+	cases := []struct {
+		name  string
+		patch item.Patch
+		field string
+		code  string
+	}{
+		// Invalid subject references are checked against the target item's household.
+		{"title", item.Patch{Title: ptr(" ")}, "title", "invalid_length"},
+		{"notes", item.Patch{Notes: item.Some("")}, "notes", "invalid_length"},
+		{"attentionOn", item.Patch{AttentionOn: item.Some("2026-02-30")}, "attentionOn", "invalid_date"},
+		{"recurrence", item.Patch{Recurrence: item.Nullable[schedule.Policy]{Set: true, Value: validPolicy}}, "recurrence", "invalid_interval"},
+		{"workflowState", item.Patch{WorkflowState: ptr("done")}, "workflowState", "invalid_workflow_state"},
+		{"subjectId malformed", item.Patch{SubjectID: ptr("bad")}, "subjectId", "invalid_reference"},
+		{"subjectId not found", item.Patch{SubjectID: ptr(foreignID)}, "subjectId", "invalid_reference"},
+		{"subjectId archived", item.Patch{SubjectID: ptr(archivedID)}, "subjectId", "invalid_reference"},
+		{"responsibleUserId malformed", item.Patch{ResponsibleUserID: item.Nullable[string]{Set: true, Value: ptr("bad")}}, "responsibleUserId", "invalid_reference"},
+		{"responsibleUserId not member", item.Patch{ResponsibleUserID: item.Nullable[string]{Set: true, Value: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b82")}}, "responsibleUserId", "invalid_reference"},
 	}
-	foreign := created
-	foreign.ID = foreignID
-	foreign.HouseholdID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
-	e.repo.Seed(foreign)
-	_, err = e.svc.Update(ctx, userID, householdID, foreignID, 1, item.Patch{SubjectID: ptr("bad")})
-	if !errors.Is(err, item.ErrNotFound) {
-		t.Fatalf("foreign target with invalid reference: %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, target := range []string{"missing", "foreign", "existing"} {
+				t.Run(target, func(t *testing.T) {
+					e := newEnv("UTC")
+					created := e.create(t, item.NewItem{Title: "x"})
+					targetID := created.ID
+					switch target {
+					case "missing":
+						targetID = missingID
+					case "foreign":
+						foreign := created
+						foreign.ID = foreignID
+						foreign.HouseholdID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+						e.repo.Seed(foreign)
+						targetID = foreignID
+					}
+					if target == "existing" && strings.Contains(tc.name, "subjectId") {
+						if tc.name == "subjectId archived" {
+							e.subjectArchived = true
+						} else if tc.name == "subjectId not found" {
+							e.subjectErr = item.ErrNotFound
+						}
+					}
+					if target == "existing" && tc.name == "responsibleUserId not member" {
+						e.memberErr = item.ErrNotFound
+					}
+					before, _ := e.repo.Row(targetID)
+					_, err := e.svc.Update(context.Background(), userID, householdID, targetID, 1, tc.patch)
+					if target != "existing" {
+						if !errors.Is(err, item.ErrNotFound) {
+							t.Fatalf("got %v, want not found", err)
+						}
+						return
+					}
+					validation(t, err, tc.field, tc.code)
+					after, _ := e.repo.Row(targetID)
+					if after != before {
+						t.Fatalf("rejected PATCH changed state: before=%+v after=%+v", before, after)
+					}
+				})
+			}
+		})
 	}
-	_, err = e.svc.Update(ctx, userID, householdID, created.ID, 1, item.Patch{Title: ptr(" ")})
-	validation(t, err, "title", "invalid_length")
-	_, err = e.svc.Update(ctx, userID, householdID, created.ID, 0, item.Patch{Title: ptr(" ")})
-	validation(t, err, "title", "invalid_length")
 }
 
 func TestPatchValidationProbeFailureAndSuccessfulUpdateNoExtraGet(t *testing.T) {
