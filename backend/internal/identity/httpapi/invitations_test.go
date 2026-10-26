@@ -112,6 +112,8 @@ func TestInvitationHouseholdIsolationAndOwnerAuthorization(t *testing.T) {
 	member := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
 	repo.members[house] = map[string]string{owner: householdapp.RoleOwner, member: householdapp.RoleMember}
 	repo.members[foreign] = map[string]string{}
+	outsider := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64"
+	repo.members["0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b66"] = map[string]string{outsider: householdapp.RoleOwner}
 	app, err := identity.NewInvitationService(repo, func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +136,12 @@ func TestInvitationHouseholdIsolationAndOwnerAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline := request(owner, "GET", "/api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64/invitations")
+	repo.members[foreign][owner] = householdapp.RoleOwner
+	foreignInvitation, err := app.CreateInvitation(context.Background(), owner, foreign, "foreign-target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline := request(owner, "GET", "/api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b66/invitations")
 	if baseline.Code != 404 {
 		t.Fatalf("baseline=%d %s", baseline.Code, baseline.Body)
 	}
@@ -151,14 +158,18 @@ func TestInvitationHouseholdIsolationAndOwnerAuthorization(t *testing.T) {
 	for _, method := range []string{"POST", "GET", "DELETE"} {
 		path := "/api/v1/households/" + foreign + "/invitations"
 		if method == "DELETE" {
-			path += "/" + created.Invitation.ID
+			path += "/" + foreignInvitation.Invitation.ID
 		}
-		w := request("outsider", method, path)
+		w := request(outsider, method, path)
 		if w.Code != baseline.Code || w.Body.String() != baseline.Body.String() {
 			t.Fatalf("foreign %s=%d %s want %d %s", method, w.Code, w.Body, baseline.Code, baseline.Body)
 		}
 	}
-	if len(repo.rows) != before || repo.rows[created.Invitation.ID].RevokedAt != nil {
+	wrongHouseholdRevoke := request(outsider, "DELETE", "/api/v1/households/"+foreign+"/invitations/"+created.Invitation.ID)
+	if wrongHouseholdRevoke.Code != baseline.Code || wrongHouseholdRevoke.Body.String() != baseline.Body.String() {
+		t.Fatalf("wrong-household invitation revoke=%d %s want %d %s", wrongHouseholdRevoke.Code, wrongHouseholdRevoke.Body, baseline.Code, baseline.Body)
+	}
+	if len(repo.rows) != before || repo.rows[created.Invitation.ID].RevokedAt != nil || repo.rows[foreignInvitation.Invitation.ID].RevokedAt != nil {
 		t.Fatal("nonmember operation changed invitations")
 	}
 }

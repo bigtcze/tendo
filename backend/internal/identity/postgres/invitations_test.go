@@ -444,19 +444,19 @@ func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var foreignHouse, member, outsider string
-	if err = admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('invitation isolation foreign','UTC') RETURNING id::text`).Scan(&foreignHouse); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES($1,'UTC') RETURNING id::text`, fmt.Sprintf("invitation isolation foreign %d", time.Now().UnixNano())).Scan(&foreignHouse); err != nil {
 		t.Fatal(err)
 	}
-	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('invitation_isolation_member') RETURNING id::text`).Scan(&member); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("invitation_isolation_member_%d", time.Now().UnixNano())).Scan(&member); err != nil {
 		t.Fatal(err)
 	}
-	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('invitation_isolation_outsider') RETURNING id::text`).Scan(&outsider); err != nil {
+	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("invitation_isolation_outsider_%d", time.Now().UnixNano())).Scan(&outsider); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member'),($3::uuid,$4::uuid,'owner')`, member, house, owner, foreignHouse); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member'),($3::uuid,$2::uuid,'owner'),($4::uuid,$5::uuid,'owner')`, member, house, outsider, owner, foreignHouse); err != nil {
 		t.Fatal(err)
 	}
-	foreignCreated, err := service.CreateInvitation(ctx, owner, foreignHouse, "foreign-house-seed")
+	foreignCreated, err := service.CreateInvitation(ctx, owner, foreignHouse, fmt.Sprintf("foreign-house-seed-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,6 +508,10 @@ func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 	}
 	if err = admin.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, created.Invitation.ID).Scan(&revoked); err != nil || revoked {
 		t.Fatalf("cross-household revoke changed target revoked=%v err=%v", revoked, err)
+	}
+	var foreignRevoked bool
+	if err = admin.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, foreignCreated.Invitation.ID).Scan(&foreignRevoked); err != nil || foreignRevoked {
+		t.Fatalf("foreign target revoked=%v err=%v", foreignRevoked, err)
 	}
 }
 

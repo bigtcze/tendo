@@ -105,13 +105,15 @@ func TestUndoCompletionHouseholdIsolation(t *testing.T) {
 	foreignItem := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
 	f.repo.Seed(item.Item{ID: other, HouseholdID: hid, SubjectID: sid, WorkflowState: item.StateOpen, Version: 1})
 	f.repo.Seed(item.Item{ID: foreignItem, HouseholdID: foreignHouse, SubjectID: sid, WorkflowState: item.StateOpen, Version: 1})
+	allowForeignHouse := true
+	allowForeignMembership := true
 	svc := item.NewService(f.repo, func(_ context.Context, _, house string) (string, error) {
-		if house != hid {
+		if house != hid && !(allowForeignHouse && house == foreignHouse) {
 			return "", item.ErrNotFound
 		}
 		return "UTC", nil
 	}, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(_ context.Context, _, house string) error {
-		if house != hid {
+		if house != hid && !(allowForeignMembership && house == foreignHouse) {
 			return item.ErrNotFound
 		}
 		return nil
@@ -130,9 +132,14 @@ func TestUndoCompletionHouseholdIsolation(t *testing.T) {
 		return receipt
 	}
 	own := active(hid, other, "isolation-own")
-	foreign := item.Completion{ID: "foreign-only-receipt", HouseholdID: foreignHouse, ItemID: foreignItem, CompletedByUserID: userID}
-	f.repo.SeedCompletion(foreign)
+	foreign, _, err := svc.Complete(context.Background(), userID, foreignHouse, foreignItem, 1, "foreign-receipt", item.CompletionRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeReceipts := map[string]item.Completion{foreign.ID: foreign}
 	second := active(hid, iid, "isolation-second")
+	beforeReceipts[own.ID], beforeReceipts[second.ID] = own, second
+	allowForeignHouse, allowForeignMembership = false, false
 	do := func(house, id, receipt string) *httptest.ResponseRecorder {
 		q := httptest.NewRequest("PATCH", "/api/v1/households/"+house+"/items/"+id+"/completions/"+receipt, strings.NewReader(`{"undone":true}`))
 		q.Header.Set("Content-Type", "application/json")
@@ -149,7 +156,7 @@ func TestUndoCompletionHouseholdIsolation(t *testing.T) {
 		}
 		snapshot[id] = row
 	}
-	missing := do(hid, other, "not-a-receipt")
+	missing := do(hid, other, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b65")
 	if missing.Code != 404 {
 		t.Fatalf("baseline=%d %s", missing.Code, missing.Body)
 	}
@@ -165,19 +172,30 @@ func TestUndoCompletionHouseholdIsolation(t *testing.T) {
 			t.Fatalf("item %s mutated before=%+v after=%+v", id, before, after)
 		}
 	}
-	for _, receipt := range []item.Completion{own, second} {
-		rows, err := svc.ListCompletions(context.Background(), userID, receipt.HouseholdID, receipt.ItemID, 10, "", item.CompletionOrderOldest)
-		if err != nil || len(rows.Items) != 1 || rows.Items[0].UndoneAt != nil {
-			t.Fatalf("receipt changed: %+v err=%v", rows, err)
+	for id, before := range beforeReceipts {
+		rows, err := f.repo.ListCompletions(context.Background(), before.HouseholdID, before.ItemID, "00000000-0000-0000-0000-000000000000", 10, false)
+		var got *item.Completion
+		for n := range rows {
+			if rows[n].ID == id {
+				got = &rows[n]
+			}
+		}
+		if err != nil || got == nil || !reflect.DeepEqual(*got, before) || got.UndoneAt != nil {
+			t.Fatalf("receipt changed: %+v want=%+v err=%v", got, before, err)
 		}
 	}
 }
 
 func TestCreateCompletionHouseholdIsolation(t *testing.T) {
 	f := newFixture(true)
+	beforeRows := map[string]item.Item{}
 	foreignHouse := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
 	foreignItem := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
 	f.repo.Seed(item.Item{ID: foreignItem, HouseholdID: foreignHouse, SubjectID: sid, WorkflowState: item.StateOpen, Version: 1})
+	for _, id := range []string{iid, foreignItem} {
+		row, _ := f.repo.Row(id)
+		beforeRows[id] = row
+	}
 	request := func(house, id string) *httptest.ResponseRecorder {
 		q := httptest.NewRequest("POST", "/api/v1/households/"+house+"/items/"+id+"/completions", strings.NewReader(`{}`))
 		q.Header.Set("Content-Type", "application/json")
@@ -197,14 +215,14 @@ func TestCreateCompletionHouseholdIsolation(t *testing.T) {
 			t.Fatalf("%s=%d %s want exact %s", tc.name, w.Code, w.Body, missing.Body)
 		}
 	}
+	for id, before := range beforeRows {
+		row, ok := f.repo.Row(id)
+		if !ok || !reflect.DeepEqual(row, before) {
+			t.Fatalf("item changed: before=%+v after=%+v", before, row)
+		}
+	}
 	if f.repo.CompletionCount() != 0 {
 		t.Fatalf("receipts=%d", f.repo.CompletionCount())
-	}
-	for _, id := range []string{iid, foreignItem} {
-		row, ok := f.repo.Row(id)
-		if !ok || row.Version != 1 || row.Done {
-			t.Fatalf("item changed: %+v", row)
-		}
 	}
 }
 
