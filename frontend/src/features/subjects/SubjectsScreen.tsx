@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { SubjectForm, typeLabelKey, type SubjectValues, type SubmitOutcome } from './SubjectForm';
 import { clearPendingSubjectCreate, getPendingSubjectCreate, setPendingSubjectCreate, type PendingSubjectCreate } from './pendingSubjectCreate';
+import { idempotencyKey } from '../../lib/idempotencyKey';
 import {
   createSubject,
   getSubject,
@@ -47,12 +48,6 @@ function insertById(current: Subject[], subject: Subject): Subject[] {
 
 function replaceById(items: Subject[], subject: Subject): Subject[] {
   return items.map((s) => (s.id === subject.id ? subject : s));
-}
-
-function idempotencyKey() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function SubjectsScreen({

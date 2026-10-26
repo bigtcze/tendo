@@ -9,21 +9,14 @@
   {
     "kind": "file_lines",
     "path": "frontend/src/features/items/AllItemsScreen.tsx",
-    "allowed": 392,
+    "allowed": 388,
     "reason": "All-items screen coordinates filters, URL state, catalogs, paging and rendering; extract cohesive navigation and list responsibilities.",
     "owner": "frontend-items"
   },
   {
     "kind": "file_lines",
-    "path": "frontend/src/features/items/ItemsScreen.tsx",
-    "allowed": 567,
-    "reason": "Item home screen coordinates list loading, paging, create recovery, completion, focus and rendering; extract hooks/components while preserving user flows.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "file_lines",
     "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
-    "allowed": 669,
+    "allowed": 665,
     "reason": "Subjects screen coordinates paging, member lookup, archive/restore, create/edit recovery and rendering; extract focused hooks/components.",
     "owner": "frontend-subjects"
   },
@@ -764,13 +757,6 @@
     "path": "frontend/src/features/items/ItemForm.tsx",
     "allowed": 21,
     "reason": "Item form owns variant fields and validation/submission; separate field groups while preserving validation behavior.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "long_lines",
-    "path": "frontend/src/features/items/ItemsScreen.tsx",
-    "allowed": 35,
-    "reason": "Item home screen coordinates list loading, paging, create recovery, completion, focus and rendering; extract hooks/components while preserving user flows.",
     "owner": "frontend-items"
   },
   {

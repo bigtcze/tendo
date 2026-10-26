@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey } from '../../i18n';
 import { listMembers, type Member } from '../members/membersApi';
 import { repeatSummary } from './repeatSummary';
+import { formatDate } from './formatDate';
 import {
   getFilteredItemsSummary,
   listActiveSubjects,
@@ -64,11 +65,6 @@ function cursorStack(): string[] {
   return Array.isArray(state) ? state.filter((cursor: unknown): cursor is string => typeof cursor === 'string') : [];
 }
 
-function formatDate(value: string, locale: string): string {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' })
-    .format(new Date(Date.UTC(year, month - 1, day)));
-}
 
 function countKey(count: number, locale: string): MessageKey {
   const category = new Intl.PluralRules(locale).select(count);
