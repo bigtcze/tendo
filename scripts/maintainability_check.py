@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "ci/maintainability-baseline.json"
@@ -222,13 +223,7 @@ def enumerate_files(root: Path) -> list[str]:
     )
     raw = result.stdout
     paths = sorted({item.decode() for item in raw.split(b"\0") if item})
-    excluded_paths = {path for path in paths if excluded(path)}
-    exact_generated = {target[0] for target in OAPI_FILES + OPENAPI_FILES}
-    excluded_paths.update(path for path in paths if path in exact_generated)
-    locales = {"frontend/src/i18n/cs.ts", "frontend/src/i18n/en.ts"}
-    openapi_outputs = {entry[0] for entry in OPENAPI_FILES}
-    excluded_paths.update(path for path in paths if path in locales or path in openapi_outputs)
-    return [p for p in paths if PurePosixPath(p).suffix in SUFFIXES and p not in excluded_paths]
+    return [p for p in paths if PurePosixPath(p).suffix in SUFFIXES and not excluded(p)]
 
 
 def baseline_errors_against_base(current: list[dict], base: list[dict]) -> list[str]:
@@ -268,24 +263,18 @@ def gather(root: Path) -> dict[tuple[str, str, str], int]:
         text = (root / path).read_text(encoding="utf-8", errors="replace")
         for kind, value in file_metrics(text).items():
             metrics[(kind, path, "")] = value
-    modules = [p.parent for p in root.rglob("go.mod") if "node_modules" not in p.parts]
-    if not modules:
-        return {
-            metric_key: value
-            for metric_key, value in metrics.items()
-            if not metric_key[1].startswith("backend/")
-        }
-    backend = root / "backend"
-    if backend not in modules:
-        return metrics
     go_files = discover_go_files(root, paths)
-    source_list = root / ".maintainability-go-files.tmp"
-    generated = {path for path in go_files if excluded("backend/" + path)}
-    selected = [path for path in go_files if path not in generated]
+    if any(p.endswith(".go") and not p.startswith("backend/") for p in paths):
+        raise RuntimeError("Go sources outside backend/ are not measured; extend funcmetrics wiring")
+    if not go_files:
+        return metrics
+    backend = root / "backend"
+    if not (backend / "go.mod").is_file():
+        raise RuntimeError("Go metrics tool requires the backend module")
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+        handle.write("\n".join(go_files) + "\n")
+    source_list = Path(handle.name)
     try:
-        source_list.write_text(
-            "\n".join(selected) + "\n", encoding="utf-8"
-        )
         command = [
             "go", "run", "./tools/funcmetrics", "-prefix", "backend",
             "-files", str(source_list),
@@ -359,8 +348,6 @@ def main() -> int:
     args = parser.parse_args()
     if args.list_exclusions:
         for pattern, _, reason in EXCLUSIONS:
-            print(f"{pattern}: {reason}")
-        for pattern, _, reason in OPENAPI_FILES:
             print(f"{pattern}: {reason}")
         print(
             "Unmeasured formats: YAML, JSON, Markdown, CSS, HTML, and other "

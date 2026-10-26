@@ -26,6 +26,8 @@ class MaintainabilityTests(unittest.TestCase):
             "frontend/src/a.test.tsx",
             "frontend/e2e/home.spec.ts",
             "scripts/test_ci.py",
+            "frontend/src/i18n/cs.ts",
+            "frontend/src/i18n/en.ts",
         ):
             with self.subTest(path=path):
                 self.assertTrue(check.excluded(path))

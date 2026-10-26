@@ -52,7 +52,7 @@ async function hasMaintainabilityDirective(file, directive) {
 const measured = new Map();
 for (const result of results) {
   for (const message of result.messages) {
-    if (message.ruleId === 'null' && message.message.includes('eslint')) {
+    if (message.ruleId === null && /inline config|noInlineConfig/i.test(message.message)) {
       console.error(`${result.filePath}: inline ESLint configuration is forbidden in production source: ${message.message}`);
       process.exitCode = 1;
     }
@@ -69,6 +69,6 @@ if (baseBaseline) errors.push(...compareAgainstBase(baseline, baseBaseline));
 if (errors.length) {
   console.error(errors.join('\n'));
   process.exitCode = 1;
-} else {
+} else if (!process.exitCode) {
   console.log(`ESLint function ratchet passed (${baseline.length} named exceptions).`);
 }
