@@ -14,6 +14,7 @@ type Repo struct {
 	mu          sync.Mutex
 	rows        map[string]subject.Subject
 	Calls       int
+	GetCalls    int
 	FindCalls   int
 	Err         error
 	Clock       time.Time
@@ -77,6 +78,7 @@ func (r *Repo) Get(_ context.Context, hid, sid string) (subject.Subject, error) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.Calls++
+	r.GetCalls++
 	if r.Err != nil {
 		return subject.Subject{}, r.Err
 	}

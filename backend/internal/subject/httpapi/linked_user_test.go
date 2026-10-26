@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/bigtcze/tendo/backend/internal/subject"
 )
 
 func TestLinkedUserPatchPersonConstraintAndClear(t *testing.T) {
@@ -26,6 +28,46 @@ func TestLinkedUserPatchPersonConstraintAndClear(t *testing.T) {
 	clearAndAway := f.doAs("PATCH", path, `{"type":"vehicle","linkedUserId":null}`, map[string]string{"If-Match": `"1"`}, callerID)
 	if clearAndAway.Code != 200 || !strings.Contains(clearAndAway.Body.String(), `"type":"vehicle"`) || !strings.Contains(clearAndAway.Body.String(), `"linkedUserId":null`) {
 		t.Fatalf("clear and type change status=%d body=%s", clearAndAway.Code, clearAndAway.Body)
+	}
+}
+
+func TestStaleLinkedSubjectInvariantAndPreconditionOrder(t *testing.T) {
+	f := newFixture(true)
+	created := f.doAs("POST", base, `{"name":"Linked child","type":"person","linkedUserId":"`+callerID+`"}`, map[string]string{"Idempotency-Key": "stale-linked"}, callerID)
+	if created.Code != 201 {
+		t.Fatalf("create=%d %s", created.Code, created.Body)
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	row, ok := f.repo.Row(body.ID)
+	if !ok {
+		t.Fatal("created subject missing")
+	}
+	row.Type = subject.TypePerson
+	linkedID := callerID
+	row.LinkedUserID = &linkedID
+	row.Version = 2
+	f.repo.Seed(row)
+	path := base + "/" + body.ID
+	before, ok := f.repo.Row(body.ID)
+	if !ok {
+		t.Fatal("created subject missing")
+	}
+	invalid := f.doAs("PATCH", path, `{"type":"vehicle"}`, map[string]string{"If-Match": `"1"`}, callerID)
+	wantInvalid := `{"type":"about:blank","title":"Validation Failed","status":422,"code":"requires_person","field":"linkedUserId"}`
+	if invalid.Code != 422 || !jsonEqual(t, invalid.Body.String(), wantInvalid) {
+		t.Fatalf("invalid stale patch=%d %s", invalid.Code, invalid.Body)
+	}
+	valid := f.doAs("PATCH", path, `{"type":"person"}`, map[string]string{"If-Match": `"1"`}, callerID)
+	if valid.Code != 412 || !jsonEqual(t, valid.Body.String(), problemBody(412, "Precondition Failed", "precondition_failed")) {
+		t.Fatalf("valid stale patch=%d %s", valid.Code, valid.Body)
+	}
+	if after, _ := f.repo.Row(body.ID); after != before {
+		t.Fatalf("rejected stale PATCH changed subject: before=%+v after=%+v", before, after)
 	}
 }
 
