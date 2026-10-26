@@ -3,12 +3,12 @@
 mode=autonomous
 language=english
 context_style=terse_structured
-primary_goal=ship_v2_gui
+primary_goal=ship_v2_1_verified_quality
 main_policy=PR_only
 human_intervention=routine_not_required
 
 ## Read set
-always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,TESTING,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,FLOW,STATE,LEARNINGS
+always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,TESTING,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE,CODE_QUALITY,FLOW,STATE,LEARNINGS
 when_frontend=UX
 when_http_or_client=API
 when_docs_or_user_setup=DOCUMENTATION
@@ -34,14 +34,14 @@ dependency_or_renovate_PR=FLOW "Dependency maintenance"
 ## Authority
 may=plan,code,test,review,refactor,document,create_branch,push_branch,open_PR,enable_auto_merge_when_green,create_annotated_release_tag_after_green_main
 may_self_improve=AGENTS,FLOW,STATE,LEARNINGS,dev_tooling,tests,CI,docs_ADRs
-must_not_self_change=GUARDRAILS,CHARTER,PRODUCT,ROADMAP,UX,ARCHITECTURE,API,TESTING,DOCUMENTATION,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,systemd_runner,auth_credentials,global_opencode_config
-must_not=direct_commit_main,direct_push_main,force_push,history_rewrite,bypass_required_checks,merge_known_broken,scope_expand_v2
+must_not_self_change=GUARDRAILS,CHARTER,PRODUCT,ROADMAP,UX,ARCHITECTURE,API,TESTING,DOCUMENTATION,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE,CODE_QUALITY,systemd_runner,auth_credentials,global_opencode_config
+must_not=direct_commit_main,direct_push_main,force_push,history_rewrite,bypass_required_checks,merge_known_broken,scope_expand_v2_1
 
 ## Completion
-V1 completion is historical: preserve `.autonomous/PROJECT_COMPLETE` and
-its release v1.0.0. V2 is governed by V2_SCOPE and V2_DEFINITION_OF_DONE.
-Release v2.0.0 only after all V2 checks are green and notes are merged;
-validate the published artifacts. Only then add `.autonomous/V2_COMPLETE`
-through a protected PR and stop on clean `main`. Git release tagging on a
-verified main commit is permitted per docs/development/release.md; it is not a
-commit or push to main.
+V1 and V2 have been completed and released. Preserve historical
+PROJECT_COMPLETE and V2_COMPLETE, plus their release tags. V2.1 is governed by
+V2_1_SCOPE, V2_1_DEFINITION_OF_DONE and permanent locked CODE_QUALITY.
+Release v2.1.0 only after all quality checks, coverage evidence, maintainability
+hotspot refactoring and fixes are complete. Verify published release
+artifacts, then merge V2_1_COMPLETE through a protected final PR and stop on
+clean main. Do not self-change the locked quality scope or DoD.
