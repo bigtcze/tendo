@@ -58,7 +58,8 @@ export function useAddItem(options: AddItemOptions) {
     setMembers([]);
     const isCurrent = () => mounted.current && token === memberLoadGenerationRef.current && addingRef.current;
     const loaded = await collectMembers(householdId, isCurrent);
-    if (loaded === 'stale') return;
+    // Returning from the collector is another async boundary: re-check before acting on its outcome.
+    if (loaded === 'stale' || !isCurrent()) return;
     if (loaded === 'unauthenticated') onSignedOut();
     else setMembers(loaded);
   }

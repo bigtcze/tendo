@@ -328,6 +328,35 @@ describe('item creation', () => {
     }
   });
 
+  it('never signs out from an Add catalogue or member 401 that settles across unmount', async () => {
+    // Sweeps the unmount across every microtask between the response and its handling, so no async boundary can act late.
+    for (const target of ['catalogue', 'members'] as const) {
+      for (let ticks = 0; ticks <= 12; ticks++) {
+        let mounted = true;
+        const views: Array<ReturnType<typeof render>> = [];
+        const unmountLater = () => {
+          let chain = Promise.resolve();
+          for (let tick = 0; tick < ticks; tick++) chain = chain.then(() => {});
+          void chain.then(() => { mounted = false; views[0]!.unmount(); });
+        };
+        let memberCalls = 0;
+        installFakeServer({
+          ...routes,
+          ...itemRoutes(base, []),
+          [subjectList]: (request) => { if (target !== 'catalogue') return subjectPages(request); unmountLater(); return json(401); },
+          [memberList]: () => { if (target !== 'members' || ++memberCalls === 1) return memberPage(); unmountLater(); return json(401); },
+        });
+        const lateSignOut = vi.fn();
+        views.push(render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={() => { if (!mounted) lateSignOut(); }} /></I18nProvider>));
+        await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+        await waitFor(() => expect(mounted).toBe(false));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+        expect(lateSignOut, `${target} unmounted after ${ticks} microtasks`).not.toHaveBeenCalled();
+        cleanup();
+      }
+    }
+  });
+
   it('signs out on a current label 401 and ignores a stale response after unmount', async () => {
     let release!: (response: Response) => void;
     const deferred = new Promise<Response>((resolve) => { release = resolve; });
@@ -1509,8 +1538,11 @@ describe('Home items', () => {
     });
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    const undoButton = await screen.findByRole('button', { name: 'Undo' });
+    const summaryReads = requestsOf(fake.requests, 'GET', `${base}/items/summary`).length;
+    await userEvent.click(undoButton);
     expect(await screen.findByText('That item is gone. The list is up to date.')).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`).length).toBeGreaterThan(summaryReads);
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
     expect(itemReads).toBe(2);

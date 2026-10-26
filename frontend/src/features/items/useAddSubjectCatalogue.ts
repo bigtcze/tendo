@@ -46,7 +46,8 @@ export function useAddSubjectCatalogue(options: CatalogueOptions) {
     setSubjectState('loading');
     setSubjectLoading(true);
     const loaded = await collectSubjects(householdId, isCurrent);
-    if (loaded === 'stale') return;
+    // Returning from the collector is another async boundary: re-check before acting on its outcome.
+    if (loaded === 'stale' || !isCurrent()) return;
     if (loaded === 'unauthenticated') { setSubjectLoading(false); onSignedOut(); return; }
     if (loaded === 'error') { setSubjects([]); setSubjectLoading(false); setSubjectState('error'); return; }
     setSubjects(loaded);
