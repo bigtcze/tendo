@@ -49,7 +49,7 @@ Tendo 2.0 keeps all your data and adds no required settings. Take a [backup](bac
 
 The 2.0 migration adds search and sorting support to the database:
 
-- It installs the PostgreSQL extensions `unaccent` and `pg_trgm` and builds a search index. The published `compose.yaml` migrates as the PostgreSQL administrator, which is allowed to do this. If you run your own PostgreSQL with a less privileged migration role, that role must be allowed to install these two extensions.
+- It installs the PostgreSQL extensions `unaccent` and `pg_trgm` and builds a search index. The published `compose.yaml` migrates as the PostgreSQL administrator, which is allowed to do this. If you run your own PostgreSQL with a less privileged migration role, that role must be allowed to install these two extensions. Both must be installed in the `public` schema; if either is already installed in another schema, the migration stops and the app does not start, so move it first.
 - It rewrites every item row once to fill the search column. With many items this takes longer than an ordinary update; the app starts only after the migration finishes.
 
 Going back to 1.x afterwards needs the backup you took before updating; see [Go back to an earlier version](#go-back-to-an-earlier-version).
