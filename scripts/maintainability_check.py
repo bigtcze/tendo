@@ -6,6 +6,7 @@ import argparse
 from collections import Counter
 import json
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 
@@ -18,16 +19,32 @@ THRESHOLDS = {
     "func_complexity": {"*": 15},
     "func_nesting": {"*": 4},
 }
+MIGRATION_DIR = ("backend", "internal", "platform", "database")
+
+
+def is_numbered_migration(parts: tuple[str, ...], name: str) -> bool:
+    return parts[:-1] == MIGRATION_DIR and re.fullmatch(r"\d{3}_.+\.sql", name) is not None
+
+
 EXCLUSIONS = (
-    ("*_test.go", lambda parts, name: name.endswith("_test.go"), "Go test suites are excluded from structural limits; policy does not require splitting a test suite."),
-    ("*.test.ts(x)", lambda parts, name: name.endswith((".test.ts", ".test.tsx")), "Frontend unit test suites are excluded from structural limits."),
-    ("frontend/e2e/*.spec.ts", lambda parts, name: parts[:2] == ("frontend", "e2e") and name.endswith(".spec.ts"), "Browser E2E specifications are test suites, not production code."),
-    ("scripts/test_*.py", lambda parts, name: parts and parts[0] == "scripts" and name.startswith("test_") and name.endswith(".py"), "Python harness test suites are excluded from structural limits."),
-    ("*.gen.go", lambda parts, name: name.endswith(".gen.go"), "Generated Go output is not human-authored."),
-    ("*/testdata/*", lambda parts, name: "testdata" in parts, "Fixture data and test-only source are excluded from maintainability limits."),
-    ("*/dbgen/*", lambda parts, name: "dbgen" in parts, "Generated database code is not human-authored."),
-    ("backend/internal/platform/database/NNN_*.sql", lambda parts, name: len(parts) == 5 and parts[:4] == ("backend", "internal", "platform", "database") and len(name) >= 8 and name[:3].isdigit() and name[3] == "_" and name.endswith(".sql"), "Numbered embedded database migrations are immutable schema history."),
-    ("api/generated/*", lambda parts, name: parts[:2] == ("api", "generated"), "Generated API artifacts are not human-authored."),
+    ("*_test.go", lambda parts, name: name.endswith("_test.go"),
+     "Go test suites are excluded from structural limits; policy does not require splitting a test suite."),
+    ("*.test.ts(x)", lambda parts, name: name.endswith((".test.ts", ".test.tsx")),
+     "Frontend unit test suites are excluded from structural limits."),
+    ("frontend/e2e/*.spec.ts", lambda parts, name: parts[:2] == ("frontend", "e2e") and name.endswith(".spec.ts"),
+     "Browser E2E specifications are test suites, not production code."),
+    ("scripts/test_*.py", lambda parts, name: parts[:1] == ("scripts",) and name.startswith("test_") and name.endswith(".py"),
+     "Python harness test suites are excluded from structural limits."),
+    ("*.gen.go", lambda parts, name: name.endswith(".gen.go"),
+     "Generated Go output is not human-authored."),
+    ("*/testdata/*", lambda parts, name: "testdata" in parts,
+     "Fixture data and test-only source are excluded from maintainability limits."),
+    ("*/dbgen/*", lambda parts, name: "dbgen" in parts,
+     "Generated database code is not human-authored."),
+    ("backend/internal/platform/database/NNN_*.sql", is_numbered_migration,
+     "Numbered embedded database migrations are immutable schema history."),
+    ("api/generated/*", lambda parts, name: parts[:2] == ("api", "generated"),
+     "Generated API artifacts are not human-authored."),
 )
 SUFFIXES = {".go", ".ts", ".tsx", ".py", ".sh", ".sql"}
 KINDS = set(THRESHOLDS)
