@@ -257,6 +257,23 @@ func TestOIDCStartOriginDuplicatesAndRateLimit(t *testing.T) {
 			t.Fatalf("status=%d body=%s", w.Code, w.Body)
 		}
 	})
+	// The handler itself must reject non-equivalent or non-strict origins even without the middleware in front.
+	for _, origin := range []string{"http://tendo.test:8080", "https://tendo.test", "null", "http://tendo.test/", "http://user@tendo.test", "http://tendo.test/path"} {
+		t.Run("handler rejects "+origin, func(t *testing.T) {
+			fake := &oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Origin", origin)
+			w := httptest.NewRecorder()
+			oidcRouter(fake, oidcTestPublicURL, &fakeSessionService{}).ServeHTTP(w, r)
+			if w.Code != 403 || !strings.Contains(w.Body.String(), "origin_not_allowed") {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+			if fake.lastStart != (identity.OIDCStartParams{}) {
+				t.Fatalf("service Start called for rejected origin: %#v", fake.lastStart)
+			}
+		})
+	}
 	t.Run("duplicate flow cookie treated as absent", func(t *testing.T) {
 		fake := &oidcHTTPFake{start: identity.OIDCStartResult{AuthorizationURL: "https://issuer.test", BrowserToken: fakeToken}}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(`{"purpose":"login"}`))
