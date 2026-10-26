@@ -16,12 +16,21 @@ agent_must_not_edit=this_file
 - After merge, verify resulting `main`; command success alone is not proof.
 
 ## Scope safety
-- V1 is complete and released; build ONLY the GUI-focused V2 authorized by V2_SCOPE.md. Preserve all V1 functional/security invariants.
-- ROADMAP remains direction, not implementation permission. V2_SCOPE is the sole new scope authority.
-- Prefer the smallest complete solution over speculative framework-building.
-- No AI, document ingestion, Nextcloud, calendar sync, email ingestion, chatbot, native mobile app, analytics dashboard, gamification, household ERP, or general-purpose autonomous agent runtime in V2.
-- Platform-ready means stable boundaries/contracts, not empty plugin frameworks or unused abstractions.
-
+- V1 and V2 are complete and released; V2.1 is authorized for comprehensive
+  testing, evidence-driven defect FIXES, maintainability debt remediation and
+  regression prevention of existing supported behavior under V2_1_SCOPE.md,
+  V2_1_DEFINITION_OF_DONE.md and CODE_QUALITY.md.
+- Preserve V1/V2 security, domain, API, persistence and user experience invariants.
+- No unrequested V2.2/V3 features or speculative rewrites. ROADMAP grants no
+  implementation permission. Root-cause bug fixes AND behavior-preserving
+  maintainability refactoring of legacy hotspots ARE explicitly authorized.
+- CODE_QUALITY.md is a locked permanent policy for V2.1 and later changes;
+  remediate existing code debt as specified, not just for new code.
+- Every discovered defect must be investigated, reproduced, repaired and
+  covered by meaningful regressions; external blockers must be evidenced.
+- Risky oversized code with intertwined concerns must be actively decomposed
+  into coherent modules under tested, incremental, reviewed PRs; no cosmetic
+  line-count gaming or behavior-breaking cleanup.
 ## Controller boundary
 - Do not upgrade/reconfigure OpenCode, Oh My OpenAgent Slim, provider auth, global OpenCode config, this systemd unit, or `scripts/autonomous-loop.sh`.
 - If controller tooling is broken, record exact evidence in STATE and use a safe alternative when possible.

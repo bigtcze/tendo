@@ -1,7 +1,7 @@
 # Autonomous Flow
 
 cycle=fresh_opencode_session
-goal=advance_highest_value_unproven_V2_DoD
+goal=verify_fix_and_refactor_highest_risk_V2_1_debt
 work_unit=small_reviewable_PR
 main=protected
 parallel_PRs=avoid
@@ -12,7 +12,7 @@ parallel_PRs=avoid
 3. Reconcile STATE with reality; reality wins.
 4. If active Tendo PR exists, finish/review/fix it before unrelated work.
 5. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
-6. Select smallest high-value unproven V2 GUI/UX/scale DoD slice.
+6. Select the highest-risk V2.1 defect, unverified workflow or maintainability hotspot; one focused PR slice.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -57,6 +57,15 @@ For behavior/API/schema changes:
 - Before dependency: justify ownership, maintenance, license, simpler alternatives.
 - Keep modular monolith boundaries intact.
 
+## Maintainability discipline
+- Apply locked CODE_QUALITY policy on EVERY PR, including dependency updates.
+- Audit existing source size/cohesion/complexity, track ranked remediation
+  with verified tests, and actively refactor high-risk existing hotspots.
+- Prefer cohesive boundaries and readability over arbitrary line-count limits;
+  preserve contracts and behavior. Guard against NEW/worsened debt in CI.
+- Reviewer must consider code health, architecture, coupling, duplicate rules,
+  error handling and testability; fix meaningful findings before merge.
+
 ## Test discipline
 - Tests land with behavior, not later.
 - If a test cannot fail for intended regression, rewrite/remove it.
@@ -96,21 +105,28 @@ docs_ADR=durable_decisions_only
 ## Blockers
 - Do not spin on quota/outage/missing external dependency.
 - Record exact blocker/evidence in STATE.
-- Choose safe independent V2 work if available.
+- Choose safe independent V2.1 verification, defect repair or hotspot refactoring if available.
 - Never claim unverified success.
 
-## V2 release and completion protocol
-Only after every V2_DEFINITION_OF_DONE item is proven on current main:
-1. run complete local and required CI/test/release validation;
-2. review production screenshots/flows/large-backlog evidence and documentation;
-3. via ordinary PR merge `docs/releases/v2.0.0.md` and any release-facing docs;
-4. after green main, create annotated v2.0.0 tag on that exact main commit;
-5. use the existing release workflow; verify GitHub Release, assets, public GHCR
-   image, both architectures, clean install and upgrade with preserved data;
-6. if GitHub permissions/visibility block release, record blocker and STOP
-   claiming completion; never bypass protection or fabricate evidence;
-7. from fresh main create a FINAL completion branch, add V2_COMPLETE with
-   evidence and released tag, open PR, pass checks, merge normally;
-8. sync clean local main and verify tracked V2_COMPLETE, then exit.
-
-Never create/commit V2_COMPLETE directly on main. Keep V1 PROJECT_COMPLETE.
+## V2.1 release and completion protocol
+Only after every V2_1_DEFINITION_OF_DONE item is proven against current main:
+1. Audit the complete behavior/requirement matrix for untested routes, actions,
+   permission boundaries, state transitions and unresolved defects. Fill gaps
+   or record a strictly justified exclusion; no known release blockers.
+   ALSO independently audit every human-authored production source file for
+   CODE_QUALITY debt, verify high-risk oversized/tangled modules were ACTUALLY
+   refactored via green PRs and the maintainability regression gate is active.
+2. Run and record the exhaustive release qualification, full pinned native
+   local verification, required GitHub CI, independent QA review, mutation
+   evidence, real-browser E2E, production deployment and migration checks.
+3. Merge docs/releases/v2.1.0.md and all release-facing documentation via PR.
+4. On green main, create annotated v2.1.0 tag at that exact verified commit.
+5. Use existing release workflow; verify GitHub Release/assets, public GHCR
+   image both architectures, clean install and upgrade with existing data.
+6. If any gate or external publication step fails, fix it or record the exact
+   blocker; do not claim completion or bypass branch protections.
+7. On fresh main, create FINAL completion branch with V2_1_COMPLETE containing
+   detailed evidence and the released tag; merge using normal protected PR.
+8. Sync clean local main, verify tracked V2_1_COMPLETE and exit successfully.
+Preserve both historical completion markers PROJECT_COMPLETE and V2_COMPLETE.
+Never add the completion marker directly to main.

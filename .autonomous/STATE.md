@@ -1,7 +1,11 @@
 # State
+phase=v2_1_active
+v2=complete
+v2_1=not_complete
+v2_1_scope=.autonomous/V2_1_SCOPE.md
+v2_1_dod=.autonomous/V2_1_DEFINITION_OF_DONE.md
+v2_1_progress=initial_behavior_and_maintainability_inventories_pending
 
-phase=v2_complete
-v2=complete_see_.autonomous_V2_COMPLETE_released_v2.0.0
 v2_scope=.autonomous/V2_SCOPE.md
 v2_dod=.autonomous/V2_DEFINITION_OF_DONE.md
 v2_audit=docs/development/v2-ux-audit.md_baseline_findings_F1_F14_decisions_and_ordered_PR_plan; harness_opt_in_TENDO_UX_AUDIT_DIR_scripts_e2e_smoke_sh_frontend_e2e_ux_audit_spec_ts_not_in_required_CI
