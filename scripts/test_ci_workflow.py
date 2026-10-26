@@ -12,6 +12,9 @@ WORKFLOW = ROOT / ".github/workflows/required.yml"
 REQUIRED_COMMANDS = (
     "gofmt -l",
     "go vet ./...",
+    "python3 scripts/maintainability_check.py --base-ref",
+    "git fetch --no-tags --depth=1 origin",
+    "MAINTAINABILITY_BASE_REF",
     "go test -race",
     "go list ./...",
     "bash scripts/setup-integration.sh",
@@ -24,7 +27,7 @@ REQUIRED_COMMANDS = (
     "python3 scripts/test_postgres_live.py",
     "python3 -m unittest scripts/test_generation_drift.py",
     "python3 scripts/test_e2e_interrupt.py",
-    "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py",
+    "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_maintainability_check.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py",
     "bash scripts/dev-exec.sh --versions",
     "bash scripts/dev-exec.sh -- python3 -m unittest scripts/test_dev_toolchain.py",
     "npx --no-install playwright install --with-deps chromium",
@@ -194,7 +197,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertTrue(any("missing deployment matrix smoke: oidc-smoke" in error for error in errors), errors)
 
     def test_commented_out_command_fails_structure_validation(self):
-        command = "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py"
+        command = "python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_maintainability_check.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py"
         mutated = self.text.replace(f"run: {command}", f"run: true  # {command}", 1)
         self.assertNotEqual(mutated, self.text)
         errors = workflow_errors(mutated)
@@ -221,7 +224,7 @@ class WorkflowStructureTests(unittest.TestCase):
     def test_prerequisites_precede_consumers_within_each_job(self):
         # Jobs run in parallel on fresh runners, so ordering is only meaningful within one job.
         backend = active_text(self.job_text("backend"))
-        self.assertIn("python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py", backend)
+        self.assertIn("python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_maintainability_check.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py", backend)
         self.assert_ordered(backend, "TENDO_TOOLCHAIN_CACHE: ${{ runner.temp }}/tendo-toolchain", "bash scripts/dev-exec.sh --versions", "bash scripts/dev-exec.sh -- bash -c")
         postgres = self.job_text("postgres")
         self.assert_ordered(postgres, "sqlc_1.31.1_linux_amd64.tar.gz", "CREATE ROLE tendo NOLOGIN", "bash scripts/setup-integration.sh", "bash scripts/check-sqlc.sh")

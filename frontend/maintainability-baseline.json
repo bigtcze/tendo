@@ -1,0 +1,330 @@
+[
+  {
+    "file": "src/app/App.tsx",
+    "function": "App",
+    "rule": "max-lines-per-function",
+    "allowed": 250,
+    "reason": "P2 candidate: route/session composition is a central app lifecycle boundary; retain composition and extract lifecycle logic carefully.",
+    "owner": "frontend-app"
+  },
+  {
+    "file": "src/app/App.tsx",
+    "function": "App",
+    "rule": "complexity",
+    "allowed": 34,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-app"
+  },
+  {
+    "file": "src/features/auth/AccountScreen.tsx",
+    "function": "AccountScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 136,
+    "reason": "P2 candidate: account settings form and actions share rendering; extract cohesive UI sections preserving account update behavior.",
+    "owner": "frontend-auth"
+  },
+  {
+    "file": "src/features/auth/LoginScreen.tsx",
+    "function": "LoginScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 156,
+    "reason": "P2 candidate: sign-in and recovery flows share a screen; extract clear presentation/action boundaries preserving auth semantics.",
+    "owner": "frontend-auth"
+  },
+  {
+    "file": "src/features/auth/OnboardingScreen.tsx",
+    "function": "OnboardingScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 191,
+    "reason": "P2 candidate: initial setup state and form handling share a screen; extract flow sections preserving setup validation.",
+    "owner": "frontend-auth"
+  },
+  {
+    "file": "src/features/items/AllItemsScreen.tsx",
+    "function": "AllItemsScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 278,
+    "reason": "P1 audit rank 6: all-items view combines filters, URL synchronization, catalog loading, paging, and rendering; separate navigation/data hooks from view composition.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/AllItemsScreen.tsx",
+    "function": "AllItemsScreen",
+    "rule": "complexity",
+    "allowed": 53,
+    "reason": "P1 audit rank 6: all-items view combines filters, URL synchronization, catalog loading, paging, and rendering; separate navigation/data hooks from view composition.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/AllItemsScreen.tsx",
+    "function": "AllItemsScreen.anonymous#3.run",
+    "rule": "complexity",
+    "allowed": 18,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 294,
+    "reason": "P1 audit rank 4: detail/history, conflict-aware edit, lifecycle actions, focus, and rendering share a component; extract cohesive edit/history responsibilities.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen",
+    "rule": "complexity",
+    "allowed": 90,
+    "reason": "P1 audit rank 4: detail/history, conflict-aware edit, lifecycle actions, focus, and rendering share a component; extract cohesive edit/history responsibilities.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen.beginEdit",
+    "rule": "complexity",
+    "allowed": 26,
+    "reason": "Begins an item edit by loading supporting member/subject state and preparing conflict-aware fields; split data preparation from edit-state transitions.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen.saveEdit",
+    "rule": "complexity",
+    "allowed": 35,
+    "reason": "Saves edits after merging server and draft fields, handling validation/conflicts; isolate merge and submission branches while preserving conflict behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen.mutate",
+    "rule": "complexity",
+    "allowed": 16,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemForm.tsx",
+    "function": "errorMessage",
+    "rule": "complexity",
+    "allowed": 16,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemForm.tsx",
+    "function": "ItemForm",
+    "rule": "max-lines-per-function",
+    "allowed": 118,
+    "reason": "P2 candidate: item form branches across variant fields and validation; separate field/validation responsibilities while preserving submission behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemForm.tsx",
+    "function": "ItemForm",
+    "rule": "complexity",
+    "allowed": 101,
+    "reason": "P2 candidate: item form branches across variant fields and validation; separate field/validation responsibilities while preserving submission behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemForm.tsx",
+    "function": "ItemForm.submit",
+    "rule": "complexity",
+    "allowed": 20,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 481,
+    "reason": "P1 audit rank 1: item home composes list, paging, recovery, mutations, and rendering; extract data/action hooks and view components.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen",
+    "rule": "complexity",
+    "allowed": 76,
+    "reason": "P1 audit rank 1: item home composes list, paging, recovery, mutations, and rendering; extract data/action hooks and view components.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.openAddForm",
+    "rule": "complexity",
+    "allowed": 16,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.create",
+    "rule": "complexity",
+    "allowed": 22,
+    "reason": "Create action coordinates validation, uncertain-outcome recovery and item creation; isolate recovery transitions while preserving idempotent retry behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.showMore",
+    "rule": "complexity",
+    "allowed": 16,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.finish",
+    "rule": "complexity",
+    "allowed": 26,
+    "reason": "Finish action applies completion/undo outcomes and manages focus/stale-state recovery; extract lifecycle command handling without changing undo semantics.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/itemsApi.ts",
+    "function": "listAllItems",
+    "rule": "complexity",
+    "allowed": 31,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/itemsApi.ts",
+    "function": "listItemGroup",
+    "rule": "complexity",
+    "allowed": 16,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/itemsApi.ts",
+    "function": "sendCompleteItem",
+    "rule": "complexity",
+    "allowed": 17,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/pendingItemCreate.ts",
+    "function": "isPending",
+    "rule": "complexity",
+    "allowed": 27,
+    "reason": "P2 candidate: pending item creation reconciles retry states; simplify transition branches while preserving recovery semantics.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/useSubjectLabels.ts",
+    "function": "useSubjectLabels.anonymous#5",
+    "rule": "complexity",
+    "allowed": 17,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/members/InviteScreen.tsx",
+    "function": "InviteScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 102,
+    "reason": "P2 candidate: invite screen composes invitation fields, validation, submission, and result states; extract a focused form/action boundary.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/InviteScreen.tsx",
+    "function": "InviteScreen",
+    "rule": "complexity",
+    "allowed": 36,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/InviteScreen.tsx",
+    "function": "InviteScreen.submit",
+    "rule": "complexity",
+    "allowed": 26,
+    "reason": "Submit handler validates invitation fields, sends request and maps failures/results; extract response mapping while preserving validation and retry UX.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/MembersScreen.tsx",
+    "function": "MembersScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 271,
+    "reason": "P1 audit rank 8: membership and invitation lifecycle, paging, recovery and focus behavior share a screen; separate member/invitation flows.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/MembersScreen.tsx",
+    "function": "MembersScreen",
+    "rule": "complexity",
+    "allowed": 38,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/MembersScreen.tsx",
+    "function": "MembersScreen.anonymous#5.anonymous#1",
+    "rule": "complexity",
+    "allowed": 20,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/MembersScreen.tsx",
+    "function": "MembersScreen.invite",
+    "rule": "complexity",
+    "allowed": 17,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/subjects/SubjectForm.tsx",
+    "function": "SubjectForm",
+    "rule": "max-lines-per-function",
+    "allowed": 183,
+    "reason": "P2 candidate: subject form composes type-specific fields, linked-user selection, validation and submit states; extract field groups preserving invariants.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "file": "src/features/subjects/SubjectForm.tsx",
+    "function": "SubjectForm",
+    "rule": "complexity",
+    "allowed": 27,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 605,
+    "reason": "P1 audit rank 2: subject paging, member loading, archive/restore, create/edit recovery and rendering share a screen; extract focused hooks/components.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen",
+    "rule": "complexity",
+    "allowed": 61,
+    "reason": "P1 audit rank 2: subject paging, member loading, archive/restore, recovery and rendering share a screen; extract focused hooks/components.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen.add",
+    "rule": "complexity",
+    "allowed": 18,
+    "reason": "Add-subject handler manages validation, pending-create recovery and submission outcome; separate retry transitions while preserving subject type/link constraints.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen.save",
+    "rule": "complexity",
+    "allowed": 17,
+    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
+    "owner": "frontend-subjects"
+  }
+]

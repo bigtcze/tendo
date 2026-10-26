@@ -57,6 +57,13 @@ jobs:
       - name: Go vet
         working-directory: backend
         run: go vet ./...
+      - name: Fetch pull request base for maintainability ratchets
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+      - name: Maintainability ratchet
+        env:
+          MAINTAINABILITY_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: python3 scripts/maintainability_check.py --base-ref "$MAINTAINABILITY_BASE_REF"
       - name: Go unit tests with race detector
         shell: bash
         working-directory: backend
@@ -69,7 +76,7 @@ jobs:
         working-directory: backend
         run: go build ./...
       - name: Verify local gate failure propagation, CI workflow structure, and toolchain wrapper
-        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py
+        run: python3 -m unittest scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_maintainability_check.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py
       - name: Provision toolchain.json pins through the developer wrapper
         shell: bash
         env:
@@ -115,9 +122,14 @@ jobs:
           node-version: '24.22.1'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Fetch pull request base for frontend maintainability ratchet
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
       - name: Frontend install, audit, and check
         shell: bash
         working-directory: frontend
+        env:
+          MAINTAINABILITY_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
         run: |
           set -euo pipefail
           npm ci

@@ -1,0 +1,1012 @@
+[
+  {
+    "kind": "file_lines",
+    "path": "backend/internal/item/item.go",
+    "allowed": 894,
+    "reason": "Large item domain file contains validation, create/list/cursor/update, and lifecycle rules; split into same-package cohesive files while preserving item contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "file_lines",
+    "path": "backend/internal/subject/subject.go",
+    "allowed": 505,
+    "reason": "Subject service file contains CRUD and shared validators; preserve stored type/link invariants and validation order while splitting cohesive checks.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/features/items/AllItemsScreen.tsx",
+    "allowed": 392,
+    "reason": "All-items screen coordinates filters, URL state, catalogs, paging and rendering; extract cohesive navigation and list responsibilities.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/features/items/ItemsScreen.tsx",
+    "allowed": 567,
+    "reason": "Item home screen coordinates list loading, paging, create recovery, completion, focus and rendering; extract hooks/components while preserving user flows.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
+    "allowed": 669,
+    "reason": "Subjects screen coordinates paging, member lookup, archive/restore, create/edit recovery and rendering; extract focused hooks/components.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/i18n/cs.ts",
+    "allowed": 418,
+    "reason": "Czech locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
+    "owner": "frontend-localization"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/i18n/en.ts",
+    "allowed": 417,
+    "reason": "English locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
+    "owner": "frontend-localization"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/dev_toolchain.py",
+    "allowed": 503,
+    "reason": "Developer toolchain wrapper provisions and verifies pinned Go/Node tools and cache paths; split provisioning/check helpers while preserving fail-closed behavior.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/e2e-native-runner.py",
+    "allowed": 909,
+    "reason": "Native E2E runner supervises server/browser processes, diagnostics, cancellation, and cleanup; separate lifecycle helpers while preserving fail-fast cleanup.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/proxy-smoke.sh",
+    "allowed": 536,
+    "reason": "Proxy smoke orchestrates TLS proxy variants and HTTP/OIDC contract probes; split service setup from assertions while preserving cleanup.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/setup-smoke.sh",
+    "allowed": 666,
+    "reason": "Setup smoke provisions the app and verifies first-owner setup, auth and household/item flows; split lifecycle phases while retaining cleanup and assertions.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/httpapi/oidc.go",
+    "name": "OIDCHandler.start",
+    "allowed": 24,
+    "reason": "OIDC HTTP handlers translate start/callback service results into redirects and public errors; retain protocol ordering and redirect contracts.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/httpapi/setup.go",
+    "name": "decodeStrictObject",
+    "allowed": 16,
+    "reason": "Setup handler validates initial-owner setup requests and returns setup status; strict JSON decoding and setup-token behavior must remain unchanged.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/oidc.go",
+    "name": "OIDCService.Callback",
+    "allowed": 40,
+    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/oidc.go",
+    "name": "OIDCService.Start",
+    "allowed": 22,
+    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/oidcprovider/provider.go",
+    "name": "Provider.Exchange",
+    "allowed": 31,
+    "reason": "Provider adapter exchanges authorization codes and validates upstream OIDC tokens; preserve issuer, audience, nonce, and JWKS failure handling.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/completion.go",
+    "name": "Service.ListCompletions",
+    "allowed": 16,
+    "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/httpapi/item.go",
+    "name": "Handler.create",
+    "allowed": 17,
+    "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/httpapi/item.go",
+    "name": "Handler.list",
+    "allowed": 17,
+    "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.Create",
+    "allowed": 25,
+    "reason": "Creates an item after household, subject, responsible-member, recurrence, and idempotency validation; extract validation stages without changing write semantics.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.List",
+    "allowed": 31,
+    "reason": "Lists items with filters, paging and cursor validation/encoding; extract cursor and filtering stages while preserving pagination results.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.Update",
+    "allowed": 22,
+    "reason": "Updates item fields after household ownership, subject/responsible-member and idempotent replay checks; split validation from mutation while preserving patch semantics.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "Repo.List",
+    "allowed": 21,
+    "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "Repo.UndoCompletion",
+    "allowed": 19,
+    "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "matchesCollection",
+    "allowed": 23,
+    "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/completion.go",
+    "name": "Repository.Complete",
+    "allowed": 21,
+    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/completion.go",
+    "name": "Repository.UndoCompletion",
+    "allowed": 21,
+    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/completion.go",
+    "name": "decodeReceipt",
+    "allowed": 27,
+    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/item.go",
+    "name": "Repository.List",
+    "allowed": 20,
+    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/item.go",
+    "name": "Repository.Update",
+    "allowed": 18,
+    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/item.go",
+    "name": "toItem",
+    "allowed": 16,
+    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/config/config.go",
+    "name": "LoadFrom",
+    "allowed": 53,
+    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/config/oidc.go",
+    "name": "loadOIDC",
+    "allowed": 40,
+    "reason": "OIDC configuration loader validates provider settings and credentials at startup; isolate provider validation without changing startup errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/database/migrate.go",
+    "name": "Migrate",
+    "allowed": 17,
+    "reason": "Migration runner serializes schema application and applies migrations transactionally; retain locking and rollback behavior while clarifying orchestration.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httporigin/origin.go",
+    "name": "ParseAuthority",
+    "allowed": 35,
+    "reason": "Authority parser validates host/port/origin syntax used at the HTTP boundary; extract parse stages while preserving accepted-origin rules.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "decodeObject",
+    "allowed": 34,
+    "reason": "Decodes strict JSON request objects, rejects unknown fields and validates object shape/content; split decoding stages while preserving client problem responses.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "parseListParams",
+    "allowed": 18,
+    "reason": "Parses list query parameters including limit and cursor values; isolate parameter validation while retaining HTTP problem mapping.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "name": "forwardedValues",
+    "allowed": 19,
+    "reason": "Parses Forwarded header elements into trusted host/proto values; simplify parsing while preserving invalid/duplicate header rejection.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "name": "requestOrigin",
+    "allowed": 34,
+    "reason": "HTTP origin resolver interprets Origin and forwarded headers; split trusted-proxy parsing while preserving spoofing protections.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "name": "xForwardedValues",
+    "allowed": 27,
+    "reason": "Parses X-Forwarded host/proto values under proxy trust rules; separate normalization from validation without trusting unconfigured peers.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/security/password.go",
+    "name": "parsePasswordHash",
+    "allowed": 22,
+    "reason": "Password hash parser validates encoded algorithm and parameters; isolate format validation while retaining rejection behavior.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/subject/postgres/subject.go",
+    "name": "Repository.Update",
+    "allowed": 17,
+    "reason": "PostgreSQL subject repository maps subject rows and applies optional-field dynamic update patches; separate patch construction while preserving link/type invariants.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/subject/subject.go",
+    "name": "Service.Update",
+    "allowed": 17,
+    "reason": "Subject service validates stored subject type and linked-user invariants before updates; preserve validation order while extracting domain checks.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/testoidc/provider.go",
+    "name": "Provider.authorize",
+    "allowed": 17,
+    "reason": "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/testoidc/provider.go",
+    "name": "Provider.idToken",
+    "allowed": 17,
+    "reason": "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/testoidc/provider.go",
+    "name": "Provider.token",
+    "allowed": 19,
+    "reason": "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/test/oidc-provider/main.go",
+    "name": "main",
+    "allowed": 18,
+    "reason": "Standalone test OIDC provider fixture serves deterministic test protocol endpoints; retain its role as test support, not production code.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/identity/oidc.go",
+    "name": "OIDCService.Callback",
+    "allowed": 108,
+    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/item/completion.go",
+    "name": "Service.Complete",
+    "allowed": 81,
+    "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.Create",
+    "allowed": 89,
+    "reason": "Item domain source combines types, validation, create/list/cursor/update and lifecycle rules; split same-package responsibilities while preserving item behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.List",
+    "allowed": 88,
+    "reason": "Item domain source combines types, validation, create/list/cursor/update and lifecycle rules; split same-package responsibilities while preserving item behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/platform/config/config.go",
+    "name": "LoadFrom",
+    "allowed": 104,
+    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "decodeObject",
+    "allowed": 89,
+    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_nesting",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "Repo.Complete",
+    "allowed": 6,
+    "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_nesting",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "decodeObject",
+    "allowed": 5,
+    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "api/check-generation.mjs",
+    "allowed": 24,
+    "reason": "API code-generation checker compares generated declarations against current OpenAPI inputs; keep drift failures actionable and reformat compact checks.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "api/check-health.mjs",
+    "allowed": 2,
+    "reason": "Health contract checker validates endpoint/model agreement across API artifacts; retain fail-closed contract checks while reformatting assertions.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/cmd/tendo/main.go",
+    "allowed": 6,
+    "reason": "CLI entrypoint wires configuration and application startup; keep process startup and shutdown sequencing explicit.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/household/setup.go",
+    "allowed": 1,
+    "reason": "Household setup service provisions the initial household and owner transactionally; preserve first-owner and rollback invariants.",
+    "owner": "backend-household"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/invitations.go",
+    "allowed": 4,
+    "reason": "Invitation HTTP handlers map create/list/revoke/accept operations to public responses; preserve authorization and response contracts.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/oidc.go",
+    "allowed": 2,
+    "reason": "OIDC HTTP handlers translate start/callback service results into redirects and public errors; retain protocol ordering and redirect contracts.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/session.go",
+    "allowed": 1,
+    "reason": "Session handlers expose session read/deletion behavior and cookie responses; preserve authentication and cookie contracts.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/setup.go",
+    "allowed": 3,
+    "reason": "Setup handler validates initial-owner setup requests and returns setup status; strict JSON decoding and setup-token behavior must remain unchanged.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/invitations.go",
+    "allowed": 1,
+    "reason": "Invitation service validates invitation tokens and coordinates expiry, acceptance, and membership transitions; preserve single-use and authorization rules.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/oidc.go",
+    "allowed": 4,
+    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/oidcprovider/provider.go",
+    "allowed": 4,
+    "reason": "Provider adapter exchanges authorization codes and validates upstream OIDC tokens; preserve issuer, audience, nonce, and JWKS failure handling.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/invitations.go",
+    "allowed": 3,
+    "reason": "Invitation repository persists token lifecycle and membership transactions; preserve expiry, uniqueness, and atomic acceptance semantics.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/oidc.go",
+    "allowed": 7,
+    "reason": "PostgreSQL OIDC repository persists provider links and resolves identities transactionally; retain uniqueness and locking behavior.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/queries/oidc.sql",
+    "allowed": 1,
+    "reason": "OIDC SQL query selects and persists provider identity/link data; preserve uniqueness and transaction assumptions when formatting.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/session.go",
+    "allowed": 3,
+    "reason": "Session repository creates, resolves, and deletes persisted sessions; preserve digest, expiry, and transaction semantics.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/completion.go",
+    "allowed": 3,
+    "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/httpapi/completion.go",
+    "allowed": 1,
+    "reason": "Completion HTTP handler maps complete/undo requests and service outcomes; preserve idempotency and public response contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/httpapi/item.go",
+    "allowed": 4,
+    "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/item.go",
+    "allowed": 9,
+    "reason": "Item domain source combines types, validation, create/list/cursor/update and lifecycle rules; split same-package responsibilities while preserving item behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "allowed": 7,
+    "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/completion.go",
+    "allowed": 17,
+    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/item.go",
+    "allowed": 16,
+    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/queries/completion.sql",
+    "allowed": 9,
+    "reason": "Item completion SQL queries persist and retrieve completion/undo receipts; preserve ordering and transaction semantics.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/queries/item.sql",
+    "allowed": 13,
+    "reason": "Item SQL queries implement item persistence, filtering, and updates; preserve SQL semantics and parameter order when formatting.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/summary.go",
+    "allowed": 2,
+    "reason": "Item summary repository queries completion and attention aggregates; preserve aggregate semantics and query mapping.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/config/config.go",
+    "allowed": 1,
+    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/config/oidc.go",
+    "allowed": 2,
+    "reason": "OIDC configuration loader validates provider settings and credentials at startup; isolate provider validation without changing startup errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/database/migrate.go",
+    "allowed": 1,
+    "reason": "Migration runner serializes schema application and applies migrations transactionally; retain locking and rollback behavior while clarifying orchestration.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httporigin/origin.go",
+    "allowed": 1,
+    "reason": "Authority parser validates host/port/origin syntax used at the HTTP boundary; extract parse stages while preserving accepted-origin rules.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "allowed": 3,
+    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "allowed": 1,
+    "reason": "HTTP origin resolver interprets Origin and forwarded headers; split trusted-proxy parsing while preserving spoofing protections.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httpx/server.go",
+    "allowed": 5,
+    "reason": "HTTP server wiring composes middleware, routes, and shutdown behavior; keep transport boundaries explicit while formatting route setup.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/webui/webui.go",
+    "allowed": 1,
+    "reason": "Web UI embed handler serves the built frontend with SPA fallback; preserve asset and cache behavior.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/httpapi/subject.go",
+    "allowed": 3,
+    "reason": "Subject HTTP handlers translate create/list/update requests and domain validation; preserve public response and error contracts.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/postgres/queries/subject.sql",
+    "allowed": 1,
+    "reason": "Subject SQL queries encode subject filtering and optional update patch semantics; preserve link/type invariants.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/postgres/subject.go",
+    "allowed": 11,
+    "reason": "PostgreSQL subject repository maps subject rows and applies optional-field dynamic update patches; separate patch construction while preserving link/type invariants.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/subject.go",
+    "allowed": 1,
+    "reason": "Subject service validates stored subject type and linked-user invariants before updates; preserve validation order while extracting domain checks.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/subjecttest/repo.go",
+    "allowed": 2,
+    "reason": "In-memory subject repository is a behavioral test double; preserve subject type/link validation behavior exercised by tests.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/testoidc/provider.go",
+    "allowed": 5,
+    "reason": "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/testpostgres/fixture.go",
+    "allowed": 1,
+    "reason": "PostgreSQL integration fixture provisions test-owned database state; maintain alongside integration tests and ownership-safe cleanup.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/a11y.ts",
+    "allowed": 1,
+    "reason": "Browser E2E helper implements a11y test instrumentation; keep test-only support aligned with browser assertions.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/contrast.ts",
+    "allowed": 2,
+    "reason": "Browser E2E helper implements contrast test instrumentation; keep test-only support aligned with browser assertions.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/contrastAudit.ts",
+    "allowed": 2,
+    "reason": "Browser E2E helper implements contrastAudit test instrumentation; keep test-only support aligned with browser assertions.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/motion.ts",
+    "allowed": 1,
+    "reason": "Browser E2E helper implements motion test instrumentation; keep test-only support aligned with browser assertions.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/app/App.tsx",
+    "allowed": 8,
+    "reason": "Application root composes route/session lifecycle; retain concise composition while extracting lifecycle responsibilities.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/app/HouseholdNavigation.tsx",
+    "allowed": 1,
+    "reason": "App-shell component composes route/layout/navigation behavior; retain clear composition and extract only cohesive shared UI.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/app/Layout.tsx",
+    "allowed": 1,
+    "reason": "App-shell component composes route/layout/navigation behavior; retain clear composition and extract only cohesive shared UI.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/components/ui/button.tsx",
+    "allowed": 1,
+    "reason": "Design-system button primitive combines Tailwind variant class strings; preserve class variants and accessibility semantics.",
+    "owner": "frontend-design-system"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/components/ui/input.tsx",
+    "allowed": 1,
+    "reason": "Design-system input primitive combines Tailwind state class strings; preserve focus, invalid, and disabled styles.",
+    "owner": "frontend-design-system"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/auth/AccountScreen.tsx",
+    "allowed": 3,
+    "reason": "Account screen renders account settings forms/actions; separate presentation from update behavior if scope permits.",
+    "owner": "frontend-auth"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/auth/OnboardingScreen.tsx",
+    "allowed": 1,
+    "reason": "Onboarding screen coordinates initial setup states and validation; extract setup sections while preserving first-owner behavior.",
+    "owner": "frontend-auth"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/auth/oidcApi.ts",
+    "allowed": 1,
+    "reason": "Authentication UI currently combines cohesive sign-in/setup presentation and actions; refactor while preserving authentication flow behavior.",
+    "owner": "frontend-auth"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/home/HomeScreen.tsx",
+    "allowed": 1,
+    "reason": "Home route composes household overview widgets and navigation; preserve layout and route behavior while formatting JSX.",
+    "owner": "frontend-home"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/AllItemsScreen.tsx",
+    "allowed": 17,
+    "reason": "All-items screen coordinates filters, URL state, catalogs, paging and rendering; extract cohesive navigation and list responsibilities.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/ItemDetailScreen.tsx",
+    "allowed": 22,
+    "reason": "Item detail screen combines history, conflict-aware edit, lifecycle mutation, and focus behavior; extract edit/history responsibilities.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/ItemForm.tsx",
+    "allowed": 21,
+    "reason": "Item form owns variant fields and validation/submission; separate field groups while preserving validation behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/ItemsScreen.tsx",
+    "allowed": 35,
+    "reason": "Item home screen coordinates list loading, paging, create recovery, completion, focus and rendering; extract hooks/components while preserving user flows.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/itemsApi.ts",
+    "allowed": 9,
+    "reason": "Shared item API adapter maps transport responses and errors; split response mapping while preserving client contracts.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/pendingItemCreate.ts",
+    "allowed": 1,
+    "reason": "Pending item creation helper reconciles persisted uncertain outcomes and retry states; retain recovery semantics while simplifying transitions.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/members/InviteScreen.tsx",
+    "allowed": 9,
+    "reason": "Invitation screen validates and submits invitations and presents results; extract flow steps without changing invitation behavior.",
+    "owner": "frontend-members"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/members/MembersScreen.tsx",
+    "allowed": 21,
+    "reason": "Members screen coordinates membership, invitation lifecycle, paging and focus; separate member and invitation flows while preserving authorization.",
+    "owner": "frontend-members"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/members/membersApi.ts",
+    "allowed": 7,
+    "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
+    "owner": "frontend-members"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/subjects/SubjectForm.tsx",
+    "allowed": 1,
+    "reason": "Subject form validates type-specific fields and linked-user constraints; separate field validation while preserving invariants.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
+    "allowed": 5,
+    "reason": "Subjects screen coordinates paging, member lookup, archive/restore, create/edit recovery and rendering; extract focused hooks/components.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/i18n/cs.ts",
+    "allowed": 1,
+    "reason": "Czech locale catalog contains one existing long line; retain file-size and long-line measurements rather than excluding the catalog.",
+    "owner": "frontend-localization"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/test/fakeItems.ts",
+    "allowed": 2,
+    "reason": "Frontend test fixture/setup helper supports deterministic component tests; maintain with its test consumers.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/test/setup.ts",
+    "allowed": 1,
+    "reason": "Frontend test fixture/setup helper supports deterministic component tests; maintain with its test consumers.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/autonomous-loop.sh",
+    "allowed": 1,
+    "reason": "Operational script coordinates autonomous-loop.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/backup-restore-smoke.sh",
+    "allowed": 8,
+    "reason": "Operational script coordinates backup-restore-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/check-sqlc.sh",
+    "allowed": 1,
+    "reason": "Operational script coordinates check-sqlc.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/e2e-native-runner.py",
+    "allowed": 9,
+    "reason": "Operational script coordinates e2e-native-runner.py process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/e2e-smoke.sh",
+    "allowed": 1,
+    "reason": "Operational script coordinates e2e-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/household-backup-smoke.sh",
+    "allowed": 14,
+    "reason": "Operational script coordinates household-backup-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/oidc-smoke.sh",
+    "allowed": 11,
+    "reason": "Operational script coordinates oidc-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/postgres-test-service.py",
+    "allowed": 7,
+    "reason": "Operational script coordinates postgres-test-service.py process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/proxy-smoke.sh",
+    "allowed": 30,
+    "reason": "Operational script coordinates proxy-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/quickstart-smoke.sh",
+    "allowed": 8,
+    "reason": "Operational script coordinates quickstart-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/runtime-smoke.sh",
+    "allowed": 1,
+    "reason": "Operational script coordinates runtime-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/setup-integration.sh",
+    "allowed": 1,
+    "reason": "Operational script coordinates setup-integration.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/setup-smoke.sh",
+    "allowed": 145,
+    "reason": "Operational script coordinates setup-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/sr-orca-session.sh",
+    "allowed": 4,
+    "reason": "Operational script coordinates sr-orca-session.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/upgrade-smoke.sh",
+    "allowed": 20,
+    "reason": "Operational script coordinates upgrade-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/verify-local.sh",
+    "allowed": 4,
+    "reason": "Operational script coordinates verify-local.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "owner": "tooling-scripts"
+  }
+]

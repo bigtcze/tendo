@@ -83,6 +83,18 @@ func (h *OIDCHandler) identity(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]bool{"linked": linked})
 }
+
+// originAllowed accepts an absent Origin or one canonically equal to the public URL,
+// using the same parser as the global origin middleware.
+func (h *OIDCHandler) originAllowed(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	requestOrigin, requestOK := httporigin.Parse(origin, false)
+	publicOrigin, publicOK := httporigin.Parse(h.publicURL, false)
+	return requestOK && publicOK && requestOrigin == publicOrigin
+}
+
 func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 	if !h.limiter.admitAttempt(clientIP(r)) {
 		w.Header().Set("Retry-After", "60")
@@ -108,13 +120,9 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "oidc_disabled")
 		return
 	}
-	if origin := r.Header.Get("Origin"); origin != "" {
-		requestOrigin, requestOK := httporigin.Parse(origin, false)
-		publicOrigin, publicOK := httporigin.Parse(h.publicURL, false)
-		if !requestOK || !publicOK || requestOrigin != publicOrigin {
-			problem(w, 403, "origin_not_allowed")
-			return
-		}
+	if !h.originAllowed(r.Header.Get("Origin")) {
+		problem(w, 403, "origin_not_allowed")
+		return
 	}
 	var session identity.SessionInfo
 	var principal identity.Principal
