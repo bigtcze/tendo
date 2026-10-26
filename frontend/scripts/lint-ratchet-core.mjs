@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { relative, sep } from 'node:path';
 import { builtinRules } from 'eslint/use-at-your-own-risk';
 
 export const MAINTAINABILITY_THRESHOLDS = Object.freeze({
@@ -7,77 +8,72 @@ export const MAINTAINABILITY_THRESHOLDS = Object.freeze({
   'max-lines-per-function': 80,
 });
 export const MAINTAINABILITY_RULES = new Set(Object.keys(MAINTAINABILITY_THRESHOLDS));
+const FUNCTIONS = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']);
+const SCOPES = new Set(['ClassDeclaration', 'ClassExpression', 'ObjectExpression']);
+const SKIP = new Set(['parent', 'loc', 'range', 'tokens', 'comments']);
+const OPTIONS = {
+  complexity: 0,
+  'max-depth': 0,
+  'max-lines-per-function': {
+    max: 0,
+    skipBlankLines: true,
+    skipComments: true,
+    IIFEs: true,
+  },
+};
+const children = node => Object.entries(node)
+  .filter(([key]) => !SKIP.has(key))
+  .flatMap(([, value]) => Array.isArray(value)
+    ? value.filter(item => item?.type)
+    : value?.type ? [value] : []);
+const propertyName = node => {
+  if (node?.type === 'PrivateIdentifier') return `#${node.name}`;
+  if (node?.type === 'Identifier') return node.name;
+  return node && !node.computed && typeof node.value === 'string' ? node.value : undefined;
+};
 
 export function loadBaseBaseline(ref, cwd) {
-  const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim();
-  const commit = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: repoRoot, encoding: 'utf8' }).trim();
+  const repo = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim();
+  const commit = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: repo, encoding: 'utf8' }).trim();
   const path = 'frontend/maintainability-baseline.json';
-  const treeEntry = execFileSync('git', ['ls-tree', '-r', '--name-only', commit, `:(top)${path}`], { cwd: repoRoot, encoding: 'utf8' });
-  if (!treeEntry.trim()) return null;
-  const content = execFileSync('git', ['show', `${commit}:${path}`], { cwd: repoRoot, encoding: 'utf8' });
+  if (!execFileSync('git', ['ls-tree', '-r', '--name-only', commit, `:(top)${path}`], { cwd: repo, encoding: 'utf8' }).trim()) return null;
   let baseline;
-  try {
-    baseline = JSON.parse(content);
-  } catch (error) {
-    throw new Error(`malformed baseline at ${ref}: ${error.message}`, { cause: error });
-  }
+  try { baseline = JSON.parse(execFileSync('git', ['show', `${commit}:${path}`], { cwd: repo, encoding: 'utf8' })); }
+  catch (error) { if (error instanceof SyntaxError) throw new Error(`malformed baseline at ${ref}: ${error.message}`, { cause: error }); throw error; }
   if (!Array.isArray(baseline)) throw new Error(`baseline at ${ref} must be a JSON array`);
   return baseline;
 }
-
-export function metricKey(file, fn, rule) {
-  return `${file}\0${fn}\0${rule}`;
-}
-
+export const metricKey = (file, fn, rule) => `${file}\0${fn}\0${rule}`;
 export function compareAgainstBase(current, base) {
-  const previous = new Map(
-    base.map(entry => [metricKey(entry.file, entry.function, entry.rule), entry]),
-  );
-  const errors = [];
-  for (const entry of current) {
-    const old = previous.get(metricKey(entry.file, entry.function, entry.rule));
-    if (!old) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} new exception relative to base`);
-    } else if (entry.allowed > old.allowed) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} allowed raised=${entry.allowed} base=${old.allowed}`);
-    }
-  }
-  return errors;
+  const previous = new Map(base.map(item => [metricKey(item.file, item.function, item.rule), item]));
+  return current.flatMap(item => {
+    const old = previous.get(metricKey(item.file, item.function, item.rule));
+    if (!old) return [`${item.file} :: ${item.function} ${item.rule} new exception relative to base`];
+    return item.allowed > old.allowed ? [`${item.file} :: ${item.function} ${item.rule} allowed raised=${item.allowed} base=${old.allowed}`] : [];
+  });
 }
-
 export function compareMaintainability(measured, baseline) {
-  const errors = [];
-  const exceptions = new Map();
-  for (const entry of baseline) {
-    const id = metricKey(entry.file, entry.function, entry.rule);
-    if (exceptions.has(id)) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} duplicate exception`);
-      continue;
+  const errors = [], exceptions = new Map();
+  for (const item of baseline) {
+    const id = metricKey(item.file, item.function, item.rule);
+    if (exceptions.has(id)) { errors.push(`${item.file} :: ${item.function} ${item.rule} duplicate exception`); continue; }
+    exceptions.set(id, item);
+    if (!MAINTAINABILITY_RULES.has(item.rule)) errors.push(`${item.file} invalid rule=${item.rule}`);
+    if (typeof item.reason !== 'string' || !item.reason.trim() || item.reason.startsWith('TODO:')) {
+      errors.push(`${item.file} :: ${item.function} ${item.rule} missing reason`);
     }
-    exceptions.set(id, entry);
-    if (!MAINTAINABILITY_RULES.has(entry.rule)) errors.push(`${entry.file} invalid rule=${entry.rule}`);
-    if (typeof entry.reason !== 'string' || !entry.reason.trim() || entry.reason.startsWith('TODO:')) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} missing reason`);
+    if (typeof item.owner !== 'string' || !item.owner.trim() || item.owner.startsWith('TODO:')) {
+      errors.push(`${item.file} :: ${item.function} ${item.rule} missing owner`);
     }
-    if (typeof entry.owner !== 'string' || !entry.owner.trim() || entry.owner.startsWith('TODO:')) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} missing owner`);
-    }
-    if (!Number.isInteger(entry.allowed) || entry.allowed < 0) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} invalid allowed value`);
-    }
+    if (!Number.isInteger(item.allowed) || item.allowed < 0) errors.push(`${item.file} :: ${item.function} ${item.rule} invalid allowed value`);
   }
-
   const actual = new Map(measured);
-  for (const [id, entry] of exceptions) {
+  for (const [id, item] of exceptions) {
     const value = actual.get(id);
-    if (value === undefined) {
-      errors.push(`${entry.file} :: ${entry.function} ${entry.rule} stale exception: no violation; remove it`);
-    } else {
-      if (value > entry.allowed) {
-        errors.push(`${entry.file} :: ${entry.function} ${entry.rule} measured=${value} allowed=${entry.allowed}`);
-      } else if (value < entry.allowed) {
-        errors.push(`${entry.file} :: ${entry.function} ${entry.rule} stale measured=${value} allowed=${entry.allowed}; tighten`);
-      }
+    if (value === undefined) errors.push(`${item.file} :: ${item.function} ${item.rule} stale exception: no violation; remove it`);
+    else {
+      if (value > item.allowed) errors.push(`${item.file} :: ${item.function} ${item.rule} measured=${value} allowed=${item.allowed}`);
+      else if (value < item.allowed) errors.push(`${item.file} :: ${item.function} ${item.rule} stale measured=${value} allowed=${item.allowed}; tighten`);
       actual.delete(id);
     }
   }
@@ -88,215 +84,162 @@ export function compareMaintainability(measured, baseline) {
   return errors;
 }
 
-const FUNCTION_TYPES = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']);
-const SCOPE_TYPES = new Set(['ClassDeclaration', 'ClassExpression', 'ObjectExpression']);
-
-function children(node) {
-  const result = [];
-  for (const [key, value] of Object.entries(node ?? {})) {
-    if (['parent', 'loc', 'range', 'tokens', 'comments'].includes(key)) continue;
-    if (Array.isArray(value)) result.push(...value.filter(item => item && typeof item.type === 'string'));
-    else if (value && typeof value.type === 'string') result.push(value);
+export function createIdentityResolver(ast) {
+  const cache = new WeakMap(), identities = new WeakMap(), owners = [], seen = new Map(), duplicates = new Set();
+  function identityOf(node) {
+    if (cache.has(node)) return cache.get(node);
+    const chain = [];
+    for (let n = node; n && n.type !== 'Program'; n = n.parent) chain.push(n);
+    const id = chain.reverse().map(n => identities.get(n)).filter(Boolean).join('.');
+    cache.set(node, id);
+    return id;
   }
-  return result;
-}
-
-function propertyName(node) {
-  return node?.name ?? (typeof node?.value === 'string' ? node.value : undefined);
-}
-
-function qualified(parent, name) {
-  return parent && name ? `${parent}.${name}` : name ?? parent ?? '';
-}
-
-function declarationName(node, parent) {
-  if (node.id?.name) return node.id.name;
-  if (parent?.type === 'VariableDeclarator') return propertyName(parent.id);
-  if (parent?.type === 'AssignmentExpression') return propertyName(parent.left);
-  if (['Property', 'MethodDefinition', 'PropertyDefinition'].includes(parent?.type)) {
-    return propertyName(parent.key);
+  function register(node, identity) {
+    identities.set(node, identity); cache.set(node, identity);
+    if (seen.has(identity)) duplicates.add(identity); else seen.set(identity, node);
+    owners.push({ node, identity });
   }
-  return undefined;
-}
-
-function scopeName(node, parent) {
-  if (node.id?.name) return node.id.name;
-  if (parent?.type === 'VariableDeclarator') return propertyName(parent.id);
-  if (parent?.type === 'AssignmentExpression') return propertyName(parent.left);
-  return undefined;
-}
-
-export function collectFunctionNodes(ast) {
-  const functions = [];
-  const duplicateIdentities = [];
-  const seen = new Set();
-
-  function visit(node, parentNode = null, scope = '', ordinals = new Map()) {
-    if (!node || typeof node.type !== 'string') return;
-    if (SCOPE_TYPES.has(node.type)) {
-      const namedScope = scopeName(node, parentNode);
-      const ordinal = (ordinals.get(scope) ?? 0) + 1;
-      const anonymousScope = node.type === 'ObjectExpression'
-        ? `<object#${ordinal}>`
-        : `<class#${ordinal}>`;
-      if (!namedScope) ordinals.set(scope, ordinal);
-      const nestedScope = qualified(scope, namedScope ?? anonymousScope);
-      const scopeOrdinals = new Map();
-      for (const child of children(node)) visit(child, node, nestedScope, scopeOrdinals);
+  function visit(node, scope = '', counters = { anonymous: 0, class: 0, object: 0, static: 0, computed: 0 }) {
+    if (!node?.type) return;
+    const parent = node.parent, qualify = part => scope ? `${scope}.${part}` : part;
+    if (SCOPES.has(node.type)) {
+      let name = node.id?.name;
+      if (!name && parent?.type === 'VariableDeclarator') name = propertyName(parent.id);
+      if (!name && parent?.type === 'AssignmentExpression') name = propertyName(parent.left);
+      if (!name && parent?.type === 'Property') name = propertyName(parent.key);
+      if (!name) name = `${node.type === 'ObjectExpression' ? 'object' : 'class'}#${++counters[node.type === 'ObjectExpression' ? 'object' : 'class']}`;
+      const next = qualify(name); identities.set(node, next);
+      const nested = { anonymous: 0, class: 0, object: 0, static: 0, computed: 0 };
+      for (const child of children(node)) {
+        const method = child.type === 'MethodDefinition' || child.type === 'Property';
+        if (method && child.value && FUNCTIONS.has(child.value.type)) {
+          const methodName = `${child.static ? 'static.' : ''}${propertyName(child.key) ?? `computed#${++nested.computed}`}`;
+          const methodId = `${next}.${methodName}`;
+          identities.set(child, methodName);
+          register(child.value, methodId);
+          const methodNested = { anonymous: 0, class: 0, object: 0, static: 0, computed: 0 };
+          for (const parameter of child.value.params ?? []) visit(parameter, methodId, methodNested);
+          if (child.value.body) visit(child.value.body, methodId, methodNested);
+        } else visit(child, next, nested);
+      }
       return;
     }
-    if (node.type === 'PropertyDefinition' && node.value) {
-      const name = qualified(scope, `<field:${propertyName(node.key) ?? 'computed'}>`);
-      functions.push({ node, name, start: node.loc.start, end: node.loc.end, implicit: true, displayName: 'class field initializer' });
-      visit(node.value, node, name, new Map());
+    if (node.type === 'PropertyDefinition') {
+      const name = propertyName(node.key) ?? `computed#${++counters.computed}`;
+      const segment = `<${node.static ? 'static-' : ''}field:${name}>`, id = qualify(segment);
+      identities.set(node, id);
+      if (node.value && !FUNCTIONS.has(node.value.type)) register(node.value, id);
+      if (node.value) {
+        const nested = { anonymous: 0, class: 0, object: 0, static: 0, computed: 0 };
+        visit(node.value, id, nested);
+      }
       return;
     }
     if (node.type === 'StaticBlock') {
-      const ordinal = (ordinals.get(`${scope}:static`) ?? 0) + 1;
-      ordinals.set(`${scope}:static`, ordinal);
-      const name = qualified(scope, `<static#${ordinal}>`);
-      functions.push({ node, name, start: node.loc.start, end: node.loc.end, implicit: true, displayName: 'class static block' });
-      for (const child of children(node)) visit(child, node, name, new Map());
+      const segment = `<static-block#${++counters.static}>`, id = qualify(segment);
+      register(node, id);
+      const nested = { anonymous: 0, class: 0, object: 0, static: 0, computed: 0 };
+      for (const child of children(node)) visit(child, id, nested);
       return;
     }
-    if (FUNCTION_TYPES.has(node.type)) {
-      const named = declarationName(node, parentNode);
-      const ordinal = (ordinals.get(scope) ?? 0) + 1;
-      ordinals.set(scope, ordinal);
-      const functionName = named ?? `<anonymous#${ordinal}>`;
-      const baseIdentity = qualified(scope, functionName);
-      let identity = baseIdentity;
-      if (seen.has(identity)) {
-        duplicateIdentities.push(baseIdentity);
-        let suffix = 2;
-        while (seen.has(`${baseIdentity}<duplicate#${suffix}>`)) suffix++;
-        identity = `${baseIdentity}<duplicate#${suffix}>`;
+    if (FUNCTIONS.has(node.type)) {
+      let name = node.type === 'FunctionDeclaration' ? node.id?.name : undefined;
+      if (!name && parent?.type === 'VariableDeclarator') name = propertyName(parent.id);
+      if (!name && parent?.type === 'AssignmentExpression') name = propertyName(parent.left);
+      if (!name && parent?.type === 'PropertyDefinition') name = propertyName(parent.key) ?? `computed#${++counters.computed}`;
+      if (!name && (parent?.type === 'Property' || parent?.type === 'MethodDefinition')) {
+        name = `${parent.static ? 'static.' : ''}${propertyName(parent.key) ?? `computed#${++counters.computed}`}`;
       }
-      seen.add(identity);
-      functions.push({ node, name: identity, start: node.loc.start, end: node.loc.end });
-      const nestedOrdinals = new Map();
-      for (const parameter of node.params ?? []) visit(parameter, node, identity, nestedOrdinals);
-      if (node.body) visit(node.body, node, identity, nestedOrdinals);
+      if (!name) name = `anonymous#${++counters.anonymous}`;
+      const id = parent?.type === 'PropertyDefinition' ? `${identities.get(parent)}.${name}` : qualify(name);
+      register(node, id);
+      const nested = { anonymous: 0, class: 0, object: 0, static: 0, computed: 0 };
+      for (const parameter of node.params ?? []) visit(parameter, id, nested);
+      if (node.body) visit(node.body, id, nested);
       return;
     }
-    for (const child of children(node)) visit(child, node, scope, ordinals);
+    let nextScope = scope;
+    if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && !FUNCTIONS.has(node.init?.type)) nextScope = qualify(node.id.name);
+    for (const child of children(node)) visit(child, nextScope, counters);
   }
-
   visit(ast);
-  return { functions, duplicateIdentities };
-}
-
-function functionForReport(node, functions, reportLoc) {
-  if (reportLoc?.start) {
-    const implicit = functions.find(entry => entry.implicit && entry.start.line === reportLoc.start.line);
-    if (implicit) return implicit;
-  }
-  const methodFunction = ['MethodDefinition', 'Property'].includes(node?.type) ? node.value : undefined;
-  if (methodFunction) {
-    const method = functions.find(entry => entry.node === methodFunction);
-    if (method) return method;
-  }
-  let current = node;
-  while (current) {
-    const exact = functions.find(entry => entry.node === current);
-    if (exact) return exact;
-    if (current.type === 'PropertyDefinition' || current.type === 'StaticBlock') {
-      const implicit = functions.find(entry => entry.node === current);
-      if (implicit) return implicit;
+  function ownerOf(node) {
+    for (let n = node; n; n = n.parent) {
+      if (FUNCTIONS.has(n.type) || n.type === 'StaticBlock') return n;
+      if (n.type === 'PropertyDefinition') return n.value && FUNCTIONS.has(n.value.type) ? n.value : n;
     }
-    if (current.type === 'ClassBody') return undefined;
-    current = current.parent;
+    return undefined;
   }
-  return undefined;
+  return { identityOf, ownerOf, owners, duplicateIdentities: [...duplicates] };
 }
 
-const RULE_OPTIONS = {
-  complexity: 0,
-  'max-depth': 0,
-  'max-lines-per-function': { max: 0, skipBlankLines: true, skipComments: true, IIFEs: true },
-};
-
-function coreRuleListener(context, state, ruleName) {
-  const rule = builtinRules.get(ruleName);
+function coreListener(context, state, name) {
   const proxy = Object.create(context);
-  Object.defineProperty(proxy, 'options', { value: [RULE_OPTIONS[ruleName]] });
-  Object.defineProperty(proxy, 'report', {
-    value: descriptor => collectRuleReport(context, state, ruleName, descriptor),
-  });
-  return rule.create(proxy);
+  Object.defineProperty(proxy, 'options', { value: [OPTIONS[name]] });
+  Object.defineProperty(proxy, 'report', { value: descriptor => {
+    const reportNode = name === 'max-lines-per-function'
+      && ['MethodDefinition', 'Property'].includes(descriptor.node?.type)
+      ? descriptor.node.value
+      : descriptor.node;
+    const owner = state.identities.ownerOf(reportNode), identity = owner && state.identities.identityOf(owner), data = descriptor.data ?? {};
+    const value = data.complexity ?? data.depth ?? data.lineCount;
+    if (!identity || !Number.isInteger(value)) {
+      context.report({ node: descriptor.node, message: JSON.stringify({ attributionError: `Unable to attribute ${name} report to a code-path owner` }) });
+      return;
+    }
+    const key = metricKey(state.file, identity, name);
+    state.measured.set(key, Math.max(state.measured.get(key) ?? 0, value));
+  } });
+  return builtinRules.get(name).create(proxy);
 }
-
-function collectRuleReport(context, state, ruleName, descriptor) {
-  const fn = functionForReport(descriptor.node, state.functions, descriptor.loc);
-  const identity = fn?.name;
-  const data = descriptor.data ?? {};
-  const value = data.complexity ?? data.depth ?? data.lineCount;
-  if (!identity || !Number.isInteger(value)) {
-    context.report({ node: descriptor.node, message: `Unable to attribute ${ruleName} report to function` });
-    return;
-  }
-  const key = metricKey(state.file, identity, ruleName);
-  const measuredValue = Math.max(state.measured.get(key) ?? 0, value);
-  state.measured.set(key, measuredValue);
-  if (fn.displayName) {
-    const displayedKey = metricKey(state.file, fn.displayName, ruleName);
-    state.measured.set(displayedKey, Math.max(state.measured.get(displayedKey) ?? 0, measuredValue));
-  }
-}
-
-function exactCoreListeners(context, state) {
-  const listeners = Object.keys(RULE_OPTIONS)
-    .map(rule => coreRuleListener(context, state, rule));
+function listeners(context, state) {
   const combined = {};
-  for (const listener of listeners) {
-    for (const [selector, handler] of Object.entries(listener)) {
+  for (const name of Object.keys(OPTIONS)) {
+    for (const [selector, handler] of Object.entries(coreListener(context, state, name))) {
       (combined[selector] ??= []).push(handler);
     }
   }
   return combined;
 }
-
-export const maintainabilityPlugin = {
-  rules: {
-    metrics: {
-      meta: { type: 'problem', schema: [], messages: { violation: '{{payload}}' } },
-      create(context) {
-        const state = { file: '', functions: [], measured: new Map() };
-        const merged = exactCoreListeners(context, state);
-        const result = {};
-        for (const [selector, handlers] of Object.entries(merged)) {
-          result[selector] = (...args) => handlers.forEach(handler => handler(...args));
-        }
-        (merged.Program ??= []).push(node => {
-          const normalizedFilename = context.filename.replaceAll('\\', '/');
-          const sourceIndex = normalizedFilename.lastIndexOf('/src/');
-          state.file = sourceIndex >= 0 ? normalizedFilename.slice(sourceIndex + 1) : normalizedFilename;
-          const collected = collectFunctionNodes(node);
-          state.functions = collected.functions;
-          for (const duplicate of collected.duplicateIdentities) {
-            context.report({
-              node,
-              messageId: 'violation',
-              data: { payload: JSON.stringify({ file: state.file, duplicateIdentity: duplicate, violations: [] }) },
-            });
-          }
+export function measurementsFromResults(results) {
+  const measured = new Map(), errors = [];
+  for (const result of results) for (const message of result.messages) {
+    if (message.ruleId !== 'maintainability/metrics') continue;
+    const payload = JSON.parse(message.message);
+    if (payload.duplicateIdentity) { errors.push(`${payload.file} duplicate function identity: ${payload.duplicateIdentity}`); continue; }
+    if (payload.attributionError) { errors.push(`${result.filePath} ${payload.attributionError}`); continue; }
+    for (const rule of payload.violations) {
+      const key = metricKey(payload.file, payload.function, rule);
+      measured.set(key, Math.max(measured.get(key) ?? 0, payload[rule]));
+    }
+  }
+  return { measured, errors };
+}
+export const maintainabilityPlugin = { rules: { metrics: {
+  meta: { type: 'problem', schema: [], messages: { violation: '{{payload}}' } },
+  create(context) {
+    const state = { file: '', identities: null, measured: new Map() }, combined = listeners(context, state), result = {};
+    for (const [selector, handlers] of Object.entries(combined)) result[selector] = (...args) => handlers.forEach(handler => handler(...args));
+    (combined.Program ??= []).push(node => {
+      state.file = relative(context.cwd, context.filename).split(sep).join('/');
+      state.identities = createIdentityResolver(node);
+      for (const identity of state.identities.duplicateIdentities) {
+        context.report({
+          node,
+          messageId: 'violation',
+          data: { payload: JSON.stringify({ file: state.file, duplicateIdentity: identity, violations: [] }) },
         });
-        result.Program = (...args) => {
-          for (const handler of merged.Program ?? []) handler(...args);
-        };
-        result['Program:exit'] = () => {
-          for (const [id, value] of state.measured) {
-            const [file, fn, rule] = id.split('\0');
-            if (value <= MAINTAINABILITY_THRESHOLDS[rule]) continue;
-            const functionEntry = state.functions.find(item => item.name === fn);
-            context.report({
-              node: functionEntry?.node ?? context.sourceCode.ast,
-              message: JSON.stringify({ file, function: fn, displayFunction: functionEntry?.displayName ?? fn, violations: [rule], [rule]: value }),
-            });
-          }
-        };
-        return result;
-      },
-    },
+      }
+    });
+    result.Program = (...args) => (combined.Program ?? []).forEach(handler => handler(...args));
+    result['Program:exit'] = () => {
+      for (const [id, value] of state.measured) {
+        const [file, fn, rule] = id.split('\0');
+        if (value <= MAINTAINABILITY_THRESHOLDS[rule]) continue;
+        const owner = state.identities.owners.find(item => item.identity === fn || item.identity.endsWith(`.${fn}`))?.node;
+        context.report({ node: owner ?? context.sourceCode.ast, message: JSON.stringify({ file, function: fn, violations: [rule], [rule]: value }) });
+      }
+    };
+    return result;
   },
-};
+} } };

@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   compareAgainstBase,
   compareMaintainability,
-  collectFunctionNodes,
+  measurementsFromResults,
   loadBaseBaseline,
   metricKey,
   maintainabilityPlugin,
@@ -85,7 +85,7 @@ test('delegated ESLint rules preserve core complexity and report attribution', a
     }] });
     const [result] = await eslint.lintFiles([path]);
     const [coreResult] = await core.lintFiles([path]);
-    const reports = result.messages.filter(message => message.ruleId === 'maintainability/metrics').map(message => JSON.parse(message.message));
+    const { measured } = measurementsFromResults([result]);
     const coreMetrics = new Map();
     for (const message of coreResult.messages) {
       const rule = message.ruleId;
@@ -96,16 +96,18 @@ test('delegated ESLint rules preserve core complexity and report attribution', a
       const key = `${message.node?.type}:${message.line}:${rule}`;
       coreMetrics.set(key, Number(value));
     }
-    const measured = Object.assign({}, ...reports.filter(payload => payload.function === 'measured'));
-    assert.ok(measured.function, JSON.stringify(reports));
+    const actualComplexity = measured.get(metricKey('src/core.ts', 'measured', 'complexity'));
+    const actualDepth = measured.get(metricKey('src/core.ts', 'measured', 'max-depth'));
+    const actualLines = measured.get(metricKey('src/core.ts', 'measured', 'max-lines-per-function'));
+    assert.ok(actualComplexity > 0);
     assert.ok(!result.messages.some(message => message.message.includes('Unable to attribute')));
     const complexity = Math.max(...coreResult.messages.filter(message => message.ruleId === 'complexity').map(message => Number(message.message.match(/complexity of (\d+)/)?.[1] ?? 0)));
     const depth = Math.max(...coreResult.messages.filter(message => message.ruleId === 'max-depth').map(message => Number(message.message.match(/too deeply \((\d+)\)/)?.[1] ?? 0)));
     const linesMessage = coreResult.messages.find(message => message.ruleId === 'max-lines-per-function' && message.message.includes('measured'));
     const lines = Number(linesMessage.message.match(/lines \((\d+)\)/)?.[1]);
-    assert.equal(measured.complexity, complexity);
-    assert.equal(measured['max-depth'], depth);
-    assert.equal(measured['max-lines-per-function'], lines);
+    assert.equal(actualComplexity, complexity);
+    assert.equal(actualDepth, depth);
+    assert.equal(actualLines, lines);
     assert.ok(coreMetrics.size >= 3, 'core rules report the fixture code paths and rules');
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -126,11 +128,114 @@ test('class field initializers and static blocks have independent identities', a
       rules: { 'maintainability/metrics': 'error' },
     }] });
     const [result] = await eslint.lintFiles([path]);
-    const reports = result.messages.filter(message => message.ruleId === 'maintainability/metrics').map(message => JSON.parse(message.message));
-    assert.ok(reports.some(item => item.function.includes('<field:field>')));
-    assert.ok(reports.some(item => item.function.includes('<static#1>')), JSON.stringify(reports));
-    assert.ok(!reports.some(item => item.function === 'Example.method'));
+    const { measured, errors } = measurementsFromResults([result]);
+    assert.deepEqual(errors, []);
+    assert.ok(measured.has(metricKey('src/implicit.ts', 'Example.<field:field>.anonymous#1', 'complexity')));
+    assert.ok(measured.has(metricKey('src/implicit.ts', 'Example.<static-block#1>', 'complexity')));
+    assert.ok(!measured.has(metricKey('src/implicit.ts', 'Example.method', 'complexity')));
     assert.ok(!result.messages.some(message => message.message.includes('Unable to attribute')));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('field arrow callbacks own their own reports', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-field-arrow-owner-'));
+  try {
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'src'), { recursive: true }));
+    const path = join(directory, 'src/arrow.ts');
+    const branches = Array.from({ length: 19 }, (_, i) => `if (value === ${i}) return ${i};`).join('\n');
+    await writeFile(path, `class ArrowField {\n  callback = (value: number) => {\n${branches}\n    return 0;\n  };\n}\n`);
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
+      plugins: { maintainability: maintainabilityPlugin }, rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const [result] = await eslint.lintFiles([path]);
+    const { measured, errors } = measurementsFromResults([result]);
+    assert.deepEqual(errors, []);
+    assert.equal(measured.get(metricKey('src/arrow.ts', 'ArrowField.<field:callback>.callback', 'complexity')), 20);
+    assert.equal(measured.has(metricKey('src/arrow.ts', 'ArrowField.<field:callback>', 'complexity')), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('class initializer identities stay unique across modes and computed keys', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-fields-'));
+  try {
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'src'), { recursive: true }));
+    const path = join(directory, 'src/fields.ts');
+    const branch = n => Array.from({ length: n - 1 }, (_, i) => `if (value === ${i}) return ${i};`).join('\n');
+    await writeFile(path, `class Fields {\nstatic foo = () => {\n${branch(21)}\nreturn 0; }; foo = () => {\n${branch(17)}\nreturn 0; };\nfirst = (() => {\n${branch(18)}\nreturn 0; })();\nsecond = (() => {\n${branch(16)}\nreturn 0; })();\n[Fields.key()] = (() => {\n${branch(19)}\nreturn 0; })();\n}\n`);
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
+      plugins: { maintainability: maintainabilityPlugin },
+      rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const [result] = await eslint.lintFiles([path]);
+    const { measured, errors } = measurementsFromResults([result]);
+    assert.deepEqual(errors, []);
+    const keys = [...measured.keys()].filter(key => key.endsWith('\0complexity'));
+    assert.ok(keys.some(key => key.includes('<static-field:foo>')));
+    assert.ok(keys.some(key => key.includes('<field:foo>')));
+    assert.equal(keys.filter(key => key.includes('<field:first>')).length, 1);
+    assert.equal(measured.get(keys.find(key => key.includes('<static-field:foo>'))), 21);
+    assert.equal(measured.get(keys.find(key => key.includes('<field:foo>'))), 17);
+    assert.equal(measured.get(keys.find(key => key.includes('<field:first>'))), 18);
+    assert.equal(keys.filter(key => key.includes('<field:second>')).length, 1);
+    assert.ok(keys.some(key => key.includes('<field:computed#')));
+    assert.equal(new Set(keys).size, keys.length);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('same-line fields and method receive separate effective identities', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-one-line-class-'));
+  try {
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'src'), { recursive: true }));
+    const path = join(directory, 'src/one-line.ts');
+    const branches = count => Array.from({ length: count - 1 }, (_, i) => `if (value === ${i}) return ${i};`).join(' ');
+    await writeFile(path, `class OneLine { first = (() => { ${branches(21)} return 0; })(); second = (() => { ${branches(17)} return 0; })(); method(value: number) { ${branches(19)} return 0; } }`);
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
+      plugins: { maintainability: maintainabilityPlugin }, rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const [result] = await eslint.lintFiles([path]);
+    const { measured, errors } = measurementsFromResults([result]);
+    assert.deepEqual(errors, []);
+    assert.equal(measured.get(metricKey('src/one-line.ts', 'OneLine.<field:first>.anonymous#1', 'complexity')), 21);
+    assert.equal(measured.get(metricKey('src/one-line.ts', 'OneLine.<field:second>.anonymous#1', 'complexity')), 17);
+    assert.ok([...measured.keys()].some(key => key.includes('OneLine.method') && key.endsWith('\0complexity')));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('nested src path segments remain part of file identity', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-nested-src-'));
+  try {
+    const { mkdir } = await import('node:fs/promises');
+    const nested = join(directory, 'src/new/src/app');
+    const normal = join(directory, 'src/app');
+    await mkdir(nested, { recursive: true });
+    await mkdir(normal, { recursive: true });
+    const lines = count => Array.from({ length: count }, (_, index) => `if (value === ${index}) return ${index};`).join('\n');
+    await writeFile(join(nested, 'App.tsx'), `export function App(value: number) {\n${lines(20)}\nreturn 0; }\n`);
+    await writeFile(join(normal, 'App.tsx'), `export function App(value: number) {\n${lines(18)}\nreturn 0; }\n`);
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.tsx'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
+      plugins: { maintainability: maintainabilityPlugin },
+      rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const results = await eslint.lintFiles(['src/**/*.tsx']);
+    const { measured } = measurementsFromResults(results);
+    assert.ok(measured.has(metricKey('src/new/src/app/App.tsx', 'App', 'complexity')));
+    assert.ok(measured.has(metricKey('src/app/App.tsx', 'App', 'complexity')));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -144,28 +249,25 @@ test('base comparison rejects new or raised entries and bootstraps without basel
   assert.deepEqual(compareAgainstBase([], []), []);
 });
 
-test('collects uniquely qualified function declarations and nested closures', () => {
-  const loc = { start: { line: 1 }, end: { line: 5 } };
-  const ast = {
-    type: 'Program', loc,
-    body: [{ type: 'FunctionDeclaration', id: { name: 'root' }, loc, body: { type: 'BlockStatement', loc, body: [
-      { type: 'FunctionDeclaration', id: { name: 'helper' }, loc, body: { type: 'BlockStatement', loc, body: [] } },
-    ] } }],
-  };
-  assert.deepEqual(collectFunctionNodes(ast).functions.map(item => item.name), ['root', 'root.helper']);
+test('duplicate owner identities are detected and rejected', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-duplicate-owner-'));
+  try {
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'src'), { recursive: true }));
+    const path = join(directory, 'src/duplicate.ts');
+    await writeFile(path, `function same() { if (true) return 1; }\nfunction same() { if (true) return 2; }\n`);
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
+      plugins: { maintainability: maintainabilityPlugin },
+      rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const [result] = await eslint.lintFiles([path]);
+    assert.ok(measurementsFromResults([result]).errors.some(error => error.includes('duplicate function identity')));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
-test('duplicate identities are detected and assigned deterministic unique names', () => {
-  const loc = { start: { line: 1 }, end: { line: 2 } };
-  const fn = () => ({ type: 'FunctionExpression', loc, params: [], body: { type: 'BlockStatement', loc, body: [] } });
-  const ast = { type: 'Program', loc, body: [
-    { type: 'VariableDeclaration', declarations: [{ type: 'VariableDeclarator', id: { type: 'Identifier', name: 'same' }, init: fn() }] },
-    { type: 'VariableDeclaration', declarations: [{ type: 'VariableDeclarator', id: { type: 'Identifier', name: 'same' }, init: fn() }] },
-  ] };
-  const collected = collectFunctionNodes(ast);
-  assert.deepEqual(collected.duplicateIdentities, ['same']);
-  assert.deepEqual(collected.functions.map(item => item.name), ['same', 'same<duplicate#2>']);
-});
 
 test('base loader bootstraps only when a resolved ref has no baseline', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'tendo-base-loader-'));

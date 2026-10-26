@@ -57,7 +57,7 @@
   },
   {
     "file": "src/features/items/AllItemsScreen.tsx",
-    "function": "AllItemsScreen.<anonymous#3>.run",
+    "function": "AllItemsScreen.loadPage.anonymous#3.run",
     "rule": "complexity",
     "allowed": 18,
     "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
@@ -217,7 +217,7 @@
   },
   {
     "file": "src/features/items/useSubjectLabels.ts",
-    "function": "useSubjectLabels.<anonymous#5>",
+    "function": "useSubjectLabels.run.anonymous#5",
     "rule": "complexity",
     "allowed": 17,
     "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
@@ -265,7 +265,7 @@
   },
   {
     "file": "src/features/members/MembersScreen.tsx",
-    "function": "MembersScreen.<anonymous#5>.<anonymous#1>",
+    "function": "MembersScreen.anonymous#5.anonymous#1",
     "rule": "complexity",
     "allowed": 20,
     "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",

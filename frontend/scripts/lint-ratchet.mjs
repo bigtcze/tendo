@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import tseslint from 'typescript-eslint';
-import { compareAgainstBase, compareMaintainability, loadBaseBaseline, maintainabilityPlugin, metricKey } from './lint-ratchet-core.mjs';
+import { compareAgainstBase, compareMaintainability, loadBaseBaseline, maintainabilityPlugin, measurementsFromResults } from './lint-ratchet-core.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const BASELINE_PATH = resolve(ROOT, 'maintainability-baseline.json');
@@ -65,27 +65,10 @@ async function hasMaintainabilityDirective(file, directive) {
   console.error(`${file} contains an inline directive for a maintainability rule`);
   return true;
 }
-const measured = new Map();
-for (const result of results) {
-  for (const message of result.messages) {
-    if (message.ruleId !== 'maintainability/metrics') {
-      if (message.message.startsWith('Duplicate function identity')) {
-        console.error(message.message);
-        process.exitCode = 1;
-      }
-      continue;
-    }
-    const payload = JSON.parse(message.message);
-    if (payload.duplicateIdentity) {
-      console.error(`${payload.file} duplicate function identity: ${payload.duplicateIdentity}`);
-      process.exitCode = 1;
-      continue;
-    }
-    for (const rule of payload.violations) {
-      const key = metricKey(payload.file, payload.displayFunction ?? payload.function, rule);
-      measured.set(key, Math.max(measured.get(key) ?? 0, payload[rule]));
-    }
-  }
+const { measured, errors: attributionErrors } = measurementsFromResults(results);
+for (const error of attributionErrors) {
+  console.error(error);
+  process.exitCode = 1;
 }
 const errors = compareMaintainability(measured, baseline);
 if (baseBaseline) errors.push(...compareAgainstBase(baseline, baseBaseline));
