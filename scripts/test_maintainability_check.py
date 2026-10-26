@@ -8,6 +8,8 @@ from unittest.mock import patch
 import tempfile
 import unittest
 
+GIT_IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.invalid")
+
 MODULE_PATH = Path(__file__).with_name("maintainability_check.py")
 spec = importlib.util.spec_from_file_location("maintainability_check", MODULE_PATH)
 check = importlib.util.module_from_spec(spec)
@@ -49,7 +51,7 @@ class MaintainabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+            subprocess.run(["git", "-C", str(root), *GIT_IDENTITY, "commit", "--allow-empty", "-qm", "fixture"], check=True)
             self.assertIsNone(check.load_base_baseline("HEAD", root))
 
     def test_base_ref_errors_fail_closed(self):
@@ -58,11 +60,11 @@ class MaintainabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+            subprocess.run(["git", "-C", str(root), *GIT_IDENTITY, "commit", "--allow-empty", "-qm", "fixture"], check=True)
             (root / "ci").mkdir()
             (root / "ci/maintainability-baseline.json").write_text("{bad", encoding="utf-8")
             subprocess.run(["git", "-C", str(root), "add", "ci/maintainability-baseline.json"], check=True)
-            subprocess.run(["git", "-C", str(root), "commit", "-qm", "malformed baseline"], check=True)
+            subprocess.run(["git", "-C", str(root), *GIT_IDENTITY, "commit", "-qm", "malformed baseline"], check=True)
             with self.assertRaises(Exception):
                 check.load_base_baseline("HEAD", root)
 

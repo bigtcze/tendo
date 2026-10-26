@@ -457,9 +457,10 @@ test('base loader bootstraps only when a resolved ref has no baseline', async ()
   const directory = await mkdtemp(join(tmpdir(), 'tendo-base-loader-'));
   try {
     const { execFileSync } = await import('node:child_process');
-    const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'ignore' });
+    const identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+    const git = (...args) => execFileSync('git', [...identity, ...args], { cwd: directory, stdio: 'ignore' });
     git('init', '-q');
-    git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'empty');
+    git('commit', '--allow-empty', '-qm', 'empty');
     assert.equal(loadBaseBaseline('HEAD', directory), null);
     assert.throws(() => loadBaseBaseline('missing-ref', directory));
     await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'frontend'), { recursive: true }));
