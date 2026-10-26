@@ -33,6 +33,13 @@ class MaintainabilityTests(unittest.TestCase):
         errors = check.check_metrics(metrics, baseline)
         self.assertTrue(any(expected in error for error in errors), errors)
 
+    def test_base_ref_rejects_raised_and_new_exceptions(self):
+        prior = [{"kind": "file_lines", "path": "backend/a.go", "allowed": 510}]
+        raised = [{"kind": "file_lines", "path": "backend/a.go", "allowed": 520}]
+        added = prior + [{"kind": "func_lines", "path": "backend/a.go", "name": "F", "allowed": 81}]
+        self.assertTrue(any("allowed raised=520 base=510" in error for error in check.baseline_errors_against_base(raised, prior)))
+        self.assertTrue(any("new exception relative to base" in error for error in check.baseline_errors_against_base(added, prior)))
+
     def test_new_violation(self):
         self.assert_error({("func_lines", "backend/a.go", "F"): 81}, [], "measured=81 allowed=80")
 

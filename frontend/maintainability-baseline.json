@@ -1,170 +1,234 @@
 [
   {
     "file": "src/app/App.tsx",
+    "function": "App",
     "rule": "max-lines-per-function",
-    "allowed": 250,
-    "reason": "P2 audit candidate: route and session composition is high-centrality; extract lifecycle boundaries while retaining a concise app composition.",
-    "owner": "frontend-app"
-  },
-  {
-    "file": "src/app/App.tsx",
-    "rule": "complexity",
-    "allowed": 34,
-    "reason": "P2 audit candidate: route and session composition is high-centrality; extract lifecycle boundaries while retaining a concise app composition.",
+    "allowed": 265,
+    "reason": "P2 candidate: route/session composition is a central app lifecycle boundary; retain composition and extract lifecycle logic carefully.",
     "owner": "frontend-app"
   },
   {
     "file": "src/features/auth/AccountScreen.tsx",
+    "function": "AccountScreen",
     "rule": "max-lines-per-function",
-    "allowed": 136,
-    "reason": "P2 monitored auth UI: account settings form/action rendering exceeds the function-size trigger; extract cohesive sections if safely scoped.",
+    "allowed": 143,
+    "reason": "P2 candidate: account settings form and actions share rendering; extract cohesive UI sections preserving account update behavior.",
     "owner": "frontend-auth"
   },
   {
     "file": "src/features/auth/LoginScreen.tsx",
+    "function": "LoginScreen",
     "rule": "max-lines-per-function",
-    "allowed": 156,
-    "reason": "P2 monitored auth UI: login and recovery states share a screen; separate cohesive presentation/actions while preserving the authentication flow.",
+    "allowed": 164,
+    "reason": "P2 candidate: sign-in and recovery flows share a screen; extract clear presentation/action boundaries preserving auth semantics.",
     "owner": "frontend-auth"
   },
   {
     "file": "src/features/auth/OnboardingScreen.tsx",
+    "function": "OnboardingScreen",
     "rule": "max-lines-per-function",
-    "allowed": 191,
-    "reason": "P2 monitored auth UI: onboarding coordinates initial setup states; extract flow sections while retaining validation and setup behavior.",
+    "allowed": 190,
+    "reason": "P2 candidate: initial setup state and form handling share a screen; extract flow sections preserving setup validation.",
     "owner": "frontend-auth"
   },
   {
     "file": "src/features/items/AllItemsScreen.tsx",
-    "rule": "max-lines-per-function",
-    "allowed": 278,
-    "reason": "P1 audit rank 6: filtering, URL synchronization, catalogue loading, paging, and rendering are coupled; extract focused list responsibilities.",
+    "function": "AllItemsScreen",
+    "rule": "complexity",
+    "allowed": 29,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/items/AllItemsScreen.tsx",
+    "function": "AllItemsScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 288,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen",
+    "rule": "complexity",
+    "allowed": 28,
+    "reason": "P1 audit rank 4: detail, conflict edits and lifecycle actions share screen/function; extract focused responsibilities preserving data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen",
+    "rule": "max-depth",
+    "allowed": 5,
+    "reason": "P1 audit rank 4: detail, conflict edits and lifecycle actions share screen/function; extract focused responsibilities preserving data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 305,
+    "reason": "P1 audit rank 4: detail, conflict edits and lifecycle actions share screen/function; extract focused responsibilities preserving data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen.beginEdit",
+    "rule": "complexity",
+    "allowed": 26,
+    "reason": "P1 audit rank 4: detail, conflict edits and lifecycle actions share screen/function; extract focused responsibilities preserving data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemDetailScreen.tsx",
+    "function": "ItemDetailScreen.saveEdit",
+    "rule": "complexity",
+    "allowed": 26,
+    "reason": "P1 audit rank 4: detail, conflict edits and lifecycle actions share screen/function; extract focused responsibilities preserving data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemForm.tsx",
+    "function": "ItemForm",
     "rule": "complexity",
     "allowed": 53,
-    "reason": "P1 audit rank 6: filtering, URL synchronization, catalogue loading, paging, and rendering are coupled; extract focused list responsibilities.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "rule": "max-lines-per-function",
-    "allowed": 294,
-    "reason": "P1 audit rank 4: detail/history, conflict-aware edits, lifecycle mutations, and rendering are coupled; extract focused responsibilities.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "rule": "complexity",
-    "allowed": 90,
-    "reason": "P1 audit rank 4: detail/history, conflict-aware edits, lifecycle mutations, and rendering are coupled; extract focused responsibilities.",
+    "reason": "P2 candidate: item form branches across variant fields and validation; separate field/validation responsibilities while preserving submission behavior.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/items/ItemForm.tsx",
+    "function": "ItemForm",
     "rule": "max-lines-per-function",
-    "allowed": 118,
-    "reason": "P2 audit candidate: form rendering/validation branches across item variants; separate cohesive field groups and validation paths.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemForm.tsx",
-    "rule": "complexity",
-    "allowed": 101,
-    "reason": "P2 audit candidate: form rendering/validation branches across item variants; separate cohesive field groups and validation paths.",
+    "allowed": 121,
+    "reason": "P2 candidate: item form branches across variant fields and validation; separate field/validation responsibilities while preserving submission behavior.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/items/ItemsScreen.tsx",
-    "rule": "max-lines-per-function",
-    "allowed": 481,
-    "reason": "P1 audit rank 1: home item list, paging, recovery, mutation, and rendering responsibilities are coupled; split into focused hooks/components.",
+    "function": "ItemsScreen",
+    "rule": "complexity",
+    "allowed": 49,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/items/ItemsScreen.tsx",
-    "rule": "complexity",
-    "allowed": 76,
-    "reason": "P1 audit rank 1: home item list, paging, recovery, mutation, and rendering responsibilities are coupled; split into focused hooks/components.",
+    "function": "ItemsScreen",
+    "rule": "max-lines-per-function",
+    "allowed": 513,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
     "owner": "frontend-items"
   },
   {
-    "file": "src/features/items/itemsApi.ts",
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.create",
     "rule": "complexity",
-    "allowed": 31,
-    "reason": "P2 audit candidate: shared item transport adapter has response/error branching; centralize focused response mapping without changing API behavior.",
+    "allowed": 17,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.finish",
+    "rule": "complexity",
+    "allowed": 16,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "file": "src/features/items/ItemsScreen.tsx",
+    "function": "ItemsScreen.finish",
+    "rule": "max-depth",
+    "allowed": 5,
+    "reason": "P1 audit rank 1: home item orchestration combines list, recovery, mutation and rendering; extract hooks/components without changing item behavior.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/items/pendingItemCreate.ts",
+    "function": "isPending",
     "rule": "complexity",
     "allowed": 27,
-    "reason": "P2 audit candidate: pending-create recovery reconciles persisted retry states; keep transitions explicit and cover retries with characterization tests.",
+    "reason": "P2 candidate: pending item creation reconciles retry states; simplify transition branches while preserving recovery semantics.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/items/useSubjectLabels.ts",
-    "rule": "complexity",
-    "allowed": 17,
-    "reason": "P3 monitored helper: label hook handles subject loading and fallback states; extract only if responsibilities grow or new branches are added.",
+    "function": "useSubjectLabels",
+    "rule": "max-lines-per-function",
+    "allowed": 86,
+    "reason": "P3 monitored helper: subject-label hook handles loading/fallback states; refactor only if responsibilities grow.",
     "owner": "frontend-items"
   },
   {
     "file": "src/features/members/InviteScreen.tsx",
+    "function": "InviteScreen",
     "rule": "max-lines-per-function",
     "allowed": 102,
-    "reason": "P2 audit candidate: invite screen handles cohesive validation, submission, and result states; split only at a clear flow boundary.",
+    "reason": "P2 candidate: invitation submission and result states share a screen; extract a clear flow boundary preserving invite validation.",
     "owner": "frontend-members"
   },
   {
     "file": "src/features/members/InviteScreen.tsx",
+    "function": "InviteScreen.submit",
     "rule": "complexity",
-    "allowed": 36,
-    "reason": "P2 audit candidate: invite screen handles cohesive validation, submission, and result states; split only at a clear flow boundary.",
+    "allowed": 25,
+    "reason": "P2 candidate: invitation submission and result states share a screen; extract a clear flow boundary preserving invite validation.",
+    "owner": "frontend-members"
+  },
+  {
+    "file": "src/features/members/InviteScreen.tsx",
+    "function": "InviteScreen.submit",
+    "rule": "max-depth",
+    "allowed": 5,
+    "reason": "P2 candidate: invitation submission and result states share a screen; extract a clear flow boundary preserving invite validation.",
     "owner": "frontend-members"
   },
   {
     "file": "src/features/members/MembersScreen.tsx",
+    "function": "MembersScreen",
     "rule": "max-lines-per-function",
-    "allowed": 271,
-    "reason": "P1 audit rank 8: member and invitation lifecycle, paging, recovery, and focus behavior are coupled; extract cohesive member/invitation flows.",
+    "allowed": 280,
+    "reason": "P1 audit rank 8: membership/invitation lifecycle and rendering are coupled; extract flows preserving authorization and recovery.",
     "owner": "frontend-members"
   },
   {
     "file": "src/features/members/MembersScreen.tsx",
+    "function": "MembersScreen.<anonymous#1>.<anonymous#1>",
     "rule": "complexity",
-    "allowed": 38,
-    "reason": "P1 audit rank 8: member and invitation lifecycle, paging, recovery, and focus behavior are coupled; extract cohesive member/invitation flows.",
+    "allowed": 18,
+    "reason": "P1 audit rank 8: membership/invitation lifecycle and rendering are coupled; extract flows preserving authorization and recovery.",
     "owner": "frontend-members"
   },
   {
     "file": "src/features/subjects/SubjectForm.tsx",
+    "function": "SubjectForm",
     "rule": "max-lines-per-function",
-    "allowed": 183,
-    "reason": "P2 audit candidate: subject form handles field validation and variant-specific rendering; extract cohesive field groups while preserving invariants.",
+    "allowed": 163,
+    "reason": "P2 candidate: subject form branches across fields and validation; extract cohesive field validation while preserving stored-type/link invariants.",
     "owner": "frontend-subjects"
   },
   {
-    "file": "src/features/subjects/SubjectForm.tsx",
+    "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen",
     "rule": "complexity",
     "allowed": 27,
-    "reason": "P2 audit candidate: subject form handles field validation and variant-specific rendering; extract cohesive field groups while preserving invariants.",
+    "reason": "P1 audit rank 2: subject paging, mutations, recovery and rendering are coupled; extract focused hooks/components preserving invariants.",
     "owner": "frontend-subjects"
   },
   {
     "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen",
     "rule": "max-lines-per-function",
-    "allowed": 605,
-    "reason": "P1 audit rank 2: subject paging, mutations, recovery, focus, and rendering share a large screen; extract cohesive hooks/components.",
+    "allowed": 650,
+    "reason": "P1 audit rank 2: subject paging, mutations, recovery and rendering are coupled; extract focused hooks/components preserving invariants.",
     "owner": "frontend-subjects"
   },
   {
     "file": "src/features/subjects/SubjectsScreen.tsx",
+    "function": "SubjectsScreen.add",
     "rule": "complexity",
-    "allowed": 61,
-    "reason": "P1 audit rank 2: subject paging, mutations, recovery, focus, and rendering share a large screen; extract cohesive hooks/components.",
+    "allowed": 16,
+    "reason": "P1 audit rank 2: subject paging, mutations, recovery and rendering are coupled; extract focused hooks/components preserving invariants.",
     "owner": "frontend-subjects"
   }
 ]

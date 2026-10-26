@@ -52,6 +52,24 @@ func (s *Service) Run(x int) {
 	}
 }
 
+func TestLabeledNestedControlCountsNesting(t *testing.T) {
+	const source = `package sample
+func F() {
+ outer: for {
+  if true { break outer }
+ }
+}`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "labeled.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := measure(fset, "labeled.go", "F", file.Decls[0].(*ast.FuncDecl))
+	if got.Nesting != 2 {
+		t.Fatalf("nesting = %d, want 2", got.Nesting)
+	}
+}
+
 func TestNestingCountsSwitchBodiesAndElseBlocks(t *testing.T) {
 	const source = `package sample
 func F(value any, ch chan int) {
@@ -84,6 +102,37 @@ func F(x int) {
 	got := measure(fset, "chain.go", "F", file.Decls[0].(*ast.FuncDecl))
 	if got.Nesting != 1 {
 		t.Fatalf("nesting = %d, want 1", got.Nesting)
+	}
+}
+
+func TestCollectsFunctionLiteralsWithParentNames(t *testing.T) {
+	root := t.TempDir()
+	source := `package sample
+var packageHandler = func() { if true {} }
+func MakeHandler() func() { return func() { if true {} } }
+func Local() {
+ callback := func() { if true {} }
+ go func() { func() { if true {} }() }()
+}`
+	path := filepath.Join(root, "literal.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := collect([]string{root}, "backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]metric{}
+	for _, item := range metrics {
+		got[item.Name] = item
+	}
+	for _, name := range []string{"packageHandler.func1", "MakeHandler.func1", "Local.func1", "Local.func2", "Local.func2.func1"} {
+		if _, ok := got[name]; !ok {
+			t.Errorf("missing literal metric %q; got %#v", name, got)
+		}
+	}
+	if got["Local"].Complexity != 1 {
+		t.Fatalf("enclosing function counted literal complexity: %#v", got["Local"])
 	}
 }
 

@@ -201,7 +201,6 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- start async loading; state updates follow network responses.
     void loadHome({ allowStaleRestart: true });
   }, [loadHome]);
 
@@ -340,7 +339,6 @@ export function ItemsScreen({ userId, householdId, onOpenPeople, onOpenItem, onO
       if (labels.hasFailures) labelRetryRef.current?.focus();
       else sectionHeadingRefs.current.get(groups.find((group) => groupData[group.id].items.length)?.id ?? 'needs')?.focus();
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- settle the retry once its batch completes.
     setLabelRetryPending(false);
   }, [labelRetryPending, labels.loading, labels.hasFailures, groupData]);
 

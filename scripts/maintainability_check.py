@@ -13,7 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "ci/maintainability-baseline.json"
 THRESHOLDS = {
-    "file_lines": {".go": 500, ".ts": 350, ".tsx": 350, ".py": 500, ".sh": 500, ".sql": 400},
+    "file_lines": {".go": 500, ".ts": 350, ".tsx": 350, ".js": 350, ".mjs": 350, ".cjs": 350, ".py": 500, ".sh": 500, ".sql": 400},
     "long_lines": {"*": 0},
     "func_lines": {"*": 80},
     "func_complexity": {"*": 15},
@@ -29,6 +29,10 @@ def is_numbered_migration(parts: tuple[str, ...], name: str) -> bool:
 EXCLUSIONS = (
     ("*_test.go", lambda parts, name: name.endswith("_test.go"),
      "Go test suites are excluded from structural limits; policy does not require splitting a test suite."),
+    ("frontend/e2e/*.ts", lambda parts, name: parts[:2] == ("frontend", "e2e") and name.endswith(".ts"),
+     "Browser E2E harness utilities are test-support code, not production application sources."),
+    ("frontend/src/test/*.ts(x)", lambda parts, name: parts[:3] == ("frontend", "src", "test"),
+     "Frontend test setup and fixture helpers are test-support code, not production application sources."),
     ("*.test.ts(x)", lambda parts, name: name.endswith((".test.ts", ".test.tsx")),
      "Frontend unit test suites are excluded from structural limits."),
     ("frontend/e2e/*.spec.ts", lambda parts, name: parts[:2] == ("frontend", "e2e") and name.endswith(".spec.ts"),
@@ -43,10 +47,18 @@ EXCLUSIONS = (
      "Generated database code is not human-authored."),
     ("backend/internal/platform/database/NNN_*.sql", is_numbered_migration,
      "Numbered embedded database migrations are immutable schema history."),
-    ("api/generated/*", lambda parts, name: parts[:2] == ("api", "generated"),
-     "Generated API artifacts are not human-authored."),
+    ("frontend/src/i18n/{cs,en}.ts", lambda parts, name: parts[:3] == ("frontend", "src", "i18n") and name in {"cs.ts", "en.ts"},
+     "Cohesive static locale message catalogues are intentionally not split to satisfy size/long-line limits."),
+    ("api/generated/api.d.ts, api/generated/health.d.ts", lambda parts, name: len(parts) == 3 and parts[:2] == ("api", "generated") and name in {"api.d.ts", "health.d.ts"},
+     "openapi-typescript generated declarations; drift checked by api/scripts/check-generated.mjs."),
+    ("backend/internal/{household,identity,item,subject}/postgres/dbgen/", lambda parts, name: len(parts) >= 5 and parts[:2] == ("backend", "internal") and parts[2] in {"household", "identity", "item", "subject"} and parts[3:5] == ("postgres", "dbgen"),
+     "sqlc generated Go; drift checked by scripts/check-sqlc.sh."),
+    ("backend/internal/{household,identity,item,subject}/httpapi/*.gen.go", lambda parts, name: len(parts) == 4 and parts[:2] == ("backend", "internal") and parts[2] in {"household", "identity", "item", "subject"} and parts[3].endswith(".gen.go"),
+     "oapi-codegen generated HTTP types; drift checked by API generation checks."),
+    ("backend/internal/platform/httpx/health.gen.go", lambda parts, name: parts == ("backend", "internal", "platform", "httpx", "health.gen.go"),
+     "oapi-codegen generated health API types; drift checked by API generation checks."),
 )
-SUFFIXES = {".go", ".ts", ".tsx", ".py", ".sh", ".sql"}
+SUFFIXES = {".go", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".py", ".sh", ".sql"}
 KINDS = set(THRESHOLDS)
 
 
@@ -113,10 +125,22 @@ def threshold(kind: str, path: str) -> int:
 
 
 def enumerate_files(root: Path) -> list[str]:
-    result = subprocess.run(["git", "ls-files", "-z"], cwd=root, check=True, stdout=subprocess.PIPE).stdout
-    paths = [item.decode() for item in result.split(b"\0") if item]
-    return sorted(path for path in paths if path.split("/", 1)[0] in {"backend", "frontend", "api", "scripts", "deploy"}
-                  and PurePosixPath(path).suffix in SUFFIXES and not excluded(path))
+    result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root, check=True, stdout=subprocess.PIPE).stdout
+    paths = sorted({item.decode() for item in result.split(b"\0") if item})
+    return sorted(path for path in paths if PurePosixPath(path).suffix in SUFFIXES and not excluded(path))
+
+
+def baseline_errors_against_base(current: list[dict], base: list[dict]) -> list[str]:
+    errors = []
+    old = {key(entry): entry for entry in base}
+    new = {key(entry): entry for entry in current}
+    for entry_key, entry in new.items():
+        previous = old.get(entry_key)
+        if previous is None:
+            errors.append(f"{entry.get('path')} {entry.get('name', '')} {entry.get('kind')} new exception relative to base")
+        elif entry.get("allowed", 0) > previous.get("allowed", 0):
+            errors.append(f"{entry.get('path')} {entry.get('name', '')} {entry.get('kind')} allowed raised={entry.get('allowed')} base={previous.get('allowed')}")
+    return errors
 
 
 def gather(root: Path) -> dict[tuple[str, str, str], int]:
@@ -125,7 +149,13 @@ def gather(root: Path) -> dict[tuple[str, str, str], int]:
         values = file_metrics((root / path).read_text(encoding="utf-8", errors="replace"))
         for kind, value in values.items():
             metrics[(kind, path, "")] = value
-    command = ["go", "run", "./tools/funcmetrics", "-prefix", "backend"]
+    modules = [path.parent for path in root.rglob("go.mod") if "node_modules" not in path.parts]
+    if not modules:
+        raise RuntimeError("no Go modules found")
+    # The metrics tool belongs to backend's module; pass its authored Go roots.
+    go_roots = [str(path.relative_to(root / "backend")) for path in root.rglob("*.go")
+                if "node_modules" not in path.parts and not excluded(path.relative_to(root).as_posix())]
+    command = ["go", "run", "./tools/funcmetrics", "-prefix", "backend", *go_roots]
     try:
         completed = subprocess.run(command, cwd=root / "backend", check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except FileNotFoundError as error:
@@ -167,6 +197,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write-baseline", action="store_true")
     parser.add_argument("--list-exclusions", action="store_true")
+    parser.add_argument("--base-ref", default=None)
     args = parser.parse_args()
     if args.list_exclusions:
         for pattern, _, reason in EXCLUSIONS:
@@ -175,6 +206,12 @@ def main() -> int:
     try:
         metrics = gather(ROOT)
         existing = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else []
+        base_ref = args.base_ref or __import__("os").environ.get("MAINTAINABILITY_BASE_REF")
+        base_entries = None
+        if base_ref:
+            shown = subprocess.run(["git", "show", f"{base_ref}:ci/maintainability-baseline.json"], cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if shown.returncode == 0:
+                base_entries = json.loads(shown.stdout)
         if args.write_baseline:
             updated = write_baseline(metrics, existing)
             BASELINE.parent.mkdir(parents=True, exist_ok=True)
@@ -182,6 +219,8 @@ def main() -> int:
             print(f"wrote {len(updated)} maintainability exceptions to {BASELINE.relative_to(ROOT)}")
             return 0
         errors = check_metrics(metrics, existing)
+        if base_entries is not None:
+            errors.extend(baseline_errors_against_base(existing, base_entries))
         if errors:
             print("\n".join(errors), file=sys.stderr)
             return 1
