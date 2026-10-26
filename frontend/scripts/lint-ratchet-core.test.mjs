@@ -312,6 +312,42 @@ test('accessors and object methods have distinct semantic identities', async () 
   }
 });
 
+test('computed identifier keys never reuse a literal member name', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-computed-names-'));
+  try {
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(directory, 'src'), { recursive: true }));
+    const path = join(directory, 'src/computed-names.ts');
+    const body = count => Array.from({ length: count - 1 }, (_, i) => `if (value === ${i}) return ${i};`).join('\n');
+    const fn = count => `(value: number) => {\n${body(count)}\nreturn 0;\n}`;
+    const method = count => `(value: number) {\n${body(count)}\nreturn 0;\n}`;
+    await writeFile(path, [
+      "const key = 'other';",
+      `export class A {\nkey = ${fn(16)};\n[key] = ${fn(17)};\nmethod${method(18)}\n[key]${method(19)}\n}`,
+      `export const object = {\nkey: ${fn(20)},\n[key]: ${fn(21)},\nnested: { run: ${fn(22)} },\n[key + 1]: { run: ${fn(23)} },\n};`,
+    ].join('\n'));
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'],
+      languageOptions: { parser: tseslint.parser, parserOptions: { sourceType: 'module', ecmaVersion: 'latest' } },
+      plugins: { maintainability: maintainabilityPlugin }, rules: { 'maintainability/metrics': 'error' },
+    }] });
+    const [result] = await eslint.lintFiles([path]);
+    const { measured, errors } = measurementsFromResults([result]);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(complexityByIdentity(measured), {
+      'A.<field:key>.key': 16,
+      'A.<field:computed#1>.computed#1': 17,
+      'A.<method:method>': 18,
+      'A.<method:computed#2>': 19,
+      'object.key': 20,
+      'object.computed#1': 21,
+      'object.nested.nested.run': 22,
+      'object.computed#2.object#1.run': 23,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('class initializer identities stay unique across modes and computed keys', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'tendo-fields-'));
   try {
