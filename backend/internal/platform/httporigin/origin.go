@@ -13,10 +13,6 @@ type Origin struct {
 	Port   string
 }
 
-func Same(a, b Origin) bool {
-	return a == b
-}
-
 func Parse(raw string, allowRootSlash bool) (Origin, bool) {
 	if raw == "" || strings.Contains(raw, "#") {
 		return Origin{}, false

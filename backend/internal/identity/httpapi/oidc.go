@@ -111,7 +111,7 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 	if origin := r.Header.Get("Origin"); origin != "" {
 		requestOrigin, requestOK := httporigin.Parse(origin, false)
 		publicOrigin, publicOK := httporigin.Parse(h.publicURL, false)
-		if !requestOK || !publicOK || !httporigin.Same(requestOrigin, publicOrigin) {
+		if !requestOK || !publicOK || requestOrigin != publicOrigin {
 			problem(w, 403, "origin_not_allowed")
 			return
 		}
