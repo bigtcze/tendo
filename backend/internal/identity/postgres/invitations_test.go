@@ -432,6 +432,89 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 		t.Fatalf("household A invitation pending=%v err=%v", pending, e)
 	}
 }
+func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
+	ctx, admin, app, _ := invitationPools(t)
+	owner, house := invitationFixture(t, ctx, admin)
+	service, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.CreateInvitation(ctx, owner, house, "isolation-target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foreignHouse, member, outsider string
+	if err = admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES($1,'UTC') RETURNING id::text`, fmt.Sprintf("invitation isolation foreign %d", time.Now().UnixNano())).Scan(&foreignHouse); err != nil {
+		t.Fatal(err)
+	}
+	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("invitation_isolation_member_%d", time.Now().UnixNano())).Scan(&member); err != nil {
+		t.Fatal(err)
+	}
+	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("invitation_isolation_outsider_%d", time.Now().UnixNano())).Scan(&outsider); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member'),($3::uuid,$2::uuid,'owner'),($4::uuid,$5::uuid,'owner')`, member, house, outsider, owner, foreignHouse); err != nil {
+		t.Fatal(err)
+	}
+	foreignCreated, err := service.CreateInvitation(ctx, owner, foreignHouse, fmt.Sprintf("foreign-house-seed-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	countRows := func() int {
+		t.Helper()
+		var count int
+		if queryErr := admin.QueryRow(ctx, `SELECT count(*) FROM household_invitations`).Scan(&count); queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		return count
+	}
+	before := countRows()
+	for _, op := range []struct {
+		name string
+		run  func() error
+	}{{"member create", func() error {
+		_, createErr := service.CreateInvitation(ctx, member, house, "member-denied")
+		return createErr
+	}}, {"member revoke", func() error { return service.RevokeInvitation(ctx, member, house, created.Invitation.ID) }}} {
+		if err = op.run(); !errors.Is(err, household.ErrForbidden) {
+			t.Fatalf("%s error=%v", op.name, err)
+		}
+	}
+	for _, op := range []struct {
+		name string
+		run  func() error
+	}{{"foreign create", func() error {
+		_, createErr := service.CreateInvitation(ctx, outsider, foreignHouse, "outsider-create")
+		return createErr
+	}}, {"foreign list", func() error {
+		_, _, listErr := service.ListInvitations(ctx, outsider, foreignHouse, 20, "")
+		return listErr
+	}}, {"foreign revoke", func() error {
+		return service.RevokeInvitation(ctx, outsider, foreignHouse, foreignCreated.Invitation.ID)
+	}}} {
+		if err = op.run(); !errors.Is(err, household.ErrNotFound) {
+			t.Fatalf("%s error=%v", op.name, err)
+		}
+	}
+	if after := countRows(); after != before {
+		t.Fatalf("invitation rows changed before=%d after=%d", before, after)
+	}
+	var revoked bool
+	if err = admin.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, created.Invitation.ID).Scan(&revoked); err != nil || revoked {
+		t.Fatalf("target invitation revoked=%v err=%v", revoked, err)
+	}
+	if err = service.RevokeInvitation(ctx, outsider, foreignHouse, created.Invitation.ID); !errors.Is(err, household.ErrNotFound) {
+		t.Fatalf("foreign-household revoke of own-house invitation=%v", err)
+	}
+	if err = admin.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, created.Invitation.ID).Scan(&revoked); err != nil || revoked {
+		t.Fatalf("cross-household revoke changed target revoked=%v err=%v", revoked, err)
+	}
+	var foreignRevoked bool
+	if err = admin.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM household_invitations WHERE id=$1::uuid`, foreignCreated.Invitation.ID).Scan(&foreignRevoked); err != nil || foreignRevoked {
+		t.Fatalf("foreign target revoked=%v err=%v", foreignRevoked, err)
+	}
+}
+
 func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)

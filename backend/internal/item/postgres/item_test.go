@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	householddomain "github.com/bigtcze/tendo/backend/internal/household"
+	householdpg "github.com/bigtcze/tendo/backend/internal/household/postgres"
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
@@ -191,6 +193,23 @@ func mustTestDate(year int, month time.Month, day int) schedule.Date {
 		panic(err)
 	}
 	return d
+}
+
+func assertItemAndReceiptUnchanged(t *testing.T, ctx context.Context, admin *pgxpool.Pool, itemID, householdID, subjectID string, version int64, receiptCount int) {
+	t.Helper()
+	var storedVersion int64
+	var receipts int
+	var active int
+	var storedSubject, storedHousehold string
+	if err := admin.QueryRow(ctx, `SELECT version,subject_id::text,household_id::text FROM items WHERE id=$1::uuid`, itemID).Scan(&storedVersion, &storedSubject, &storedHousehold); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE undone_at IS NULL) FROM item_completions WHERE item_id=$1::uuid`, itemID).Scan(&receipts, &active); err != nil {
+		t.Fatal(err)
+	}
+	if storedHousehold != householdID || storedSubject != subjectID || storedVersion != version || receipts != receiptCount || active != receiptCount {
+		t.Fatalf("item/receipts changed item=%s household=%s subject=%s version=%d/%d receipts=%d active=%d want=%d", itemID, storedHousehold, storedSubject, storedVersion, version, receipts, active, receiptCount)
+	}
 }
 
 func sameDate(a, b *schedule.Date) bool {
@@ -2152,6 +2171,134 @@ func TestItemsAgainstPostgres(t *testing.T) {
 			t.Fatalf("foreign receipts=%d err=%v", n, err)
 		}
 	})
+	t.Run("service rejects foreign subject updates without mutation", func(t *testing.T) {
+		i := create(hA, sA.ID, "foreign subject update", nil, nil)
+		before, err := repo.Get(ctx, hA, i.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		membershipRepo := householdpg.NewMembershipRepository(app)
+		subjectWithMembership := func(ctx context.Context, userID, householdID, subjectID string) (bool, error) {
+			if _, lookupErr := membershipRepo.GetMembership(ctx, userID, householdID); errors.Is(lookupErr, householddomain.ErrNotFound) {
+				return false, item.ErrNotFound
+			} else if lookupErr != nil {
+				return false, item.ErrUnavailable
+			}
+			subjectRow, lookupErr := subRepo.Get(ctx, householdID, subjectID)
+			if errors.Is(lookupErr, subject.ErrNotFound) {
+				return false, item.ErrNotFound
+			}
+			if lookupErr != nil {
+				return false, item.ErrUnavailable
+			}
+			return subjectRow.Archived, nil
+		}
+		serviceWithMembership := item.NewService(repo, houses, subjectWithMembership, members, func() time.Time { return clock })
+		foreignSubject := sB.ID
+		_, err = serviceWithMembership.Update(ctx, completionUser, hA, i.ID, before.Version, item.Patch{SubjectID: &foreignSubject})
+		var validation *item.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "subjectId" || validation.Code != "invalid_reference" {
+			t.Fatalf("foreign subject update=%v", err)
+		}
+		var subjectID string
+		var version int64
+		if err = admin.QueryRow(ctx, `SELECT subject_id::text,version FROM items WHERE id=$1::uuid`, i.ID).Scan(&subjectID, &version); err != nil || subjectID != before.SubjectID || version != before.Version {
+			t.Fatalf("item changed subject=%s version=%d before=%+v err=%v", subjectID, version, before, err)
+		}
+		_, err = repo.Update(ctx, hA, i.ID, before.Version, item.Change{SubjectID: &foreignSubject})
+		if !errors.Is(err, item.ErrInvalidReference) {
+			t.Fatalf("repository classified foreign subject update as %v", err)
+		}
+		if err = admin.QueryRow(ctx, `SELECT subject_id::text,version FROM items WHERE id=$1::uuid`, i.ID).Scan(&subjectID, &version); err != nil || subjectID != before.SubjectID || version != before.Version {
+			t.Fatalf("repository foreign update changed subject=%s version=%d before=%+v err=%v", subjectID, version, before, err)
+		}
+	})
+
+	t.Run("service authorization and completion receipt isolation", func(t *testing.T) {
+		foreignItem := create(hB, sB.ID, "isolated completion", nil, nil)
+		var outsider string
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("item_household_outsider_%d", time.Now().UnixNano())).Scan(&outsider); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, outsider, hA); err != nil {
+			t.Fatal(err)
+		}
+		membership := householdpg.NewMembershipRepository(app)
+		houseRepo := householdpg.NewRepository(app)
+		isolated := item.NewService(repo, func(ctx context.Context, userID, householdID string) (string, error) {
+			h, err := houseRepo.FindForMember(ctx, userID, householdID)
+			if errors.Is(err, householddomain.ErrNotFound) {
+				return "", item.ErrNotFound
+			}
+			if err != nil {
+				return "", err
+			}
+			return h.Timezone, nil
+		}, func(ctx context.Context, userID, householdID, subjectID string) (bool, error) {
+			if _, err := membership.GetMembership(ctx, userID, householdID); errors.Is(err, householddomain.ErrNotFound) {
+				return false, item.ErrNotFound
+			} else if err != nil {
+				return false, err
+			}
+			subjectRow, err := subRepo.Get(ctx, householdID, subjectID)
+			if errors.Is(err, subject.ErrNotFound) {
+				return false, item.ErrNotFound
+			}
+			return subjectRow.Archived, err
+		}, members, func() time.Time { return clock })
+		before, err := repo.Get(ctx, hB, foreignItem.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err = isolated.Complete(ctx, outsider, hB, foreignItem.ID, before.Version, "outsider-complete", item.CompletionRequest{}); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("nonmember completion=%v", err)
+		}
+		assertItemAndReceiptUnchanged(t, ctx, admin, foreignItem.ID, hB, sB.ID, before.Version, 0)
+		activeReceipt, _, err := isolated.Complete(ctx, completionUser, hB, foreignItem.ID, before.Version, "authorized-complete", item.CompletionRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = isolated.UndoCompletion(ctx, outsider, hB, foreignItem.ID, activeReceipt.ID, before.Version+1); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("nonmember undo=%v", err)
+		}
+		assertItemAndReceiptUnchanged(t, ctx, admin, foreignItem.ID, hB, sB.ID, before.Version+1, 1)
+
+		own := create(hA, sA.ID, "receipt target", nil, nil)
+		other := create(hA, sA.ID, "receipt source", nil, nil)
+		changedTitle := "changed version"
+		own, err = repo.Update(ctx, hA, own.ID, own.Version, item.Change{Title: &changedTitle})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ownCompletion, _, err := service.Complete(ctx, completionUser, hA, own.ID, own.Version, "own-receipt-target", item.CompletionRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherCompletion, _, err := service.Complete(ctx, completionUser, hA, other.ID, other.Version, "same-house-other-item", item.CompletionRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		foreignCompletion := create(hB, sB.ID, "foreign receipt", nil, nil)
+		foreignCompletionReceipt, _, err := isolated.Complete(ctx, completionUser, hB, foreignCompletion.ID, foreignCompletion.Version, "foreign-receipt-source", item.CompletionRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct {
+			name, itemID string
+			receipt      item.Completion
+		}{{"foreign household receipt", own.ID, foreignCompletionReceipt}, {"same household other item receipt", own.ID, otherCompletion}} {
+			if _, err = service.UndoCompletion(ctx, completionUser, hA, tc.itemID, tc.receipt.ID, ownCompletion.ItemVersionBefore+1); !errors.Is(err, item.ErrNotFound) {
+				t.Fatalf("%s undo=%v", tc.name, err)
+			}
+			assertItemAndReceiptUnchanged(t, ctx, admin, tc.itemID, hA, sA.ID, ownCompletion.ItemVersionBefore+1, 1)
+			wantHousehold, wantSubject := hA, sA.ID
+			if tc.receipt.HouseholdID == hB {
+				wantHousehold, wantSubject = hB, sB.ID
+			}
+			assertItemAndReceiptUnchanged(t, ctx, admin, tc.receipt.ItemID, wantHousehold, wantSubject, tc.receipt.ItemVersionBefore+1, 1)
+		}
+	})
+
 	t.Run("household isolation and foreign subject rejected", func(t *testing.T) {
 		i := create(hB, sB.ID, "private", nil, nil)
 		beforeItem, err := repo.Get(ctx, hB, i.ID)
