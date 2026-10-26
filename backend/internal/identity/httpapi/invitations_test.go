@@ -101,6 +101,68 @@ func sameJSON(a, b any) bool {
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
 }
+
+type invitationActorKey struct{}
+
+func TestInvitationHouseholdIsolationAndOwnerAuthorization(t *testing.T) {
+	repo := newTransportInvitationRepo()
+	owner := repo.owner
+	house := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	foreign := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	member := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
+	repo.members[house] = map[string]string{owner: householdapp.RoleOwner, member: householdapp.RoleMember}
+	repo.members[foreign] = map[string]string{}
+	app, err := identity.NewInvitationService(repo, func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := chi.NewRouter()
+	NewInvitations(app, nilAuth, func(ctx context.Context) (string, bool) {
+		id, ok := ctx.Value(invitationActorKey{}).(string)
+		return id, ok
+	}).Register(r)
+	request := func(actor, method, path string) *httptest.ResponseRecorder {
+		q := httptest.NewRequest(method, path, strings.NewReader("{}"))
+		q.Header.Set("Content-Type", "application/json")
+		q.Header.Set("Idempotency-Key", "isolation")
+		q = q.WithContext(context.WithValue(q.Context(), invitationActorKey{}, actor))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, q)
+		return w
+	}
+	created, err := app.CreateInvitation(context.Background(), owner, house, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline := request(owner, "GET", "/api/v1/households/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64/invitations")
+	if baseline.Code != 404 {
+		t.Fatalf("baseline=%d %s", baseline.Code, baseline.Body)
+	}
+	before := len(repo.rows)
+	for _, tc := range []struct{ name, method, path string }{{"member create", "POST", "/api/v1/households/" + house + "/invitations"}, {"member revoke", "DELETE", "/api/v1/households/" + house + "/invitations/" + created.Invitation.ID}} {
+		w := request(member, tc.method, tc.path)
+		if w.Code != 403 || !sameJSON(bodyMap(t, w), map[string]any{"type": "about:blank", "title": "Forbidden", "status": 403, "code": "owner_required"}) {
+			t.Fatalf("%s=%d %s", tc.name, w.Code, w.Body)
+		}
+	}
+	if len(repo.rows) != before || repo.rows[created.Invitation.ID].RevokedAt != nil {
+		t.Fatal("member operation changed invitations")
+	}
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		path := "/api/v1/households/" + foreign + "/invitations"
+		if method == "DELETE" {
+			path += "/" + created.Invitation.ID
+		}
+		w := request("outsider", method, path)
+		if w.Code != baseline.Code || w.Body.String() != baseline.Body.String() {
+			t.Fatalf("foreign %s=%d %s want %d %s", method, w.Code, w.Body, baseline.Code, baseline.Body)
+		}
+	}
+	if len(repo.rows) != before || repo.rows[created.Invitation.ID].RevokedAt != nil {
+		t.Fatal("nonmember operation changed invitations")
+	}
+}
+
 func TestInvitationHTTPCreateRetryListAndRevokeExactResponses(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	hid := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"

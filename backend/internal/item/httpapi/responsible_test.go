@@ -3,9 +3,27 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestUpdateRejectsForeignHouseholdSubjectWithoutMutation(t *testing.T) {
+	f := newFixture(true)
+	before, ok := f.repo.Row(iid)
+	if !ok {
+		t.Fatal("fixture item missing")
+	}
+	foreignSubject := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b88"
+	w := f.do("PATCH", one, `{"subjectId":"`+foreignSubject+`"}`, map[string]string{"If-Match": `"1"`})
+	if w.Code != 422 || !strings.Contains(w.Body.String(), `"code":"invalid_reference"`) || !strings.Contains(w.Body.String(), `"field":"subjectId"`) {
+		t.Fatalf("update=%d %s", w.Code, w.Body)
+	}
+	after, ok := f.repo.Row(iid)
+	if !ok || !reflect.DeepEqual(after, before) {
+		t.Fatalf("rejected update mutated item before=%+v after=%+v", before, after)
+	}
+}
 
 func TestResponsibleMemberHTTPExactRepresentationAssignmentAndFailures(t *testing.T) {
 	f := newFixture(true)
