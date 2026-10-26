@@ -80,6 +80,14 @@ bash scripts/dev-exec.sh -- bash scripts/verify-local.sh
 
 It fails fast and reports stage status/duration, primary failure, and downstream NOT RUN. A local pass never replaces required GitHub checks. Do not request review with a known failing required check or use retries to hide a failure.
 
+## Maintainability ratchet
+
+`scripts/maintainability_check.py` enforces non-blank file lines (Go 500, TS/TSX 350, Python/shell 500, SQL 400), zero lines longer than 160 characters, and Go function size (80 lines), cyclomatic complexity (15), and nesting (4). Metrics are measured for tracked human-authored files; see `--list-exclusions` for the explicit generated, migration-history, and test-suite exclusions. Go function metrics come from the standard-library-only `backend/tools/funcmetrics` parser.
+
+Named debt exceptions live in `ci/maintainability-baseline.json`, with measured allowed value and a technical rationale per entry. Exceptions only ratchet downward: worsening a value fails, and a now-under-threshold exception is stale and must be tightened or removed. `--write-baseline` preserves reasons and refuses to raise an existing allowed value; new exceptions use an explicit placeholder that must be reviewed and replaced with a concrete rationale in a reviewed PR. New violations must be fixed, or introduced by a reviewed baseline edit with a reason; do not use baseline generation to excuse or raise debt.
+
+Frontend production TypeScript uses ESLint function complexity, depth, and length rules. Existing violations are named in `frontend/maintainability-baseline.json`; `frontend/eslint.config.js` builds per-file overrides from this data, while `frontend/scripts/lint-ratchet.mjs` lints with base thresholds and rejects new violations, worsened or stale values, missing targets, duplicate entries, and missing rationale/owner. Frontend exceptions are per-file worst-value, not per-function: ESLint reports only the current worst function for a rule in each file, and a file-level limit prevents that worst value from regressing without brittle function-name matching. The pure comparison function has a Node built-in test at `frontend/scripts/lint-ratchet-core.test.mjs`, included in `npm run lint`. Lower `allowed` values to tighten; never increase them to accept worsened debt. No eslint-disable comments or global threshold loosening are allowed.
+
 ## CI job map
 
 The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, native E2E and eight deployment-smoke jobs run independently. The aggregate uses `if: always()` and passes only if every dependency result is exactly `success`; failure, cancellation and skipped all fail the gate.

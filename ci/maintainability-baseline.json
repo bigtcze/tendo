@@ -1,0 +1,991 @@
+[
+  {
+    "kind": "file_lines",
+    "path": "backend/internal/item/item.go",
+    "allowed": 875,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/features/items/AllItemsScreen.tsx",
+    "allowed": 392,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/features/items/ItemsScreen.tsx",
+    "allowed": 567,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
+    "allowed": 669,
+    "reason": "P1 audit rank 2: subject paging, mutations, recovery, and rendering share a large screen; extract focused hooks/components while preserving keyboard and data behavior.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/i18n/cs.ts",
+    "allowed": 418,
+    "reason": "Cohesive static locale table: long lines are complete localized message entries, and file size tracks the message catalogue.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "file_lines",
+    "path": "frontend/src/i18n/en.ts",
+    "allowed": 417,
+    "reason": "Cohesive static locale table: long lines are complete localized message entries, and file size tracks the message catalogue.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/dev_toolchain.py",
+    "allowed": 503,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/e2e-native-runner.py",
+    "allowed": 909,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/proxy-smoke.sh",
+    "allowed": 536,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "file_lines",
+    "path": "scripts/setup-smoke.sh",
+    "allowed": 666,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/httpapi/oidc.go",
+    "name": "OIDCHandler.start",
+    "allowed": 25,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/httpapi/setup.go",
+    "name": "decodeStrictObject",
+    "allowed": 16,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/oidc.go",
+    "name": "OIDCService.Callback",
+    "allowed": 40,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/oidc.go",
+    "name": "OIDCService.Start",
+    "allowed": 22,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/identity/oidcprovider/provider.go",
+    "name": "Provider.Exchange",
+    "allowed": 31,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/completion.go",
+    "name": "Service.ListCompletions",
+    "allowed": 16,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/httpapi/item.go",
+    "name": "Handler.create",
+    "allowed": 17,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/httpapi/item.go",
+    "name": "Handler.list",
+    "allowed": 17,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.Create",
+    "allowed": 25,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.List",
+    "allowed": 31,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.Update",
+    "allowed": 22,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "Repo.List",
+    "allowed": 21,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "Repo.UndoCompletion",
+    "allowed": 19,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "matchesCollection",
+    "allowed": 23,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/completion.go",
+    "name": "Repository.Complete",
+    "allowed": 21,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/completion.go",
+    "name": "Repository.UndoCompletion",
+    "allowed": 21,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/completion.go",
+    "name": "decodeReceipt",
+    "allowed": 27,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/item.go",
+    "name": "Repository.List",
+    "allowed": 20,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/item.go",
+    "name": "Repository.Update",
+    "allowed": 18,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/item/postgres/item.go",
+    "name": "toItem",
+    "allowed": 16,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/config/config.go",
+    "name": "LoadFrom",
+    "allowed": 53,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/config/oidc.go",
+    "name": "loadOIDC",
+    "allowed": 40,
+    "reason": "OIDC configuration loader validates provider settings and credentials during startup; keep validation order and actionable configuration errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/database/migrate.go",
+    "name": "Migrate",
+    "allowed": 17,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httporigin/origin.go",
+    "name": "ParseAuthority",
+    "allowed": 35,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "decodeObject",
+    "allowed": 34,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "parseListParams",
+    "allowed": 18,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "name": "forwardedValues",
+    "allowed": 19,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "name": "requestOrigin",
+    "allowed": 34,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "name": "xForwardedValues",
+    "allowed": 27,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/platform/security/password.go",
+    "name": "parsePasswordHash",
+    "allowed": 22,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/subject/postgres/subject.go",
+    "name": "Repository.Update",
+    "allowed": 17,
+    "reason": "PostgreSQL subject update builds a dynamic patch for optional fields; keep patch semantics explicit and preserve stored type/link invariants.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/subject/subject.go",
+    "name": "Service.Update",
+    "allowed": 17,
+    "reason": "Subject service update validates the stored subject type and linked-user invariant before mutation; preserve this validation order and link semantics.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/testoidc/provider.go",
+    "name": "Provider.authorize",
+    "allowed": 17,
+    "reason": "Test double explicitly supports deterministic repository/provider behavior and is exercised by characterization tests; retained for test fidelity and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/testoidc/provider.go",
+    "name": "Provider.idToken",
+    "allowed": 17,
+    "reason": "Test double explicitly supports deterministic repository/provider behavior and is exercised by characterization tests; retained for test fidelity and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/internal/testoidc/provider.go",
+    "name": "Provider.token",
+    "allowed": 19,
+    "reason": "Test double explicitly supports deterministic repository/provider behavior and is exercised by characterization tests; retained for test fidelity and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_complexity",
+    "path": "backend/test/oidc-provider/main.go",
+    "name": "main",
+    "allowed": 18,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/identity/oidc.go",
+    "name": "OIDCService.Callback",
+    "allowed": 108,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/item/completion.go",
+    "name": "Service.Complete",
+    "allowed": 81,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.Create",
+    "allowed": 89,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/item/item.go",
+    "name": "Service.List",
+    "allowed": 88,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/platform/config/config.go",
+    "name": "LoadFrom",
+    "allowed": 104,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_lines",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "decodeObject",
+    "allowed": 89,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "func_nesting",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "name": "Repo.Complete",
+    "allowed": 6,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "func_nesting",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "name": "decodeObject",
+    "allowed": 5,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/cmd/tendo/main.go",
+    "allowed": 6,
+    "reason": "Process entrypoint composition root; long lines are multi-argument service/server constructor calls. Reformat when touched; wiring stays in main.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/household/setup.go",
+    "allowed": 1,
+    "reason": "Household first-run setup; single long line is the compound timezone-name safety predicate. Split into a named validator when touched without changing accepted zones.",
+    "owner": "backend-household"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/invitations.go",
+    "allowed": 4,
+    "reason": "Invitation HTTP handler maps validated invitation operations to public responses; preserve authorization and response contracts.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/oidc.go",
+    "allowed": 2,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/session.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/httpapi/setup.go",
+    "allowed": 3,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/invitations.go",
+    "allowed": 1,
+    "reason": "Invitation service coordinates token, expiry, and membership transitions; preserve single-use and authorization invariants.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/oidc.go",
+    "allowed": 4,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/oidcprovider/provider.go",
+    "allowed": 4,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/invitations.go",
+    "allowed": 3,
+    "reason": "Invitation persistence implements token, expiry, and membership transaction behavior; preserve authorization and one-time-use invariants.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/oidc.go",
+    "allowed": 7,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/queries/oidc.sql",
+    "allowed": 1,
+    "reason": "Long line is a identity SQL query expression; retain the query intent and reformat only with semantic-equivalence checks.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/identity/postgres/session.go",
+    "allowed": 3,
+    "reason": "P1 audit rank 5: security-sensitive OIDC flow combines validation, provider exchange, and session outcomes; preserve ordering while extracting focused helpers.",
+    "owner": "backend-identity"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/completion.go",
+    "allowed": 3,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/httpapi/completion.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/httpapi/item.go",
+    "allowed": 4,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/item.go",
+    "allowed": 9,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/itemtest/repo.go",
+    "allowed": 7,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/completion.go",
+    "allowed": 17,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/item.go",
+    "allowed": 16,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/queries/completion.sql",
+    "allowed": 9,
+    "reason": "Long line is a item SQL query expression; retain the query intent and reformat only with semantic-equivalence checks.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/queries/item.sql",
+    "allowed": 13,
+    "reason": "Long line is a item SQL query expression; retain the query intent and reformat only with semantic-equivalence checks.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/item/postgres/summary.go",
+    "allowed": 2,
+    "reason": "P1 audit rank 3: item domain, persistence, and lifecycle paths have high data impact/churn; split cohesive responsibilities without changing contracts.",
+    "owner": "backend-item"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/config/config.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/config/oidc.go",
+    "allowed": 2,
+    "reason": "OIDC configuration loader validates provider settings and credentials during startup; keep validation order and actionable configuration errors.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/database/migrate.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httporigin/origin.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httpx/jsonapi.go",
+    "allowed": 3,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httpx/origin.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/httpx/server.go",
+    "allowed": 5,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/platform/webui/webui.go",
+    "allowed": 1,
+    "reason": "P1 audit rank 7: platform configuration/HTTP boundary has security and fan-in impact; extract focused validation while preserving contracts.",
+    "owner": "backend-platform"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/httpapi/subject.go",
+    "allowed": 3,
+    "reason": "Subject domain or HTTP boundary preserves stored-type/link invariants and validation order; extract focused behavior without changing API semantics.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/postgres/queries/subject.sql",
+    "allowed": 1,
+    "reason": "Subject SQL query encodes domain filtering and update semantics; long lines are query expressions that should be formatted carefully without changing behavior.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/postgres/subject.go",
+    "allowed": 11,
+    "reason": "Subject domain or HTTP boundary preserves stored-type/link invariants and validation order; extract focused behavior without changing API semantics.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/subject.go",
+    "allowed": 1,
+    "reason": "Subject domain or HTTP boundary preserves stored-type/link invariants and validation order; extract focused behavior without changing API semantics.",
+    "owner": "backend-subject"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/subject/subjecttest/repo.go",
+    "allowed": 2,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/testoidc/provider.go",
+    "allowed": 5,
+    "reason": "Test double explicitly supports deterministic repository/provider behavior and is exercised by characterization tests; retained for test fidelity and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "backend/internal/testpostgres/fixture.go",
+    "allowed": 1,
+    "reason": "Test-only PostgreSQL fixture builds isolated per-run roles/databases; long lines are ownership-checked SQL/cleanup statements kept intact for auditability.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/a11y.ts",
+    "allowed": 1,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/contrast.ts",
+    "allowed": 2,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/contrastAudit.ts",
+    "allowed": 2,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/e2e/motion.ts",
+    "allowed": 1,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/app/App.tsx",
+    "allowed": 8,
+    "reason": "Application route/session composition is a high-centrality lifecycle hotspot; retain composition while extracting focused lifecycle responsibilities.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/app/HouseholdNavigation.tsx",
+    "allowed": 1,
+    "reason": "Application route/session composition is a high-centrality lifecycle hotspot; retain composition while extracting focused lifecycle responsibilities.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/app/Layout.tsx",
+    "allowed": 1,
+    "reason": "Application route/session composition is a high-centrality lifecycle hotspot; retain composition while extracting focused lifecycle responsibilities.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/components/ui/button.tsx",
+    "allowed": 1,
+    "reason": "Tailwind class-string line in a shadcn-style UI primitive; keep the primitive definition cohesive and format classes without changing variants.",
+    "owner": "frontend-design-system"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/components/ui/input.tsx",
+    "allowed": 1,
+    "reason": "Tailwind class-string line in a shadcn-style UI primitive; keep the primitive definition cohesive and format classes without changing variants.",
+    "owner": "frontend-design-system"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/auth/AccountScreen.tsx",
+    "allowed": 3,
+    "reason": "Authentication UI currently combines cohesive sign-in/setup presentation and actions; refactor while preserving authentication flow behavior.",
+    "owner": "frontend-auth"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/auth/OnboardingScreen.tsx",
+    "allowed": 1,
+    "reason": "Authentication UI currently combines cohesive sign-in/setup presentation and actions; refactor while preserving authentication flow behavior.",
+    "owner": "frontend-auth"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/auth/oidcApi.ts",
+    "allowed": 1,
+    "reason": "Authentication UI currently combines cohesive sign-in/setup presentation and actions; refactor while preserving authentication flow behavior.",
+    "owner": "frontend-auth"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/home/HomeScreen.tsx",
+    "allowed": 1,
+    "reason": "Home-screen presentation line combines JSX and utility classes for a cohesive route; keep markup readable and adjust during home UI refactoring.",
+    "owner": "frontend-home"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/AllItemsScreen.tsx",
+    "allowed": 17,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/ItemDetailScreen.tsx",
+    "allowed": 22,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/ItemForm.tsx",
+    "allowed": 21,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/ItemsScreen.tsx",
+    "allowed": 35,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/itemsApi.ts",
+    "allowed": 9,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/items/pendingItemCreate.ts",
+    "allowed": 1,
+    "reason": "P1 audit ranks item screens/shared flows as extraction targets; split cohesive hooks/components while preserving user and data behavior.",
+    "owner": "frontend-items"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/members/InviteScreen.tsx",
+    "allowed": 9,
+    "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
+    "owner": "frontend-members"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/members/MembersScreen.tsx",
+    "allowed": 21,
+    "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
+    "owner": "frontend-members"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/members/membersApi.ts",
+    "allowed": 7,
+    "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
+    "owner": "frontend-members"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/subjects/SubjectForm.tsx",
+    "allowed": 1,
+    "reason": "P1 audit rank 2: subject paging, mutations, recovery, and rendering share a large screen; extract focused hooks/components while preserving keyboard and data behavior.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
+    "allowed": 5,
+    "reason": "P1 audit rank 2: subject paging, mutations, recovery, and rendering share a large screen; extract focused hooks/components while preserving keyboard and data behavior.",
+    "owner": "frontend-subjects"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/i18n/cs.ts",
+    "allowed": 1,
+    "reason": "Cohesive static locale table: long lines are complete localized message entries, and file size tracks the message catalogue.",
+    "owner": "frontend-app"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/test/fakeItems.ts",
+    "allowed": 2,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "frontend/src/test/setup.ts",
+    "allowed": 1,
+    "reason": "Test-only helper or fixture supports deterministic behavioral coverage; maintained with its tests and excluded from production hotspot ranking.",
+    "owner": "test-support"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/autonomous-loop.sh",
+    "allowed": 1,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/backup-restore-smoke.sh",
+    "allowed": 8,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/check-sqlc.sh",
+    "allowed": 1,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/e2e-native-runner.py",
+    "allowed": 9,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/e2e-smoke.sh",
+    "allowed": 1,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/household-backup-smoke.sh",
+    "allowed": 14,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/oidc-smoke.sh",
+    "allowed": 11,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/postgres-test-service.py",
+    "allowed": 7,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/proxy-smoke.sh",
+    "allowed": 30,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/quickstart-smoke.sh",
+    "allowed": 8,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/runtime-smoke.sh",
+    "allowed": 1,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/setup-integration.sh",
+    "allowed": 1,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/setup-smoke.sh",
+    "allowed": 145,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/sr-orca-session.sh",
+    "allowed": 4,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/upgrade-smoke.sh",
+    "allowed": 20,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  },
+  {
+    "kind": "long_lines",
+    "path": "scripts/verify-local.sh",
+    "allowed": 4,
+    "reason": "Operational tooling owns process/CLI orchestration; extract cohesive helpers where behavior remains characterized.",
+    "owner": "tooling-scripts"
+  }
+]

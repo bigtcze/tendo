@@ -20,6 +20,8 @@ HARNESS = (
     "scripts/test_postgres_test_service.py",
     "scripts/test_e2e_native_runner.py",
     "scripts/test_verify_local.py",
+    "scripts/test_ci_workflow.py",
+    "scripts/test_maintainability_check.py",
     "scripts/test_generation_drift.py",
     "scripts/test_e2e_interrupt.py",
 )
@@ -78,6 +80,7 @@ if [[ "$1" == -m && "$2" == unittest ]]; then
       python-unit-postgres:scripts/test_postgres_test_service.py) exit 37 ;;
       python-e2e-runner:scripts/test_e2e_native_runner.py) exit 37 ;;
       python-verify-local:scripts/test_verify_local.py) exit 37 ;;
+      python-maintainability:scripts/test_maintainability_check.py) exit 37 ;;
       python-ci-workflow:scripts/test_ci_workflow.py) exit 37 ;;
       python-toolchain-manifest:scripts/test_toolchain_manifest.py) exit 37 ;;
       python-dev-toolchain:scripts/test_dev_toolchain.py) exit 37 ;;
@@ -86,6 +89,8 @@ if [[ "$1" == -m && "$2" == unittest ]]; then
       python-interrupt:scripts/test_e2e_interrupt.py) exit 37 ;;
     esac
   done
+elif [[ "$1" == scripts/maintainability_check.py && "$FAIL_COMMAND" == maintainability ]]; then
+  exit 37
 elif [[ "$1" == scripts/test_postgres_live.py ]]; then
   printf 'harness:%s\\n' "$1" >> "$VERIFY_LOG"
   if [[ "$FAIL_COMMAND" == python-live-postgres ]]; then exit 37; fi
@@ -149,6 +154,7 @@ exit 0
     def test_go_list_vet_test_failures_propagate(self):
         self.assertNotIn("script:setup-integration", self.assert_failed_stage("go-list", "go-unit-race"))
         self.assertNotIn("go:list", self.assert_failed_stage("go-vet", "go-vet"))
+        self.assertNotIn("go:list", self.assert_failed_stage("maintainability", "maintainability"))
         self.assertNotIn("script:setup-integration", self.assert_failed_stage("go-test", "go-unit-race"))
 
     def test_external_required_script_failures_propagate(self):
@@ -188,12 +194,13 @@ exit 0
             ("python-unit-postgres", 1),
             ("python-e2e-runner", 2),
             ("python-verify-local", 3),
-            ("python-toolchain-manifest", 5),
-            ("python-dev-toolchain", 6),
-            ("python-quickstart-docs", 7),
-            ("python-live-postgres", 8),
-            ("python-unit-generator", 9),
-            ("python-interrupt", 10),
+            ("python-maintainability", 5),
+            ("python-toolchain-manifest", 6),
+            ("python-dev-toolchain", 7),
+            ("python-quickstart-docs", 8),
+            ("python-live-postgres", 9),
+            ("python-unit-generator", 10),
+            ("python-interrupt", 11),
         )
         for command, expected_count in cases:
             with self.subTest(command=command):
