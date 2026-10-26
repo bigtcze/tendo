@@ -34,3 +34,11 @@ Named Go/file metric exceptions are in [`ci/maintainability-baseline.json`](../.
 The permanent CI/local ratchet checks tracked authored file size and long lines, Go function size/complexity/nesting, and frontend ESLint complexity/depth/function lines. New violations and worsened values fail; stale entries, missing targets, duplicate entries, and missing rationale/owner fail. Exceptions may only tighten or be removed. Generated sources, test suites, fixture data, and numbered embedded migration files (`backend/internal/platform/database/NNN_*.sql`) have explicit exclusions; none is a blanket application-code suppression.
 
 Refactor evidence, before/after metrics, and relevant characterization tests should be added as each ranked target is addressed. This audit remains in progress until scoped high-risk hotspots are refactored and verified.
+
+The checker also rejects exceptions whose allowed value is within the default threshold, so a baseline entry cannot be vacuous.
+
+## Refactor evidence
+
+| Rank | Status | Before → after | Behavior protection |
+|---|---|---|---|
+| 3 P1 `backend/internal/item/item.go` | Refactored | File 894 → 191 non-blank lines, split into same-package `create.go`, `list.go`, `update.go`, `validate.go`. `Service.Create` 89 lines / complexity 25 → 19 / 5; `Service.List` 88 / 31 → 26 / 5; `Service.Update` 79 / 22 → 28 / 7. Largest extracted helper `buildScalarChanges` is 47 / 13. All seven item.go baseline exceptions are removed. No exported identifier changed. | New `order_test.go` covers validation precedence, replay-before-validation, list validation before any repository call, update validation order and subject-before-responsible-member lookup order. Mutation check: moving sort validation ahead of limit validation makes the list precedence test fail. Existing item unit, race, and real-PostgreSQL integration suites pass unchanged. |

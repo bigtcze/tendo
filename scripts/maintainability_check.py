@@ -199,7 +199,9 @@ def check_metrics(metrics: dict[tuple[str, str, str], int], baseline: list[dict]
         if not isinstance(allowed, int):
             errors.append(f"{metric_display(path, name)} {kind} invalid allowed value")
             continue
-        if value > allowed:
+        if allowed <= threshold(kind, path):
+            errors.append(f"{metric_display(path, name)} {kind} exception allowed={allowed} is within threshold; remove it")
+        elif value > allowed:
             errors.append(violation(kind, path, name, value, allowed))
         elif value < allowed:
             errors.append(f"{metric_display(path, name)} {kind} stale measured={value} allowed={allowed}; tighten")
