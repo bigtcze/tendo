@@ -16,7 +16,6 @@ export default tseslint.config(
       complexity: 'off',
       'max-depth': 'off',
       'max-lines-per-function': 'off',
-      'react-hooks/set-state-in-effect': 'off',
     },
   },
   {

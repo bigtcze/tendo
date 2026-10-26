@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareMaintainability, collectFunctionMetrics, metricKey } from './lint-ratchet-core.mjs';
+import {
+  compareAgainstBase,
+  compareMaintainability,
+  collectFunctionMetrics,
+  metricKey,
+  maintainabilityPlugin,
+} from './lint-ratchet-core.mjs';
+import { ESLint } from 'eslint';
+import tseslint from 'typescript-eslint';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const entry = (allowed = 20, reason = 'technical exception') => ({
   file: 'src/example.ts', function: 'Example', rule: 'complexity', allowed, reason, owner: 'frontend-app',
@@ -13,8 +24,52 @@ test('function exceptions are independently keyed by qualified function', () => 
   const second = metricKey('src/example.ts', 'Screen.second', 'complexity');
   const baseline = [{ ...entry(20), function: 'Screen.first' }];
   const errors = compareMaintainability(new Map([[first, 20], [second, 21]]), baseline);
-  assert.match(errors.join('\\n'), /Screen.second complexity measured=21/);
-  assert.deepEqual(compareMaintainability(new Map([[first, 18], [second, 21]]), [{ ...baseline[0], allowed: 18 }]).length, 1);
+  assert.match(errors.join('\n'), /Screen.second complexity measured=21/);
+  const improvedFirst = new Map([[first, 18], [second, 21]]);
+  const tightenedFirst = [{ ...baseline[0], allowed: 18 }];
+  assert.equal(compareMaintainability(improvedFirst, tightenedFirst).length, 1);
+});
+
+test('ESLint API reports violations despite inline disable and rule override', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-ratchet-'));
+  try {
+    const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: [{
+      files: ['src/**/*.ts'],
+      linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
+      languageOptions: {
+        parser: tseslint.parser,
+        parserOptions: { sourceType: 'module', ecmaVersion: 'latest' },
+      },
+      plugins: { maintainability: maintainabilityPlugin },
+      rules: { 'maintainability/metrics': 'error' },
+    }] });
+    for (const [name, directive] of [
+      ['disable.ts', '/* eslint-disable complexity */'],
+      ['override.ts', '/* eslint complexity: ["error", 1000] */'],
+    ]) {
+      const path = join(directory, 'src', name);
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(join(directory, 'src'), { recursive: true });
+      const branches = Array.from({ length: 20 }, (_, index) => `if (value === ${index}) return ${index};`).join('\n');
+      await writeFile(path, `${directive}\nfunction fresh() {\n${branches}\n}`);
+      const [result] = await eslint.lintFiles([path]);
+      assert.ok(result.messages.some(message => message.ruleId === 'maintainability/metrics'), name);
+      assert.ok(
+        result.messages.some(message => message.ruleId === null && /noInlineConfig|inline config/i.test(message.message)),
+        name,
+      );
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('base comparison rejects new or raised entries and bootstraps without baseline', () => {
+  const current = [{ ...entry(21), function: 'Example' }];
+  const base = [{ ...entry(20), function: 'Example' }];
+  assert.match(compareAgainstBase(current, base)[0], /allowed raised=21 base=20/);
+  assert.match(compareAgainstBase(current, [])[0], /new exception relative to base/);
+  assert.deepEqual(compareAgainstBase([], []), []);
 });
 
 test('collects standalone metrics for each function declaration', () => {
