@@ -20,7 +20,7 @@ type Faults struct {
 	Deny, BadSignature, WrongIssuer, WrongAudience, WrongAZP, MultiAudienceNoAZP, Expired, FutureIssuedAt, NonceMismatch, MissingIDToken, TokenServerError bool
 	Delay                                                                                                                                                  time.Duration
 	MissingAuthEndpoint, MissingTokenEndpoint, MissingJWKSURI, WrongJWKSHTTP, SecureAuthEndpoints, NoCodeResponseType                                      bool
-	DiscoveryUnavailable, InvalidGrant                                                                                                                     bool
+	DiscoveryUnavailable, InvalidGrant, JWKSUnavailable                                                                                                    bool
 	SubjectEmpty, SubjectNonASCII, SubjectTooLong, MissingIssuedAt, StringIssuedAt, FractionalIssuedAt, DisallowedAlgorithm                                bool
 }
 type Provider struct {
@@ -30,6 +30,7 @@ type Provider struct {
 	codes                                        map[string]code
 	ClientID, ClientSecret, Subject, RedirectURI string
 	Subjects                                     []string
+	SigningAlgorithms                            []string
 	Faults                                       Faults
 }
 type code struct {
@@ -90,8 +91,16 @@ func (p *Provider) serve(w http.ResponseWriter, r *http.Request) {
 		if p.Faults.NoCodeResponseType {
 			responses = []string{"id_token"}
 		}
-		json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer(), "authorization_endpoint": auth, "token_endpoint": token, "jwks_uri": jwks, "response_types_supported": responses, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}})
+		algorithms := p.SigningAlgorithms
+		if algorithms == nil {
+			algorithms = []string{"RS256"}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer(), "authorization_endpoint": auth, "token_endpoint": token, "jwks_uri": jwks, "response_types_supported": responses, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": algorithms, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}})
 	case "/keys":
+		if p.Faults.JWKSUnavailable {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		p.keys(w)
 	case "/authorize":
 		p.authorize(w, r)
