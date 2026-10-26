@@ -135,6 +135,38 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		return n
 	}
 
+	t.Run("create rejects linked user from foreign-only household", func(t *testing.T) {
+		var foreignUser string
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('subject_foreign_only_link') RETURNING id::text`).Scan(&foreignUser); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, foreignUser, homeB); err != nil {
+			t.Fatal(err)
+		}
+		before := rowCount(homeA)
+		link := foreignUser
+		service := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(_ context.Context, userID, householdID string) error {
+			var exists bool
+			err := admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid)`, userID, householdID).Scan(&exists)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return subject.ErrNotFound
+			}
+			return nil
+		})
+		_, err := service.Create(ctx, actorID, homeA, "foreign-link-create", "Foreign linked", subject.TypePerson, &link)
+		var validation *subject.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "invalid_reference" {
+			t.Fatalf("foreign-only linked user error=%v", err)
+		}
+		var created int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM subjects WHERE household_id=$1::uuid`, homeA).Scan(&created); err != nil || created != before {
+			t.Fatalf("subject rows changed before=%d after=%d err=%v", before, created, err)
+		}
+	})
+
 	t.Run("create persists Unicode name type and version 1", func(t *testing.T) {
 		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, "pg-key", "  Veselí 家族 🚗  ", subject.TypeVehicle, nil)
 		if err != nil {
