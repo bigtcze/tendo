@@ -100,7 +100,9 @@ func (p *Provider) discovery(ctx context.Context) (*oidc.Provider, *observedKeyS
 	}
 	p.discovered = provider
 	p.algorithms = supportedSigningAlgorithms(claims.SigningAlgorithms)
-	p.keySet = &observedKeySet{remote: oidc.NewRemoteKeySet(ctx, claims.JWKSURI)}
+	// Keep request-scoped discovery context values out of the long-lived key set.
+	keySetCtx := oidc.ClientContext(context.Background(), p.client)
+	p.keySet = &observedKeySet{remote: oidc.NewRemoteKeySet(keySetCtx, claims.JWKSURI)}
 	return provider, p.keySet, p.algorithms, nil
 }
 

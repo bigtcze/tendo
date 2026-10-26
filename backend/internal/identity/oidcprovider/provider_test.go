@@ -111,24 +111,47 @@ func TestJWKSUnavailableIsProviderUnavailable(t *testing.T) {
 	}
 }
 
-func TestSupportedSigningAlgorithmsFiltersUnsupportedValues(t *testing.T) {
-	fake, err := testoidc.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer fake.Close()
-	fake.SigningAlgorithms = []string{"HS256", "RS256"}
-	p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, nil, nil, true)
-	_, _, algorithms, err := p.discovery(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(algorithms) != 1 || algorithms[0] != oidc.RS256 {
-		t.Fatalf("stored algorithms=%v, want [%s]", algorithms, oidc.RS256)
-	}
-	if got := supportedSigningAlgorithms([]string{"HS256", "none"}); len(got) != 0 {
-		t.Fatalf("unsupported-only algorithms=%v, want empty for go-oidc default", got)
-	}
+func TestSupportedSigningAlgorithms(t *testing.T) {
+	allowed := []string{oidc.RS256, oidc.RS384, oidc.RS512, oidc.ES256, oidc.ES384, oidc.ES512, oidc.PS256, oidc.PS384, oidc.PS512, oidc.EdDSA}
+	t.Run("all supported algorithms", func(t *testing.T) {
+		got := supportedSigningAlgorithms(allowed)
+		if len(got) != len(allowed) {
+			t.Fatalf("algorithms=%v, want %v", got, allowed)
+		}
+		for i := range allowed {
+			if got[i] != allowed[i] {
+				t.Fatalf("algorithms=%v, want %v", got, allowed)
+			}
+		}
+	})
+	t.Run("unsupported algorithms", func(t *testing.T) {
+		for _, algorithm := range []string{"HS256", "none", "", "rs256"} {
+			if got := supportedSigningAlgorithms([]string{algorithm}); len(got) != 0 {
+				t.Errorf("algorithm %q retained in %v", algorithm, got)
+			}
+		}
+	})
+	t.Run("empty input", func(t *testing.T) {
+		if got := supportedSigningAlgorithms(nil); len(got) != 0 {
+			t.Fatalf("algorithms=%v, want empty", got)
+		}
+	})
+	t.Run("discovery filters unsupported", func(t *testing.T) {
+		fake, err := testoidc.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer fake.Close()
+		fake.SigningAlgorithms = []string{"HS256", "RS256"}
+		p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, nil, nil, true)
+		_, _, algorithms, err := p.discovery(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(algorithms) != 1 || algorithms[0] != oidc.RS256 {
+			t.Fatalf("stored algorithms=%v, want [%s]", algorithms, oidc.RS256)
+		}
+	})
 }
 
 func TestUnsupportedDiscoveryAlgorithmsKeepGoOIDCDefault(t *testing.T) {
