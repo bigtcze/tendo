@@ -246,37 +246,5 @@
     "allowed": 27,
     "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
     "owner": "frontend-subjects"
-  },
-  {
-    "file": "src/features/subjects/SubjectsScreen.tsx",
-    "function": "SubjectsScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 605,
-    "reason": "P1 audit rank 2: subject paging, member loading, archive/restore, create/edit recovery and rendering share a screen; extract focused hooks/components.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "file": "src/features/subjects/SubjectsScreen.tsx",
-    "function": "SubjectsScreen",
-    "rule": "complexity",
-    "allowed": 61,
-    "reason": "P1 audit rank 2: subject paging, member loading, archive/restore, recovery and rendering share a screen; extract focused hooks/components.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "file": "src/features/subjects/SubjectsScreen.tsx",
-    "function": "SubjectsScreen.add",
-    "rule": "complexity",
-    "allowed": 18,
-    "reason": "Add-subject handler manages validation, pending-create recovery and submission outcome; separate retry transitions while preserving subject type/link constraints.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "file": "src/features/subjects/SubjectsScreen.tsx",
-    "function": "SubjectsScreen.save",
-    "rule": "complexity",
-    "allowed": 17,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-subjects"
   }
 ]
