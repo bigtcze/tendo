@@ -111,6 +111,11 @@ class MaintainabilityTests(unittest.TestCase):
                           [{"kind": "func_lines", "path": "backend/a.go", "name": "F", "allowed": 81, "reason": "legacy"}],
                           "stale measured=80")
 
+    def test_exception_within_threshold_is_rejected(self):
+        self.assert_error({("long_lines", "backend/a.go", ""): 0},
+                          [{"kind": "long_lines", "path": "backend/a.go", "allowed": 0, "reason": "legacy", "owner": "backend"}],
+                          "exception allowed=0 is within threshold; remove it")
+
     def test_missing_target(self):
         self.assert_error({}, [{"kind": "file_lines", "path": "backend/gone.go", "allowed": 600, "reason": "legacy"}], "missing measured entry")
 

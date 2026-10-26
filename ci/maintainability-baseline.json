@@ -1,13 +1,6 @@
 [
   {
     "kind": "file_lines",
-    "path": "backend/internal/item/item.go",
-    "allowed": 894,
-    "reason": "Large item domain file contains validation, create/list/cursor/update, and lifecycle rules; split into same-package cohesive files while preserving item contracts.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "file_lines",
     "path": "backend/internal/subject/subject.go",
     "allowed": 505,
     "reason": "Subject service file contains CRUD and shared validators; preserve stored type/link invariants and validation order while splitting cohesive checks.",
@@ -138,30 +131,6 @@
     "name": "Handler.list",
     "allowed": 17,
     "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/item.go",
-    "name": "Service.Create",
-    "allowed": 25,
-    "reason": "Creates an item after household, subject, responsible-member, recurrence, and idempotency validation; extract validation stages without changing write semantics.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/item.go",
-    "name": "Service.List",
-    "allowed": 31,
-    "reason": "Lists items with filters, paging and cursor validation/encoding; extract cursor and filtering stages while preserving pagination results.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/item.go",
-    "name": "Service.Update",
-    "allowed": 22,
-    "reason": "Updates item fields after household ownership, subject/responsible-member and idempotent replay checks; split validation from mutation while preserving patch semantics.",
     "owner": "backend-item"
   },
   {
@@ -382,22 +351,6 @@
   },
   {
     "kind": "func_lines",
-    "path": "backend/internal/item/item.go",
-    "name": "Service.Create",
-    "allowed": 89,
-    "reason": "Item domain source combines types, validation, create/list/cursor/update and lifecycle rules; split same-package responsibilities while preserving item behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_lines",
-    "path": "backend/internal/item/item.go",
-    "name": "Service.List",
-    "allowed": 88,
-    "reason": "Item domain source combines types, validation, create/list/cursor/update and lifecycle rules; split same-package responsibilities while preserving item behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_lines",
     "path": "backend/internal/platform/config/config.go",
     "name": "LoadFrom",
     "allowed": 104,
@@ -552,13 +505,6 @@
     "path": "backend/internal/item/httpapi/item.go",
     "allowed": 4,
     "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/item/item.go",
-    "allowed": 9,
-    "reason": "Item domain source combines types, validation, create/list/cursor/update and lifecycle rules; split same-package responsibilities while preserving item behavior.",
     "owner": "backend-item"
   },
   {
