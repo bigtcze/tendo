@@ -136,54 +136,6 @@
     "owner": "frontend-items"
   },
   {
-    "file": "src/features/items/ItemsScreen.tsx",
-    "function": "ItemsScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 481,
-    "reason": "P1 audit rank 1: item home composes list, paging, recovery, mutations, and rendering; extract data/action hooks and view components.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemsScreen.tsx",
-    "function": "ItemsScreen",
-    "rule": "complexity",
-    "allowed": 76,
-    "reason": "P1 audit rank 1: item home composes list, paging, recovery, mutations, and rendering; extract data/action hooks and view components.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemsScreen.tsx",
-    "function": "ItemsScreen.openAddForm",
-    "rule": "complexity",
-    "allowed": 16,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemsScreen.tsx",
-    "function": "ItemsScreen.create",
-    "rule": "complexity",
-    "allowed": 22,
-    "reason": "Create action coordinates validation, uncertain-outcome recovery and item creation; isolate recovery transitions while preserving idempotent retry behavior.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemsScreen.tsx",
-    "function": "ItemsScreen.showMore",
-    "rule": "complexity",
-    "allowed": 16,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemsScreen.tsx",
-    "function": "ItemsScreen.finish",
-    "rule": "complexity",
-    "allowed": 26,
-    "reason": "Finish action applies completion/undo outcomes and manages focus/stale-state recovery; extract lifecycle command handling without changing undo semantics.",
-    "owner": "frontend-items"
-  },
-  {
     "file": "src/features/items/itemsApi.ts",
     "function": "listAllItems",
     "rule": "complexity",

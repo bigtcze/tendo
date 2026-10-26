@@ -9,6 +9,7 @@ import { getSubject } from '../subjects/subjectsApi';
 import { listMembers, type Member } from '../members/membersApi';
 import { listCompletions, getItem, changeItem, patchItem, listActiveSubjects, type Completion, type Item, type Recurrence, type Subject, type ItemField } from './itemsApi';
 import { ItemForm, type ItemFormValues } from './ItemForm';
+import { formatDate } from './formatDate';
 
 const MAX_SUBJECT_PAGES = 20;
 const MAX_MEMBER_PAGES = 20;
@@ -23,10 +24,6 @@ function sameValue(field: keyof ItemFormValues, a: ItemFormValues[keyof ItemForm
   return a === b;
 }
 function formValues(item: Item): ItemFormValues { return { title: item.title, subjectId: item.subjectId, attentionOn: item.attentionOn ?? '', notes: item.notes ?? '', recurrence: item.recurrence, responsibleUserId: item.responsibleUserId }; }
-function formatDate(value: string, locale: string) {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
-}
 function pluralKey(unit: Recurrence['intervalUnit'], count: number, locale: string): MessageKey {
   const category = new Intl.PluralRules(locale).select(count);
   const supported: Record<string, readonly string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
