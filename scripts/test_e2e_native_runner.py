@@ -26,8 +26,8 @@ class AdminPsqlTests(unittest.TestCase):
             "PSQL": "/custom/psql",
         }
         completed = subprocess.CompletedProcess([], 0, "ok\n", "")
-        with mock.patch.object(runner.subprocess, "run", return_value=completed) as run:
-            self.assertEqual(runner.psql_admin(inherited, "SELECT 1"), "ok")
+        with mock.patch.object(runner.db_fixtures.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(runner.db_fixtures.psql_admin(inherited, "SELECT 1"), "ok")
         args = run.call_args.args[0]
         env = run.call_args.kwargs["env"]
         self.assertEqual(args[0], "/custom/psql")
@@ -45,9 +45,9 @@ class AdminPsqlTests(unittest.TestCase):
         password = "secret-without-leak"
         inherited = {"TEST_DATABASE_ADMIN_URL": f"postgresql://migrator:{password}@localhost/testdb"}
         completed = subprocess.CompletedProcess([], 2, "", f"connection failed for {password}")
-        with mock.patch.object(runner.subprocess, "run", return_value=completed) as run:
+        with mock.patch.object(runner.db_fixtures.subprocess, "run", return_value=completed) as run:
             with self.assertRaises(RuntimeError) as raised:
-                runner.psql_admin(inherited, "SELECT 1")
+                runner.db_fixtures.psql_admin(inherited, "SELECT 1")
         self.assertNotIn(password, str(raised.exception))
         self.assertNotIn(password, run.call_args.args[0])
 
@@ -58,7 +58,7 @@ class ChildProcessTests(unittest.TestCase):
         env = os.environ.copy()
         env.pop("E2E_SR_AUDIT_DIR", None)
         env.pop("E2E_SR_DEBUG_FILE", None)
-        env.update({"E2E_BASE_URL": "http://127.0.0.1:1", "E2E_SETUP_TOKEN": "test-token", "E2E_OWNER_PASSWORD": "test-password", "E2E_CLOCK_NOW": "2026-05-14T08:00:00Z", "E2E_FOREIGN_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000001", "E2E_FOREIGN_SUBJECT_ID": "01890000-0000-7000-8000-000000000002", "E2E_FOREIGN_ITEM_ID": "01890000-0000-7000-8000-000000000003"})
+        env.update({"E2E_BASE_URL": "http://127.0.0.1:1", "E2E_SETUP_TOKEN": "test-token", "E2E_OWNER_PASSWORD": "test-password", "E2E_EXISTING_PASSWORD": "existing-password", "E2E_CONFLICT_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000004", "E2E_CLOCK_NOW": "2026-05-14T08:00:00Z", "E2E_FOREIGN_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000001", "E2E_FOREIGN_SUBJECT_ID": "01890000-0000-7000-8000-000000000002", "E2E_FOREIGN_ITEM_ID": "01890000-0000-7000-8000-000000000003"})
         result = subprocess.run(
             [str(root / "frontend/node_modules/.bin/playwright"), "test", "--list"],
             cwd=root / "frontend", env=env, text=True, capture_output=True, timeout=30,
@@ -345,17 +345,79 @@ class ChildProcessTests(unittest.TestCase):
         runner.run_playwright(root, {}, children, "e2e/ux-audit.spec.ts", timeout=1800)
         self.assertEqual(children.run.call_args.args[-1], 1800)
 
+    def test_existing_account_seed_password_is_registered_before_psql_and_uuid_checked(self):
+        runner.SENSITIVE_VALUES.clear()
+        household_id = "01890000-0000-7000-8000-000000000004"
+        conflict_user_id = "01890000-0000-7000-8000-000000000005"
+        query_results = iter(["", f"{household_id}|{conflict_user_id}"])
+
+        def psql_after_registration(_inherited, sql):
+            self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD, runner.SENSITIVE_VALUES)
+            return next(query_results)
+
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=psql_after_registration) as query:
+            self.assertEqual(
+                runner.db_fixtures.seed_existing_invitation_accounts(
+                    {}, runner.register_sensitive_value
+                ),
+                household_id,
+            )
+        self.assertEqual(query.call_count, 2)
+        self.assertIn("existing_free_e2e", query.call_args_list[0].args[1])
+        self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD_HASH, query.call_args_list[0].args[1])
+        seed_query = query.call_args_list[1].args[1]
+        self.assertIn("INSERT INTO households", seed_query)
+        self.assertIn("INSERT INTO user_accounts", seed_query)
+        self.assertIn("INSERT INTO household_memberships", seed_query)
+        self.assertIn("INSERT INTO local_credentials", seed_query)
+        self.assertIn("default_household_id", seed_query)
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["", "invalid|not-a-uuid"]):
+            with self.assertRaisesRegex(RuntimeError, "UUIDs"):
+                runner.db_fixtures.seed_existing_invitation_accounts(
+                    {}, runner.register_sensitive_value
+                )
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["", f"{household_id}|invalid"]):
+            with self.assertRaisesRegex(RuntimeError, "UUIDs"):
+                runner.db_fixtures.seed_existing_invitation_accounts(
+                    {}, runner.register_sensitive_value
+                )
+
+    def test_foreign_household_seed_returns_validated_uuid_tuple(self):
+        ids = (
+            "01890000-0000-7000-8000-000000000001",
+            "01890000-0000-7000-8000-000000000002",
+            "01890000-0000-7000-8000-000000000003",
+        )
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value="|".join(ids)):
+            self.assertEqual(runner.db_fixtures.seed_foreign_household({}), ids)
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value="invalid|" + "|".join(ids[1:])):
+            with self.assertRaisesRegex(RuntimeError, "three UUIDs"):
+                runner.db_fixtures.seed_foreign_household({})
+
+    def test_existing_invitation_membership_postcheck_accepts_exact_state(self):
+        owner = "01890000-0000-7000-8000-000000000001"
+        conflict = "01890000-0000-7000-8000-000000000004"
+        expected = f"1|1|{owner}|{owner}|1|1|{conflict}|1"
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=[expected, owner]) as query:
+            runner.db_fixtures.assert_existing_invitation_accounts({}, conflict)
+        self.assertEqual(query.call_count, 2)
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["wrong-state", owner]):
+            with self.assertRaisesRegex(RuntimeError, "state mismatch"):
+                runner.db_fixtures.assert_existing_invitation_accounts({}, conflict)
+        with self.assertRaisesRegex(RuntimeError, "UUID"):
+            runner.db_fixtures.assert_existing_invitation_accounts({}, "invalid")
+
     def test_foreign_seed_check_accepts_only_exact_unchanged_snapshot(self):
         ids = ("01890000-0000-7000-8000-000000000001", "01890000-0000-7000-8000-000000000002", "01890000-0000-7000-8000-000000000003")
-        with mock.patch.object(runner, "psql_admin", return_value=runner.FOREIGN_SEED_EXPECTED) as query:
-            runner.assert_foreign_seed_unchanged({}, *ids)
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value=runner.db_fixtures.FOREIGN_SEED_EXPECTED) as query:
+            runner.db_fixtures.assert_foreign_seed_unchanged({}, *ids)
         self.assertIn(ids[0], query.call_args.args[1])
-        changed = runner.FOREIGN_SEED_EXPECTED.replace("Foreign gutter check|1|", "Hijack|2|")
-        with mock.patch.object(runner, "psql_admin", return_value=changed):
+        changed = runner.db_fixtures.FOREIGN_SEED_EXPECTED.replace("Foreign gutter check|1|", "Hijack|2|")
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value=changed):
             with self.assertRaisesRegex(RuntimeError, "Hijack"):
-                runner.assert_foreign_seed_unchanged({}, *ids)
+                runner.db_fixtures.assert_foreign_seed_unchanged({}, *ids)
         with self.assertRaisesRegex(RuntimeError, "UUIDs"):
-            runner.assert_foreign_seed_unchanged({}, "x'; DROP TABLE items; --", ids[1], ids[2])
+            runner.db_fixtures.assert_foreign_seed_unchanged({}, "x'; DROP TABLE items; --", ids[1], ids[2])
 
 
 class FailureLogTests(unittest.TestCase):

@@ -21,7 +21,7 @@ if len(sys.argv)>1 and sys.argv[1]=="migrate":
  env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
  env.update(PGHOST=u.hostname,PGPORT=str(u.port or 5432),PGUSER=urllib.parse.unquote(u.username),PGPASSWORD=urllib.parse.unquote(u.password or ""),PGDATABASE=urllib.parse.unquote(u.path.lstrip("/")))
  for k,v in urllib.parse.parse_qsl(u.query):env["PG"+k.upper()]=v
- sql="CREATE TABLE households(id uuid PRIMARY KEY DEFAULT uuidv7(),name text,timezone text);CREATE TABLE subjects(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,type text,name text);CREATE TABLE items(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,subject_id uuid,title text);"
+ sql="CREATE TABLE households(id uuid PRIMARY KEY DEFAULT uuidv7(),name text,timezone text);CREATE TABLE subjects(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,type text,name text);CREATE TABLE items(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,subject_id uuid,title text);CREATE TABLE user_accounts(id uuid PRIMARY KEY DEFAULT uuidv7(),login text,default_household_id uuid);CREATE TABLE local_credentials(user_id uuid,password_hash text);CREATE TABLE household_memberships(user_id uuid,household_id uuid,role text);"
  raise SystemExit(subprocess.run([PSQL_BIN,"-X","-q","-v","ON_ERROR_STOP=1","-c",sql],env=env).returncode)
 marker=os.environ["INTERRUPT_MARKERS"]
 with open(marker+"/app.pid","w") as f:f.write(str(os.getpid()))
@@ -61,7 +61,7 @@ class E2EWrapperInterruptTests(unittest.TestCase):
    (repo/"frontend/dist").mkdir(parents=True); (repo/"frontend/dist/.gitkeep").write_text(""); (repo/"frontend/dist/old.txt").write_text("old frontend")
    embedded=repo/"backend/internal/platform/webui/dist"; (embedded/"assets").mkdir(parents=True)
    (embedded/"index.html").write_text("old embedded index"); (embedded/"assets/old.js").write_text("old embedded asset")
-   for name in ("e2e-smoke.sh","e2e-native-runner.py","postgres-test-service.py"):
+   for name in ("e2e-smoke.sh","e2e-native-runner.py","e2e_db_fixtures.py","postgres-test-service.py"):
     import shutil; shutil.copy2(ROOT/"scripts"/name,repo/"scripts"/name)
    pkg=repo/"frontend/node_modules/@playwright/test/package.json"; pkg.parent.mkdir(parents=True); import json; pkg.write_text(json.dumps({"version": json.loads((ROOT/"toolchain.json").read_text())["playwright"]}))
    pw=repo/"frontend/node_modules/.bin/playwright"; pw.write_text("#!/usr/bin/env bash\nexit 0\n"); pw.chmod(0o755)
@@ -70,7 +70,7 @@ class E2EWrapperInterruptTests(unittest.TestCase):
    app=tmp/"fake-app.py";app.write_text(APP.replace("PSQL_BIN",repr(os.environ.get("PSQL","psql"))));app.chmod(0o755)
    provider=tmp/"fake-provider.py";provider.write_text(PROVIDER);provider.chmod(0o755)
    markers=tmp/"markers";markers.mkdir()
-   env=os.environ.copy();env.update({"PATH":str(bindir)+os.pathsep+env["PATH"],"E2E_FAKE_APP":str(app),"E2E_FAKE_PROVIDER":str(provider),"INTERRUPT_MARKERS":str(markers),"TENDO_TEST_POSTGRES_ADMIN_URL":admin})
+   env=os.environ.copy();env.update({"PATH":str(bindir)+os.pathsep+env["PATH"],"E2E_FAKE_APP":str(app),"E2E_FAKE_PROVIDER":str(provider),"INTERRUPT_MARKERS":str(markers),"PSQL":os.environ.get("PSQL","psql"),"TENDO_TEST_POSTGRES_ADMIN_URL":admin})
    shell=subprocess.Popen(["bash",str(repo/"scripts/e2e-smoke.sh")],cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
    try:
     expected=("app.pid","app-worker.pid","provider.pid","provider-worker.pid")

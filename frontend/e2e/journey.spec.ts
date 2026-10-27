@@ -22,6 +22,8 @@ const e2eClockNow = required('E2E_CLOCK_NOW');
 const foreignHouseholdId = required('E2E_FOREIGN_HOUSEHOLD_ID');
 const foreignSubjectId = required('E2E_FOREIGN_SUBJECT_ID');
 const foreignItemId = required('E2E_FOREIGN_ITEM_ID');
+const existingAccountPassword = required('E2E_EXISTING_PASSWORD');
+const conflictHouseholdId = required('E2E_CONFLICT_HOUSEHOLD_ID');
 const expectedCompletionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date(e2eClockNow));
 const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
@@ -3791,6 +3793,236 @@ test.describe('Tendo production journey', () => {
     }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
+  });
+
+  test('n25. existing accounts accept invitations, conflicts stay calm, and invite tokens are shown once', async ({ browser }) => {
+    test.setTimeout(120_000);
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    await page.goto('/members');
+    const invitationPath = `/api/v1/households/${householdId}/invitations`;
+    type OwnerInvitation = { id: string; status: string };
+    type HouseholdMember = { login: string; role: string };
+    const listOwnerInvitations = async (secretToken?: string): Promise<OwnerInvitation[]> => {
+      const invitations: OwnerInvitation[] = [];
+      let cursor: string | undefined;
+      do {
+        const query = new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) });
+        const response = await page.request.get(`${invitationPath}?${query}`);
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: OwnerInvitation[]; nextCursor: string | null };
+        if (secretToken) {
+          expect(JSON.stringify(body)).not.toContain(secretToken);
+          const assertNoTokenField = (value: unknown): void => {
+            if (Array.isArray(value)) { value.forEach(assertNoTokenField); return; }
+            if (value && typeof value === 'object') {
+              expect(Object.keys(value)).not.toContain('token');
+              Object.values(value).forEach(assertNoTokenField);
+            }
+          };
+          assertNoTokenField(body);
+        }
+        invitations.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return invitations;
+    };
+    const listOwnerMembers = async (): Promise<HouseholdMember[]> => {
+      const members: HouseholdMember[] = [];
+      let cursor: string | undefined;
+      do {
+        const query = new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) });
+        const response = await page.request.get(`/api/v1/households/${householdId}/members?${query}`);
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: HouseholdMember[]; nextCursor: string | null };
+        members.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return members;
+    };
+    const expectInvitationStatus = async (id: string, status: string) => {
+      const invitation = (await listOwnerInvitations()).find(item => item.id === id);
+      expect(invitation, `invitation ${id} is present in owner list`).toBeTruthy();
+      expect(invitation!.status).toBe(status);
+    };
+    const createInvite = async () => {
+      const before = new Set((await listOwnerInvitations()).map(invitation => invitation.id));
+      await page.getByRole('button', { name: en['members.invite.action'] }).click();
+      const field = page.getByRole('textbox', { name: en['members.invite.link'] });
+      const link = await field.inputValue();
+      expect(link.startsWith(`${baseURL}/invite#`)).toBe(true);
+      expect(new URL(link).hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
+      const token = new URL(link).hash.slice(1);
+      const invitations = await listOwnerInvitations(token);
+      const created = invitations.filter(invitation => !before.has(invitation.id));
+      expect(created).toHaveLength(1);
+      const id = created[0]!.id;
+      await page.reload();
+      await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
+      await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
+      const inviteRows = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: en['members.invitation.revoke'] }) });
+      if (await inviteRows.count()) await expect(inviteRows.first()).toBeVisible();
+      else await expect(page.getByText(en['members.invitations.empty'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('textbox', { name: en['members.invite.link'] })).toHaveCount(0);
+      await expect(page.locator('body')).not.toContainText(token);
+      return { link, token, id };
+    };
+    const makeActor = async () => {
+      const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+      const actor = await context.newPage();
+      await trackInFlightApiFetches(actor);
+      const issues: string[] = [];
+      const failures: string[] = [];
+      actor.on('console', message => {
+        if (message.type() !== 'error') return;
+        const path = new URL(message.location().url || 'about:blank').pathname;
+        if (path === '/api/v1/session' || path === '/api/v1/invitations/accept') return;
+        issues.push(`console: ${message.text()}`);
+      });
+      actor.on('pageerror', error => issues.push(`pageerror: ${error.message}`));
+      actor.on('response', response => {
+        const path = new URL(response.url()).pathname;
+        const failure = `${response.request().method()} ${path} ${response.status()}`;
+        if (response.status() >= 400 && !(failure === 'GET /api/v1/session 401')) failures.push(failure);
+      });
+      return { context, actor, assertClean: (expectedFailures: string[]) => {
+        expect(issues).toEqual([]);
+        expect([...failures].sort()).toEqual([...expectedFailures].sort());
+      } };
+    };
+    const signIntoExisting = async (actor: Page, loginName: string) => {
+      await actor.goto('/');
+      await actor.getByLabel(en['login.login']).fill(loginName);
+      await actor.getByLabel(en['login.password']).fill(existingAccountPassword);
+      const loginResponsePromise = actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/session');
+      await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      const loginResponse = await loginResponsePromise;
+      expect(loginResponse.status()).toBe(201);
+      await expect(actor.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+    };
+    const member = await makeActor();
+    try {
+      const first = await createInvite();
+      await member.actor.goto(first.link);
+      await member.actor.locator('#invite-login').fill('g4_member_e2e');
+      await member.actor.locator('#invite-password').fill(`${ownerPassword}-g4-member`);
+      await member.actor.getByRole('button', { name: en['invite.create'] }).click();
+      await expect(member.actor.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const beforeResponse = await member.actor.request.get('/api/v1/session');
+      expect(beforeResponse.status()).toBe(200);
+      const before = await beforeResponse.json() as { defaultHouseholdId: string; login: string };
+      expect(before).toMatchObject({ login: 'g4_member_e2e', defaultHouseholdId: householdId });
+      const membersBeforeAlreadyMember = await listOwnerMembers();
+      expect(membersBeforeAlreadyMember.filter(member => member.login === 'g4_member_e2e' && member.role === 'member')).toHaveLength(1);
+      await page.goto('/members');
+      await waitForSettledHouseholdRequests(page);
+      await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
+      const initialInviteRows = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: en['members.invitation.revoke'] }) });
+      if (await initialInviteRows.count()) await expect(initialInviteRows.first()).toBeVisible();
+      else await expect(page.getByText(en['members.invitations.empty'], { exact: true })).toBeVisible();
+      const memberInvite = await page.request.post(invitationPath, { headers: { Origin: baseURL, 'Idempotency-Key': `g4-n25-${crypto.randomUUID()}` }, data: {} });
+      expect(memberInvite.status()).toBe(201);
+      const memberInviteBody = await memberInvite.json() as { id: string; token: string };
+      expect(memberInviteBody.id).toMatch(/^[0-9a-f-]{36}$/);
+      const memberInviteLink = `${baseURL}/invite#${memberInviteBody.token}`;
+      await page.reload();
+      await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
+      const memberInviteRows = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: en['members.invitation.revoke'] }) });
+      await expect(memberInviteRows.first()).toBeVisible();
+      const ownerInvitations = await listOwnerInvitations(memberInviteBody.token);
+      expect(ownerInvitations.some(invitation => invitation.id === memberInviteBody.id)).toBe(true);
+      await expect(page.getByRole('textbox', { name: en['members.invite.link'] })).toHaveCount(0);
+      await expect(page.locator('body')).not.toContainText(memberInviteBody.token);
+      await member.actor.goto(memberInviteLink);
+      await expect(member.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'g4_member_e2e') })).toBeVisible();
+      await member.actor.getByRole('button', { name: en['invite.join'] }).click();
+      await expect(member.actor.getByRole('status')).toContainText(en['invite.error.alreadyMember']);
+      await expect(member.actor.getByRole('link', { name: en['invite.home'] })).toBeVisible();
+      const afterResponse = await member.actor.request.get('/api/v1/session');
+      expect(afterResponse.status()).toBe(200);
+      const afterSession = await afterResponse.json() as { defaultHouseholdId: string; login: string };
+      expect(afterSession).toMatchObject({ login: before.login, defaultHouseholdId: before.defaultHouseholdId });
+      await expectInvitationStatus(memberInviteBody.id, 'pending');
+      const membersAfterAlreadyMember = await listOwnerMembers();
+      expect(membersAfterAlreadyMember.filter(member => member.login === 'g4_member_e2e' && member.role === 'member')).toHaveLength(1);
+      member.assertClean(['POST /api/v1/invitations/accept 409']);
+    } finally { await member.context.close(); }
+
+    const conflictInvite = await createInvite();
+    const conflict = await makeActor();
+    try {
+      await signIntoExisting(conflict.actor, 'existing_conflict_e2e');
+      await waitForSettledHome(conflict.actor, 'Conflict household');
+      await expect(conflict.actor.getByRole('banner')).toContainText('existing_conflict_e2e');
+      const conflictSession = await conflict.actor.request.get('/api/v1/session');
+      expect(conflictSession.status()).toBe(200);
+      expect((await conflictSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
+      await conflict.actor.goto(conflictInvite.link);
+      await expect(conflict.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_conflict_e2e') })).toBeVisible();
+      await waitForSettledHouseholdRequests(conflict.actor);
+      const conflictAcceptResponse = conflict.actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/invitations/accept');
+      await conflict.actor.getByRole('button', { name: en['invite.join'] }).click();
+      const conflictAccept = await conflictAcceptResponse;
+      expect(conflictAccept.status()).toBe(409);
+      expect(await conflictAccept.json()).toMatchObject({ code: 'household_conflict' });
+      await expect(conflict.actor.getByText(en['invite.error.householdConflict'], { exact: true })).toBeVisible();
+      const conflictedSession = await conflict.actor.request.get('/api/v1/session');
+      expect(conflictedSession.status()).toBe(200);
+      expect((await conflictedSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
+      expect((await conflict.actor.request.get(`/api/v1/households/${householdId}/items`)).status()).toBe(404);
+      await expectInvitationStatus(conflictInvite.id, 'pending');
+      const listedConflictMembers = await listOwnerMembers();
+      expect(listedConflictMembers.some(member => member.login === 'existing_conflict_e2e')).toBe(false);
+      const oldCookie = (await conflict.context.cookies()).find(cookie => cookie.name === 'tendo_session')?.value;
+      expect(oldCookie).toBeTruthy();
+      await conflict.actor.getByRole('button', { name: en['invite.signOutContinue'] }).click();
+      await expect(conflict.actor.locator('#invite-login')).toBeVisible();
+      await expect(conflict.actor.getByRole('button', { name: en['invite.create'] })).toBeVisible();
+      expect((await conflict.context.cookies()).some(cookie => cookie.name === 'tendo_session')).toBe(false);
+      expect(new URL(conflict.actor.url()).pathname).toBe('/invite');
+      expect(new URL(conflict.actor.url()).hash).toBe(''); // The app strips the fragment from location and retains the token in invite state.
+      const stale = await request.newContext({ baseURL });
+      try { expect((await stale.get('/api/v1/session', { headers: { Cookie: `tendo_session=${oldCookie}` } })).status()).toBe(401); }
+      finally { await stale.dispose(); }
+      await conflict.actor.locator('#invite-login').fill('conflict_new_e2e');
+      await conflict.actor.locator('#invite-password').fill(`${ownerPassword}-conflict-new`);
+      await conflict.actor.getByRole('button', { name: en['invite.create'] }).click();
+      await expect(conflict.actor.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      expect((await (await conflict.actor.request.get('/api/v1/session')).json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
+      await expectInvitationStatus(conflictInvite.id, 'accepted');
+      await waitForSettledHouseholdRequests(conflict.actor);
+      conflict.assertClean(['POST /api/v1/invitations/accept 409']);
+    } finally { await conflict.context.close(); }
+
+    const freeInvite = await createInvite();
+    const free = await makeActor();
+    try {
+      await signIntoExisting(free.actor, 'existing_free_e2e');
+      await expect(free.actor.getByRole('heading', { level: 1, name: en['home.noHousehold.title'] })).toBeVisible();
+      await free.actor.goto(freeInvite.link);
+      await expect(free.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_free_e2e') })).toBeVisible();
+      await free.actor.getByRole('button', { name: en['invite.join'] }).click();
+      await expect(free.actor.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const freeSession = await free.actor.request.get('/api/v1/session');
+      expect(freeSession.status()).toBe(200);
+      expect((await freeSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
+      await free.actor.getByRole('link', { name: en['home.members'], exact: true }).click();
+      await expect(free.actor.getByRole('listitem').filter({ hasText: 'existing_free_e2e' })).toContainText(en['members.role.member']);
+      await free.actor.goto(freeInvite.link);
+      await expect(free.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_free_e2e') })).toBeVisible();
+      await free.actor.getByRole('button', { name: en['invite.join'] }).click();
+      await expect(free.actor.getByRole('status')).toContainText(en['invite.error.invalid']);
+      await expectInvitationStatus(freeInvite.id, 'accepted');
+      const listedMembers = await listOwnerMembers();
+      expect(listedMembers.find(member => member.login === 'existing_free_e2e')?.role).toBe('member');
+      await waitForSettledHouseholdRequests(free.actor);
+      free.assertClean(['POST /api/v1/invitations/accept 404']);
+    } finally { await free.context.close(); }
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {
