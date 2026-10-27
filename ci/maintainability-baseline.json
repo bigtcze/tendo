@@ -162,22 +162,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/platform/config/config.go",
-    "name": "LoadFrom",
-    "allowed": 53,
-    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/config/oidc.go",
-    "name": "loadOIDC",
-    "allowed": 40,
-    "reason": "OIDC configuration loader validates provider settings and credentials at startup; isolate provider validation without changing startup errors.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/platform/database/migrate.go",
     "name": "Migrate",
     "allowed": 17,
@@ -295,14 +279,6 @@
     "allowed": 81,
     "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
     "owner": "backend-item"
-  },
-  {
-    "kind": "func_lines",
-    "path": "backend/internal/platform/config/config.go",
-    "name": "LoadFrom",
-    "allowed": 104,
-    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
-    "owner": "backend-platform"
   },
   {
     "kind": "func_lines",
@@ -488,20 +464,6 @@
     "allowed": 2,
     "reason": "Item summary repository queries completion and attention aggregates; preserve aggregate semantics and query mapping.",
     "owner": "backend-item"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/config/config.go",
-    "allowed": 1,
-    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/config/oidc.go",
-    "allowed": 2,
-    "reason": "OIDC configuration loader validates provider settings and credentials at startup; isolate provider validation without changing startup errors.",
-    "owner": "backend-platform"
   },
   {
     "kind": "long_lines",
