@@ -123,6 +123,24 @@ describe('All items', () => {
     expect(unknown.requests.length).toBeGreaterThan(0);
   });
 
+  it('counts search length in code points: sends 200 emoji, blocks 201', async () => {
+    const fake = await openAllItems([makeItem(1)]);
+    const input = screen.getByRole('searchbox');
+    await userEvent.click(input);
+    await userEvent.paste('😀'.repeat(201));
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Search needs to be 200 characters or fewer.');
+    const before = reqs(fake.requests, `${base}/items`).length;
+    // 200 emoji are 400 UTF-16 code units but 200 code points, which the API accepts.
+    await userEvent.clear(input);
+    await userEvent.paste('😀'.repeat(200));
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('q')).toBe('😀'.repeat(200)));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(reqs(fake.requests, `${base}/items`).length).toBeGreaterThan(before));
+    expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('q')).toBe('😀'.repeat(200));
+  });
+
   it('submits trimmed search, clears it, and blocks more than 200 characters without a request', async () => {
     const fake = await openAllItems([makeItem(1, { title: 'Garden care' })]);
     const input = screen.getByRole('searchbox');

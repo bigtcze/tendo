@@ -51,7 +51,7 @@
     "file": "src/features/items/ItemForm.tsx",
     "function": "ItemForm",
     "rule": "max-lines-per-function",
-    "allowed": 118,
+    "allowed": 117,
     "reason": "P2 candidate: item form branches across variant fields and validation; separate field/validation responsibilities while preserving submission behavior.",
     "owner": "frontend-items"
   },
@@ -61,14 +61,6 @@
     "rule": "complexity",
     "allowed": 101,
     "reason": "P2 candidate: item form branches across variant fields and validation; separate field/validation responsibilities while preserving submission behavior.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemForm.tsx",
-    "function": "ItemForm.submit",
-    "rule": "complexity",
-    "allowed": 20,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
     "owner": "frontend-items"
   },
   {

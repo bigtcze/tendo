@@ -1044,7 +1044,9 @@ type ItemValidationProblemField string
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
-	Login    string `json:"login"`
+	Login string `json:"login"`
+
+	// Password Maximum 512 UTF-8 bytes.
 	Password string `json:"password"`
 }
 
@@ -1081,6 +1083,7 @@ type OIDCIdentityStatus struct {
 
 // OIDCStartRequest currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem.
 type OIDCStartRequest struct {
+	// CurrentPassword Maximum 512 UTF-8 bytes.
 	CurrentPassword *string                 `json:"currentPassword,omitempty"`
 	Purpose         OIDCStartRequestPurpose `json:"purpose"`
 }

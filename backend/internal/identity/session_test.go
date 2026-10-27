@@ -135,6 +135,27 @@ func TestLoginFailuresAreIndistinguishableAndCreateNothing(t *testing.T) {
 	}
 }
 
+// The 512 password limit is in UTF-8 bytes, as the API documents, not code points.
+func TestLoginPasswordLimitCountsUTF8Bytes(t *testing.T) {
+	service, _, _ := newSessionFixture(t)
+	var verified []string
+	service.SetPasswordVerifier(func(_, password string) (bool, error) {
+		verified = append(verified, password)
+		return true, nil
+	})
+	atLimit := strings.Repeat("😀", 128)         // 128 code points, 512 bytes
+	overLimit := strings.Repeat("😀", 128) + "a" // 129 code points, 513 bytes
+	if _, err := service.Login(context.Background(), "owner_1", atLimit); err != nil {
+		t.Fatalf("512-byte password rejected: %v", err)
+	}
+	if _, err := service.Login(context.Background(), "owner_1", overLimit); err != ErrInvalidCredentials {
+		t.Fatalf("513-byte password: err=%v, want ErrInvalidCredentials", err)
+	}
+	if len(verified) != 1 || verified[0] != atLimit {
+		t.Fatalf("over-limit password reached hashing: %d verifications", len(verified))
+	}
+}
+
 func TestLoginPropagatesRepositoryFailureWithoutCredentialError(t *testing.T) {
 	service, repo, _ := newSessionFixture(t)
 	delete(repo.logins, "owner_1")

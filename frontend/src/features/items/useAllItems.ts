@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, MutableRefObject, RefObject } from 'react';
+import { codePointLength } from '../../lib/textLength';
 import { fetchAllItemsPage } from './allItemsLoad';
 import { draftFrom, initialPage, pageReducer, type Draft, type PageAction, type PageState } from './allItemsPageState';
 import { buildQuery, clearedFilters, readContext, writeLocation, type Context } from './allItemsUrl';
@@ -119,7 +120,7 @@ export function useAllItems(householdId: string, onSignedOut: () => void) {
     submit(event: FormEvent) {
       event.preventDefault();
       const q = draft.search.trim();
-      if (q.length > 200) {
+      if (codePointLength(q) > 200) {
         dispatch({ type: 'searchError', shown: true, announce: true });
         searchRef.current?.focus();
         return;

@@ -1480,7 +1480,7 @@ components:
       description: currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem.
       properties:
         purpose: { type: string, enum: [login, link], x-enum-varnames: [OIDCPurposeLogin, OIDCPurposeLink] }
-        currentPassword: { type: string, maxLength: 512 }
+        currentPassword: { type: string, maxLength: 512, description: Maximum 512 UTF-8 bytes. }
     OIDCStartResponse:
       type: object
       additionalProperties: false
@@ -1528,7 +1528,7 @@ components:
       required: [login, password]
       properties:
         login: { type: string, maxLength: 64 }
-        password: { type: string, maxLength: 512 }
+        password: { type: string, maxLength: 512, description: Maximum 512 UTF-8 bytes. }
     Session:
       type: object
       additionalProperties: false
