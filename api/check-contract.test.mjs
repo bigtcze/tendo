@@ -526,6 +526,11 @@ test('subject fixtures enforce Location, ETag, list envelope, concurrency proble
       ['422 reused key with field rejected', reused, f => { f.body.field = 'name' }, 'body invalid'],
       ['422 reused key missing code rejected', reused, f => { delete f.body.code }, 'body invalid'],
       ['422 field validation missing field rejected', invalid, f => { delete f.body.field }, 'body invalid'],
+      ['422 unrecognized problem code rejected by schema', invalid, f => { f.body.code = 'not_a_documented_validation_code' }, 'body invalid'],
+      ['201 missing Location rejected', created, f => { delete f.headers.location }, 'missing Location'],
+      ['201 missing ETag rejected', created, f => { delete f.headers.etag }, 'missing ETag'],
+      ['422 body/status disagreement rejected', invalid, f => { f.body.status = 400 }, 'problem status does not match HTTP status'],
+
       ['422 reused key on patch rejected', { ...reused, path: item, method: 'patch' }, () => {}, 'body invalid'],
       ['undocumented status on list', list, f => { f.status = 412 }, 'undocumented HTTP 412'],
     ]) {

@@ -79,6 +79,22 @@ const cases = [
   }],
 ]
 
+test('operation coverage gate fails when any OpenAPI operation lacks a captured response', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-operation-coverage-'))
+  const fixturePath = join(directory, 'responses.json')
+  const fixture = { path: '/health/live', method: 'get', status: 200, headers: { 'x-request-id': requestId, 'cache-control': 'no-store', 'content-type': 'application/json' }, body: { status: 'ok' } }
+  try {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname, fixturePath], { env: { ...process.env, API_REQUIRE_OPERATION_COVERAGE: '1', API_OPERATION_COVERAGE_EXEMPTIONS: '', RUNTIME_HEALTH_ORIGIN: undefined, SETUP_URL: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''; child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    assert.notEqual(code, 0)
+    assert.match(stderr, /OpenAPI operations have no captured HTTP response/)
+    assert.match(stderr, /getInitialSetup/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('health checker accepts the backend OIDC start Set-Cookie format and rejects malformed cookies', async () => {
   const directory = await (await import('node:fs/promises')).mkdtemp(join(tmpdir(), 'tendo-oidc-start-cookie-'))
   const fixturePath = join(directory, 'responses.json')

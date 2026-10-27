@@ -183,6 +183,41 @@ if (fixturePath) {
   for (const fixture of fixtures) {
     assertResponse(fixture.path, fixture.status, fixture.body, fixture.method.toLowerCase(), Object.fromEntries(Object.entries(fixture.headers ?? {}).map(([key, value]) => [key.toLowerCase(), value])))
   }
+  if (process.env.API_REQUIRE_OPERATION_COVERAGE === '1') {
+    const captured = new Map()
+    for (const fixture of fixtures) {
+      const operation = contract.paths[fixture.path]?.[fixture.method.toLowerCase()]
+      if (operation?.operationId) {
+        if (!captured.has(operation.operationId)) captured.set(operation.operationId, new Set())
+        captured.get(operation.operationId).add(Number(fixture.status))
+      }
+    }
+    const exemptions = Object.fromEntries((process.env.API_OPERATION_COVERAGE_EXEMPTIONS ?? '').split(',').map(value => value.trim()).filter(Boolean).map(value => value.split(':', 2)))
+    const scope = new Set((process.env.API_OPERATION_COVERAGE_SCOPE ?? '').split(',').map(value => value.trim()).filter(Boolean))
+    const operationIds = Object.values(contract.paths).flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))
+    const knownIds = new Set(operationIds)
+    assert.deepEqual([...scope].filter(operationId => !knownIds.has(operationId)), [], 'coverage scope contains unknown operationId')
+    assert.deepEqual(Object.keys(exemptions).filter(operationId => !knownIds.has(operationId)), [], 'coverage exemption contains unknown operationId')
+    if (scope.size === 0) assert.deepEqual([...knownIds].filter(operationId => !captured.has(operationId) && !exemptions[operationId]), [], 'OpenAPI operations have no captured HTTP response')
+    const failures = Object.values(contract.paths).flatMap(pathItem => Object.values(pathItem))
+      .filter(operation => operation?.operationId && (scope.size === 0 || scope.has(operation.operationId)))
+      .flatMap(operation => {
+        const statuses = captured.get(operation.operationId) ?? new Set()
+        const declared = Object.keys(operation.responses ?? {}).map(Number)
+        const successful = declared.filter(status => status >= 200 && status < 300)
+        if (successful.length === 0) successful.push(...declared.filter(status => status >= 300 && status < 400))
+        const critical = declared.filter(status => status >= 400 && [400, 401, 403, 404, 409, 412, 422, 428].includes(status))
+        if (critical.length === 0) critical.push(...declared.filter(status => status >= 400))
+        const exemption = exemptions[operation.operationId]
+        assert.ok(!exemption || String(exemption).trim().length > 0, `${operation.operationId} coverage exemption requires a reason`)
+        if (exemption) assert.ok(statuses.size > 0, `${operation.operationId} exemption cannot replace a captured response`)
+        return [
+          ...(successful.length && !successful.some(status => statuses.has(status)) ? [`${operation.operationId}:success`] : []),
+          ...(critical.length && !critical.some(status => statuses.has(status)) && !exemption ? [`${operation.operationId}:critical-error`] : []),
+        ]
+      })
+    assert.deepEqual(failures, [], `OpenAPI operation response coverage incomplete: ${failures.join(', ')}`)
+  }
 }
 
 const setupOrigin = process.env.SETUP_URL ?? process.env.CONTRACT_SETUP_ORIGIN

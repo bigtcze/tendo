@@ -126,6 +126,9 @@ assert status==201,('local login',status,b)
 old_session=session_cookie(h)
 status,h,b,_=request('GET','/api/v1/auth/oidc')
 assert status==200 and b=={'enabled':True,'displayName':'OIDC Smoke Provider'},('status',status,b)
+status,h,b,_=request('GET','/api/v1/auth/oidc',headers={'Origin':'http://foreign.invalid'});assert status==403,('status foreign Origin',status,b)
+status,h,b,_=request('GET','/api/v1/auth/oidc/identity',headers={'Cookie':'tendo_session=invalid'});assert status==401 and b['code']=='unauthenticated',('identity invalid session',status,b)
+status,h,b,_=request('POST','/api/v1/auth/oidc/start',{'purpose':'invalid'},{'Origin':origin});assert status==422 and b['status']==422,('invalid start purpose',status,b)
 status,h,b,_=request('GET','/api/v1/auth/oidc/identity',headers={'Cookie':old_session})
 assert status==200 and b=={'linked':False},('identity before link',status,b)
 status,h,b,_=start('link','wrong password')
@@ -155,13 +158,14 @@ status,h,b,_,_=auth_start('login',sub='unknown-subject'); assert status==303 and
 after_counts=dbcounts(); assert before_counts==after_counts,('unknown identity changed admission tables',before_counts,after_counts)
 status,h,b,_,_=auth_start('login',deny=True); assert status==303 and h['Location']=='/login#oidcError=cancelled' and not b,('provider denied',status,h.get('Location'))
 status,h,b,_=start('login',origin_header='http://foreign.invalid'); assert status==403,('foreign Origin',status,b)
+status,h,b,_=request('GET','/api/v1/auth/oidc/callback',headers={'Origin':'http://foreign.invalid'}); assert status==403,('callback foreign Origin',status,b)
 for fixture in fixtures:
  if fixture['status']==303:
   assert fixture['headers'].get('cache-control')=='no-store' and fixture['headers'].get('referrer-policy')=='no-referrer',fixture
   assert 'body' not in fixture,fixture
 with open(os.environ['OIDC_SMOKE_FIXTURES'],'w',encoding='utf-8') as f: json.dump(fixtures,f)
 PY
-node "$root/api/check-health.mjs" "$fixtures"
+API_REQUIRE_OPERATION_COVERAGE=1 API_OPERATION_COVERAGE_SCOPE=completeOidcCallback,startOidc,getOidcStatus,getOidcIdentity node "$root/api/check-health.mjs" "$fixtures"
 "${compose[@]}" logs --no-color app >"$logs"
 while IFS= read -r secret; do
   [[ -z "$secret" ]] && continue

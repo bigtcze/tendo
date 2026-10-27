@@ -58,11 +58,23 @@ def req(method,url,body=None,headers=None):
   with urllib.request.urlopen(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
  except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
  result=json.loads(raw) if raw else None
- if url=='/api/v1/auth/setup' and method=='PUT' and status != 409:
-  fixtures.append({'path':url,'method':method,'status':status,'headers':dict(hs.items()),'body':result})
+ if url in ('/api/v1/auth/setup','/api/v1/session') and status != 409:
+  fixture={'path':url,'method':method.lower(),'status':status,'headers':dict(hs.items())}
+  if result is not None: fixture['body']=result
+  fixtures.append(fixture)
  return status,hs,result
 status,h,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True} and h['ETag']=='"setup-v1-required"'
-status,_,_=req('GET','/api/v1/auth/setup',headers={'Origin':'http://foreign.example'});assert status==403,('foreign origin',status)
+status,h,oidc_status=req('GET','/api/v1/auth/oidc');assert status==200 and oidc_status=={'enabled':False},('OIDC disabled status',status,oidc_status)
+fixtures.append({'path':'/api/v1/auth/oidc','method':'get','status':status,'headers':dict(h.items()),'body':oidc_status})
+status,h,oidc_origin_error=req('GET','/api/v1/auth/oidc',headers={'Origin':'http://foreign.example'});assert status==403,('OIDC status foreign origin',status)
+fixtures.append({'path':'/api/v1/auth/oidc','method':'get','status':status,'headers':dict(h.items()),'body':oidc_origin_error})
+status,h,oidc_identity=req('GET','/api/v1/auth/oidc/identity');assert status==404 and oidc_identity['code']=='oidc_disabled',('OIDC identity disabled',status,oidc_identity)
+fixtures.append({'path':'/api/v1/auth/oidc/identity','method':'get','status':status,'headers':dict(h.items()),'body':oidc_identity})
+
+status,h,oidc_start=req('POST','/api/v1/auth/oidc/start',{'purpose':'login'},{'Origin':origin});assert status==404 and oidc_start['code']=='oidc_disabled',('OIDC start disabled',status,oidc_start)
+fixtures.append({'path':'/api/v1/auth/oidc/start','method':'post','status':status,'headers':dict(h.items()),'body':oidc_start})
+status,h,setup_origin_error=req('GET','/api/v1/auth/setup',headers={'Origin':'http://foreign.example'});assert status==403,('foreign origin',status)
+fixtures.append({'path':'/api/v1/auth/setup','method':'get','status':status,'headers':dict(h.items()),'body':setup_origin_error})
 status,_,_=req('GET','/api/v1/auth/setup',headers={'Host':'attacker.example'});assert status==421,('wrong authority',status)
 valid={'login':'owner_smoke','password':'correct horse battery','householdName':'Veselí 家族','timezone':'Europe/Prague'}
 status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':'wrong'});assert status==401,('wrong token',status)
@@ -291,6 +303,7 @@ for rec_item, expected in ((fixed, '1|year|fixed'),(fluid,'1|month|after_complet
 ipath=ibase+'/'+immediate['id']
 status,h,got=ireq('GET',ipath,IITEM,headers=cookie_header)
 assert status==200 and got==immediate and h['ETag']=='"1"',('item get',status,got)
+status,_,item_missing=ireq('GET',ibase+'/'+random_id,IITEM,headers=cookie_header);assert status==404 and item_missing['code']=='not_found',('missing item uniform 404',status,item_missing)
 status,h,fixed_get=ireq('GET',ibase+'/'+fixed['id'],IITEM,headers=cookie_header)
 assert status==200 and fixed_get['recurrence']=={'intervalValue':1,'intervalUnit':'year','mode':'fixed'} and fixed_get['attentionOn']=='2030-01-15',('fixed item get',status,fixed_get)
 status,h,patched=ireq('PATCH',ipath,IITEM,{'title':'Insurance follow-up','workflowState':'in_progress','attentionOn':None},{**mut,'If-Match':'"1"'})
@@ -298,6 +311,7 @@ assert status==200 and patched['title']=='Insurance follow-up' and patched['work
 assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::text,'NULL')||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|NULL|2','item patch persisted'
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert status==428 and b['code']=='precondition_required',('item missing If-Match',status,b)
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
+status,_,item_invalid_patch=ireq('PATCH',ipath,IITEM,{'title':'   '},{**mut,'If-Match':'"2"'});assert status==422 and item_invalid_patch['field']=='title' and item_invalid_patch['code']=='invalid_length',('item patch validation',status,item_invalid_patch)
 status,_,null_first=ireq('GET',ibase+'?sort=attention_on&limit=1',ICOLL,headers=cookie_header);assert status==200 and null_first['items'][0]['id']==immediate['id'] and null_first['items'][0]['attentionOn'] is None and null_first['nextCursor'],('attention null first',status,null_first)
 status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
 status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id'],fixed['id'],fluid['id']],('active items',status,active_items)
@@ -365,14 +379,19 @@ assert status==422 and historical_invalid['field']=='historicalCompletedOn' and 
 # Completion vertical slice: fixed/fluid cadence, one-off lifecycle and receipt idempotency.
 cpath=lambda x:ibase+'/'+x+'/completions'
 fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},{**mut,'Idempotency-Key':'setup-item-completion-fixed'})[2]
-status,_,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
+status,receipt_headers,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
 assert status==201 and receipt['completedOn']=='2026-10-06' and receipt['nextAttentionOn']=='2027-09-01',('fixed completion',status,receipt)
+item_fixtures.append({'path':CITEM,'method':'post','status':status,'headers':dict(receipt_headers.items()),'body':receipt})
 assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2027-09-01|2|false','fixed completion persistence'
 fixed_undo_path=cpath(fixed_late['id'])+'/'+receipt['id']
 CUNDO='/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}'
 CITEM_PATCH='/api/v1/households/{householdId}/items/{itemId}'
-status,_,undone=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'})
+status,undo_headers,undone=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'})
 assert status==200 and undone['undoneAt'] and undone['undoneByUserId'] and undone['id']==receipt['id'],('undo receipt',status,undone)
+item_fixtures.append({'path':CUNDO,'method':'patch','status':status,'headers':dict(undo_headers.items()),'body':undone})
+status,_,undo_missing_match=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},mut);assert status==428 and undo_missing_match['code']=='precondition_required',('undo missing If-Match',status,undo_missing_match)
+status,foreign_undo_headers,foreign_undo=ireq('PATCH',f"/api/v1/households/{other_id}/items/{fixed_late['id']}/completions/{receipt['id']}",CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'});assert status==404 and foreign_undo['code']=='not_found',('foreign undo uniform 404',status,foreign_undo)
+item_fixtures.append({'path':CUNDO,'method':'patch','status':status,'headers':dict(foreign_undo_headers.items()),'body':foreign_undo})
 assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2026-09-01|3|false' and psql(f"SELECT undone_at IS NOT NULL FROM item_completions WHERE id='{receipt['id']}'")== 't','undo restored state and receipt'
 status,_,item_after_undo=ireq('GET',ibase+'/'+fixed_late['id'],IITEM,headers=cookie_header);assert status==200 and item_after_undo['lastCompletedOn'] is None,('undo lastCompletedOn',status,item_after_undo)
 status,_,undo_replay=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"1\"'},record=False);assert status==200 and undo_replay['id']==undone['id'] and undo_replay['undoneAt']==undone['undoneAt'] and psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")== '3',('undo replay',status,undo_replay)
@@ -596,6 +615,8 @@ st,_,member_conflict_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idem
 assert st==201,('member conflict invitation',st,member_conflict_invite)
 st,_,new_member_conflict,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':member_conflict_invite['token']}, {**member_cookie,'Origin':origin})
 assert st==409 and new_member_conflict['code']=='already_member',('existing member acceptance conflict',st,new_member_conflict)
+st,_,anonymous_existing_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':'invalid'}, {'Origin':origin});assert st==401 and anonymous_existing_accept['code']=='unauthenticated',('existing acceptance requires session',st,anonymous_existing_accept)
+st,_,anonymous_existing_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':'invalid'}, {'Origin':origin});assert st==401 and anonymous_existing_accept['code']=='unauthenticated',('existing acceptance requires session',st,anonymous_existing_accept)
 assert psql(f"SELECT accepted_at IS NULL FROM household_invitations WHERE id='{member_conflict_invite['id']}'")=='t','already member conflict consumed invitation'
 # Skip 429 fixture: the limiter shares client-IP budget with the remaining invitation checks.
 st,_,_,_=xreq('DELETE',revoke_path,INV_ITEM,headers=owner_mut)
@@ -614,6 +635,17 @@ psql(f"UPDATE household_invitations SET created_at=now()-interval '8 days', expi
 assert psql(f"SELECT expires_at<now() FROM household_invitations WHERE id='{expired['id']}'")=='t','could not expire invitation fixture'
 st,_,expired_accept,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':expired['token'],'login':'expired_smoke','password':'a sufficiently long expired passphrase'},{'Origin':origin})
 assert st==404 and expired_accept['code']=='invalid_invitation',('expired invitation',st,expired_accept)
+# Existing-account acceptance success uses a free account and a fresh invitation.
+free_user=psql("INSERT INTO user_accounts(login) VALUES ('free_smoke') RETURNING id").splitlines()[0]
+owner_hash=psql("SELECT password_hash FROM local_credentials WHERE user_id=(SELECT id FROM user_accounts WHERE login='owner_smoke')")
+psql(f"INSERT INTO local_credentials(user_id,password_hash) VALUES ('{free_user}','{owner_hash}')")
+st,_,free_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-free-account'})
+assert st==201,('free-account invitation',st,free_invite)
+st,free_headers,_,_=req('POST',{'login':'free_smoke','password':'correct horse battery'},{'Origin':origin})
+assert st==201,('free account login',st)
+free_cookie={'Cookie':free_headers['Set-Cookie'].split(';',1)[0]}
+st,_,free_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':free_invite['token']},{**free_cookie,'Origin':origin})
+assert st==201 and free_accept['role']=='member',('free existing-account acceptance',st,free_accept)
 # The owner already belongs to this household; acceptance must be refused without consuming a fresh invitation.
 st,_,own_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-owner-conflict'})
 assert st==201,('owner conflict invitation',st,own_invite)
@@ -622,11 +654,13 @@ assert st==409 and owner_conflict['code']=='already_member',('owner already belo
 assert psql(f"SELECT accepted_at IS NULL AND revoked_at IS NULL FROM household_invitations WHERE id='{own_invite['id']}'")=='t','already-member failure consumed invitation'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
+fixtures.append({'path':'/api/v1/session','method':'delete','status':status,'headers':dict(h.items())})
+
 st,stale_headers,stale_problem,_=xreq('GET',invite_base,INV,headers={'Cookie':f'tendo_session={token}'})
 assert st==401 and stale_problem['code']=='unauthenticated' and 'Set-Cookie' in stale_headers,('stale session invitation 401',st,stale_problem,dict(stale_headers))
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert cleared[0]=='tendo_session=' and 'max-age=0' in cleared and 'httponly' in cleared and 'samesite=lax' in cleared and 'path=/' in cleared,cleared
-status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=False);assert status==403,('logout without Origin',status)
+status,_,logout_origin_error,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'});assert status==403,('logout without Origin',status)
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
 status,_,b=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{'Origin':origin,'Cookie':f'tendo_session={token}','If-Match':'"3"'});assert status==401 and b['code']=='unauthenticated',('undo with revoked cookie',status,b)
 status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
@@ -648,6 +682,16 @@ PY
 API_RESPONSE_FIXTURES="$session_fixtures" node "$root/api/check-health.mjs"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 API_RESPONSE_FIXTURES="$item_fixtures" node "$root/api/check-health.mjs"
+all_fixtures=$(mktemp)
+python3 - "$session_fixtures" "$fixtures" "$item_fixtures" "$all_fixtures" <<'PY'
+import json,sys
+merged=[]
+for path in sys.argv[1:4]:
+ with open(path,encoding='utf-8') as stream: merged.extend(json.load(stream))
+with open(sys.argv[4],'w',encoding='utf-8') as stream: json.dump(merged,stream)
+PY
+API_RESPONSE_FIXTURES="$all_fixtures" API_REQUIRE_OPERATION_COVERAGE=1 API_OPERATION_COVERAGE_SCOPE=getInitialSetup,createInitialOwner,createSession,getSession,deleteSession,createInvitation,listInvitations,revokeInvitation,acceptInvitationWithNewAccount,acceptInvitation,listMembers,getHousehold,createSubject,listSubjects,getSubject,updateSubject,createItem,listItems,createItemCompletion,listItemCompletions,undoItemCompletion,getItemsSummary,getItem,updateItem node "$root/api/check-health.mjs"
+rm -f "$all_fixtures"
 rm -f "$session_fixtures"
 "${compose[@]}" restart app >/dev/null
 persisted=0
