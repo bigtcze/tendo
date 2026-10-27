@@ -27,8 +27,10 @@ function useContextLoader(householdId: string, onSignedOut: () => void, context:
     dispatch({ type: 'start' });
     async function run(pageContext: Context, allowRestart: boolean, requestToken: number): Promise<void> {
       const query = buildQuery(pageContext);
-      const outcome = await fetchAllItemsPage(householdId, pageContext, () => mountedRef.current && requestToken === generationRef.current);
-      if (outcome.kind === 'superseded') return;
+      const current = () => mountedRef.current && requestToken === generationRef.current;
+      const outcome = await fetchAllItemsPage(householdId, pageContext, current);
+      // Navigation can land between the loader's last check and this continuation; recheck before applying anything.
+      if (outcome.kind === 'superseded' || !current()) return;
       if (outcome.kind === 'unauthenticated') { onSignedOut(); return; }
       if (outcome.kind === 'stale' && allowRestart) {
         generationRef.current++;

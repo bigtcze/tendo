@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { listMembers, type Member } from '../members/membersApi';
 import { listActiveSubjects, type Subject } from './itemsApi';
 
@@ -45,12 +46,13 @@ export function useAllItemsFacets(householdId: string, onSignedOut: () => void, 
   const [members, setMembers] = useState<Facet<Member>>({ state: 'loading', values: [] });
   useEffect(() => {
     let cancelled = false;
-    function track<T>(load: Promise<T[]>, set: (facet: Facet<T>) => void) {
+    function track<T>(load: Promise<T[]>, set: Dispatch<SetStateAction<Facet<T>>>) {
       void load.then((values) => { if (!cancelled) set({ state: 'ready', values }); }).catch((failure: { kind?: string }) => {
         if (cancelled) return;
         if (failure.kind === 'unauthenticated') onSignedOut();
         if (failure.kind === 'noHousehold') onNoHousehold();
-        set({ state: 'failed', values: [] });
+        // Keep values from an earlier load so existing rows still resolve subject and member names.
+        set((facet) => ({ state: 'failed', values: facet.values }));
       });
     }
     track(loadActiveAndArchivedSubjects(householdId), setSubjects);

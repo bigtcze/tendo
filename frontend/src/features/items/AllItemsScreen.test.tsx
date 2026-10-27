@@ -733,9 +733,10 @@ describe('All items', () => {
   });
 
   it('popstate restores filters from the URL and clears the stale notice', async () => {
-    await openAllItems([makeItem(1)]);
-    await userEvent.type(screen.getByRole('searchbox'), 'temporary');
-    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    window.history.replaceState(null, '', '/items?status=archived&cursor=garbage');
+    installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { archived: true })]) });
+    app();
+    expect(await screen.findByText('The list changed, so we started from the top.')).toBeInTheDocument();
     await act(async () => {
       window.history.pushState(null, '', '/items?status=done&q=restored&subject=s-1&responsible=unassigned&recurring=false');
       window.dispatchEvent(new PopStateEvent('popstate'));
