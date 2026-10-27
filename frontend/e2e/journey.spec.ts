@@ -3607,6 +3607,192 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
+  test('n24. a lost create response survives reload and Check again stores exactly one item and one person', async () => {
+    const main = page.getByRole('main');
+    const ownedRoutes: Array<{ url: string; handler: (route: import('@playwright/test').Route) => void | Promise<void> }> = [];
+    const failedCreatePaths = new Set<string>();
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    const ownRoute = async (url: string, handler: (route: import('@playwright/test').Route) => void | Promise<void>) => {
+      ownedRoutes.push({ url, handler });
+      await page.route(url, handler);
+    };
+    const removeRoute = async (url: string, handler: (route: import('@playwright/test').Route) => void | Promise<void>) => {
+      await page.unroute(url, handler);
+      const index = ownedRoutes.findIndex((entry) => entry.url === url && entry.handler === handler);
+      if (index >= 0) ownedRoutes.splice(index, 1);
+    };
+    const walkAll = async <T,>(path: string, query: Record<string, string>): Promise<T[]> => {
+      const results: T[] = [];
+      let cursor: string | undefined;
+      do {
+        const params = new URLSearchParams({ limit: '100', ...query, ...(cursor ? { cursor } : {}) });
+        const response = await page.request.get(`/api/v1/households/${householdId}/${path}?${params}`);
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: T[]; nextCursor: string | null };
+        results.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return results;
+    };
+    const archiveCreated = async (path: 'items' | 'subjects', id: string) => {
+      const detail = await page.request.get(`/api/v1/households/${householdId}/${path}/${id}`);
+      expect(detail.status()).toBe(200);
+      const archive = await page.request.patch(`/api/v1/households/${householdId}/${path}/${id}`, {
+        headers: { Origin: baseURL, 'If-Match': detail.headers()['etag']! }, data: { archived: true },
+      });
+      expect(archive.status()).toBe(200);
+      expect(((await archive.json()) as { archived: boolean }).archived).toBe(true);
+    };
+    let createdItemId: string | undefined;
+    let createdSubjectId: string | undefined;
+    try {
+      const itemTitle = 'N24 lost create item unique';
+      const itemPath = `/api/v1/households/${householdId}/items`;
+      const itemRequests: Array<{ key: string; body: string }> = [];
+      let itemFirst = true;
+      const loseItemResponse = async (route: import('@playwright/test').Route) => {
+        const request = route.request();
+        itemRequests.push({ key: (await request.allHeaders())['idempotency-key'] ?? '', body: request.postData() ?? '' });
+        if (itemFirst) {
+          itemFirst = false;
+          await route.fetch();
+          await route.abort();
+        } else {
+          await route.continue();
+        }
+      };
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
+      await main.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const itemForm = main.getByRole('form', { name: en['items.add.formLabel'] });
+      await itemForm.getByLabel(en['items.title']).fill(itemTitle);
+      await itemForm.getByLabel(en['items.subject'], { exact: true }).selectOption({ label: 'Anička' });
+      await itemForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await itemForm.getByRole('spinbutton').fill('1');
+      await itemForm.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption('month');
+      const historicalDate = addDays(pragueToday(), -10);
+      await itemForm.getByRole('button', { name: en['items.historical.show'] }).click();
+      await itemForm.getByLabel(en['items.historical.label']).fill(historicalDate);
+      await ownRoute(`**${itemPath}`, loseItemResponse);
+      n17ExpectedFailurePaths.add(itemPath);
+      failedCreatePaths.add(itemPath);
+      n17FailurePhaseActive = true;
+      await itemForm.getByRole('button', { name: en['items.add.submit'], exact: true }).click();
+      await expect(itemForm.getByRole('status').getByText(en['items.create.uncertain'], { exact: true })).toBeVisible();
+      await expect(itemForm.getByRole('button', { name: en['items.create.checkAgain'], exact: true })).toBeVisible();
+      expect(itemRequests).toHaveLength(1);
+      const itemBeforeReload = await serverItem(itemTitle);
+      createdItemId = itemBeforeReload.id;
+      expect((await walkAll<ServerItem>('items', { done: 'false' })).filter((item) => item.title === itemTitle)).toHaveLength(1);
+      const initialItemCompletions = await walkAll<ServerCompletion>(`items/${itemBeforeReload.id}/completions`, {});
+      expect(initialItemCompletions).toHaveLength(1);
+      expect(initialItemCompletions[0]!.completedOn).toBe(historicalDate);
+      await removeRoute(`**${itemPath}`, loseItemResponse);
+      n17ExpectedFailurePaths.delete(itemPath);
+      n17FailurePhaseActive = false;
+      await page.reload();
+      const recoveredItemForm = main.getByRole('form', { name: en['items.add.formLabel'] });
+      await expect(recoveredItemForm).toBeVisible();
+      await expect(recoveredItemForm.getByLabel(en['items.title'])).toHaveValue(itemTitle);
+      await expect(recoveredItemForm.getByLabel(en['items.title'])).toBeDisabled();
+      await expect(recoveredItemForm.getByRole('status').getByText(en['items.create.uncertain'], { exact: true })).toBeVisible();
+      await expect(recoveredItemForm.getByRole('button', { name: en['items.create.checkAgain'], exact: true })).toBeVisible();
+      const itemPendingBeforeRetry = await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('tendo.pendingItemCreate.v1:')).map((key) => JSON.parse(sessionStorage.getItem(key) ?? 'null')));
+      expect(itemPendingBeforeRetry).toContainEqual({ version: 1, key: itemRequests[0]!.key, body: JSON.parse(itemRequests[0]!.body) });
+      const itemRetryRequest = page.waitForRequest((request) => request.method() === 'POST' && new URL(request.url()).pathname === itemPath);
+      await recoveredItemForm.getByRole('button', { name: en['items.create.checkAgain'], exact: true }).click();
+      const itemRetry = await itemRetryRequest;
+      expect(itemRetry.headers()['idempotency-key']).toBe(itemRequests[0]!.key);
+      expect(itemRetry.postData()).toBe(itemRequests[0]!.body);
+      await expect(main.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
+      await expect(main.getByRole('listitem').filter({ hasText: itemTitle })).toBeVisible();
+      const itemsAfterRetry = (await walkAll<ServerItem>('items', { done: 'false' })).filter((item) => item.title === itemTitle);
+      expect(itemsAfterRetry).toHaveLength(1);
+      expect(itemsAfterRetry[0]!.id).toBe(itemBeforeReload.id);
+      const completionsAfterRetry = await walkAll<ServerCompletion>(`items/${itemBeforeReload.id}/completions`, {});
+      expect(completionsAfterRetry).toHaveLength(1);
+      expect(completionsAfterRetry[0]).toMatchObject({ id: initialItemCompletions[0]!.id, completedOn: historicalDate });
+      expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('tendo.pendingItemCreate.v1:')))).toEqual([]);
+
+      const subjectName = 'N24 lost create person unique';
+      const subjectPath = `/api/v1/households/${householdId}/subjects`;
+      const subjectRequests: Array<{ key: string; body: string }> = [];
+      let subjectFirst = true;
+      const loseSubjectResponse = async (route: import('@playwright/test').Route) => {
+        const request = route.request();
+        subjectRequests.push({ key: (await request.allHeaders())['idempotency-key'] ?? '', body: request.postData() ?? '' });
+        if (subjectFirst) {
+          subjectFirst = false;
+          await route.fetch();
+          await route.abort();
+        } else {
+          await route.continue();
+        }
+      };
+      await page.goto('/people');
+      await expect(main.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+      await main.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+      const subjectForm = main.getByRole('form', { name: en['subjects.add.formLabel'] });
+      await subjectForm.getByLabel(en['subjects.name']).fill(subjectName);
+      await subjectForm.getByRole('radio', { name: en['subjects.type.person'], exact: true }).check();
+      await ownRoute(`**${subjectPath}`, loseSubjectResponse);
+      n17ExpectedFailurePaths.add(subjectPath);
+      failedCreatePaths.add(subjectPath);
+      n17FailurePhaseActive = true;
+      await subjectForm.getByRole('button', { name: en['subjects.add.submit'], exact: true }).click();
+      await expect(subjectForm.getByText(en['subjects.notice.uncertain'], { exact: true })).toBeVisible();
+      await expect(subjectForm.getByRole('button', { name: en['subjects.create.checkAgain'], exact: true })).toBeVisible();
+      expect(subjectRequests).toHaveLength(1);
+      const subjectsBeforeReload = await walkAll<ServerSubject>('subjects', { archived: 'false' });
+      const subjectBeforeReload = subjectsBeforeReload.find((subject) => subject.name === subjectName);
+      expect(subjectBeforeReload).toBeDefined();
+      createdSubjectId = subjectBeforeReload!.id;
+      expect(subjectsBeforeReload.filter((subject) => subject.name === subjectName)).toHaveLength(1);
+      await removeRoute(`**${subjectPath}`, loseSubjectResponse);
+      n17ExpectedFailurePaths.delete(subjectPath);
+      n17FailurePhaseActive = false;
+      await page.reload();
+      const recoveredSubjectForm = main.getByRole('form', { name: en['subjects.add.formLabel'] });
+      await expect(recoveredSubjectForm).toBeVisible();
+      await expect(recoveredSubjectForm.getByLabel(en['subjects.name'])).toHaveValue(subjectName);
+      await expect(recoveredSubjectForm.getByLabel(en['subjects.name'])).toBeDisabled();
+      await expect(recoveredSubjectForm.getByText(en['subjects.notice.uncertain'], { exact: true })).toBeVisible();
+      await expect(recoveredSubjectForm.getByRole('button', { name: en['subjects.create.checkAgain'], exact: true })).toBeVisible();
+      const subjectPendingBeforeRetry = await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('tendo.pendingSubjectCreate.v1:')).map((key) => JSON.parse(sessionStorage.getItem(key) ?? 'null')));
+      expect(subjectPendingBeforeRetry).toContainEqual({ version: 1, key: subjectRequests[0]!.key, body: JSON.parse(subjectRequests[0]!.body) });
+      const subjectRetryRequest = page.waitForRequest((request) => request.method() === 'POST' && new URL(request.url()).pathname === subjectPath);
+      await recoveredSubjectForm.getByRole('button', { name: en['subjects.create.checkAgain'], exact: true }).click();
+      const subjectRetry = await subjectRetryRequest;
+      expect(subjectRetry.headers()['idempotency-key']).toBe(subjectRequests[0]!.key);
+      expect(subjectRetry.postData()).toBe(subjectRequests[0]!.body);
+      await expect(main.getByRole('form', { name: en['subjects.add.formLabel'] })).toHaveCount(0);
+      await expect(main.getByRole('listitem').filter({ hasText: subjectName })).toBeVisible();
+      const subjectsAfterRetry = await walkAll<ServerSubject>('subjects', { archived: 'false' });
+      expect(subjectsAfterRetry.filter((subject) => subject.name === subjectName)).toHaveLength(1);
+      expect(subjectsAfterRetry.find((subject) => subject.name === subjectName)!.id).toBe(subjectBeforeReload!.id);
+      expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('tendo.pendingSubjectCreate.v1:')))).toEqual([]);
+    } catch (error) {
+      primaryFailure = error;
+    } finally {
+      n17FailurePhaseActive = false;
+      for (const path of failedCreatePaths) n17ExpectedFailurePaths.delete(path);
+      failedCreatePaths.clear();
+      for (const route of ownedRoutes) {
+        try { await page.unroute(route.url, route.handler); } catch (error) { cleanupFailure ??= error; }
+      }
+      ownedRoutes.length = 0;
+      if (createdItemId) {
+        try { await archiveCreated('items', createdItemId); } catch (error) { cleanupFailure ??= error; }
+      }
+      if (createdSubjectId) {
+        try { await archiveCreated('subjects', createdSubjectId); } catch (error) { cleanupFailure ??= error; }
+      }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
