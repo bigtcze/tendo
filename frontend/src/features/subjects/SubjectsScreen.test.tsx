@@ -1304,6 +1304,55 @@ describe('archive and restore', () => {
   });
 });
 
+describe('refactor regressions', () => {
+  it('keeps Add enabled while editing and opens the add form from the top Add button', async () => {
+    installFakeServer({
+      ...signedIn,
+      [listKey]: page([anna]),
+      [itemKey('s-1')]: etagged(anna, '"1"'),
+    });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    expect(await screen.findByRole('form', { name: 'Edit Anna' })).toBeVisible();
+
+    const addButton = screen.getByRole('button', { name: 'Add' });
+    expect(addButton).toBeEnabled();
+    await userEvent.click(addButton);
+    expect(screen.queryByRole('form', { name: 'Edit Anna' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('form', { name: 'Add a person or thing' })).toBeVisible();
+  });
+
+  it('blocks empty-state Add while Undo is pending and restores the row after Undo resolves', async () => {
+    let releaseUndo!: (response: Response) => void;
+    const pendingUndo = new Promise<Response>((resolve) => { releaseUndo = resolve; });
+    let archived = false;
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: () => page(archived ? [] : [anna]),
+      [itemKey('s-1')]: () => etagged({ ...anna, archived }, archived ? '"2"' : '"1"'),
+      [itemKey('s-1', 'PATCH')]: (req) => {
+        const nextArchived = JSON.parse(req.body).archived as boolean;
+        if (!nextArchived) return pendingUndo;
+        archived = true;
+        return etagged({ ...anna, archived: true }, '"2"');
+      },
+    });
+    renderApp();
+    await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Archive Anna' }));
+    expect(await main.findByText('Anna was archived.')).toBeVisible();
+    await userEvent.click(main.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(sent(fake.requests, 'PATCH')).toHaveLength(2));
+
+    await userEvent.click(main.getByRole('button', { name: 'Add' }));
+    expect(main.queryByRole('form', { name: 'Add a person or thing' })).not.toBeInTheDocument();
+    await act(async () => { archived = false; releaseUndo(etagged(anna, '"3"')); await pendingUndo; });
+    expect(await main.findByText('Anna')).toBeVisible();
+  });
+});
+
 describe('Czech', () => {
   it('renders the linked account labels in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');

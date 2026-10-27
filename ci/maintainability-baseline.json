@@ -15,13 +15,6 @@
   },
   {
     "kind": "file_lines",
-    "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
-    "allowed": 665,
-    "reason": "Subjects screen coordinates paging, member lookup, archive/restore, create/edit recovery and rendering; extract focused hooks/components.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "kind": "file_lines",
     "path": "frontend/src/i18n/cs.ts",
     "allowed": 418,
     "reason": "Czech locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
@@ -799,13 +792,6 @@
     "path": "frontend/src/features/subjects/SubjectForm.tsx",
     "allowed": 1,
     "reason": "Subject form validates type-specific fields and linked-user constraints; separate field validation while preserving invariants.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "kind": "long_lines",
-    "path": "frontend/src/features/subjects/SubjectsScreen.tsx",
-    "allowed": 5,
-    "reason": "Subjects screen coordinates paging, member lookup, archive/restore, create/edit recovery and rendering; extract focused hooks/components.",
     "owner": "frontend-subjects"
   },
   {
