@@ -2297,9 +2297,9 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('n15. responsive: every household route fits 320, 390, 768 and 1440 px without horizontal overflow or clipped primary actions', async () => {
+  test('n15. responsive: every household route fits 320, 360, 390, 768 and 1440 px without horizontal overflow or clipped primary actions', async () => {
     const title = 'Responsive route evidence item';
-    const widths = [320, 390, 768, 1440];
+    const widths = [320, 360, 390, 768, 1440];
     await page.goto('/');
     await addItem({ title, subject: 'Anička' });
     const created = await serverItem(title);
@@ -2356,6 +2356,32 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
         // n9 already linked the owner, so Account has no primary action: assert the linked section content instead.
         await check(`Account ${width}`, [], [main.getByRole('heading', { level: 2, name: en['account.oidc.title'].replace('{provider}', 'OIDC Smoke Provider') }), main.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))]);
+
+        // SPA routes must also work as direct deep links after a reload and remain traversable
+        // through the browser history. Every implemented signed-in route is sampled at each width;
+        // invite/login/setup lifecycle behavior is covered by n7/n25, a–d, and n19.
+        const routeChecks = [
+          { path: '/', heading: householdName },
+          { path: '/items', heading: en['allItems.title'] },
+          { path: `/items/${created.id}`, heading: title },
+          { path: '/people', heading: en['subjects.title'] },
+          { path: '/members', heading: en['members.title'] },
+          { path: '/account', heading: en['account.title'] },
+        ];
+        for (const route of routeChecks) {
+          await page.goto(route.path);
+          await expect(page.getByRole('heading', { level: 1, name: route.heading })).toBeVisible();
+          await page.reload();
+          await expect(page.getByRole('heading', { level: 1, name: route.heading })).toBeVisible();
+        }
+        await page.goto('/');
+        await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+        await page.goBack();
+        await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+        await page.goForward();
+        await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+        await expectNoHorizontalOverflow(`route history ${width}`);
       }
 
       await page.setViewportSize({ width: 320, height: 800 });
