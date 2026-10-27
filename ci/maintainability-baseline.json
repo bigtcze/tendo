@@ -8,13 +8,6 @@
   },
   {
     "kind": "file_lines",
-    "path": "frontend/src/features/items/AllItemsScreen.tsx",
-    "allowed": 388,
-    "reason": "All-items screen coordinates filters, URL state, catalogs, paging and rendering; extract cohesive navigation and list responsibilities.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "file_lines",
     "path": "frontend/src/i18n/cs.ts",
     "allowed": 418,
     "reason": "Czech locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
@@ -691,13 +684,6 @@
     "allowed": 1,
     "reason": "Home route composes household overview widgets and navigation; preserve layout and route behavior while formatting JSX.",
     "owner": "frontend-home"
-  },
-  {
-    "kind": "long_lines",
-    "path": "frontend/src/features/items/AllItemsScreen.tsx",
-    "allowed": 17,
-    "reason": "All-items screen coordinates filters, URL state, catalogs, paging and rendering; extract cohesive navigation and list responsibilities.",
-    "owner": "frontend-items"
   },
   {
     "kind": "long_lines",
