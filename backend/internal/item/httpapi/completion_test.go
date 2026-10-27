@@ -99,6 +99,133 @@ func TestCompletionHTTPCreateReplayAndEvaluationOrder(t *testing.T) {
 		t.Fatalf("replay version=%d", row.Version)
 	}
 }
+func TestUndoCompletionHouseholdIsolation(t *testing.T) {
+	f := newFixture(true)
+	foreignHouse := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	foreignItem := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
+	f.repo.Seed(item.Item{ID: other, HouseholdID: hid, SubjectID: sid, WorkflowState: item.StateOpen, Version: 1})
+	f.repo.Seed(item.Item{ID: foreignItem, HouseholdID: foreignHouse, SubjectID: sid, WorkflowState: item.StateOpen, Version: 1})
+	allowForeignHouse := true
+	allowForeignMembership := true
+	svc := item.NewService(f.repo, func(_ context.Context, _, house string) (string, error) {
+		if house != hid && !(allowForeignHouse && house == foreignHouse) {
+			return "", item.ErrNotFound
+		}
+		return "UTC", nil
+	}, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(_ context.Context, _, house string) error {
+		if house != hid && !(allowForeignMembership && house == foreignHouse) {
+			return item.ErrNotFound
+		}
+		return nil
+	}, func() time.Time { return at })
+	r := chi.NewRouter()
+	New(svc, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey{}, userID)))
+		})
+	}, func(ctx context.Context) (string, bool) { v, ok := ctx.Value(userKey{}).(string); return v, ok }).Register(r)
+	active := func(house, id, key string) item.Completion {
+		receipt, _, err := svc.Complete(context.Background(), userID, house, id, 1, key, item.CompletionRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return receipt
+	}
+	own := active(hid, other, "isolation-own")
+	foreign, _, err := svc.Complete(context.Background(), userID, foreignHouse, foreignItem, 1, "foreign-receipt", item.CompletionRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeReceipts := map[string]item.Completion{foreign.ID: foreign}
+	second := active(hid, iid, "isolation-second")
+	beforeReceipts[own.ID], beforeReceipts[second.ID] = own, second
+	allowForeignHouse, allowForeignMembership = false, false
+	do := func(house, id, receipt string) *httptest.ResponseRecorder {
+		q := httptest.NewRequest("PATCH", "/api/v1/households/"+house+"/items/"+id+"/completions/"+receipt, strings.NewReader(`{"undone":true}`))
+		q.Header.Set("Content-Type", "application/json")
+		q.Header.Set("If-Match", `"2"`)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, q)
+		return w
+	}
+	snapshot := map[string]item.Item{}
+	for _, id := range []string{other, foreignItem, iid} {
+		row, ok := f.repo.Row(id)
+		if !ok {
+			t.Fatalf("fixture item %s missing", id)
+		}
+		snapshot[id] = row
+	}
+	missing := do(hid, other, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b65")
+	if missing.Code != 404 {
+		t.Fatalf("baseline=%d %s", missing.Code, missing.Body)
+	}
+	for _, tc := range []struct{ name, house, item, receipt string }{{"foreign household path", foreignHouse, foreignItem, foreign.ID}, {"foreign item receipt", hid, other, foreign.ID}, {"different item receipt", hid, other, second.ID}} {
+		w := do(tc.house, tc.item, tc.receipt)
+		if w.Code != 404 || w.Body.String() != missing.Body.String() {
+			t.Fatalf("%s=%d %s want exact %s", tc.name, w.Code, w.Body, missing.Body)
+		}
+	}
+	for id, before := range snapshot {
+		after, ok := f.repo.Row(id)
+		if !ok || !reflect.DeepEqual(after, before) {
+			t.Fatalf("item %s mutated before=%+v after=%+v", id, before, after)
+		}
+	}
+	for id, before := range beforeReceipts {
+		rows, err := f.repo.ListCompletions(context.Background(), before.HouseholdID, before.ItemID, "00000000-0000-0000-0000-000000000000", 10, false)
+		var got *item.Completion
+		for n := range rows {
+			if rows[n].ID == id {
+				got = &rows[n]
+			}
+		}
+		if err != nil || got == nil || !reflect.DeepEqual(*got, before) || got.UndoneAt != nil {
+			t.Fatalf("receipt changed: %+v want=%+v err=%v", got, before, err)
+		}
+	}
+}
+
+func TestCreateCompletionHouseholdIsolation(t *testing.T) {
+	f := newFixture(true)
+	beforeRows := map[string]item.Item{}
+	foreignHouse := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	foreignItem := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
+	f.repo.Seed(item.Item{ID: foreignItem, HouseholdID: foreignHouse, SubjectID: sid, WorkflowState: item.StateOpen, Version: 1})
+	for _, id := range []string{iid, foreignItem} {
+		row, _ := f.repo.Row(id)
+		beforeRows[id] = row
+	}
+	request := func(house, id string) *httptest.ResponseRecorder {
+		q := httptest.NewRequest("POST", "/api/v1/households/"+house+"/items/"+id+"/completions", strings.NewReader(`{}`))
+		q.Header.Set("Content-Type", "application/json")
+		q.Header.Set("If-Match", `"1"`)
+		q.Header.Set("Idempotency-Key", "isolation-create")
+		w := httptest.NewRecorder()
+		f.handler.ServeHTTP(w, q)
+		return w
+	}
+	missing := request(hid, missingIDForHTTP)
+	if missing.Code != 404 {
+		t.Fatalf("baseline=%d %s", missing.Code, missing.Body)
+	}
+	for _, tc := range []struct{ name, house, id string }{{"foreign household", foreignHouse, foreignItem}, {"foreign item under own household", hid, foreignItem}} {
+		w := request(tc.house, tc.id)
+		if w.Code != 404 || w.Body.String() != missing.Body.String() {
+			t.Fatalf("%s=%d %s want exact %s", tc.name, w.Code, w.Body, missing.Body)
+		}
+	}
+	for id, before := range beforeRows {
+		row, ok := f.repo.Row(id)
+		if !ok || !reflect.DeepEqual(row, before) {
+			t.Fatalf("item changed: before=%+v after=%+v", before, row)
+		}
+	}
+	if f.repo.CompletionCount() != 0 {
+		t.Fatalf("receipts=%d", f.repo.CompletionCount())
+	}
+}
+
 func TestUndoCompletionHTTP(t *testing.T) {
 	f := newFixture(true)
 	var staleSession bool

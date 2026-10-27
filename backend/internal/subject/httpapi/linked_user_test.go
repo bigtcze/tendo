@@ -99,6 +99,17 @@ func TestLinkedUserWrongJSONTypesAre400AndDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestCreateWithNonmemberLinkedUserIsRejected(t *testing.T) {
+	f := newFixture(true)
+	nonmember := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b88"
+	before := f.repo.Count()
+	bad := f.doAs("POST", base, `{"name":"Nonmember link","type":"person","linkedUserId":"`+nonmember+`"}`, map[string]string{"Idempotency-Key": "nonmember-link"}, callerID)
+	want := `{"type":"about:blank","title":"Validation Failed","status":422,"code":"invalid_reference","field":"linkedUserId"}`
+	if bad.Code != 422 || !jsonEqual(t, bad.Body.String(), want) || f.repo.Count() != before {
+		t.Fatalf("nonmember create=%d %s rows=%d want=%s", bad.Code, bad.Body, f.repo.Count(), want)
+	}
+}
+
 func TestCreateOmittedAndNullLinkedUserReplayEquivalently(t *testing.T) {
 	f := newFixture(true)
 	key := "omitted-null-equivalent"

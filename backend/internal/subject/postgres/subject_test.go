@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	householddomain "github.com/bigtcze/tendo/backend/internal/household"
+	householdpg "github.com/bigtcze/tendo/backend/internal/household/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/subject"
 	testpostgres "github.com/bigtcze/tendo/backend/internal/testpostgres"
@@ -118,10 +121,22 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := NewRepository(app)
+	membershipRepo := householdpg.NewMembershipRepository(app)
+	subjectMembers := func(ctx context.Context, userID, householdID string) error {
+		_, err := membershipRepo.GetMembership(ctx, userID, householdID)
+		if errors.Is(err, householddomain.ErrNotFound) {
+			return subject.ErrNotFound
+		}
+		if err != nil {
+			return subject.ErrUnavailable
+		}
+		return nil
+	}
+	subjectService := subject.NewService(repo, subjectMembers, subjectMembers)
 
 	create := func(hid, name string, typ subject.Type) subject.Subject {
 		t.Helper()
-		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, hid, "seed-"+strings.ReplaceAll(name, " ", "-"), name, typ, nil)
+		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, hid, fmt.Sprintf("seed-%s-%d", strings.ReplaceAll(name, " ", "-"), time.Now().UnixNano()), name, typ, nil)
 		if err != nil {
 			t.Fatalf("create %q: %v", name, err)
 		}
@@ -134,6 +149,34 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 		return n
 	}
+
+	t.Run("create rejects linked user from foreign-only household", func(t *testing.T) {
+		foreignSubject, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeB, fmt.Sprintf("foreign-subject-%d", time.Now().UnixNano()), "foreign household linked subject", subject.TypePerson, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var foreignUser string
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("subject_foreign_only_link_%d", time.Now().UnixNano())).Scan(&foreignUser); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, foreignUser, homeB); err != nil {
+			t.Fatal(err)
+		}
+		before := rowCount(homeA)
+		link := foreignUser
+		_, err = subjectService.Create(ctx, actorID, homeA, fmt.Sprintf("foreign-link-create-%d", time.Now().UnixNano()), "Foreign linked", subject.TypePerson, &link)
+		var validation *subject.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "invalid_reference" {
+			t.Fatalf("foreign-only linked user error=%v", err)
+		}
+		var created int
+		if err = admin.QueryRow(ctx, `SELECT count(*) FROM subjects WHERE household_id=$1::uuid`, homeA).Scan(&created); err != nil || created != before {
+			t.Fatalf("subject rows changed before=%d after=%d err=%v", before, created, err)
+		}
+		if got, err := repo.Get(ctx, homeA, foreignSubject.ID); !errors.Is(err, subject.ErrNotFound) {
+			t.Fatalf("foreign subject lookup in home A returned %+v, err=%v", got, err)
+		}
+	})
 
 	t.Run("create persists Unicode name type and version 1", func(t *testing.T) {
 		s, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeA, "pg-key", "  Veselí 家族 🚗  ", subject.TypeVehicle, nil)
@@ -567,7 +610,7 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	t.Run("cross-household isolation", func(t *testing.T) {
 		b := create(homeB, "Bob's boat", subject.TypeVehicle)
 		listedB, err := repo.List(ctx, homeB, false, "00000000-0000-0000-0000-000000000000", 100)
-		if err != nil || len(listedB) != 3 || listedB[2].ID != b.ID {
+		if err != nil || len(listedB) != 4 || listedB[3].ID != b.ID {
 			t.Fatalf("household B list=%+v err=%v", listedB, err)
 		}
 		if _, err := repo.Get(ctx, homeA, b.ID); !errors.Is(err, subject.ErrNotFound) {
@@ -688,6 +731,33 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 		if rowCount(hid) != 0 {
 			t.Fatal("subjects survived household deletion")
+		}
+	})
+
+	t.Run("repository create classifies foreign-only linked user without persisting", func(t *testing.T) {
+		foreignSubject, err := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actorID, homeB, fmt.Sprintf("repository-foreign-subject-%d", time.Now().UnixNano()), "repository foreign subject", subject.TypePerson, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var foreignUser string
+		login := fmt.Sprintf("foreign_only_repo_user_%d", time.Now().UnixNano())
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, login).Scan(&foreignUser); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, foreignUser, homeB); err != nil {
+			t.Fatal(err)
+		}
+		before := rowCount(homeA)
+		_, inserted, err := repo.CreateIdempotent(ctx, homeA, actorID, fmt.Sprintf("foreign-only-repository-link-%d", time.Now().UnixNano()), "Foreign member", subject.TypePerson, &foreignUser, make([]byte, 32))
+		var validation *subject.ValidationError
+		if inserted || !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "invalid_reference" {
+			t.Fatalf("inserted=%v err=%v", inserted, err)
+		}
+		if after := rowCount(homeA); after != before {
+			t.Fatalf("foreign-only linked create changed rows %d -> %d", before, after)
+		}
+		if got, err := repo.Get(ctx, homeA, foreignSubject.ID); !errors.Is(err, subject.ErrNotFound) {
+			t.Fatalf("foreign subject lookup in home A returned %+v, err=%v", got, err)
 		}
 	})
 

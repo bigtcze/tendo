@@ -886,7 +886,7 @@ func TestHistoricalCreateForeignSubjectAndNonMemberLeaveNoRows(t *testing.T) {
 		wantStatus               int
 		wantCode                 string
 	}{
-		{"foreign subject", hid, other, nil, 422, "invalid_reference"},
+		{"unknown subject", hid, other, nil, 422, "invalid_reference"},
 		{"nonmember", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62", sid, item.ErrNotFound, 404, "not_found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

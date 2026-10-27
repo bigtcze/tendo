@@ -3,9 +3,29 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestUpdateRejectsUnknownSubjectWithoutMutation(t *testing.T) {
+	f := newFixture(true)
+	before, ok := f.repo.Row(iid)
+	if !ok {
+		t.Fatal("fixture item missing")
+	}
+	unknownSubject := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b88"
+	w := f.do("PATCH", one, `{"subjectId":"`+unknownSubject+`"}`, map[string]string{"If-Match": `"1"`})
+	if w.Code != 422 {
+		t.Fatalf("update status=%d body=%s", w.Code, w.Body)
+	}
+	bodyEqual(t, w.Body.String(), `{"type":"about:blank","title":"Validation Failed","status":422,"code":"invalid_reference","field":"subjectId"}`)
+
+	after, ok := f.repo.Row(iid)
+	if !ok || !reflect.DeepEqual(after, before) {
+		t.Fatalf("rejected update mutated item before=%+v after=%+v", before, after)
+	}
+}
 
 func TestResponsibleMemberHTTPExactRepresentationAssignmentAndFailures(t *testing.T) {
 	f := newFixture(true)
@@ -70,7 +90,7 @@ func TestResponsibleMemberHTTPExactRepresentationAssignmentAndFailures(t *testin
 	}{
 		{"malformed", `"not-a-uuid"`, 422, `"code":"invalid_reference","field":"responsibleUserId"`},
 		{"unknown", `"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"`, 422, `"code":"invalid_reference","field":"responsibleUserId"`},
-		{"foreign household member", `"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64"`, 422, `"code":"invalid_reference","field":"responsibleUserId"`},
+		{"nonmember user", `"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64"`, 422, `"code":"invalid_reference","field":"responsibleUserId"`},
 		{"wrong json type", `7`, 400, ``},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
