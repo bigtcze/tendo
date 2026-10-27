@@ -744,6 +744,54 @@ test.describe('Tendo production journey', () => {
     expect(history[0].undoneAt).not.toBeNull();
   });
 
+  test('n3b. early completion preserves fixed cadence and shifts fluid cadence; undo restores the fluid anchor', async () => {
+    // Three days ahead (not one full interval) so fixed next, fluid next and the undone anchor are all distinct dates.
+    const anchor = addDays(pragueToday(), 3);
+    const fixedTitle = 'Check the emergency kit';
+    const fluidTitle = 'Water the seedlings early';
+
+    await addItem({ title: fixedTitle, subject: 'Anička', attentionOn: anchor, repeat: { value: '1', unit: 'week', fluid: false } });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fixedTitle })).toBeVisible();
+    const fixedBefore = await serverItem(fixedTitle);
+    expect(fixedBefore).toMatchObject({ attentionOn: anchor, attention: 'upcoming', recurrence: { intervalValue: 1, intervalUnit: 'week', mode: 'fixed' } });
+
+    // Upcoming rows expose the same Done action, allowing an explicitly early completion.
+    const fixedRow = group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fixedTitle });
+    await expect(fixedRow.getByRole('button', { name: en['items.done'] })).toBeVisible();
+    await fixedRow.getByRole('button', { name: en['items.done'] }).click();
+    await expect(page.getByRole('status').filter({ hasText: fixedTitle })).toContainText('Next time:');
+    const fixedReceipt = (await serverCompletions(fixedBefore.id))[0]!;
+    const fixedNext = addDays(anchor, 7);
+    expect(fixedReceipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: fixedNext, completedOn: expectedCompletionDate, undoneAt: null });
+    expect(fixedNext > expectedCompletionDate).toBe(true);
+    expect(await serverItem(fixedTitle)).toMatchObject({ attentionOn: fixedNext, attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fixedTitle })).toBeVisible();
+
+    await addItem({ title: fluidTitle, subject: 'Anička', attentionOn: anchor, repeat: { value: '1', unit: 'week', fluid: true } });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fluidTitle })).toBeVisible();
+    const fluidBefore = await serverItem(fluidTitle);
+    expect(fluidBefore).toMatchObject({ attentionOn: anchor, attention: 'upcoming', recurrence: { intervalValue: 1, intervalUnit: 'week', mode: 'after_completion' } });
+    const fluidRow = group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fluidTitle });
+    await expect(fluidRow.getByRole('button', { name: en['items.done'] })).toBeVisible();
+    await fluidRow.getByRole('button', { name: en['items.done'] }).click();
+    await expect(page.getByRole('status').filter({ hasText: fluidTitle })).toContainText('Next time:');
+
+    const fluidReceipt = (await serverCompletions(fluidBefore.id))[0]!;
+    const fluidNext = addDays(expectedCompletionDate, 7);
+    expect(fluidNext < fixedNext && fluidNext !== anchor).toBe(true);
+    expect(fluidReceipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: fluidNext, completedOn: expectedCompletionDate, undoneAt: null });
+    expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: fluidNext, attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fluidTitle })).toBeVisible();
+
+    await page.getByRole('button', { name: en['items.undo'] }).click();
+    await expect.poll(async () => (await serverCompletions(fluidBefore.id))[0]?.undoneAt ?? null).not.toBeNull();
+    expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: anchor, attention: 'upcoming', lastCompletedOn: null, done: false });
+    await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fluidTitle })).toBeVisible();
+    const fluidHistory = await serverCompletions(fluidBefore.id);
+    expect(fluidHistory).toHaveLength(1);
+    expect(fluidHistory[0]).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: fluidNext, undoneAt: expect.any(String) });
+  });
+
   test('n4. item detail workflow preserves a fixed monthly schedule and history through archive/restore', async () => {
     const anchor = addDays(pragueToday(), -420);
     const title = 'Inspect the roof';

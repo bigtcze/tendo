@@ -55,6 +55,14 @@ func TestNextCycle(t *testing.T) {
 		{"fluid late", "2026-09-01", "2026-10-20", "2026-11-20", policy(UnitMonth, 1, ModeAfterCompletion)},
 		{"leap clamp", "2024-02-29", "2024-02-29", "2025-02-28", policy(UnitYear, 1, ModeFixed)},
 		{"consecutive clamp", "2025-01-31", "2025-03-01", "2025-03-28", policy(UnitMonth, 1, ModeFixed)},
+		{"leap February then consecutive clamp", "2024-01-31", "2024-02-29", "2024-03-29", policy(UnitMonth, 1, ModeFixed)},
+		{"fluid yearly", "2025-09-01", "2025-03-10", "2026-03-10", policy(UnitYear, 1, ModeAfterCompletion)},
+		{"fluid December month crossing", "2025-06-15", "2025-12-15", "2026-01-15", policy(UnitMonth, 1, ModeAfterCompletion)},
+		{"fixed December day crossing", "2025-12-31", "2025-12-31", "2026-01-01", policy(UnitDay, 1, ModeFixed)},
+		{"999 days", "2026-01-01", "2026-01-01", "2028-09-26", policy(UnitDay, 999, ModeAfterCompletion)},
+		{"999 weeks", "2026-01-01", "2026-01-01", "2045-02-23", policy(UnitWeek, 999, ModeAfterCompletion)},
+		{"999 months", "2026-01-01", "2026-01-01", "2109-04-01", policy(UnitMonth, 999, ModeAfterCompletion)},
+		{"999 years", "2026-01-01", "2026-01-01", "3025-01-01", policy(UnitYear, 999, ModeAfterCompletion)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,6 +189,18 @@ func TestBusinessDateTimezone(t *testing.T) {
 		{"2025-01-01T23:30:00Z", "Europe/Prague", "2025-01-02"},
 		{"2025-01-01T23:30:00Z", "Japan", "2025-01-02"},
 		{"2025-01-01T00:30:00Z", "UTC", "2025-01-01"},
+		{"2026-03-28T22:59:59Z", "Europe/Prague", "2026-03-28"},
+		{"2026-03-28T23:00:00Z", "Europe/Prague", "2026-03-29"},
+		{"2026-03-29T21:59:59Z", "Europe/Prague", "2026-03-29"},
+		{"2026-03-29T22:00:00Z", "Europe/Prague", "2026-03-30"},
+		{"2026-10-24T21:59:59Z", "Europe/Prague", "2026-10-24"},
+		{"2026-10-24T22:00:00Z", "Europe/Prague", "2026-10-25"},
+		{"2026-10-25T22:59:59Z", "Europe/Prague", "2026-10-25"},
+		{"2026-10-25T23:00:00Z", "Europe/Prague", "2026-10-26"},
+		{"2026-04-04T10:59:59Z", "Pacific/Auckland", "2026-04-04"},
+		{"2026-04-04T11:00:00Z", "Pacific/Auckland", "2026-04-05"},
+		{"2026-09-26T11:59:59Z", "Pacific/Auckland", "2026-09-26"},
+		{"2026-09-26T12:00:00Z", "Pacific/Auckland", "2026-09-27"},
 	}
 	for _, tc := range cases {
 		at, _ := time.Parse(time.RFC3339, tc.instant)

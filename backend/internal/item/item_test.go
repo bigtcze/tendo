@@ -570,6 +570,20 @@ func TestHistoricalInitializationValidation(t *testing.T) {
 	}
 }
 
+func TestRecurrenceInterval999AcceptedOnCreateAndPatch(t *testing.T) {
+	e := newEnv("UTC")
+	policy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 999, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	created := e.create(t, item.NewItem{Title: "long recurrence", Recurrence: &policy})
+	if created.Recurrence == nil || *created.Recurrence != policy {
+		t.Fatalf("create did not retain interval 999: %+v", created)
+	}
+	updatedPolicy := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 999, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
+	updated, err := e.svc.Update(context.Background(), userID, householdID, created.ID, created.Version, item.Patch{Recurrence: item.Some(updatedPolicy)})
+	if err != nil || updated.Recurrence == nil || *updated.Recurrence != updatedPolicy {
+		t.Fatalf("patch did not accept interval 999: %+v err=%v", updated, err)
+	}
+}
+
 func TestInvalidRecurrenceDoesNotPersist(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
