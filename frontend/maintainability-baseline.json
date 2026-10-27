@@ -128,38 +128,6 @@
     "owner": "frontend-members"
   },
   {
-    "file": "src/features/members/MembersScreen.tsx",
-    "function": "MembersScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 271,
-    "reason": "P1 audit rank 8: membership and invitation lifecycle, paging, recovery and focus behavior share a screen; separate member/invitation flows.",
-    "owner": "frontend-members"
-  },
-  {
-    "file": "src/features/members/MembersScreen.tsx",
-    "function": "MembersScreen",
-    "rule": "complexity",
-    "allowed": 38,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-members"
-  },
-  {
-    "file": "src/features/members/MembersScreen.tsx",
-    "function": "MembersScreen.anonymous#5.anonymous#1",
-    "rule": "complexity",
-    "allowed": 20,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-members"
-  },
-  {
-    "file": "src/features/members/MembersScreen.tsx",
-    "function": "MembersScreen.invite",
-    "rule": "complexity",
-    "allowed": 17,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-members"
-  },
-  {
     "file": "src/features/subjects/SubjectForm.tsx",
     "function": "SubjectForm",
     "rule": "max-lines-per-function",

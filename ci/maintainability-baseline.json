@@ -653,13 +653,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/members/MembersScreen.tsx",
-    "allowed": 21,
-    "reason": "Members screen coordinates membership, invitation lifecycle, paging and focus; separate member and invitation flows while preserving authorization.",
-    "owner": "frontend-members"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/members/membersApi.ts",
     "allowed": 7,
     "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
