@@ -22,7 +22,7 @@ export function detectLocale(): Locale {
   return languages.some((l) => l?.toLowerCase().startsWith('cs')) ? 'cs' : 'en';
 }
 
-type Translate = (key: MessageKey, params?: Record<string, string>) => string;
+export type Translate = (key: MessageKey, params?: Record<string, string>) => string;
 
 interface I18nValue {
   locale: Locale;

@@ -740,13 +740,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/items/ItemDetailScreen.tsx",
-    "allowed": 22,
-    "reason": "Item detail screen combines history, conflict-aware edit, lifecycle mutation, and focus behavior; extract edit/history responsibilities.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/items/ItemForm.tsx",
     "allowed": 21,
     "reason": "Item form owns variant fields and validation/submission; separate field groups while preserving validation behavior.",
