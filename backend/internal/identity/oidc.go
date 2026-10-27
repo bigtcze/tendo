@@ -4,13 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"net/url"
-	"strings"
+	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
-	"time"
 )
 
 type OIDCPurpose string
@@ -96,7 +94,14 @@ type OIDCCallbackResult struct {
 }
 
 // A service is constructed only when OIDC is enabled; disabled mode is represented by a nil service.
-func NewOIDCService(repo OIDCRepository, provider OIDCProvider, issuer, clientID, displayName, publicURL string, clock func() time.Time, random func([]byte) error, verifyPassword func(string, string) error) (*OIDCService, error) {
+func NewOIDCService(
+	repo OIDCRepository,
+	provider OIDCProvider,
+	issuer, clientID, displayName, publicURL string,
+	clock func() time.Time,
+	random func([]byte) error,
+	verifyPassword func(string, string) error,
+) (*OIDCService, error) {
 	if repo == nil || provider == nil || issuer == "" || clientID == "" {
 		return nil, errors.New("OIDC dependencies and configuration are required")
 	}
@@ -113,7 +118,11 @@ func NewOIDCService(repo OIDCRepository, provider OIDCProvider, issuer, clientID
 	if err != nil {
 		return nil, errors.New("OIDC password verification initialization failed")
 	}
-	return &OIDCService{repo: repo, provider: provider, issuer: issuer, clientID: clientID, displayName: displayName, publicURL: publicURL, clock: clock, random: random, verifyPassword: verifyPassword, dummyPasswordHash: dummyHash}, nil
+	return &OIDCService{
+		repo: repo, provider: provider, issuer: issuer, clientID: clientID,
+		displayName: displayName, publicURL: publicURL, clock: clock,
+		random: random, verifyPassword: verifyPassword, dummyPasswordHash: dummyHash,
+	}, nil
 }
 func (s *OIDCService) Status() (bool, string) { return true, s.displayName }
 func (s *OIDCService) Linked(ctx context.Context, userID string) (bool, error) {
@@ -132,170 +141,44 @@ func (s *OIDCService) Start(ctx context.Context, p OIDCStartParams) (OIDCStartRe
 	if err := ctx.Err(); err != nil {
 		return OIDCStartResult{}, ErrOIDCUnavailable
 	}
-	if p.Purpose != OIDCPurposeLogin && p.Purpose != OIDCPurposeLink {
-		return OIDCStartResult{}, ErrOIDCInvalidPurpose
-	}
-	if p.Purpose == OIDCPurposeLogin && p.Session.ID != "" {
-		return OIDCStartResult{}, ErrOIDCAlreadySignedIn
-	}
-	flow := OIDCFlow{Issuer: s.issuer, ClientID: s.clientID, Purpose: p.Purpose, CreatedAt: s.clock().UTC().Truncate(time.Second)}
-	if p.Purpose == OIDCPurposeLink {
-		if p.Principal.UserID == "" || p.Session.ID == "" || p.Session.Principal.UserID != p.Principal.UserID {
-			return OIDCStartResult{}, ErrUnauthenticated
-		}
-		if len(p.CurrentPassword) == 0 || len(p.CurrentPassword) > maxPasswordBytes {
-			return OIDCStartResult{}, ErrInvalidCredentials
-		}
-		hash, err := s.repo.FindCredential(ctx, p.Principal.UserID)
-		if err != nil {
-			if dummyErr := s.verifyPassword(s.dummyPasswordHash, p.CurrentPassword); errors.Is(dummyErr, ErrPasswordWorkLimit) {
-				return OIDCStartResult{}, ErrPasswordWorkLimit
-			}
-			if errors.Is(err, ErrNotFound) {
-				return OIDCStartResult{}, ErrInvalidCredentials
-			}
-			return OIDCStartResult{}, ErrOIDCUnavailable
-		}
-		if err = s.verifyPassword(hash, p.CurrentPassword); err != nil {
-			return OIDCStartResult{}, err
-		}
-		flow.UserID, flow.SessionID = p.Principal.UserID, p.Session.ID
-	}
-	var state, browser, nonce, verifier [32]byte
-	for _, b := range [][]byte{state[:], browser[:], nonce[:], verifier[:]} {
-		if err := s.random(b); err != nil {
-			return OIDCStartResult{}, ErrOIDCUnavailable
-		}
-	}
-	flow.StateHash = digest(state[:])
-	flow.BrowserTokenHash = digest(browser[:])
-	if validToken(p.PreviousBrowserToken) {
-		previousRaw, _ := base64.RawURLEncoding.DecodeString(p.PreviousBrowserToken)
-		flow.PreviousBrowserTokenHash = digest(previousRaw)
-	}
-	flow.Nonce = base64.RawURLEncoding.EncodeToString(nonce[:])
-	flow.PKCEVerifier = base64.RawURLEncoding.EncodeToString(verifier[:])
-	flow.ExpiresAt = flow.CreatedAt.Add(10 * time.Minute)
-	redirect := strings.TrimRight(s.publicURL, "/") + "/api/v1/auth/oidc/callback"
-	auth, err := s.provider.AuthorizationURL(ctx, OIDCAuthorizationParams{Issuer: s.issuer, ClientID: s.clientID, RedirectURL: redirect, State: base64.RawURLEncoding.EncodeToString(state[:]), Nonce: flow.Nonce, PKCEVerifier: flow.PKCEVerifier, Purpose: p.Purpose})
-	if errors.Is(err, ErrOIDCProviderUnavailable) {
-		return OIDCStartResult{}, ErrOIDCUnavailable
-	}
+	flow, state, browser, err := s.prepareStartFlow(ctx, p)
 	if err != nil {
-		return OIDCStartResult{}, ErrOIDCUnavailable
+		return OIDCStartResult{}, err
 	}
-	if err = s.repo.InsertFlow(ctx, flow); err != nil {
-		return OIDCStartResult{}, errors.New("OIDC persistence failed")
-	}
-	return OIDCStartResult{auth, base64.RawURLEncoding.EncodeToString(browser[:])}, nil
+	return s.authorizeAndPersist(ctx, p, flow, state, browser)
 }
 func (s *OIDCService) Callback(ctx context.Context, params url.Values, browserToken, currentSessionToken string) (OIDCCallbackResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, oidcOperationBudget)
 	defer cancel()
-	invalid := OIDCCallbackResult{Destination: "/login#oidcError=invalid_flow", Code: OIDCInvalidFlow}
-	for k, vs := range params {
-		max := 4096
-		if k == "state" || k == "iss" {
-			max = 2048
-		}
-		if k == "error" {
-			max = 128
-		}
-		if len(vs) != 1 || len(vs[0]) > max {
-			return invalid, nil
-		}
+	parsed, ok := parseCallback(params, browserToken)
+	if !ok {
+		return invalidCallback(), nil
 	}
-	state, code, providerErr := params.Get("state"), params.Get("code"), params.Get("error")
-	if len(state) != 43 || len(browserToken) != 43 {
-		return invalid, nil
+	flow, err := s.repo.ConsumeFlow(ctx, digest(parsed.state), digest(parsed.browser), s.clock().UTC(), s.issuer, s.clientID)
+	if errors.Is(err, ErrNotFound) {
+		return invalidCallback(), nil
 	}
-	stateRaw, e := base64.RawURLEncoding.DecodeString(state)
-	if e != nil || len(stateRaw) != 32 || base64.RawURLEncoding.EncodeToString(stateRaw) != state {
-		return invalid, nil
-	}
-	browserRaw, e := base64.RawURLEncoding.DecodeString(browserToken)
-	if e != nil || len(browserRaw) != 32 || base64.RawURLEncoding.EncodeToString(browserRaw) != browserToken {
-		return invalid, nil
-	}
-	flow, e := s.repo.ConsumeFlow(ctx, digest(stateRaw), digest(browserRaw), s.clock().UTC(), s.issuer, s.clientID)
-	if errors.Is(e, ErrNotFound) {
-		return invalid, nil
-	}
-	if e != nil {
+	if err != nil {
 		return failure(OIDCPurposeLogin, OIDCUnavailable), nil
 	}
-	if providerErr != "" {
+	if parsed.providerError != "" {
 		return failure(flow.Purpose, OIDCCancelled), nil
 	}
-	if code == "" {
+	if parsed.code == "" {
 		return failure(flow.Purpose, OIDCInvalidFlow), nil
 	}
-	if flow.Purpose == OIDCPurposeLogin && currentSessionToken != "" {
-		_, err := s.repo.FindSession(ctx, digest([]byte(currentSessionToken)), s.clock().UTC())
-		if err == nil {
-			return failure(flow.Purpose, OIDCSessionChanged), nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return failure(flow.Purpose, OIDCUnavailable), nil
-		}
+	if result, rejected := s.checkCallbackSession(ctx, flow, currentSessionToken); rejected {
+		return result, nil
 	}
-	if flow.Purpose == OIDCPurposeLink {
-		active, err := s.repo.FindSession(ctx, digest([]byte(currentSessionToken)), s.clock().UTC())
-		if errors.Is(err, ErrNotFound) {
-			return failure(flow.Purpose, OIDCSessionChanged), nil
-		}
-		if err != nil {
-			return failure(flow.Purpose, OIDCUnavailable), nil
-		}
-		if currentSessionToken == "" || active.Principal.UserID != flow.UserID || active.ID != flow.SessionID {
-			return failure(flow.Purpose, OIDCSessionChanged), nil
-		}
-	}
-	redirect := strings.TrimRight(s.publicURL, "/") + "/api/v1/auth/oidc/callback"
-	verified, err := s.provider.Exchange(ctx, OIDCExchangeParams{Code: code, RedirectURL: redirect, PKCEVerifier: flow.PKCEVerifier, Nonce: flow.Nonce, CallbackIssuer: params.Get("iss")})
-	if errors.Is(err, ErrOIDCProviderUnavailable) {
-		return failure(flow.Purpose, OIDCUnavailable), nil
-	}
+	verified, err := s.exchangeCallback(ctx, flow, parsed)
 	if err != nil {
-		return failure(flow.Purpose, OIDCAuthenticationFailed), nil
+		return failure(flow.Purpose, callbackExchangeCode(err)), nil
 	}
-	userID, err := s.repo.FindIdentity(ctx, verified.Issuer, verified.Subject)
-	if flow.Purpose == OIDCPurposeLogin {
-		if errors.Is(err, ErrNotFound) {
-			return failure(flow.Purpose, OIDCIdentityNotLinked), nil
-		}
-		if err != nil {
-			return failure(flow.Purpose, OIDCUnavailable), nil
-		}
-	} else {
-		userID = flow.UserID
-	}
-	var raw [32]byte
-	if err = s.random(raw[:]); err != nil {
-		return failure(flow.Purpose, OIDCUnavailable), nil
-	}
-	token := base64.RawURLEncoding.EncodeToString(raw[:])
-	now := s.clock().UTC().Truncate(time.Second)
-	ns := NewSession{UserID: userID, TokenHash: digest([]byte(token)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}
-	if flow.Purpose == OIDCPurposeLink {
-		_, err = s.repo.LinkAndCreateSession(ctx, flow, verified, ns, digest([]byte(currentSessionToken)))
-	} else {
-		_, err = s.repo.CreateOIDCLoginSession(ctx, ns)
-	}
-	if errors.Is(err, ErrOIDCConflict) {
-		return failure(flow.Purpose, OIDCIdentityConflict), nil
-	}
-	if errors.Is(err, ErrOIDCSessionChanged) {
-		return failure(flow.Purpose, OIDCSessionChanged), nil
-	}
+	userID, err := s.callbackUser(ctx, flow, verified)
 	if err != nil {
-		return failure(flow.Purpose, OIDCUnavailable), nil
+		return failure(flow.Purpose, callbackIdentityCode(err)), nil
 	}
-	dest := "/"
-	if flow.Purpose == OIDCPurposeLink {
-		dest = "/account#oidc=connected"
-	}
-	return OIDCCallbackResult{Destination: dest, SessionToken: token}, nil
+	return s.issueCallbackSession(ctx, flow, verified, userID, currentSessionToken)
 }
 func failure(p OIDCPurpose, c OIDCCode) OIDCCallbackResult {
 	dest := "/login"

@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,8 +10,6 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httporigin"
-	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
-	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -101,19 +98,8 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		problem(w, 429, "rate_limited")
 		return
 	}
-	fields := map[string]httpx.Field{"purpose": {Kind: httpx.KindString, Required: true}, "currentPassword": {Kind: httpx.KindString}}
-	values, ok := httpx.ReadObject(w, r, fields, 4096)
+	request, ok := readOIDCStartRequest(w, r)
 	if !ok {
-		return
-	}
-	purpose := identity.OIDCPurpose(values["purpose"].(string))
-	password, hasPassword := values["currentPassword"].(string)
-	if purpose == identity.OIDCPurposeLink && !hasPassword {
-		writeOIDCValidation(w, "currentPassword")
-		return
-	}
-	if purpose != identity.OIDCPurposeLogin && purpose != identity.OIDCPurposeLink || purpose == identity.OIDCPurposeLogin && hasPassword {
-		writeOIDCValidation(w, "purpose")
 		return
 	}
 	if h.service == nil {
@@ -124,49 +110,21 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "origin_not_allowed")
 		return
 	}
-	var session identity.SessionInfo
-	var principal identity.Principal
-	if h.sessions != nil {
-		if _, present := h.sessions.sessionToken(r); present {
-			var authenticated bool
-			session, authenticated = h.sessions.authenticate(w, r)
-			if !authenticated {
-				return
-			}
-			principal = session.Principal
-		} else if purpose == identity.OIDCPurposeLink {
-			problem(w, 401, "invalid_credentials")
-			return
-		}
-	}
-	if purpose == identity.OIDCPurposeLink && session.ID == "" {
-		problem(w, 401, "invalid_credentials")
+	session, principal, ok := h.resolveStartSession(w, r, request.purpose)
+	if !ok {
 		return
 	}
-	session.Principal = principal
 	previousBrowserToken, validPreviousBrowserCookie := h.singleFlowCookie(r)
 	if !validPreviousBrowserCookie {
 		previousBrowserToken = ""
 	}
-	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: purpose, Principal: principal, Session: session, CurrentPassword: password, PreviousBrowserToken: previousBrowserToken})
-	switch {
-	case errors.Is(err, identity.ErrOIDCInvalidPurpose):
-		writeOIDCValidation(w, "purpose")
-	case errors.Is(err, identity.ErrOIDCAlreadySignedIn):
-		problem(w, 409, "already_signed_in")
-	case errors.Is(err, identity.ErrUnauthenticated), errors.Is(err, identity.ErrInvalidCredentials):
-		problem(w, 401, "invalid_credentials")
-	case errors.Is(err, security.ErrPasswordWorkLimit):
-		w.Header().Set("Retry-After", "60")
-		problem(w, 429, "rate_limited")
-	case errors.Is(err, identity.ErrOIDCUnavailable):
-		problem(w, 503, "oidc_unavailable")
-	case err != nil:
-		problem(w, 503, "unavailable")
-	default:
-		h.setFlowCookie(w, result.BrowserToken, 600)
-		writeJSON(w, 200, map[string]string{"authorizationUrl": result.AuthorizationURL})
+	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: request.purpose, Principal: principal, Session: session, CurrentPassword: request.password, PreviousBrowserToken: previousBrowserToken})
+	if err != nil {
+		writeOIDCStartError(w, err)
+		return
 	}
+	h.setFlowCookie(w, result.BrowserToken, 600)
+	writeJSON(w, 200, map[string]string{"authorizationUrl": result.AuthorizationURL})
 }
 func (h *OIDCHandler) singleFlowCookie(r *http.Request) (string, bool) {
 	var token string
