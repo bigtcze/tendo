@@ -268,6 +268,66 @@ func TestUndoLatestCompletionRestoresCycleAndChains(t *testing.T) {
 	}
 }
 
+func TestUndoThreeCompletionCyclesRestoresSnapshotsInReverse(t *testing.T) {
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-12-31", item.Item{ID: missingID, AttentionOn: d("2026-01-31"), Recurrence: policy, WorkflowState: item.StateWaiting})
+	dates := []string{"2026-02-01", "2026-04-01", "2026-06-01"}
+	states := []item.WorkflowState{item.StateWaiting, item.StatePaused, item.StateInProgress}
+	ids := make([]string, 0, 3)
+	for index, completedOn := range dates {
+		row, _ := e.repo.Row(missingID)
+		if index > 0 {
+			state := string(states[index])
+			updated, err := e.svc.Update(context.Background(), userID, householdID, missingID, row.Version, item.Patch{WorkflowState: &state})
+			if err != nil {
+				t.Fatal(err)
+			}
+			row.Version = updated.Version
+		}
+		completion, _, err := runCompletion(t, e, missingID, fmt.Sprintf("cycle-%d", index+1), row.Version, &completedOn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, completion.ID)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-06-28" || row.LastCompletedOn == nil || row.LastCompletedOn.String() != dates[2] {
+		t.Fatalf("three cycles did not advance: %+v", row)
+	}
+	if _, err := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, ids[0], row.Version); !errors.Is(err, item.ErrCompletionNotLatest) {
+		t.Fatalf("non-latest undo error=%v", err)
+	}
+	wantAttention := []string{"2026-01-31", "2026-02-28", "2026-04-28"}
+	wantLast := []string{"", dates[0], dates[1]}
+	wantState := []item.WorkflowState{item.StateWaiting, item.StatePaused, item.StateInProgress}
+	for index := 2; index >= 0; index-- {
+		row, _ = e.repo.Row(missingID)
+		if _, err := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, ids[index], row.Version); err != nil {
+			t.Fatalf("undo cycle %d: %v", index+1, err)
+		}
+		row, _ = e.repo.Row(missingID)
+		if row.AttentionOn == nil || row.AttentionOn.String() != wantAttention[index] || row.WorkflowState != wantState[index] {
+			t.Fatalf("after undo cycle %d: %+v, want attention=%s state=%s", index+1, row, wantAttention[index], wantState[index])
+		}
+		if (row.LastCompletedOn == nil) != (wantLast[index] == "") || (row.LastCompletedOn != nil && row.LastCompletedOn.String() != wantLast[index]) {
+			t.Fatalf("after undo cycle %d last completed=%v want=%q", index+1, row.LastCompletedOn, wantLast[index])
+		}
+	}
+}
+
+func TestFluidYearlyCompletionAdvancesFromCompletionDate(t *testing.T) {
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeAfterCompletion}
+	e := completionEnv("UTC", "2026-04-01", item.Item{ID: missingID, AttentionOn: d("2025-09-01"), Recurrence: policy})
+	completedOn := "2026-03-10"
+	if _, _, err := runCompletion(t, e, missingID, "fluid-yearly", 1, &completedOn); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2027-03-10" || row.LastCompletedOn == nil || row.LastCompletedOn.String() != completedOn {
+		t.Fatalf("fluid yearly completion state=%+v", row)
+	}
+}
+
 func TestUndoOneOffAndPolicyUnaffected(t *testing.T) {
 	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01"), WorkflowState: item.StateWaiting})
 	day := "2026-10-20"
