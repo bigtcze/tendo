@@ -602,4 +602,58 @@ describe('members and invitations', () => {
     const routes: Record<string, Response> = defaults(); routes[`GET ${base}/members`] = problem(401); routes['GET /api/v1/auth/setup'] = json(200, { required: false }); installFakeServer(routes);
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); expect(await screen.findByLabelText('Password')).toBeVisible();
   });
+
+  it('an invitation-list 401 signs out', async () => {
+    installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: problem(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+
+  it('an invitation-list 404 identifies the unavailable household', async () => {
+    installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: problem(404) });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
+  });
+
+  it('create 401 signs out', async () => {
+    installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
+    expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+
+  it.each([
+    [401, undefined, 'signed-out'],
+    [403, 'owner_required', 'owner'],
+    [403, undefined, 'refused'],
+    [404, undefined, 'not-found'],
+    [503, undefined, 'That didn’t work. Check your connection and try again.'],
+  ])('revoke status %s maps to %s outcome', async (status, code, outcome) => {
+    installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: page([invitation('one')]), [`DELETE ${base}/invitations/one`]: problem(status, code ? { code } : {}) , 'GET /api/v1/auth/setup': json(200, { required: false }) });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Yes' }));
+    if (outcome === 'signed-out') expect(await screen.findByLabelText('Password')).toBeVisible();
+    if (outcome === 'owner') expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
+    if (outcome === 'refused') expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.')).toBeVisible();
+    if (outcome === 'not-found') expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
+    if (typeof outcome === 'string' && outcome.includes('didn’t work')) expect(await screen.findByText(outcome)).toBeVisible();
+  });
+
+  it('discovers the viewer on page 20 and still renders only the first page', async () => {
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: RecordedRequest) => {
+        if (req.documentPath !== '/members') return page(members());
+        const n = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
+        return json(200, { items: [{ userId: n === 20 ? session().userId : `user-${n}`, login: `page_${n}`, role: n === 20 ? 'owner' : 'member' }], nextCursor: n < 20 ? `p${n + 1}` : null });
+      },
+    });
+    renderApp(); await openMembersAfterHomeRead(fake);
+    expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
+    expect(fake.requests.filter((request) => request.documentPath === '/members' && request.path === `${base}/members`)).toHaveLength(20);
+    const section = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    expect(within(section).getByText('page_1')).toBeVisible();
+    expect(within(section).queryByText('page_20')).not.toBeInTheDocument();
+  });
 });
