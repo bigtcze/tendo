@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -33,7 +34,7 @@ func TestOIDCStartRandomProviderAndInsertFailures(t *testing.T) {
 			t.Fatalf("err=%v inserted=%d", err, f.repo.inserted)
 		}
 	})
-	t.Run("provider", func(t *testing.T) {
+	t.Run("insert", func(t *testing.T) {
 		f := newOIDCFixture(t)
 		f.repo.insertErr = errors.New("db")
 		_, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLogin})
@@ -41,6 +42,25 @@ func TestOIDCStartRandomProviderAndInsertFailures(t *testing.T) {
 			t.Fatalf("err=%v inserted=%d", err, f.repo.inserted)
 		}
 	})
+}
+
+func TestOIDCStartAuthorizationErrorsUnavailableWithoutInsertingFlow(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"plain", errors.New("provider down")},
+		{"wrapped provider unavailable", fmt.Errorf("authorization: %w", ErrOIDCProviderUnavailable)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOIDCFixture(t)
+			f.provider.authErr = tc.err
+			result, err := f.service.Start(context.Background(), OIDCStartParams{Purpose: OIDCPurposeLogin})
+			if !errors.Is(err, ErrOIDCUnavailable) || result != (OIDCStartResult{}) || f.repo.inserted != 0 || len(f.repo.flows) != 0 {
+				t.Fatalf("result=%+v err=%v inserted=%d flows=%d", result, err, f.repo.inserted, len(f.repo.flows))
+			}
+		})
+	}
 }
 
 func TestOIDCStartStoredFlowMetadataAndPreviousToken(t *testing.T) {

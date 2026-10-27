@@ -144,12 +144,16 @@ func (r *oidcFakeRepo) Linked(_ context.Context, user, issuer string) (bool, err
 type oidcStubProvider struct {
 	identity    OIDCVerifiedIdentity
 	exchangeErr error
+	authErr     error
 	calls       int
 	auth        OIDCAuthorizationParams
 }
 
 func (p *oidcStubProvider) AuthorizationURL(_ context.Context, a OIDCAuthorizationParams) (string, error) {
 	p.auth = a
+	if p.authErr != nil {
+		return "", p.authErr
+	}
 	v := url.Values{"state": {a.State}, "redirect_uri": {a.RedirectURL}, "code_challenge_method": {"S256"}, "code_challenge": {"stub-challenge"}, "scope": {"openid"}}
 	if a.Purpose == OIDCPurposeLink {
 		v.Set("prompt", "login")

@@ -108,15 +108,12 @@ func parseCallback(params url.Values, browserToken string) (parsedCallback, bool
 		}
 	}
 	state := params.Get("state")
-	if !validToken(state) || !validToken(browserToken) {
+	if len(state) != 43 || len(browserToken) != 43 {
 		return parsedCallback{}, false
 	}
-	stateRaw, e := base64.RawURLEncoding.DecodeString(state)
-	if e != nil {
-		return parsedCallback{}, false
-	}
-	browserRaw, e := base64.RawURLEncoding.DecodeString(browserToken)
-	if e != nil {
+	stateRaw, stateOK := decodeToken(state)
+	browserRaw, browserOK := decodeToken(browserToken)
+	if !stateOK || !browserOK {
 		return parsedCallback{}, false
 	}
 	return parsedCallback{
@@ -170,23 +167,17 @@ func (s *OIDCService) callbackUser(ctx context.Context, flow OIDCFlow, v OIDCVer
 	}
 	return user, err
 }
-func callbackExchangeCode(err error) OIDCCode {
+func exchangeFailureCode(err error) OIDCCode {
 	if errors.Is(err, ErrOIDCProviderUnavailable) {
 		return OIDCUnavailable
 	}
-	if err != nil {
-		return OIDCAuthenticationFailed
-	}
-	return ""
+	return OIDCAuthenticationFailed
 }
-func callbackIdentityCode(err error) OIDCCode {
+func identityFailureCode(err error) OIDCCode {
 	if errors.Is(err, ErrNotFound) {
 		return OIDCIdentityNotLinked
 	}
-	if err != nil {
-		return OIDCUnavailable
-	}
-	return ""
+	return OIDCUnavailable
 }
 func (s *OIDCService) issueCallbackSession(ctx context.Context, flow OIDCFlow, v OIDCVerifiedIdentity, userID, token string) (OIDCCallbackResult, error) {
 	var raw [32]byte

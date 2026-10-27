@@ -172,11 +172,11 @@ func (s *OIDCService) Callback(ctx context.Context, params url.Values, browserTo
 	}
 	verified, err := s.exchangeCallback(ctx, flow, parsed)
 	if err != nil {
-		return failure(flow.Purpose, callbackExchangeCode(err)), nil
+		return failure(flow.Purpose, exchangeFailureCode(err)), nil
 	}
 	userID, err := s.callbackUser(ctx, flow, verified)
 	if err != nil {
-		return failure(flow.Purpose, callbackIdentityCode(err)), nil
+		return failure(flow.Purpose, identityFailureCode(err)), nil
 	}
 	return s.issueCallbackSession(ctx, flow, verified, userID, currentSessionToken)
 }

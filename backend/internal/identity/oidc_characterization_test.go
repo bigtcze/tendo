@@ -1,7 +1,9 @@
 package identity
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/url"
 	"strings"
@@ -9,26 +11,60 @@ import (
 )
 
 func TestOIDCCallbackStrictTokensRemainUnconsumed(t *testing.T) {
-	for _, tc := range []struct{ name, state, browser string }{
-		{"noncanonical state", strings.Repeat("!", 43), ""},
-		{"wrong decoded length", strings.Repeat("A", 43), ""},
-		{"noncanonical browser", "", strings.Repeat("!", 43)},
-		{"wrong browser length", "", strings.Repeat("A", 43)},
+	for _, tc := range []struct{ name, target, change string }{
+		{"noncanonical state", "state", "noncanonical"},
+		{"state too short", "state", "short"},
+		{"state too long", "state", "long"},
+		{"noncanonical browser", "browser", "noncanonical"},
+		{"browser too short", "browser", "short"},
+		{"browser too long", "browser", "long"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newOIDCFixture(t)
+			addIdentity(f.repo, "user-1", "subject-1")
 			start := f.start(OIDCPurposeLogin, "", "", "", "")
-			params := callbackParams(startState(t, start), "code")
+			state := startState(t, start)
+			params := callbackParams(state, "code")
 			browser := start.BrowserToken
-			if tc.state != "" {
-				params.Set("state", tc.state)
+			token := state
+			if tc.target == "browser" {
+				token = browser
 			}
-			if tc.browser != "" {
-				browser = tc.browser
+			mutated := token
+			switch tc.change {
+			case "noncanonical":
+				const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+				last := token[len(token)-1]
+				idx := strings.IndexByte(alphabet, last)
+				if idx < 0 || idx%4 != 0 {
+					t.Fatalf("issued token has unexpected trailing bits: %q", last)
+				}
+				mutated = token[:len(token)-1] + string(alphabet[idx+1])
+				decoded, err := base64.RawURLEncoding.DecodeString(mutated)
+				original, originalErr := base64.RawURLEncoding.DecodeString(token)
+				if err != nil || originalErr != nil || len(decoded) != 32 || !bytes.Equal(decoded, original) {
+					t.Fatalf("noncanonical token did not decode to same 32 bytes: decoded=%x original=%x err=%v", decoded, original, err)
+				}
+			case "short":
+				mutated = token[:42]
+			case "long":
+				mutated = token + "A"
+			}
+			if tc.target == "state" {
+				params.Set("state", mutated)
+			} else {
+				browser = mutated
 			}
 			got, err := f.service.Callback(context.Background(), params, browser, "")
-			if err != nil || got.Destination != "/login#oidcError=invalid_flow" || got.Code != OIDCInvalidFlow || got.SessionToken != "" || f.provider.calls != 0 || len(f.repo.flows) != 1 {
-				t.Fatalf("result=%+v err=%v calls=%d flows=%d", got, err, f.provider.calls, len(f.repo.flows))
+			if err != nil || got.Destination != "/login#oidcError=invalid_flow" || got.Code != OIDCInvalidFlow || got.SessionToken != "" || f.provider.calls != 0 {
+				t.Fatalf("invalid result=%+v err=%v calls=%d", got, err, f.provider.calls)
+			}
+			if len(f.repo.flows) != 1 {
+				t.Fatalf("invalid callback consumed or lost original flow: %d", len(f.repo.flows))
+			}
+			valid := invoke(t, f.service, start, callbackParams(state, "code"), "")
+			if valid.Destination != "/" || valid.SessionToken == "" || f.provider.calls != 1 || len(f.repo.flows) != 0 {
+				t.Fatalf("original flow not consumable: result=%+v exchanges=%d flows=%d", valid, f.provider.calls, len(f.repo.flows))
 			}
 		})
 	}
@@ -61,11 +97,9 @@ func TestOIDCCallbackConsumedMissingCodeByPurpose(t *testing.T) {
 
 func TestOIDCCallbackLinkSessionGatesPrecedeExchange(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		token      string
-		sessionErr error
-		activeID   string
-		want       string
+		name, token    string
+		sessionErr     error
+		activeID, want string
 	}{
 		{"missing", "gone", nil, "", "/account#oidcError=session_changed"},
 		{"outage", "outage", errors.New("database down"), "", "/account#oidcError=unavailable"},
