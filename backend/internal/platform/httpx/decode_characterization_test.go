@@ -37,7 +37,9 @@ func TestDecodeObjectIntegerRangeSaturates(t *testing.T) {
 			t.Fatalf("%s: got=%#v err=%v", body, got["i"], err)
 		}
 	}
-	for _, body := range []string{`{"a":"x","i":1E2}`, `{"a":"x","i":0.0}`, `{"a":"x","i":null}`, `{"a":"x","i":[1]}`, `{"a":"x","i":{}}`, `{"a":"x","i":-}`, `{"a":"x","i":01}`} {
+	for _, body := range []string{`{"a":"x","i":1E2}`, `{"a":"x","i":0.0}`, `{"a":"x","i":null}`, `{"a":"x","i":[1]}`, `{"a":"x","i":{}}`, `{"a":"x","i":-}`, `{"a":"x","i":01}`,
+		// Overflowing digits before a fraction or exponent must not saturate.
+		`{"a":"x","i":99999999999999999999.5}`, `{"a":"x","i":-99999999999999999999e1}`} {
 		if got, err := DecodeObject([]byte(body), testFields); err == nil {
 			t.Fatalf("accepted %s as %#v", body, got)
 		}
@@ -73,6 +75,25 @@ func TestDecodeObjectNestedStrictness(t *testing.T) {
 	}
 	if got, err := DecodeObject([]byte(`{"o":null}`), missingSchema); err != nil || got["o"] != nil {
 		t.Fatalf("null for schemaless object: got=%#v err=%v", got, err)
+	}
+}
+
+// A nested object is never allowed to be empty, even when every nested key is
+// optional and the outer read permits an empty object.
+func TestNestedObjectEmptyRejectedWithOptionalFields(t *testing.T) {
+	fields := map[string]Field{"o": {Kind: KindNullableObject, Fields: map[string]Field{"s": {Kind: KindString}}}}
+	if got, err := DecodeObject([]byte(`{"o":{}}`), fields); err == nil {
+		t.Fatalf("empty nested object accepted: %#v", got)
+	}
+	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"o":{}}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	if _, ok := ReadObjectAllowEmpty(w, r, fields, 100); ok || w.Code != 400 {
+		t.Fatalf("allow-empty read accepted empty nested object: ok=%v code=%d", ok, w.Code)
+	}
+	got, err := DecodeObject([]byte(`{"o":{"s":"x"}}`), fields)
+	if err != nil || !reflect.DeepEqual(got, map[string]any{"o": map[string]any{"s": "x"}}) {
+		t.Fatalf("got=%#v err=%v", got, err)
 	}
 }
 
