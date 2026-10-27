@@ -745,7 +745,8 @@ test.describe('Tendo production journey', () => {
   });
 
   test('n3b. early completion preserves fixed cadence and shifts fluid cadence; undo restores the fluid anchor', async () => {
-    const anchor = addDays(pragueToday(), 7);
+    // Three days ahead (not one full interval) so fixed next, fluid next and the undone anchor are all distinct dates.
+    const anchor = addDays(pragueToday(), 3);
     const fixedTitle = 'Check the emergency kit';
     const fluidTitle = 'Water the seedlings early';
 
@@ -777,13 +778,13 @@ test.describe('Tendo production journey', () => {
 
     const fluidReceipt = (await serverCompletions(fluidBefore.id))[0]!;
     const fluidNext = addDays(expectedCompletionDate, 7);
-    expect(fluidNext < fixedNext).toBe(true);
+    expect(fluidNext < fixedNext && fluidNext !== anchor).toBe(true);
     expect(fluidReceipt).toMatchObject({ cycleAttentionOn: anchor, nextAttentionOn: fluidNext, completedOn: expectedCompletionDate, undoneAt: null });
     expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: fluidNext, attention: 'upcoming', lastCompletedOn: expectedCompletionDate });
     await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fluidTitle })).toBeVisible();
 
     await page.getByRole('button', { name: en['items.undo'] }).click();
-    await expect.poll(async () => (await serverItem(fluidTitle)).attentionOn).toBe(anchor);
+    await expect.poll(async () => (await serverCompletions(fluidBefore.id))[0]?.undoneAt ?? null).not.toBeNull();
     expect(await serverItem(fluidTitle)).toMatchObject({ attentionOn: anchor, attention: 'upcoming', lastCompletedOn: null, done: false });
     await expect(group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: fluidTitle })).toBeVisible();
     const fluidHistory = await serverCompletions(fluidBefore.id);

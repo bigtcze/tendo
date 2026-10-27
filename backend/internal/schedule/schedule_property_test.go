@@ -63,13 +63,23 @@ func TestAddIntervalPropertyAgainstIndependentReference(t *testing.T) {
 func TestNextCyclePropertyAgainstIndependentReference(t *testing.T) {
 	units := []Unit{UnitDay, UnitWeek, UnitMonth, UnitYear}
 	intervals := []int{1, 2, 3, 6, 12, 13, 52, 999}
+	fixedDiffersFromFluid := 0
 	for start := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC); !start.After(time.Date(2029, 12, 31, 0, 0, 0, 0, time.UTC)); start = start.AddDate(0, 0, 1) {
 		anchor := referenceDate(start.Year(), start.Month(), start.Day())
 		for _, unit := range units {
 			for _, value := range intervals {
 				interval := Interval{Value: value, Unit: unit}
 				completion := referenceAdd(referenceAdd(anchor, interval), interval)
-				for _, completion := range []Date{anchor, referenceAdd(anchor, interval), completion} {
+				dayBefore := Interval{Value: -1, Unit: UnitDay}
+				dayAfter := Interval{Value: 1, Unit: UnitDay}
+				// On-cadence dates plus early and off-cadence completions, where fixed and fluid results differ.
+				completions := []Date{
+					anchor, referenceAdd(anchor, interval), completion,
+					referenceAdd(anchor, dayBefore),
+					referenceAdd(referenceAdd(anchor, interval), dayBefore),
+					referenceAdd(referenceAdd(anchor, interval), dayAfter),
+				}
+				for _, completion := range completions {
 					for _, mode := range []Mode{ModeFixed, ModeAfterCompletion} {
 						policy := Policy{Enabled: true, Interval: interval, Mode: mode}
 						before := anchor
@@ -100,7 +110,10 @@ func TestNextCyclePropertyAgainstIndependentReference(t *testing.T) {
 							previous = next
 						}
 						want := referenceAdd(previous, interval)
-						if *got != want || previous.Compare(completion) > 0 {
+						if *got != referenceAdd(completion, interval) {
+							fixedDiffersFromFluid++
+						}
+						if *got != want || (anchor.Compare(completion) <= 0 && previous.Compare(completion) > 0) {
 							t.Fatalf("fixed chain anchor=%s completion=%s interval=%+v: previous=%s got=%s want=%s", anchor, completion, interval, previous, got, want)
 						}
 					}
@@ -115,5 +128,9 @@ func TestNextCyclePropertyAgainstIndependentReference(t *testing.T) {
 				}
 			}
 		}
+	}
+	// Guards against a corpus where fixed mode could be implemented as completion + interval and still pass.
+	if fixedDiffersFromFluid == 0 {
+		t.Fatal("no generated fixed case distinguishes fixed from after-completion arithmetic")
 	}
 }
