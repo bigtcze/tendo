@@ -154,6 +154,27 @@ describe('item details', () => {
     expect(requestsOf(fake.requests, 'PATCH', path).map((request) => request.headers.get('If-Match'))).toEqual(['"1"', '"2"']);
   });
 
+  it('preserves the undo notice while reloading after a 412 conflict', async () => {
+    let archived = false;
+    let reads = 0;
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => json(200, item({ archived }), { ETag: `"${++reads}"` }),
+      [`PATCH ${path}`]: (request) => {
+        const next = JSON.parse(request.body).archived as boolean;
+        if (!next) return json(412);
+        archived = true;
+        return json(200, item({ archived }), { ETag: '"archive"' });
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('That changed just now. Here is the latest.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'GET', path).length).toBeGreaterThanOrEqual(2);
+    expect(requestsOf(fake.requests, 'PATCH', path).map((request) => JSON.parse(request.body))).toEqual([{ archived: true }, { archived: false }]);
+  });
+
   it('keeps archived item details/history and hides workflow controls', async () => {
     installFakeServer(common({ [`GET ${path}`]: json(200, item({ archived: true, done: true } ), { ETag: '"1"' }) }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
@@ -344,6 +365,39 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { name: 'Different item' })).toBeVisible();
     await act(async () => { resolveA(json(200, item(), { ETag: '"a"' })); });
     expect(screen.queryByRole('heading', { name: 'Renew passport' })).not.toBeInTheDocument();
+  });
+
+  it.each([401, 200])('drops an obsolete edit-open subject list %s after navigating to another detail', async (status) => {
+    let resolveSubjects!: (response: Response) => void;
+    const itemB = { ...item(), id: itemIdB, title: 'Different item' };
+    const fake = installFakeServer(common({ [`GET ${base}/subjects`]: () => new Promise<Response>((resolve) => { resolveSubjects = resolve; }), [`GET ${base}/members`]: members, [`GET ${pathB}`]: json(200, itemB, { ETag: '"b"' }), [`GET ${pathB}/completions`]: json(200, { items: [], nextCursor: null }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
+    await act(async () => { window.history.pushState(null, '', `/items/${itemIdB}`); window.dispatchEvent(new PopStateEvent('popstate')); });
+    expect(await screen.findByRole('heading', { name: 'Different item' })).toBeVisible();
+    const before = fake.requests.length;
+    await act(async () => { resolveSubjects(status === 401 ? json(401) : json(200, { items: [subject], nextCursor: null })); });
+    expect(screen.getByRole('heading', { name: 'Different item' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(fake.requests).toHaveLength(before);
+  });
+
+  it('drops an obsolete post-save subject refresh 401 after navigating to another detail', async () => {
+    let reads = 0; let resolveRefresh!: (response: Response) => void;
+    const itemB = { ...item(), id: itemIdB, title: 'Different item' };
+    installFakeServer(common({ [`GET ${path}`]: json(200, item(), { ETag: '"1"' }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`GET ${base}/subjects/s-1`]: () => ++reads === 2 ? new Promise<Response>((resolve) => { resolveRefresh = resolve; }) : json(200, subject, { ETag: '"subject"' }), [`PATCH ${path}`]: json(200, item({ title: 'Saved' })), [`GET ${pathB}`]: json(200, itemB, { ETag: '"b"' }), [`GET ${pathB}/completions`]: json(200, { items: [], nextCursor: null }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Saved');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(resolveRefresh).toBeTypeOf('function'));
+    await act(async () => { window.history.pushState(null, '', `/items/${itemIdB}`); window.dispatchEvent(new PopStateEvent('popstate')); });
+    expect(await screen.findByRole('heading', { name: 'Different item' })).toBeVisible();
+    await act(async () => { resolveRefresh(json(401)); });
+    expect(screen.getByRole('heading', { name: 'Different item' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
   });
 
   it('handles mutation 404 and 401, plus failed restore and undo with visible notices', async () => {
@@ -544,6 +598,27 @@ describe('item details', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
     expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[1]!.body)).toEqual({ notes: '  Bring old passport  ' });
+  });
+
+  it('summarizes overlapping subject, date and notes conflicts in form order with empty-value fallbacks', async () => {
+    let reads = 0;
+    const other: Subject = { ...subject, id: 's-2', name: 'Petr' };
+    const fresh: Subject = { ...subject, id: 's-3', name: 'Car', type: 'vehicle' };
+    const latest = item({ title: 'Renamed elsewhere', subjectId: fresh.id, attentionOn: null, notes: null });
+    installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads <= 2 ? item() : latest, { ETag: `"${reads}"` }), [`GET ${base}/subjects`]: json(200, { items: [subject, other], nextCursor: null }), [`GET ${base}/subjects/s-3`]: json(200, fresh, { ETag: '"fresh"' }), [`PATCH ${path}`]: json(412) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    await userEvent.selectOptions(screen.getByLabelText('For'), other.id);
+    const date = screen.getByLabelText('When should this need attention?'); await userEvent.clear(date); await userEvent.type(date, '2027-01-01');
+    const notes = screen.getByLabelText('Notes'); await userEvent.clear(notes); await userEvent.type(notes, 'Mine');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    const summary = (await screen.findByText('Someone else changed this item.')).parentElement!;
+    expect([...summary.querySelectorAll('p')].map((line) => line.textContent)).toEqual([
+      'Someone else changed this item.', 'Latest saved person or thing: Car', 'Latest saved attention date: No date', 'Latest saved notes: No notes',
+    ]);
+    expect(screen.getByLabelText('What needs doing?')).toHaveValue('Renamed elsewhere');
+    expect(screen.getByLabelText('For')).toHaveValue(other.id);
   });
 
   it('shows latest recurrence mode during an overlapping mode-only conflict without auto-retrying', async () => {

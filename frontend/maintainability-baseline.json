@@ -64,46 +64,6 @@
     "owner": "frontend-items"
   },
   {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "function": "ItemDetailScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 294,
-    "reason": "P1 audit rank 4: detail/history, conflict-aware edit, lifecycle actions, focus, and rendering share a component; extract cohesive edit/history responsibilities.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "function": "ItemDetailScreen",
-    "rule": "complexity",
-    "allowed": 90,
-    "reason": "P1 audit rank 4: detail/history, conflict-aware edit, lifecycle actions, focus, and rendering share a component; extract cohesive edit/history responsibilities.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "function": "ItemDetailScreen.beginEdit",
-    "rule": "complexity",
-    "allowed": 26,
-    "reason": "Begins an item edit by loading supporting member/subject state and preparing conflict-aware fields; split data preparation from edit-state transitions.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "function": "ItemDetailScreen.saveEdit",
-    "rule": "complexity",
-    "allowed": 35,
-    "reason": "Saves edits after merging server and draft fields, handling validation/conflicts; isolate merge and submission branches while preserving conflict behavior.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/ItemDetailScreen.tsx",
-    "function": "ItemDetailScreen.mutate",
-    "rule": "complexity",
-    "allowed": 16,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-items"
-  },
-  {
     "file": "src/features/items/ItemForm.tsx",
     "function": "errorMessage",
     "rule": "complexity",
