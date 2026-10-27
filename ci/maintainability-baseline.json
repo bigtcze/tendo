@@ -562,13 +562,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/app/App.tsx",
-    "allowed": 8,
-    "reason": "Application root composes route/session lifecycle; retain concise composition while extracting lifecycle responsibilities.",
-    "owner": "frontend-app"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/app/HouseholdNavigation.tsx",
     "allowed": 1,
     "reason": "App-shell component composes route/layout/navigation behavior; retain clear composition and extract only cohesive shared UI.",
