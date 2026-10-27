@@ -40,30 +40,6 @@
     "owner": "frontend-auth"
   },
   {
-    "file": "src/features/items/AllItemsScreen.tsx",
-    "function": "AllItemsScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 278,
-    "reason": "P1 audit rank 6: all-items view combines filters, URL synchronization, catalog loading, paging, and rendering; separate navigation/data hooks from view composition.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/AllItemsScreen.tsx",
-    "function": "AllItemsScreen",
-    "rule": "complexity",
-    "allowed": 53,
-    "reason": "P1 audit rank 6: all-items view combines filters, URL synchronization, catalog loading, paging, and rendering; separate navigation/data hooks from view composition.",
-    "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/items/AllItemsScreen.tsx",
-    "function": "AllItemsScreen.anonymous#3.run",
-    "rule": "complexity",
-    "allowed": 18,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-items"
-  },
-  {
     "file": "src/features/items/ItemForm.tsx",
     "function": "errorMessage",
     "rule": "complexity",

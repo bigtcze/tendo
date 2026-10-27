@@ -668,4 +668,119 @@ describe('All items', () => {
     expect(new URLSearchParams(window.location.search).has('cursor')).toBe(false);
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('cursor') === 'garbage')).toBe(false);
   });
+
+  it('announces a server-rejected short search and clears the alert when typing', async () => {
+    const routes = itemRoutes(base, [makeItem(1)]);
+    const normalList = routes[`GET ${base}/items`]!;
+    const fake = installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items`]: (request) =>
+      request.query.get('q') === 'rejected' ? json(400, { parameter: 'q' }) : normalList(request) });
+    window.history.replaceState(null, '', '/items');
+    app();
+    await screen.findByText('Item 1');
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Loading items…' })).not.toBeInTheDocument());
+    await userEvent.type(screen.getByRole('searchbox'), 'rejected');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('Search needs to be 200 characters or fewer.')).toBeInTheDocument();
+    expect(screen.getByRole('searchbox')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Item 1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    const beforeTyping = fake.requests.length;
+    await userEvent.type(screen.getByRole('searchbox'), 'x');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox')).toHaveAttribute('aria-invalid', 'false');
+    expect(fake.requests).toHaveLength(beforeTyping);
+  });
+
+  it('merges active and archived facets, deduplicates subjects, and loads facets only once', async () => {
+    const archived = { ...subject, id: 's-2', name: 'Garden', archived: true };
+    const fake = installFakeServer({ ...bootRoutes,
+      [subjectsPath]: (request) => request.query.get('archived') === 'true'
+        ? json(200, { items: [archived, subject], nextCursor: null })
+        : json(200, { items: [subject], nextCursor: null }),
+      ...itemRoutes(base, [makeItem(1)]),
+    });
+    window.history.replaceState(null, '', '/items');
+    app();
+    await screen.findByText('Item 1');
+    const facet = screen.getByLabelText('For');
+    expect(within(facet).getAllByRole('option', { name: 'Café' })).toHaveLength(1);
+    expect(within(facet).getByRole('option', { name: 'Garden (archived)' })).toBeInTheDocument();
+    const count = reqs(fake.requests, subjectsPath).length;
+    await userEvent.selectOptions(facet, 's-2');
+    await waitFor(() => expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('subjectId')).toBe('s-2'));
+    expect(reqs(fake.requests, subjectsPath)).toHaveLength(count);
+  });
+
+  it('signs out on facet 401 and records facet 404 as an error while hiding that facet', async () => {
+    installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]), [membersPath]: json(401, {}) });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument();
+
+    cleanup();
+    window.history.replaceState(null, '', '/items');
+    const routes = itemRoutes(base, [makeItem(1)]);
+    let releaseSubjects!: () => void;
+    installFakeServer({ ...bootRoutes, ...routes, [subjectsPath]: () => new Promise<Response>((resolve) => {
+      releaseSubjects = () => resolve(json(404, {}));
+    }) });
+    app();
+    await screen.findByText('Item 1');
+    await act(async () => releaseSubjects());
+    await waitFor(() => expect(screen.queryByLabelText('For')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Check your connection and try again.').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('popstate restores filters from the URL and clears the stale notice', async () => {
+    window.history.replaceState(null, '', '/items?status=archived&cursor=garbage');
+    installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { archived: true })]) });
+    app();
+    expect(await screen.findByText('The list changed, so we started from the top.')).toBeInTheDocument();
+    await act(async () => {
+      window.history.pushState(null, '', '/items?status=done&q=restored&subject=s-1&responsible=unassigned&recurring=false');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(screen.getByRole('searchbox')).toHaveValue('restored');
+    expect(screen.getByLabelText('Show')).toHaveValue('done');
+    expect(screen.getByLabelText('For')).toHaveValue('s-1');
+    expect(screen.getByLabelText("Who's looking after it")).toHaveValue('unassigned');
+    expect(screen.getByLabelText('Repeat')).toHaveValue('false');
+    expect(screen.queryByText('The list changed, so we started from the top.')).not.toBeInTheDocument();
+  });
+
+  it('restarts stale cursor with one restarted summary/list pair and a clean URL stack', async () => {
+    window.history.replaceState({ allItemsCursors: ['c:0'] }, '', '/items?cursor=c%3A25');
+    const fake = installFakeServer({ ...bootRoutes,
+      ...itemRoutes(base, [makeItem(1)]),
+      [`GET ${base}/items`]: (request) => request.query.has('cursor')
+        ? json(400, { parameter: 'cursor' }) : json(200, { items: [makeItem(1)], nextCursor: null }),
+    });
+    app();
+    expect(await screen.findByText('Item 1')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe('/items'));
+    expect(window.history.state.allItemsCursors).toEqual([]);
+    expect(reqs(fake.requests, `${base}/items/summary`)).toHaveLength(2);
+    expect(reqs(fake.requests, `${base}/items`)).toHaveLength(2);
+  });
+
+  it('reports settled range, no-match, none, and error outcomes in the live region', async () => {
+    await openAllItems([makeItem(1)]);
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Showing 1–1 of 1'));
+    await userEvent.type(screen.getByRole('searchbox'), 'missing');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
+
+    cleanup();
+    window.history.replaceState(null, '', '/items');
+    await openAllItems([]);
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('There are no items in this household yet.'));
+
+    cleanup();
+    window.history.replaceState(null, '', '/items');
+    const routes = itemRoutes(base, [makeItem(1)]);
+    installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items/summary`]: json(500, {}) });
+    app();
+    await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.'));
+  });
 });
