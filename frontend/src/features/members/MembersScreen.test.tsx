@@ -640,6 +640,76 @@ describe('members and invitations', () => {
     if (typeof outcome === 'string' && outcome.includes('didn’t work')) expect(await screen.findByText(outcome)).toBeVisible();
   });
 
+  it('ignores late create and revoke results after unmount', async () => {
+    for (const method of ['create', 'revoke'] as const) {
+      let release!: (response: Response) => void;
+      const pending = new Promise<Response>((resolve) => { release = resolve; });
+      const onSignedOut = vi.fn();
+      const fake = installFakeServer({
+        ...defaults(),
+        [`GET ${base}/invitations`]: page([invitation('one')]),
+        [`POST ${base}/invitations`]: method === 'create' ? () => pending : json(201, { token: 'x'.repeat(43) }),
+        [`DELETE ${base}/invitations/one`]: method === 'revoke' ? () => pending : json(204),
+      });
+      const view = render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={onSignedOut} /></I18nProvider>);
+      if (method === 'create') await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
+      else {
+        await screen.findByText('Pending');
+        await userEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+        await userEvent.click(screen.getByRole('button', { name: 'Yes' }));
+      }
+      view.unmount();
+      const before = fake.requests.length;
+      await act(async () => { release(problem(401)); await pending; });
+      expect(onSignedOut).not.toHaveBeenCalled();
+      expect(fake.requests).toHaveLength(before);
+    }
+  });
+
+  it('ignores an older invitation Next response after a newer refresh begins', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    let pageTwoCalls = 0;
+    let firstPageCalls = 0;
+    let releaseRefresh!: (response: Response) => void;
+    const refreshPending = new Promise<Response>((resolve) => { releaseRefresh = resolve; });
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/invitations`]: (req: RecordedRequest) => req.query.get('cursor') === 'p2'
+        ? (++pageTwoCalls === 1 ? pending : page([invitation('fresh', 'accepted')]))
+        : (++firstPageCalls === 1 ? json(200, { items: [invitation('first')], nextCursor: 'p2' }) : refreshPending),
+      [`DELETE ${base}/invitations/first`]: json(204),
+    });
+    render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={() => {}} /></I18nProvider>);
+    await screen.findByText('Pending');
+    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(pageTwoCalls).toBe(1));
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Revoke' }));
+    await userEvent.click(within(invitations).getByRole('button', { name: 'Yes' }));
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === `${base}/invitations`)).toHaveLength(3));
+    await act(async () => { releaseRefresh(page([invitation('fresh', 'accepted')])); await refreshPending; });
+    expect(await screen.findByText('Accepted')).toBeVisible();
+    await act(async () => { release(page([invitation('stale', 'revoked')])); await pending; });
+    expect(screen.queryByText('Revoked')).not.toBeInTheDocument();
+    expect(fake.requests.filter((request) => request.path === `${base}/invitations`)).toHaveLength(3);
+  });
+
+  it('member page failure announces an error without stealing focus after the user moves away', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...defaults(), [`GET ${base}/members`]: (req: RecordedRequest) => req.query.get('cursor') === 'p2'
+      ? pending : json(200, { items: members(), nextCursor: 'p2' }) });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    const next = within(memberSection).getByRole('button', { name: 'Next page' });
+    await userEvent.click(next);
+    screen.getByRole('button', { name: 'Create invite link' }).focus();
+    await act(async () => { release(problem(503)); await pending; });
+    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Members' })).not.toHaveFocus();
+  });
+
   it('discovers the viewer on page 20 and still renders only the first page', async () => {
     const fake = installFakeServer({
       ...defaults(),
