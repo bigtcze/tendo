@@ -649,6 +649,112 @@ test.describe('Tendo production journey', () => {
     }
   });
 
+  test('n26. 999, 1000 and 1001 receipt histories stay reachable through Latest/Newer/Older', async () => {
+    test.setTimeout(600_000);
+    const subjectResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
+    expect(subjectResponse.status()).toBe(200);
+    const subjectId = ((await subjectResponse.json()) as { items: Array<{ id: string }> }).items[0]!.id;
+    for (const count of [999, 1000, 1001]) {
+      const title = `History boundary ${count}`;
+      const create = await page.request.post(`/api/v1/households/${householdId}/items`, {
+        headers: { Origin: baseURL, 'Idempotency-Key': `e2e-history-boundary-${count}` },
+        data: { title, subjectId, recurrence: { intervalValue: 1, intervalUnit: 'day', mode: 'fixed' } },
+      });
+      expect(create.status()).toBe(201);
+      const { id } = await create.json() as { id: string };
+      const completionsPath = `/api/v1/households/${householdId}/items/${id}/completions`;
+      const initialDate = new Date('2020-01-01T00:00:00Z');
+      for (let index = 0; index < count; index++) {
+        const current = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
+        expect(current.status()).toBe(200);
+        const date = new Date(initialDate);
+        date.setUTCDate(date.getUTCDate() + index);
+        const response = await page.request.post(completionsPath, {
+          headers: { Origin: baseURL, 'If-Match': current.headers()['etag']!, 'Idempotency-Key': `boundary-${count}-${index}` },
+          data: { completedOn: date.toISOString().slice(0, 10) },
+        });
+        expect(response.status(), `receipt ${index + 1}/${count} for boundary ${count}`).toBe(201);
+      }
+      const allIds: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const url = new URL(`${baseURL}${completionsPath}`);
+        url.searchParams.set('limit', '25');
+        url.searchParams.set('order', 'newest');
+        if (cursor) url.searchParams.set('cursor', cursor);
+        const response = await page.request.get(url.toString());
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: ServerCompletion[]; nextCursor?: string };
+        allIds.push(...body.items.map((receipt) => receipt.id));
+        cursor = body.nextCursor;
+      } while (cursor);
+      expect(allIds).toHaveLength(count);
+      expect(new Set(allIds).size).toBe(count);
+
+      const historyRequests: URL[] = [];
+      const onHistoryRequest = (request: import('@playwright/test').Request) => {
+        const url = new URL(request.url());
+        if (request.method() === 'GET' && url.pathname === completionsPath) historyRequests.push(url);
+      };
+      page.on('request', onHistoryRequest);
+      await page.goto(`/items/${id}`);
+      const history = page.getByRole('main').getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
+      const rows = history.getByRole('listitem');
+      const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') => history.getByRole('button', { name: en[key], exact: true });
+      const visitedDates: string[] = [];
+      const historyDoneRow = (value: string) => en['itemDetail.historyDone'].replace('{date}', new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)));
+      const newestDates = Array.from({ length: count }, (_, index) => {
+        const date = new Date(initialDate);
+        date.setUTCDate(date.getUTCDate() + index);
+        return date.toISOString().slice(0, 10);
+      }).reverse();
+      const assertPage = async (offset: number) => {
+        const dates = newestDates.slice(offset, offset + 25);
+        await expect(rows).toHaveText(dates.map((date) => new RegExp(`^${escapeRegExp(historyDoneRow(date))}`)));
+        visitedDates.push(...dates);
+      };
+      let offset = 0;
+      await assertPage(offset);
+      expect(await page.getByText(/partial history/i).count()).toBe(0);
+      await expect(button('itemDetail.historyNewer')).toHaveCount(0);
+      while (offset + 25 < count) {
+        await button('itemDetail.historyOlder').click();
+        offset += 25;
+        await assertPage(offset);
+      }
+      expect(visitedDates).toEqual(newestDates);
+      await expect(button('itemDetail.historyOlder')).toHaveCount(0);
+      expect(visitedDates.at(-1)).toBe('2020-01-01');
+      visitedDates.length = 0;
+      await button('itemDetail.historyNewer').click();
+      offset -= 25;
+      await assertPage(offset);
+      visitedDates.length = 0;
+      await button('itemDetail.historyLatest').click();
+      await assertPage(0);
+      await expect(button('itemDetail.historyLatest')).toHaveCount(0);
+      try {
+        expect(historyRequests.length).toBe(Math.ceil(count / 25) + 2);
+        for (const url of historyRequests) {
+          expect(url.searchParams.get('limit'), url.search).toBe('25');
+          expect(url.searchParams.get('order'), url.search).toBe('newest');
+        }
+        expect(historyRequests[0]!.searchParams.has('cursor')).toBe(false);
+        expect(historyRequests.slice(1, Math.ceil(count / 25) + 1).every((url) => url.searchParams.has('cursor'))).toBe(true);
+        expect(historyRequests.at(-2)!.searchParams.has('cursor')).toBe(true);
+        expect(historyRequests.at(-1)!.searchParams.has('cursor')).toBe(false);
+      } finally {
+        page.off('request', onHistoryRequest);
+      }
+      const current = await page.request.get(`/api/v1/households/${householdId}/items/${id}`);
+      expect(current.status()).toBe(200);
+      const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${id}`, {
+        headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true },
+      });
+      expect(archived.status()).toBe(200);
+    }
+  });
+
   test('n1. a one-off item with Repeat off completes, leaves the active list, keeps history, and undo brings it back', async () => {
     await page.goto('/');
     try {
