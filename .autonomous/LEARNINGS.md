@@ -23,3 +23,4 @@ Rules:
 - Add only knowledge likely to matter across future cycles.
 - No session diary, progress narrative, or duplicate policy.
 - Prefer updating an existing rule over adding a near-duplicate.
+L015 | A refactor regression test must fail on the faulty split AND pass on the original code; check both. Screen-level async ordering tests often depend on how many microtasks the code takes and fail on the original too, so pin the extracted helper's ordering invariant with a unit test and confirm it by reinserting the bad `await`. | 2026-10-27 SubjectsScreen PR 236 B1: the fixer's screen test also failed on the 83201b4 monolith
