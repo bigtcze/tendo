@@ -1,166 +1,66 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useId, useRef } from 'react';
 import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
-import { useI18n, type MessageKey } from '../../i18n';
-import { codePointLength } from '../../lib/textLength';
+import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
-import type { Invalid, Recurrence, Subject } from './itemsApi';
+import { ItemFormFields } from './ItemFormFields';
+import type { ItemFormOutcome, ItemFormValues } from './itemFormModel';
+import { errorMessage } from './itemFormModel';
+import type { Subject } from './itemsApi';
+import { useItemFormState } from './useItemFormState';
 
-export type ItemFormValues = { title: string; subjectId: string; attentionOn: string; notes: string; recurrence: Recurrence | null; responsibleUserId: string | null; historicalCompletedOn?: string };
-type Values = ItemFormValues;
-type Outcome = { kind: 'done' | 'handled' | 'failed' } | Invalid;
-type FormError = Invalid | { kind: 'empty' } | { kind: 'failed' };
-const units = ['day', 'week', 'month', 'year'] as const;
+export type { ItemFormValues } from './itemFormModel';
 
-function errorMessage(error: FormError | null, t: (key: MessageKey) => string): string {
-  if (!error) return '';
-  if (error.kind === 'empty') return t('items.error.titleEmpty');
-  if (error.kind === 'failed') return t('items.error.save');
-  if (error.field === 'title') return error.code === 'invalid_length' ? t('items.error.titleLength') : t('items.error.titleInvalid');
-  if (error.field === 'subjectId') return t('items.error.subject');
-  if (error.field === 'responsibleUserId') return t('items.error.responsible');
-  if (error.field === 'attentionOn') return t('items.error.date');
-  if (error.field === 'historicalCompletedOn') {
-    if (error.code === 'future_date') return t('items.error.historicalFuture');
-    if (error.code === 'conflicting_fields') return t('items.error.historicalConflict');
-    if (error.code === 'requires_recurrence') return t('items.error.historicalRecurrence');
-    return t('items.error.historicalDate');
-  }
-  if (error.field === 'notes') return t('items.error.notes');
-  if (error.field === 'recurrence' && error.code === 'date_overflow') return t('items.error.dateOverflow');
-  return t('items.error.interval');
-}
+type Mode = 'add' | 'edit';
+type ItemFormProps = {
+  subjects: Subject[];
+  members: Member[];
+  onSubmit: (values: ItemFormValues) => Promise<ItemFormOutcome>;
+  onCancel: () => void;
+  busy?: boolean;
+  mode?: Mode;
+  initialValues?: ItemFormValues;
+  notice?: string;
+  locked?: boolean;
+  retryLabel?: string;
+  submittingLabel?: string;
+  preserveDraftOnUnlock?: boolean;
+};
 
-/** Client checks that need no server round trip, in field order. */
-type LocalFields = { title: string; subjectId: string; repeat: boolean; interval: string; notes: string };
-function localError({ title, subjectId, repeat, interval, notes }: LocalFields): FormError | null {
-  if (!title.trim()) return { kind: 'empty' };
-  if (!subjectId) return { kind: 'invalid', field: 'subjectId', code: 'invalid_reference' };
-  const count = Number(interval);
-  if (repeat && (!Number.isInteger(count) || count < 1 || count > 999)) return { kind: 'invalid', field: 'recurrence', code: 'invalid_interval' };
-  // The server counts code points; the HTML maxlength attribute counts UTF-16 units and would stop emoji early.
-  if (codePointLength(notes) > 4000) return { kind: 'invalid', field: 'notes', code: 'invalid_length' };
-  return null;
-}
-
-export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, mode = 'add', initialValues, notice, locked = false, retryLabel, submittingLabel, preserveDraftOnUnlock = false }: { subjects: Subject[]; members: Member[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean; mode?: 'add' | 'edit'; initialValues?: Values; notice?: string; locked?: boolean; retryLabel?: string; submittingLabel?: string; preserveDraftOnUnlock?: boolean }) {
-  const { t, locale } = useI18n();
+export function ItemForm(props: ItemFormProps) {
+  const { subjects, members, onCancel, busy = false, mode = 'add', notice, locked = false } = props;
+  const { t } = useI18n();
   const id = useId();
-  const titleRef = useRef<HTMLInputElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
-  const notesRef = useRef<HTMLTextAreaElement>(null);
-  const historicalCompletedOnRef = useRef<HTMLInputElement>(null);
-  const submitting = useRef(false);
-  const [title, setTitle] = useState(initialValues?.title ?? '');
-  const [subjectId, setSubjectId] = useState(initialValues?.subjectId ?? subjects[0]?.id ?? '');
-  const [attentionOn, setAttentionOn] = useState(initialValues?.attentionOn ?? '');
-  const [notes, setNotes] = useState(initialValues?.notes ?? '');
-  const [responsibleUserId, setResponsibleUserId] = useState<string | null>(initialValues?.responsibleUserId ?? null);
-  const [notesOpen, setNotesOpen] = useState(Boolean(initialValues?.notes));
-  const [historicalOpen, setHistoricalOpen] = useState(Boolean(initialValues?.historicalCompletedOn));
-  const [historicalCompletedOn, setHistoricalCompletedOn] = useState(initialValues?.historicalCompletedOn ?? '');
-  const [repeat, setRepeat] = useState(Boolean(initialValues?.recurrence));
-  const [fluid, setFluid] = useState(initialValues?.recurrence?.mode === 'after_completion');
-  const [interval, setInterval] = useState(String(initialValues?.recurrence?.intervalValue ?? 1));
-  const [unit, setUnit] = useState<(typeof units)[number]>(initialValues?.recurrence?.intervalUnit ?? 'year');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<FormError | null>(null);
-  const [showNotice, setShowNotice] = useState(Boolean(notice));
-  const draft = useRef<Values>({ title, subjectId, attentionOn, notes, recurrence: initialValues?.recurrence ?? null, responsibleUserId, historicalCompletedOn: initialValues?.historicalCompletedOn });
-  const wasLocked = useRef(locked);
-  useEffect(() => {
-    if (wasLocked.current && !locked && preserveDraftOnUnlock) {
-      setTitle(draft.current.title);
-      setSubjectId(draft.current.subjectId);
-      setAttentionOn(draft.current.attentionOn);
-      setNotes(draft.current.notes);
-      setResponsibleUserId(draft.current.responsibleUserId);
-      setHistoricalCompletedOn(draft.current.historicalCompletedOn ?? '');
-      if (draft.current.recurrence) {
-        setRepeat(true);
-        setFluid(draft.current.recurrence.mode === 'after_completion');
-        setInterval(String(draft.current.recurrence.intervalValue));
-        setUnit(draft.current.recurrence.intervalUnit);
-      }
-      setShowNotice(false);
-    }
-    wasLocked.current = locked;
-  }, [locked, preserveDraftOnUnlock]);
+  const state = useItemFormState({
+    id, noticeRef, subjects, onSubmit: props.onSubmit, busy, mode, initialValues: props.initialValues, notice, locked,
+    preserveDraftOnUnlock: props.preserveDraftOnUnlock ?? false,
+  });
   const errorId = `${id}-error`;
-  const field = error && 'field' in error ? error.field : error?.kind === 'empty' ? 'title' : null;
-  useEffect(() => {
-    if (notice && noticeRef.current) noticeRef.current.focus();
-    else titleRef.current?.focus();
-  }, [notice]);
-
-  function fail(next: FormError) {
-    setShowNotice(false);
-    setError(next);
-    const target = 'field' in next ? next.field : next.kind === 'empty' ? 'title' : null;
-    if (target === 'notes') setNotesOpen(true);
-    if (target === 'historicalCompletedOn') setHistoricalOpen(true);
-    setTimeout(() => {
-      if (target === 'title') titleRef.current?.focus();
-      if (target === 'subjectId') document.getElementById(`${id}-subject`)?.focus();
-      if (target === 'responsibleUserId') document.getElementById(`${id}-responsible`)?.focus();
-      if (target === 'attentionOn') document.getElementById(`${id}-date`)?.focus();
-      if (target === 'recurrence') document.getElementById(`${id}-interval`)?.focus();
-      if (target === 'notes') notesRef.current?.focus();
-      if (target === 'historicalCompletedOn') historicalCompletedOnRef.current?.focus();
-    }, 0);
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (submitting.current || busy) return;
-    const invalid = localError({ title, subjectId, repeat, interval, notes });
-    if (invalid) return fail(invalid);
-    submitting.current = true;
-    setPending(true);
-    setError(null);
-    let result: Outcome;
-    try {
-      const submitted: Values = locked && initialValues ? initialValues : { title, subjectId, attentionOn, notes, recurrence: repeat ? { intervalValue: Number(interval), intervalUnit: unit, mode: fluid ? 'after_completion' as const : 'fixed' as const } : null, responsibleUserId, ...(mode === 'add' && repeat && historicalCompletedOn ? { historicalCompletedOn } : {}) };
-      draft.current = submitted;
-      result = await onSubmit(submitted);
-    } catch { result = { kind: 'failed' }; }
-    submitting.current = false;
-    setPending(false);
-    if (result.kind === 'invalid') fail(result);
-    else if (result.kind === 'failed') fail({ kind: 'failed' });
-    else if (result.kind === 'done') setShowNotice(false);
-    else setShowNotice(true);
-  }
-
-  return <form aria-label={t(mode === 'edit' ? 'itemDetail.edit.formLabel' : 'items.add.formLabel')} noValidate onSubmit={submit} className="space-y-5 rounded-2xl border border-line bg-white/70 p-4 sm:p-6">
-    <div className="space-y-2"><Label htmlFor={`${id}-title`}>{t('items.title')}</Label><Input disabled={pending || locked || (mode === 'edit' && busy)} ref={titleRef} id={`${id}-title`} value={title} onChange={(event) => setTitle(event.target.value)} aria-invalid={field === 'title'} aria-describedby={field === 'title' ? errorId : undefined} /></div>
-    <div className="space-y-2"><Label htmlFor={`${id}-subject`}>{t('items.subject')}</Label><select disabled={pending || locked || (mode === 'edit' && busy)} id={`${id}-subject`} className="min-h-11 w-full rounded-xl border border-field bg-white px-3 text-base" value={subjectId} onChange={(event) => setSubjectId(event.target.value)} aria-invalid={field === 'subjectId'} aria-describedby={field === 'subjectId' ? errorId : undefined}>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></div>
-    <div className="space-y-2"><Label htmlFor={`${id}-date`}>{t('items.attentionDate')}</Label><Input disabled={pending || locked || (mode === 'edit' && busy)} id={`${id}-date`} type="date" lang={locale} value={attentionOn} onChange={(event) => setAttentionOn(event.target.value)} aria-invalid={field === 'attentionOn'} aria-describedby={field === 'attentionOn' ? errorId : undefined} /></div>
-    <div><label className="flex min-h-11 items-center gap-3"><input disabled={pending || locked || (mode === 'edit' && busy)} type="checkbox" role="switch" checked={repeat} onChange={(event) => setRepeat(event.target.checked)} className="size-6 accent-accent" />{t('items.repeat')}</label>{mode === 'edit' ? <p className="text-sm text-muted">{t('itemDetail.repeatEditHint')}</p> : null}</div>
-    {repeat ? <div className="space-y-4 rounded-xl bg-sand/70 p-4">
-      <fieldset className="space-y-2"><legend id={`${id}-interval-label`} className="text-sm font-medium">{t('items.interval')}</legend><div className="flex gap-3">
-        <Input disabled={pending || locked || (mode === 'edit' && busy)} id={`${id}-interval`} aria-labelledby={`${id}-interval-label`} className="w-24" type="number" min="1" max="999" value={interval} onChange={(event) => setInterval(event.target.value)} aria-invalid={field === 'recurrence'} aria-describedby={field === 'recurrence' ? errorId : undefined} />
-        <select disabled={pending || locked || (mode === 'edit' && busy)} aria-label={t('items.intervalUnit')} className="min-h-11 min-w-0 flex-1 rounded-xl border border-field bg-white px-3" value={unit} onChange={(event) => setUnit(event.target.value as typeof unit)}>{units.map((value) => <option key={value} value={value}>{t(`items.unit.${value}` as MessageKey)}</option>)}</select>
-      </div></fieldset>
-      <label className="flex min-h-11 items-center gap-3"><input disabled={pending || locked || (mode === 'edit' && busy)} type="checkbox" role="switch" checked={fluid} onChange={(event) => setFluid(event.target.checked)} className="size-6 accent-accent" />{t('items.fluid')}</label>
-      <p className="text-sm text-muted">{t(fluid ? 'items.fluid.on' : 'items.fluid.off')}</p>
-      {mode === 'add' ? <div className="border-t border-line/70 pt-2">
-        <Button type="button" variant="quiet" size="small" disabled={pending || locked} aria-expanded={historicalOpen} onClick={() => setHistoricalOpen((open) => !open)}>{t(historicalOpen ? 'items.historical.hide' : 'items.historical.show')}</Button>
-        {historicalOpen ? <div className="mt-2 space-y-2">
-          <Label htmlFor={`${id}-historical`}>{t('items.historical.label')}</Label>
-          <Input disabled={pending || locked} ref={historicalCompletedOnRef} id={`${id}-historical`} type="date" lang={locale} value={historicalCompletedOn} onChange={(event) => setHistoricalCompletedOn(event.target.value)} aria-invalid={field === 'historicalCompletedOn'} aria-describedby={field === 'historicalCompletedOn' ? errorId : undefined} />
-          <p className="text-sm text-muted">{t('items.historical.hint')}</p>
-        </div> : null}
-      </div> : null}
-    </div> : null}
-    {members.length > 1 || responsibleUserId !== null ? <div className="space-y-1.5"><Label className="text-sm text-muted" htmlFor={`${id}-responsible`}>{t('items.responsible.label')}</Label><select disabled={pending || locked || (mode === 'edit' && busy)} id={`${id}-responsible`} className="min-h-11 w-full max-w-sm rounded-xl border border-field bg-sand/50 px-3 text-sm" value={responsibleUserId ?? ''} onChange={(event) => setResponsibleUserId(event.target.value || null)} aria-invalid={field === 'responsibleUserId'} aria-describedby={field === 'responsibleUserId' ? errorId : undefined}><option value="">{t('items.responsible.none')}</option>{members.map((member) => <option key={member.userId} value={member.userId}>{member.login}</option>)}{responsibleUserId && !members.some((member) => member.userId === responsibleUserId) ? <option value={responsibleUserId}>{t('items.responsible.unknown')}</option> : null}</select></div> : null}
-    <div>
-      <Button type="button" variant="quiet" size="small" disabled={pending || locked || (mode === 'edit' && busy)} aria-expanded={notesOpen} onClick={() => setNotesOpen((open) => !open)}>{t(notesOpen ? 'items.notes.hide' : 'items.notes.show')}</Button>
-      {notesOpen ? <div className="mt-2 space-y-2"><Label htmlFor={`${id}-notes`}>{t('items.notes')}</Label><textarea disabled={pending || locked || (mode === 'edit' && busy)} ref={notesRef} id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} aria-invalid={field === 'notes'} aria-describedby={field === 'notes' ? errorId : undefined} className="min-h-24 w-full rounded-xl border border-field bg-white p-3" /></div> : null}
-    </div>
-    {notice && showNotice ? <div ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div> : null}
-    <div id={errorId} role="alert" className="text-danger">{errorMessage(error, t)}</div>
-    <div className="flex flex-wrap gap-2"><Button type="submit" disabled={pending || busy}>{pending ? (submittingLabel ?? t(mode === 'edit' ? 'itemDetail.saving' : 'items.add.submitting')) : locked ? (retryLabel ?? t('items.add.submit')) : t(mode === 'edit' ? 'itemDetail.save' : 'items.add.submit')}</Button><Button type="button" variant="quiet" onClick={onCancel} disabled={pending || (mode === 'edit' && busy)}>{t('items.cancel')}</Button></div>
+  const pendingOrLocked = state.pending || locked;
+  return <form
+    aria-label={t(mode === 'edit' ? 'itemDetail.edit.formLabel' : 'items.add.formLabel')} noValidate onSubmit={state.submit}
+    className="space-y-5 rounded-2xl border border-line bg-white/70 p-4 sm:p-6"
+  >
+    <ItemFormFields
+      id={id} errorId={errorId} state={state} mode={mode} subjects={subjects} members={members}
+      disabled={pendingOrLocked || (mode === 'edit' && busy)} historyDisabled={pendingOrLocked}
+    />
+    {notice && state.showNotice
+      ? <div ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div>
+      : null}
+    <div id={errorId} role="alert" className="text-danger">{errorMessage(state.error, t)}</div>
+    <FormActions {...props} busy={busy} mode={mode} locked={locked} pending={state.pending} onCancel={onCancel} />
   </form>;
+}
+
+type ActionProps = Pick<ItemFormProps, 'retryLabel' | 'submittingLabel' | 'onCancel'> & { busy: boolean; mode: Mode; locked: boolean; pending: boolean };
+
+function FormActions({ busy, mode, locked, pending, onCancel, retryLabel, submittingLabel }: ActionProps) {
+  const { t } = useI18n();
+  const idleLabel = locked ? (retryLabel ?? t('items.add.submit')) : t(mode === 'edit' ? 'itemDetail.save' : 'items.add.submit');
+  const label = pending ? (submittingLabel ?? t(mode === 'edit' ? 'itemDetail.saving' : 'items.add.submitting')) : idleLabel;
+  return <div className="flex flex-wrap gap-2">
+    <Button type="submit" disabled={pending || busy}>{label}</Button>
+    <Button type="button" variant="quiet" onClick={onCancel} disabled={pending || (mode === 'edit' && busy)}>{t('items.cancel')}</Button>
+  </div>;
 }

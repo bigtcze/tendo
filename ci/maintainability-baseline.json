@@ -625,13 +625,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/items/ItemForm.tsx",
-    "allowed": 20,
-    "reason": "Item form owns variant fields and validation/submission; separate field groups while preserving validation behavior.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/items/itemsApi.ts",
     "allowed": 9,
     "reason": "Shared item API adapter maps transport responses and errors; split response mapping while preserving client contracts.",
