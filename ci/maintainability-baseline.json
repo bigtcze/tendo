@@ -162,22 +162,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/platform/config/config.go",
-    "name": "LoadFrom",
-    "allowed": 53,
-    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/config/oidc.go",
-    "name": "loadOIDC",
-    "allowed": 40,
-    "reason": "OIDC configuration loader validates provider settings and credentials at startup; isolate provider validation without changing startup errors.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/platform/database/migrate.go",
     "name": "Migrate",
     "allowed": 17,
@@ -190,14 +174,6 @@
     "name": "ParseAuthority",
     "allowed": 35,
     "reason": "Authority parser validates host/port/origin syntax used at the HTTP boundary; extract parse stages while preserving accepted-origin rules.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "decodeObject",
-    "allowed": 34,
-    "reason": "Decodes strict JSON request objects, rejects unknown fields and validates object shape/content; split decoding stages while preserving client problem responses.",
     "owner": "backend-platform"
   },
   {
@@ -297,36 +273,12 @@
     "owner": "backend-item"
   },
   {
-    "kind": "func_lines",
-    "path": "backend/internal/platform/config/config.go",
-    "name": "LoadFrom",
-    "allowed": 104,
-    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_lines",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "decodeObject",
-    "allowed": 89,
-    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
-    "owner": "backend-platform"
-  },
-  {
     "kind": "func_nesting",
     "path": "backend/internal/item/itemtest/repo.go",
     "name": "Repo.Complete",
     "allowed": 6,
     "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
     "owner": "test-support"
-  },
-  {
-    "kind": "func_nesting",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "decodeObject",
-    "allowed": 5,
-    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
-    "owner": "backend-platform"
   },
   {
     "kind": "long_lines",
@@ -488,20 +440,6 @@
     "allowed": 2,
     "reason": "Item summary repository queries completion and attention aggregates; preserve aggregate semantics and query mapping.",
     "owner": "backend-item"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/config/config.go",
-    "allowed": 1,
-    "reason": "Startup configuration loader validates database, listener, origin, proxy, OIDC and setup settings; separate validators while preserving fail-fast order.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/config/oidc.go",
-    "allowed": 2,
-    "reason": "OIDC configuration loader validates provider settings and credentials at startup; isolate provider validation without changing startup errors.",
-    "owner": "backend-platform"
   },
   {
     "kind": "long_lines",

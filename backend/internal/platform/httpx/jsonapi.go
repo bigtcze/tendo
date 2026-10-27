@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"regexp"
@@ -198,66 +199,16 @@ func decodeObject(body []byte, fields map[string]Field, allowEmpty bool) (map[st
 	}
 	values := make(map[string]any, len(fields))
 	for dec.More() {
-		keyToken, err := dec.Token()
-		key, ok := keyToken.(string)
-		field, allowed := fields[key]
-		if err != nil || !ok || !allowed {
-			return nil, fmt.Errorf("unexpected key")
-		}
-		if _, exists := values[key]; exists {
-			return nil, fmt.Errorf("duplicate key")
+		key, field, err := nextKey(dec, fields, values)
+		if err != nil {
+			return nil, err
 		}
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			return nil, fmt.Errorf("invalid value")
 		}
-		if string(raw) == "null" {
-			if field.Kind != KindNullableString && field.Kind != KindNullableObject {
-				return nil, fmt.Errorf("invalid value")
-			}
-			values[key] = nil
-			continue
-		}
-		switch field.Kind {
-		case KindString, KindNullableString:
-			var v string
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("expected string")
-			}
-			values[key] = v
-		case KindBool:
-			var v bool
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("expected boolean")
-			}
-			values[key] = v
-		case KindInteger:
-			text := string(raw)
-			if text == "" || strings.ContainsAny(text, ".eE") {
-				return nil, fmt.Errorf("expected integer literal")
-			}
-			v, err := strconv.ParseInt(text, 10, 64)
-			if err != nil {
-				if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
-					if strings.HasPrefix(text, "-") {
-						v = -1 << 63
-					} else {
-						v = 1<<63 - 1
-					}
-				} else {
-					return nil, fmt.Errorf("expected integer")
-				}
-			}
-			values[key] = v
-		case KindNullableObject:
-			if field.Fields == nil {
-				return nil, fmt.Errorf("missing nested schema")
-			}
-			v, err := decodeObject(raw, field.Fields, false)
-			if err != nil {
-				return nil, err
-			}
-			values[key] = v
+		if values[key], err = decodeValue(raw, field); err != nil {
+			return nil, err
 		}
 	}
 	if _, err := dec.Token(); err != nil {
@@ -266,15 +217,91 @@ func decodeObject(body []byte, fields map[string]Field, allowEmpty bool) (map[st
 	if dec.Decode(new(any)) != io.EOF {
 		return nil, fmt.Errorf("trailing data")
 	}
+	if err := checkPresence(values, fields, allowEmpty); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// nextKey reads the next object key, which must be declared and not repeated.
+func nextKey(dec *json.Decoder, fields map[string]Field, seen map[string]any) (string, Field, error) {
+	keyToken, err := dec.Token()
+	key, ok := keyToken.(string)
+	field, allowed := fields[key]
+	if err != nil || !ok || !allowed {
+		return "", Field{}, fmt.Errorf("unexpected key")
+	}
+	if _, exists := seen[key]; exists {
+		return "", Field{}, fmt.Errorf("duplicate key")
+	}
+	return key, field, nil
+}
+
+// decodeValue converts one raw JSON value to the Go value for its declared
+// kind. JSON null yields a nil value only for nullable kinds.
+func decodeValue(raw json.RawMessage, field Field) (any, error) {
+	if string(raw) == "null" {
+		if field.Kind != KindNullableString && field.Kind != KindNullableObject {
+			return nil, fmt.Errorf("invalid value")
+		}
+		return nil, nil
+	}
+	switch field.Kind {
+	case KindString, KindNullableString:
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, fmt.Errorf("expected string")
+		}
+		return v, nil
+	case KindBool:
+		var v bool
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, fmt.Errorf("expected boolean")
+		}
+		return v, nil
+	case KindInteger:
+		return decodeInteger(string(raw))
+	case KindNullableObject:
+		if field.Fields == nil {
+			return nil, fmt.Errorf("missing nested schema")
+		}
+		return decodeObject(raw, field.Fields, false)
+	}
+	return nil, fmt.Errorf("unsupported field kind")
+}
+
+// decodeInteger accepts only an integer literal. Values outside int64
+// saturate to the nearest bound so callers report a domain range error (for
+// example 422 invalid_interval) instead of a 400 malformed body.
+func decodeInteger(text string) (int64, error) {
+	if text == "" || strings.ContainsAny(text, ".eE") {
+		return 0, fmt.Errorf("expected integer literal")
+	}
+	v, err := strconv.ParseInt(text, 10, 64)
+	if err == nil {
+		return v, nil
+	}
+	if numErr, ok := err.(*strconv.NumError); !ok || numErr.Err != strconv.ErrRange {
+		return 0, fmt.Errorf("expected integer")
+	}
+	if strings.HasPrefix(text, "-") {
+		return math.MinInt64, nil
+	}
+	return math.MaxInt64, nil
+}
+
+// checkPresence rejects an empty object unless allowed and any missing
+// required key.
+func checkPresence(values map[string]any, fields map[string]Field, allowEmpty bool) error {
 	if len(values) == 0 && !allowEmpty {
-		return nil, fmt.Errorf("empty object")
+		return fmt.Errorf("empty object")
 	}
 	for key, field := range fields {
 		if _, present := values[key]; field.Required && !present {
-			return nil, fmt.Errorf("missing key %s", key)
+			return fmt.Errorf("missing key %s", key)
 		}
 	}
-	return values, nil
+	return nil
 }
 
 // WriteJSON writes a no-store JSON response.
