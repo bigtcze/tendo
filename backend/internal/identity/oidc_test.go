@@ -25,6 +25,8 @@ type oidcFakeRepo struct {
 	sessions                  map[string]SessionInfo
 	identityErr, sessionErr   error
 	consumeErr                error
+	credentialErr, insertErr  error
+	createErr, linkErr        error
 	inserted, created, linked int
 }
 
@@ -35,6 +37,9 @@ func identityKey(issuer, sub string) string { return issuer + "\x00" + sub }
 func (r *oidcFakeRepo) InsertFlow(_ context.Context, f OIDCFlow) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.insertErr != nil {
+		return r.insertErr
+	}
 	if len(f.PreviousBrowserTokenHash) == 32 {
 		for state, old := range r.flows {
 			if string(old.BrowserTokenHash) == string(f.PreviousBrowserTokenHash) {
@@ -81,6 +86,9 @@ func (r *oidcFakeRepo) FindSession(_ context.Context, hash []byte, now time.Time
 	return s, nil
 }
 func (r *oidcFakeRepo) FindCredential(_ context.Context, user string) (string, error) {
+	if r.credentialErr != nil {
+		return "", r.credentialErr
+	}
 	v, ok := r.credentials[user]
 	if !ok {
 		return "", ErrNotFound
@@ -88,6 +96,9 @@ func (r *oidcFakeRepo) FindCredential(_ context.Context, user string) (string, e
 	return v, nil
 }
 func (r *oidcFakeRepo) CreateOIDCLoginSession(_ context.Context, s NewSession) (string, error) {
+	if r.createErr != nil {
+		return "", r.createErr
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	id := "login-session"
@@ -96,6 +107,9 @@ func (r *oidcFakeRepo) CreateOIDCLoginSession(_ context.Context, s NewSession) (
 	return id, nil
 }
 func (r *oidcFakeRepo) LinkAndCreateSession(_ context.Context, f OIDCFlow, v OIDCVerifiedIdentity, s NewSession, revoke []byte) (string, error) {
+	if r.linkErr != nil {
+		return "", r.linkErr
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := identityKey(v.Issuer, v.Subject)
@@ -130,12 +144,16 @@ func (r *oidcFakeRepo) Linked(_ context.Context, user, issuer string) (bool, err
 type oidcStubProvider struct {
 	identity    OIDCVerifiedIdentity
 	exchangeErr error
+	authErr     error
 	calls       int
 	auth        OIDCAuthorizationParams
 }
 
 func (p *oidcStubProvider) AuthorizationURL(_ context.Context, a OIDCAuthorizationParams) (string, error) {
 	p.auth = a
+	if p.authErr != nil {
+		return "", p.authErr
+	}
 	v := url.Values{"state": {a.State}, "redirect_uri": {a.RedirectURL}, "code_challenge_method": {"S256"}, "code_challenge": {"stub-challenge"}, "scope": {"openid"}}
 	if a.Purpose == OIDCPurposeLink {
 		v.Set("prompt", "login")

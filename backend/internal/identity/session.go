@@ -205,9 +205,17 @@ func (s *SessionService) Logout(ctx context.Context, token string) error {
 }
 
 func validToken(t string) bool {
+	_, ok := decodeToken(t)
+	return ok
+}
+
+func decodeToken(t string) ([]byte, bool) {
 	if len(t) != 43 {
-		return false
+		return nil, false
 	}
 	b, err := base64.RawURLEncoding.DecodeString(t)
-	return err == nil && len(b) == 32 && base64.RawURLEncoding.EncodeToString(b) == t
+	if err != nil || len(b) != 32 || base64.RawURLEncoding.EncodeToString(b) != t {
+		return nil, false
+	}
+	return b, true
 }

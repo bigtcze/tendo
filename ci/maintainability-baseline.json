@@ -57,34 +57,10 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/identity/httpapi/oidc.go",
-    "name": "OIDCHandler.start",
-    "allowed": 24,
-    "reason": "OIDC HTTP handlers translate start/callback service results into redirects and public errors; retain protocol ordering and redirect contracts.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/identity/httpapi/setup.go",
     "name": "decodeStrictObject",
     "allowed": 16,
     "reason": "Setup handler validates initial-owner setup requests and returns setup status; strict JSON decoding and setup-token behavior must remain unchanged.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/identity/oidc.go",
-    "name": "OIDCService.Callback",
-    "allowed": 40,
-    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/identity/oidc.go",
-    "name": "OIDCService.Start",
-    "allowed": 22,
-    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
     "owner": "backend-identity"
   },
   {
@@ -321,14 +297,6 @@
   },
   {
     "kind": "func_lines",
-    "path": "backend/internal/identity/oidc.go",
-    "name": "OIDCService.Callback",
-    "allowed": 108,
-    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "func_lines",
     "path": "backend/internal/item/completion.go",
     "name": "Service.Complete",
     "allowed": 81,
@@ -428,13 +396,6 @@
     "path": "backend/internal/identity/invitations.go",
     "allowed": 1,
     "reason": "Invitation service validates invitation tokens and coordinates expiry, acceptance, and membership transitions; preserve single-use and authorization rules.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/identity/oidc.go",
-    "allowed": 4,
-    "reason": "OIDC service creates and completes authorization flows; retain state, nonce, PKCE, issuer, and session invariants while extracting stages.",
     "owner": "backend-identity"
   },
   {
