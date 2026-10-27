@@ -536,6 +536,31 @@ describe('item details', () => {
     await waitFor(() => expect(document.title).toBe('Renew passport soon — Tendo'));
   });
 
+  it('blocks edited notes over 4000 code points without a PATCH and saves 4000 emoji', async () => {
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: json(200, item(), { ETag: '"one"' }),
+      [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }),
+      [`PATCH ${path}`]: (request) => json(200, item({ notes: JSON.parse(request.body).notes }), { ETag: '"saved"' }),
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = await screen.findByRole('form', { name: 'Edit item' });
+    const notes = within(form).getByLabelText('Notes');
+    await userEvent.clear(notes);
+    await userEvent.paste('😀'.repeat(4000) + 'x');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('These notes cannot be saved.');
+    expect(notes).toHaveFocus();
+    expect(notes).toHaveAttribute('aria-invalid', 'true');
+    expect(notes.getAttribute('aria-describedby')).toBe(within(form).getByRole('alert').id);
+    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(0);
+    await userEvent.clear(notes);
+    await userEvent.paste('😀'.repeat(4000));
+    await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', path)[0]!.body)).toEqual({ notes: '😀'.repeat(4000) });
+  });
+
   it('keeps unchanged recurrence with server key order and sends only a title edit', async () => {
     const fixture = item({ recurrence: { intervalUnit: 'year', intervalValue: 2, mode: 'fixed' } });
     const fake = installFakeServer(common({ [`GET ${path}`]: json(200, fixture, { ETag: '"open"' }), [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => json(200, item({ title: JSON.parse(request.body).title, recurrence: fixture.recurrence })) }));

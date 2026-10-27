@@ -461,6 +461,7 @@ export interface components {
         OIDCStartRequest: {
             /** @enum {string} */
             purpose: "login" | "link";
+            /** @description Maximum 512 UTF-8 bytes. */
             currentPassword?: string;
         };
         OIDCStartResponse: {
@@ -503,6 +504,7 @@ export interface components {
         };
         LoginRequest: {
             login: string;
+            /** @description Maximum 512 UTF-8 bytes. */
             password: string;
         };
         Session: {

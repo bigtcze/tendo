@@ -1549,6 +1549,29 @@ describe('Home items', () => {
     expect(fake.requests.filter((request) => request.method === 'PATCH')).toHaveLength(0);
   });
 
+  it('accepts 4000 emoji in notes and blocks 4001 code points without a request', async () => {
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(),
+      [`POST ${base}/items`]: (request) => json(201, item({ id: 'created-notes', notes: JSON.parse(request.body).notes })) });
+    app();
+    const form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Emoji notes');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add notes (optional)' }));
+    const notes = within(form).getByLabelText('Notes');
+    // 4001 code points: the server limit counts code points, so this must be blocked before sending.
+    await userEvent.click(notes);
+    await userEvent.paste('😀'.repeat(4000) + 'x');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('These notes cannot be saved.');
+    expect(notes).toHaveFocus();
+    expect(notes).toHaveAttribute('aria-invalid', 'true');
+    expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(0);
+    // 4000 emoji are 8000 UTF-16 code units but exactly 4000 code points, which the server accepts.
+    await userEvent.type(notes, '{Backspace}');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body).notes).toBe('😀'.repeat(4000));
+  });
+
   it('maps a notes 422 to the expanded, focused accessible notes field', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'notes', code: 'invalid_characters' }) });
     app();

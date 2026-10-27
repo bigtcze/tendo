@@ -688,7 +688,7 @@
   {
     "kind": "long_lines",
     "path": "frontend/src/features/items/ItemForm.tsx",
-    "allowed": 21,
+    "allowed": 20,
     "reason": "Item form owns variant fields and validation/submission; separate field groups while preserving validation behavior.",
     "owner": "frontend-items"
   },

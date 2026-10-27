@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n, type MessageKey } from '../../i18n';
+import { codePointLength } from '../../lib/textLength';
 import type { Member } from '../members/membersApi';
 import type { Invalid, Recurrence, Subject } from './itemsApi';
 
@@ -29,6 +30,18 @@ function errorMessage(error: FormError | null, t: (key: MessageKey) => string): 
   if (error.field === 'notes') return t('items.error.notes');
   if (error.field === 'recurrence' && error.code === 'date_overflow') return t('items.error.dateOverflow');
   return t('items.error.interval');
+}
+
+/** Client checks that need no server round trip, in field order. */
+type LocalFields = { title: string; subjectId: string; repeat: boolean; interval: string; notes: string };
+function localError({ title, subjectId, repeat, interval, notes }: LocalFields): FormError | null {
+  if (!title.trim()) return { kind: 'empty' };
+  if (!subjectId) return { kind: 'invalid', field: 'subjectId', code: 'invalid_reference' };
+  const count = Number(interval);
+  if (repeat && (!Number.isInteger(count) || count < 1 || count > 999)) return { kind: 'invalid', field: 'recurrence', code: 'invalid_interval' };
+  // The server counts code points; the HTML maxlength attribute counts UTF-16 units and would stop emoji early.
+  if (codePointLength(notes) > 4000) return { kind: 'invalid', field: 'notes', code: 'invalid_length' };
+  return null;
 }
 
 export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, mode = 'add', initialValues, notice, locked = false, retryLabel, submittingLabel, preserveDraftOnUnlock = false }: { subjects: Subject[]; members: Member[]; onSubmit: (values: Values) => Promise<Outcome>; onCancel: () => void; busy?: boolean; mode?: 'add' | 'edit'; initialValues?: Values; notice?: string; locked?: boolean; retryLabel?: string; submittingLabel?: string; preserveDraftOnUnlock?: boolean }) {
@@ -101,9 +114,8 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (submitting.current || busy) return;
-    if (!title.trim()) return fail({ kind: 'empty' });
-    if (!subjectId) return fail({ kind: 'invalid', field: 'subjectId', code: 'invalid_reference' });
-    if (repeat && (!Number.isInteger(Number(interval)) || Number(interval) < 1 || Number(interval) > 999)) return fail({ kind: 'invalid', field: 'recurrence', code: 'invalid_interval' });
+    const invalid = localError({ title, subjectId, repeat, interval, notes });
+    if (invalid) return fail(invalid);
     submitting.current = true;
     setPending(true);
     setError(null);
@@ -145,7 +157,7 @@ export function ItemForm({ subjects, members, onSubmit, onCancel, busy = false, 
     {members.length > 1 || responsibleUserId !== null ? <div className="space-y-1.5"><Label className="text-sm text-muted" htmlFor={`${id}-responsible`}>{t('items.responsible.label')}</Label><select disabled={pending || locked || (mode === 'edit' && busy)} id={`${id}-responsible`} className="min-h-11 w-full max-w-sm rounded-xl border border-field bg-sand/50 px-3 text-sm" value={responsibleUserId ?? ''} onChange={(event) => setResponsibleUserId(event.target.value || null)} aria-invalid={field === 'responsibleUserId'} aria-describedby={field === 'responsibleUserId' ? errorId : undefined}><option value="">{t('items.responsible.none')}</option>{members.map((member) => <option key={member.userId} value={member.userId}>{member.login}</option>)}{responsibleUserId && !members.some((member) => member.userId === responsibleUserId) ? <option value={responsibleUserId}>{t('items.responsible.unknown')}</option> : null}</select></div> : null}
     <div>
       <Button type="button" variant="quiet" size="small" disabled={pending || locked || (mode === 'edit' && busy)} aria-expanded={notesOpen} onClick={() => setNotesOpen((open) => !open)}>{t(notesOpen ? 'items.notes.hide' : 'items.notes.show')}</Button>
-      {notesOpen ? <div className="mt-2 space-y-2"><Label htmlFor={`${id}-notes`}>{t('items.notes')}</Label><textarea disabled={pending || locked || (mode === 'edit' && busy)} ref={notesRef} id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={4000} aria-invalid={field === 'notes'} aria-describedby={field === 'notes' ? errorId : undefined} className="min-h-24 w-full rounded-xl border border-field bg-white p-3" /></div> : null}
+      {notesOpen ? <div className="mt-2 space-y-2"><Label htmlFor={`${id}-notes`}>{t('items.notes')}</Label><textarea disabled={pending || locked || (mode === 'edit' && busy)} ref={notesRef} id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} aria-invalid={field === 'notes'} aria-describedby={field === 'notes' ? errorId : undefined} className="min-h-24 w-full rounded-xl border border-field bg-white p-3" /></div> : null}
     </div>
     {notice && showNotice ? <div ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div> : null}
     <div id={errorId} role="alert" className="text-danger">{errorMessage(error, t)}</div>
