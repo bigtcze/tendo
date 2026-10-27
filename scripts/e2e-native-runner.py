@@ -25,6 +25,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# Direct script execution and spec_from_file_location tests use different sys.path roots.
+SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
+import e2e_db_fixtures as db_fixtures
+
 
 # Generated credentials are registered here so failure output can be redacted before printing.
 SENSITIVE_VALUES: set[str] = set()
@@ -593,67 +600,6 @@ def wait_http(url, process, children, expected=None, timeout=30):
     raise RuntimeError(f"service readiness timed out: {last}")
 
 
-def psql_admin(inherited: dict[str, str], sql: str) -> str:
-    """Run one bounded admin query without exposing connection credentials in argv."""
-    value = inherited.get("TEST_DATABASE_ADMIN_URL", "")
-    parsed = urllib.parse.urlsplit(value)
-    if parsed.scheme not in ("postgres", "postgresql") or not parsed.hostname or not parsed.username or not parsed.path.strip("/") or parsed.fragment:
-        raise RuntimeError("TEST_DATABASE_ADMIN_URL must be a postgres URL with host/database and no fragment")
-    env = {key: val for key, val in inherited.items() if not key.startswith("PG") and key not in {"TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL"}}
-    env.update({
-        "PGHOST": parsed.hostname,
-        "PGPORT": str(parsed.port or 5432),
-        "PGUSER": urllib.parse.unquote(parsed.username),
-        "PGPASSWORD": urllib.parse.unquote(parsed.password or ""),
-        "PGDATABASE": urllib.parse.unquote(parsed.path.lstrip("/")),
-    })
-    allowed = {"sslmode", "sslrootcert", "sslcert", "sslkey", "options", "application_name", "connect_timeout"}
-    pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    keys = [key for key, _ in pairs]
-    if len(keys) != len(set(keys)) or set(keys) - allowed:
-        raise RuntimeError("TEST_DATABASE_ADMIN_URL has duplicate or unsupported query parameters")
-    for key, val in pairs:
-        env["PG" + key.upper()] = val
-    try:
-        result = subprocess.run(
-            [inherited.get("PSQL", "psql"), "-X", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=30,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("admin psql query exceeded 30-second deadline") from exc
-    if result.returncode:
-        raise RuntimeError(f"admin psql query failed with exit status {result.returncode}")
-    return result.stdout.strip()
-
-
-FOREIGN_SEED_EXPECTED = "Foreign cottage|1|false|Foreign gutter check|1|false|open|null|false|0|1|1|0|0"
-
-
-def assert_foreign_seed_unchanged(inherited: dict[str, str], household_id: str, subject_id: str, item_id: str) -> None:
-    for value in (household_id, subject_id, item_id):
-        if not re.fullmatch(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}", value):
-            raise RuntimeError("foreign seed identifiers must be UUIDs")
-    h, s, i = household_id, subject_id, item_id
-    sql = f"""SELECT concat_ws('|',
-      (SELECT name FROM subjects WHERE household_id = '{h}' AND id = '{s}'),
-      (SELECT version FROM subjects WHERE household_id = '{h}' AND id = '{s}'),
-      (SELECT archived::text FROM subjects WHERE household_id = '{h}' AND id = '{s}'),
-      (SELECT title FROM items WHERE household_id = '{h}' AND id = '{i}'),
-      (SELECT version FROM items WHERE household_id = '{h}' AND id = '{i}'),
-      (SELECT archived::text FROM items WHERE household_id = '{h}' AND id = '{i}'),
-      (SELECT workflow_state FROM items WHERE household_id = '{h}' AND id = '{i}'),
-      (SELECT coalesce(attention_on::text, 'null') FROM items WHERE household_id = '{h}' AND id = '{i}'),
-      (SELECT done::text FROM items WHERE household_id = '{h}' AND id = '{i}'),
-      (SELECT count(*) FROM item_completions WHERE household_id = '{h}'),
-      (SELECT count(*) FROM subjects WHERE household_id = '{h}'),
-      (SELECT count(*) FROM items WHERE household_id = '{h}'),
-      (SELECT count(*) FROM household_memberships WHERE household_id = '{h}'),
-      (SELECT count(*) FROM household_invitations WHERE household_id = '{h}'))"""
-    actual = psql_admin(inherited, sql)
-    if actual != FOREIGN_SEED_EXPECTED:
-        raise RuntimeError(f"foreign household seed changed during E2E (expected {FOREIGN_SEED_EXPECTED!r}, got {actual!r}); authorization isolation assertion failed")
-
-
 def run_playwright(root, env, children, *args, timeout=600):
     env = env.copy()
     report_dir = Path(env.get("E2E_ARTIFACT_DIR", root / "frontend/test-results"))
@@ -811,11 +757,8 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     migration_env = env.copy()
     migration_env["DATABASE_URL"] = inherited["TEST_DATABASE_ADMIN_URL"]
     children.run([str(app_path), "migrate"], migration_env, "production migration", root / "backend", 150)
-    seed = psql_admin(inherited, "WITH h AS (INSERT INTO households(name, timezone) VALUES ('Foreign household', 'UTC') RETURNING id), s AS (INSERT INTO subjects(household_id, type, name) SELECT id, 'home', 'Foreign cottage' FROM h RETURNING id, household_id), i AS (INSERT INTO items(household_id, subject_id, title) SELECT household_id, id, 'Foreign gutter check' FROM s RETURNING id, household_id, subject_id) SELECT household_id || '|' || subject_id || '|' || id FROM i;")
-    foreign_ids = seed.split("|")
-    if len(foreign_ids) != 3 or any(not re.fullmatch(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}", value) for value in foreign_ids):
-        raise RuntimeError("foreign household seed did not return three UUIDs")
-    foreign_household_id, foreign_subject_id, foreign_item_id = foreign_ids
+    foreign_household_id, foreign_subject_id, foreign_item_id = db_fixtures.seed_foreign_household(inherited)
+    conflict_household_id = db_fixtures.seed_existing_invitation_accounts(inherited, register_sensitive_value)
 
     host_port, issuer_port = port(), port()
     app_origin = f"http://localhost:{host_port}"
@@ -869,6 +812,8 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
         "E2E_FOREIGN_HOUSEHOLD_ID": foreign_household_id,
         "E2E_FOREIGN_SUBJECT_ID": foreign_subject_id,
         "E2E_FOREIGN_ITEM_ID": foreign_item_id,
+        "E2E_EXISTING_PASSWORD": db_fixtures.EXISTING_ACCOUNT_PASSWORD,
+        "E2E_CONFLICT_HOUSEHOLD_ID": conflict_household_id,
     })
     run_playwright(root, base, children)
     before = base.copy()
@@ -881,7 +826,8 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     after = base.copy()
     after.update({"E2E_CLOCK_PHASE": "after", "E2E_CLOCK_NOW": "2026-01-15T23:00:00Z"})
     run_playwright(root, after, children, "e2e/attention-clock.spec.ts")
-    assert_foreign_seed_unchanged(inherited, foreign_household_id, foreign_subject_id, foreign_item_id)
+    db_fixtures.assert_foreign_seed_unchanged(inherited, foreign_household_id, foreign_subject_id, foreign_item_id)
+    db_fixtures.assert_existing_invitation_accounts(inherited, conflict_household_id)
 
 
 def main():
