@@ -179,14 +179,6 @@
   {
     "kind": "func_complexity",
     "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "decodeObject",
-    "allowed": 34,
-    "reason": "Decodes strict JSON request objects, rejects unknown fields and validates object shape/content; split decoding stages while preserving client problem responses.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
     "name": "parseListParams",
     "allowed": 18,
     "reason": "Parses list query parameters including limit and cursor values; isolate parameter validation while retaining HTTP problem mapping.",
@@ -281,28 +273,12 @@
     "owner": "backend-item"
   },
   {
-    "kind": "func_lines",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "decodeObject",
-    "allowed": 89,
-    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
-    "owner": "backend-platform"
-  },
-  {
     "kind": "func_nesting",
     "path": "backend/internal/item/itemtest/repo.go",
     "name": "Repo.Complete",
     "allowed": 6,
     "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
     "owner": "test-support"
-  },
-  {
-    "kind": "func_nesting",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "decodeObject",
-    "allowed": 5,
-    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
-    "owner": "backend-platform"
   },
   {
     "kind": "long_lines",
