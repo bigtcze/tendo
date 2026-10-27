@@ -3622,6 +3622,30 @@ test.describe('Tendo production journey', () => {
       const index = ownedRoutes.findIndex((entry) => entry.url === url && entry.handler === handler);
       if (index >= 0) ownedRoutes.splice(index, 1);
     };
+    const walkAll = async <T,>(path: string, query: Record<string, string>): Promise<T[]> => {
+      const results: T[] = [];
+      let cursor: string | undefined;
+      do {
+        const params = new URLSearchParams({ limit: '100', ...query, ...(cursor ? { cursor } : {}) });
+        const response = await page.request.get(`/api/v1/households/${householdId}/${path}?${params}`);
+        expect(response.status()).toBe(200);
+        const body = await response.json() as { items: T[]; nextCursor: string | null };
+        results.push(...body.items);
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return results;
+    };
+    const archiveCreated = async (path: 'items' | 'subjects', id: string) => {
+      const detail = await page.request.get(`/api/v1/households/${householdId}/${path}/${id}`);
+      expect(detail.status()).toBe(200);
+      const archive = await page.request.patch(`/api/v1/households/${householdId}/${path}/${id}`, {
+        headers: { Origin: baseURL, 'If-Match': detail.headers()['etag']! }, data: { archived: true },
+      });
+      expect(archive.status()).toBe(200);
+      expect(((await archive.json()) as { archived: boolean }).archived).toBe(true);
+    };
+    let createdItemId: string | undefined;
+    let createdSubjectId: string | undefined;
     try {
       const itemTitle = 'N24 lost create item unique';
       const itemPath = `/api/v1/households/${householdId}/items`;
@@ -3659,8 +3683,9 @@ test.describe('Tendo production journey', () => {
       await expect(itemForm.getByRole('button', { name: en['items.create.checkAgain'], exact: true })).toBeVisible();
       expect(itemRequests).toHaveLength(1);
       const itemBeforeReload = await serverItem(itemTitle);
-      expect((await (await page.request.get(`/api/v1/households/${householdId}/items?done=false`)).json() as { items: ServerItem[] }).items.filter((item) => item.title === itemTitle)).toHaveLength(1);
-      const initialItemCompletions = await serverCompletions(itemBeforeReload.id);
+      createdItemId = itemBeforeReload.id;
+      expect((await walkAll<ServerItem>('items', { done: 'false' })).filter((item) => item.title === itemTitle)).toHaveLength(1);
+      const initialItemCompletions = await walkAll<ServerCompletion>(`items/${itemBeforeReload.id}/completions`, {});
       expect(initialItemCompletions).toHaveLength(1);
       expect(initialItemCompletions[0]!.completedOn).toBe(historicalDate);
       await removeRoute(`**${itemPath}`, loseItemResponse);
@@ -3682,11 +3707,12 @@ test.describe('Tendo production journey', () => {
       expect(itemRetry.postData()).toBe(itemRequests[0]!.body);
       await expect(main.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
       await expect(main.getByRole('listitem').filter({ hasText: itemTitle })).toBeVisible();
-      const itemsAfterRetry = (await (await page.request.get(`/api/v1/households/${householdId}/items?done=false`)).json() as { items: ServerItem[] }).items.filter((item) => item.title === itemTitle);
+      const itemsAfterRetry = (await walkAll<ServerItem>('items', { done: 'false' })).filter((item) => item.title === itemTitle);
       expect(itemsAfterRetry).toHaveLength(1);
       expect(itemsAfterRetry[0]!.id).toBe(itemBeforeReload.id);
-      expect(await serverCompletions(itemBeforeReload.id)).toMatchObject([{ completedOn: historicalDate }]);
-      expect(await serverCompletions(itemBeforeReload.id)).toHaveLength(1);
+      const completionsAfterRetry = await walkAll<ServerCompletion>(`items/${itemBeforeReload.id}/completions`, {});
+      expect(completionsAfterRetry).toHaveLength(1);
+      expect(completionsAfterRetry[0]).toMatchObject({ id: initialItemCompletions[0]!.id, completedOn: historicalDate });
       expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('tendo.pendingItemCreate.v1:')))).toEqual([]);
 
       const subjectName = 'N24 lost create person unique';
@@ -3718,9 +3744,10 @@ test.describe('Tendo production journey', () => {
       await expect(subjectForm.getByText(en['subjects.notice.uncertain'], { exact: true })).toBeVisible();
       await expect(subjectForm.getByRole('button', { name: en['subjects.create.checkAgain'], exact: true })).toBeVisible();
       expect(subjectRequests).toHaveLength(1);
-      const subjectsBeforeReload = await serverSubjects(false);
+      const subjectsBeforeReload = await walkAll<ServerSubject>('subjects', { archived: 'false' });
       const subjectBeforeReload = subjectsBeforeReload.find((subject) => subject.name === subjectName);
       expect(subjectBeforeReload).toBeDefined();
+      createdSubjectId = subjectBeforeReload!.id;
       expect(subjectsBeforeReload.filter((subject) => subject.name === subjectName)).toHaveLength(1);
       await removeRoute(`**${subjectPath}`, loseSubjectResponse);
       n17ExpectedFailurePaths.delete(subjectPath);
@@ -3741,25 +3768,10 @@ test.describe('Tendo production journey', () => {
       expect(subjectRetry.postData()).toBe(subjectRequests[0]!.body);
       await expect(main.getByRole('form', { name: en['subjects.add.formLabel'] })).toHaveCount(0);
       await expect(main.getByRole('listitem').filter({ hasText: subjectName })).toBeVisible();
-      const subjectsAfterRetry = await serverSubjects(false);
+      const subjectsAfterRetry = await walkAll<ServerSubject>('subjects', { archived: 'false' });
       expect(subjectsAfterRetry.filter((subject) => subject.name === subjectName)).toHaveLength(1);
       expect(subjectsAfterRetry.find((subject) => subject.name === subjectName)!.id).toBe(subjectBeforeReload!.id);
       expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('tendo.pendingSubjectCreate.v1:')))).toEqual([]);
-
-      const itemDetail = await page.request.get(`/api/v1/households/${householdId}/items/${itemBeforeReload.id}`);
-      expect(itemDetail.status()).toBe(200);
-      const archiveItem = await page.request.patch(`/api/v1/households/${householdId}/items/${itemBeforeReload.id}`, {
-        headers: { Origin: baseURL, 'If-Match': itemDetail.headers()['etag']! }, data: { archived: true },
-      });
-      expect(archiveItem.status()).toBe(200);
-      const subjectDetail = await page.request.get(`/api/v1/households/${householdId}/subjects/${subjectBeforeReload!.id}`);
-      expect(subjectDetail.status()).toBe(200);
-      const archiveSubject = await page.request.patch(`/api/v1/households/${householdId}/subjects/${subjectBeforeReload!.id}`, {
-        headers: { Origin: baseURL, 'If-Match': subjectDetail.headers()['etag']! }, data: { archived: true },
-      });
-      expect(archiveSubject.status()).toBe(200);
-      expect((await page.request.get(`/api/v1/households/${householdId}/items?archived=true`)).status()).toBe(200);
-      expect((await page.request.get(`/api/v1/households/${householdId}/subjects?archived=true`)).status()).toBe(200);
     } catch (error) {
       primaryFailure = error;
     } finally {
@@ -3770,6 +3782,12 @@ test.describe('Tendo production journey', () => {
         try { await page.unroute(route.url, route.handler); } catch (error) { cleanupFailure ??= error; }
       }
       ownedRoutes.length = 0;
+      if (createdItemId) {
+        try { await archiveCreated('items', createdItemId); } catch (error) { cleanupFailure ??= error; }
+      }
+      if (createdSubjectId) {
+        try { await archiveCreated('subjects', createdSubjectId); } catch (error) { cleanupFailure ??= error; }
+      }
     }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
