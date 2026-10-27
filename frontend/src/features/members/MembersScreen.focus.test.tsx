@@ -71,4 +71,30 @@ describe('members screen focus ordering', () => {
     expect(await screen.findByText('Accepted')).toBeVisible();
     expect(memberHeading).toHaveFocus();
   });
+
+  it('two member-page activations batched before the busy commit apply only the newest response', async () => {
+    const pages = [deferred(), deferred()];
+    let pageCalls = 0;
+    installFakeServer({
+      ...defaults(),
+      [`GET ${base}/members`]: (req: RecordedRequest) => req.query.get('cursor') === 'p2'
+        ? pages[pageCalls++].pending : json(200, { items: members(), nextCursor: req.documentPath === '/members' ? 'p2' : null }),
+      [`GET ${base}/invitations`]: json(200, { items: [], nextCursor: null }),
+    });
+    await openMembers();
+    const next = within(screen.getByRole('heading', { name: 'Members' }).parentElement!).getByRole('button', { name: 'Next page' });
+    act(() => { next.click(); next.click(); });
+    await waitFor(() => expect(pageCalls).toBe(2));
+    await act(async () => {
+      pages[1].release(json(200, { items: [{ userId: 'fresh', login: 'fresh_member', role: 'member' }], nextCursor: null }));
+      await pages[1].pending;
+    });
+    expect(await screen.findByText('fresh_member')).toBeVisible();
+    await act(async () => {
+      pages[0].release(json(200, { items: [{ userId: 'stale', login: 'stale_member', role: 'member' }], nextCursor: null }));
+      await pages[0].pending;
+    });
+    expect(screen.getByText('fresh_member')).toBeVisible();
+    expect(screen.queryByText('stale_member')).not.toBeInTheDocument();
+  });
 });
