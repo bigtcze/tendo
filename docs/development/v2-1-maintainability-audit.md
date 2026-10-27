@@ -1,6 +1,6 @@
 # V2.1 maintainability audit
 
-Status: in progress — baseline inventory; refactors pending. Snapshot and rankings are a measured triage of the current worktree; they identify review/refactor targets, not a mandate to split cohesive code solely to reduce line counts. Policy: `.autonomous/CODE_QUALITY.md` and `.autonomous/V2_1_SCOPE.md`.
+Status: in progress — all eight P1 hotspots are refactored and verified (see Refactor evidence); P2 items remain review candidates. Snapshot and rankings are a measured triage of the current worktree; they identify review/refactor targets, not a mandate to split cohesive code solely to reduce line counts. Policy: `.autonomous/CODE_QUALITY.md` and `.autonomous/V2_1_SCOPE.md`.
 
 ## Inventory and measurement
 
