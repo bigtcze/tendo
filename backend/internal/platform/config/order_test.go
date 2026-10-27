@@ -218,3 +218,22 @@ func TestOIDCMessagesInValidationOrder(t *testing.T) {
 		t.Fatalf("disabled with empty display: cfg=%+v err=%v", cfg, err)
 	}
 }
+
+// On any error LoadFrom returns the zero Config, so no partially validated
+// value (such as a credential-bearing DATABASE_URL) travels with the error.
+// The only caller discards the value on error; before the staged split most
+// stages returned the partially filled struct.
+func TestLoadFromReturnsZeroConfigOnError(t *testing.T) {
+	for name, set := range map[string]map[string]string{
+		"public URL": {"TENDO_PUBLIC_URL": "ftp://x"},
+		"proxies":    {"TENDO_TRUSTED_PROXY_CIDRS": "bad"},
+		"listen":     {"TENDO_LISTEN_ADDR": "bad"},
+		"timeout":    {"TENDO_SHUTDOWN_TIMEOUT": "bad"},
+	} {
+		values := merge(map[string]string{"DATABASE_URL": validDatabaseURL, "TENDO_PUBLIC_URL": "http://localhost"}, set)
+		cfg, err := LoadFrom(lookupFrom(values))
+		if err == nil || !reflect.DeepEqual(cfg, Config{}) {
+			t.Fatalf("%s: cfg=%+v err=%v", name, cfg, err)
+		}
+	}
+}
