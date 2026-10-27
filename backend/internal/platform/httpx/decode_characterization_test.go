@@ -97,6 +97,25 @@ func TestNestedObjectEmptyRejectedWithOptionalFields(t *testing.T) {
 	}
 }
 
+// Every decode error returns a nil map, including presence errors raised after
+// the values were decoded.
+func TestDecodeObjectNilMapOnError(t *testing.T) {
+	for _, body := range []string{`{}`, `{"n":"x"}`, `{"a":"x","z":1}`} {
+		if got, err := DecodeObject([]byte(body), testFields); err == nil || got != nil {
+			t.Fatalf("%s: got=%#v err=%v", body, got, err)
+		}
+	}
+}
+
+// A field declared with an unknown Kind fails closed even when optional and
+// accompanied by a valid field.
+func TestDecodeObjectUnknownKindFailsClosed(t *testing.T) {
+	fields := map[string]Field{"a": {Kind: KindString}, "x": {Kind: Kind(99)}}
+	if got, err := DecodeObject([]byte(`{"a":"y","x":"z"}`), fields); err == nil {
+		t.Fatalf("unknown kind accepted: %#v", got)
+	}
+}
+
 func TestReadObjectAllowEmpty(t *testing.T) {
 	optional := map[string]Field{"s": {Kind: KindString}}
 	read := func(allowEmpty bool, body string) (map[string]any, int) {

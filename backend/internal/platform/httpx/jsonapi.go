@@ -217,7 +217,10 @@ func decodeObject(body []byte, fields map[string]Field, allowEmpty bool) (map[st
 	if dec.Decode(new(any)) != io.EOF {
 		return nil, fmt.Errorf("trailing data")
 	}
-	return values, checkPresence(values, fields, allowEmpty)
+	if err := checkPresence(values, fields, allowEmpty); err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
 // nextKey reads the next object key, which must be declared and not repeated.
