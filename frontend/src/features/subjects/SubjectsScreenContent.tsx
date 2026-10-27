@@ -13,7 +13,7 @@ import { pendingFormInitial } from './subjectsModel';
 export function SubjectsScreenContent({
   showArchived, list, notice, noticeRef, interactionLocked, actionFailed, retryLoad, adding, empty, items,
   cursorStack, members, membersLoaded, editing, createUncertain, pendingCreate, t, yourEntry, addDisabled, startAdding,
-  cancelAdding, add, startEditing, changeArchived, save, closeEditing, previousPage, nextPage, switchView,
+  cancelAdding, add, startEditing, changeArchived, save, closeEditing, previousPage, nextPage, switchView, undoArchive,
 }: {
   showArchived: boolean; list: ListState; notice: Notice | null | undefined; noticeRef: React.MutableRefObject<HTMLDivElement | null>;
   interactionLocked: boolean; addDisabled: boolean; actionFailed: boolean; retryLoad: () => void; adding: boolean; empty: boolean;
@@ -22,6 +22,7 @@ export function SubjectsScreenContent({
   t: (key: MessageKey, values?: Record<string, string>) => string; yourEntry?: string;
   startAdding: () => void; cancelAdding: () => void; add: (values: SubjectValues) => Promise<SubmitOutcome>;
   startEditing: (subject: Subject) => void; changeArchived: (subject: Subject, archived: boolean, undo: boolean) => void;
+  undoArchive: (notice: Notice & { kind: 'archived' | 'restored' }) => void;
   save: (values: SubjectValues) => Promise<SubmitOutcome>; closeEditing: (id: string) => void;
   previousPage: (event: React.MouseEvent<HTMLButtonElement>) => void; nextPage: (event: React.MouseEvent<HTMLButtonElement>) => void;
   switchView: () => void;
@@ -34,7 +35,7 @@ export function SubjectsScreenContent({
       <p className="mt-1 text-muted">{t('subjects.archived.body')}</p>
     </div> : null}
     <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t}
-      onUndo={(done) => changeArchived(done.subject, done.kind === 'restored', true)} />
+      onUndo={undoArchive} />
     {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
     <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
     <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
@@ -47,4 +48,3 @@ export function SubjectsScreenContent({
     <SubjectsViewToggle showArchived={showArchived} listKind={list.kind} t={t} onSwitchView={switchView} />
   </section>;
 }
-

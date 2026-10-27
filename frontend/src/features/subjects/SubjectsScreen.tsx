@@ -74,7 +74,7 @@ export function SubjectsScreen({ userId, householdId, login, onSignedOut }: {
       cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing}
       createUncertain={createUncertain} pendingCreate={pendingCreate} t={t} yourEntry={yourEntry}
       startAdding={create.startAdding} cancelAdding={cancelAdding} add={create.add} startEditing={actions.startEditing}
-      changeArchived={actions.changeArchived} save={save} closeEditing={actions.closeEditing}
+      changeArchived={actions.changeArchived} undoArchive={actions.undoArchive} save={save} closeEditing={actions.closeEditing}
       previousPage={(event) => previousPage(event, busy, interactionLocked)}
       nextPage={(event) => nextPage(event, busy, interactionLocked)}
       switchView={() => switchView(!showArchived)}

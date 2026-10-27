@@ -52,9 +52,10 @@ export function useSubjectCreate(ctx: CreateContext) {
       setPendingCreate(undefined);
       setCreateUncertain(false);
       if (started === generation.current) {
-        const refresh = await refreshAfterCreate(householdId, result.subject, generation, form, finishAdd,
-          setLoadingMore, pagingFocus, pageLoad, setCursorStack, setCurrentCursor, setList, onSignedOut);
-        if (refresh.outcome) return refresh.outcome;
+        return refreshAfterCreate({
+          householdId, subject: result.subject, generation, form, finishAdd, setLoadingMore, pagingFocus,
+          pageLoad, setCursorStack, setCurrentCursor, setList, onSignedOut,
+        });
       }
       return finishAdd(form, result.subject);
     }
