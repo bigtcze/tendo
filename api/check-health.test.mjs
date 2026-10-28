@@ -95,6 +95,23 @@ test('operation coverage gate fails when any OpenAPI operation lacks a captured 
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('smoke coverage scopes partition every OpenAPI operationId', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const operationIds = Object.values(contract.paths)
+    .flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))
+  const scripts = new URL('../scripts/', import.meta.url)
+  const read = name => readFile(new URL(name, scripts), 'utf8')
+  const ids = text => text.match(/[A-Za-z]+/g) ?? []
+  const setup = ids((await read('setup_smoke_api_capture.py')).match(/COVERAGE_SCOPE = ','\.join\(\(([\s\S]*?)\)\)/)[1])
+  const oidc = ids((await read('oidc-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=([\s\S]*?) \\\n {2}node/)[1].replace(/\\\n/g, ''))
+  const runtime = ids((await read('runtime-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=(\S+)/)[1])
+  const scoped = [...setup, ...oidc, ...runtime]
+  assert.deepEqual([...scoped].sort(), [...new Set(scoped)].sort(), 'an operationId appears in more than one smoke scope')
+  assert.deepEqual([...scoped].sort(), [...operationIds].sort(), 'smoke coverage scopes must cover every OpenAPI operationId exactly once')
+})
+
 test('health checker accepts the backend OIDC start Set-Cookie format and rejects malformed cookies', async () => {
   const directory = await (await import('node:fs/promises')).mkdtemp(join(tmpdir(), 'tendo-oidc-start-cookie-'))
   const fixturePath = join(directory, 'responses.json')
