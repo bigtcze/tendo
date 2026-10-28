@@ -207,6 +207,7 @@ func TestOIDCStartOriginCanonicalDecisionMatchesMiddleware(t *testing.T) {
 		{name: "other port", publicURL: "https://host", scheme: "https", authority: "host", origin: "https://host:444", want: http.StatusForbidden},
 		{name: "other scheme", publicURL: "https://host", scheme: "https", authority: "host", origin: "http://host", want: http.StatusForbidden},
 		{name: "other host", publicURL: "https://host", scheme: "https", authority: "host", origin: "https://other", want: http.StatusForbidden},
+		{name: "unicode folded host", publicURL: "https://i.example", scheme: "https", authority: "i.example", origin: "https://İ.example", want: http.StatusForbidden},
 	}
 
 	for _, tc := range tests {
