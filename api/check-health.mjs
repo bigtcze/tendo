@@ -7,8 +7,12 @@ import { readFile } from 'node:fs/promises'
 const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
 const ajv = new Ajv2020({ strict: false })
 addFormats(ajv)
-for (const [name, schema] of Object.entries(contract.components.schemas)) ajv.addSchema(schema, `#/components/schemas/${name}`)
-const schemas = Object.fromEntries(Object.entries(contract.components.schemas).map(([name, schema]) => [name, ajv.compile(schema)]))
+for (const [name, schema] of Object.entries(contract.components.schemas)) {
+  ajv.addSchema(schema, `#/components/schemas/${name}`)
+}
+const schemas = Object.fromEntries(
+  Object.entries(contract.components.schemas).map(([name, schema]) => [name, ajv.compile(schema)]),
+)
 
 function assertBody(path, status, body, method) {
   const responseSpec = contract.paths[path][method]?.responses[String(status)]
@@ -21,7 +25,10 @@ function assertBody(path, status, body, method) {
   const schema = responseSpec.content[media]?.schema
   assert.ok(schema, `${path}: response schema missing`)
   const validate = ajv.compile(schema)
-  assert.ok(validate(body), `${path} HTTP ${status} body invalid: ${JSON.stringify(validate.errors)}`)
+  assert.ok(
+    validate(body),
+    `${path} HTTP ${status} body invalid: ${JSON.stringify(validate.errors)}`,
+  )
 }
 
 function cookieValues(value) {
@@ -84,7 +91,9 @@ function assertSessionCookie(path, status, setCookie) {
 }
 
 function assertResponse(path, status, body, method, headers = {}) {
-  const normalizedHeaders = Object.fromEntries(Object.entries(headers).map(([key,value])=>[key.toLowerCase(),value]))
+  const normalizedHeaders = Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
+  )
   headers = normalizedHeaders
   const responseSpec = contract.paths[path][method]?.responses[String(status)]
   assert.ok(responseSpec, `${path}: undocumented HTTP ${status}`)
@@ -94,12 +103,26 @@ function assertResponse(path, status, body, method, headers = {}) {
     assert.ok(expectedMedia.includes(actualMedia), `${path} HTTP ${status} wrong media type: ${actualMedia || '(missing)'}`)
   }
   const requestId = headers['x-request-id']
-  if (responseSpec.headers?.['X-Request-ID']) assert.ok(/^[A-Za-z0-9._-]{1,64}$/.test(requestId ?? ''), `${path} HTTP ${status} invalid request ID ${requestId ?? '(missing)'}`)
+  if (responseSpec.headers?.['X-Request-ID']) {
+    assert.ok(
+      /^[A-Za-z0-9._-]{1,64}$/.test(requestId ?? ''),
+      `${path} HTTP ${status} invalid request ID ${requestId ?? '(missing)'}`,
+    )
+  }
   if (responseSpec.headers?.['Cache-Control']) assert.equal(headers['cache-control'], 'no-store', `${path} HTTP ${status} cache-control must be no-store`)
   if (responseSpec.headers?.ETag) {
-    assert.ok(typeof headers.etag === 'string' && headers.etag.length > 0, `${path} HTTP ${status} missing ETag`)
+    assert.ok(
+      typeof headers.etag === 'string' && headers.etag.length > 0,
+      `${path} HTTP ${status} missing ETag`,
+    )
     const etagPattern = responseSpec.headers.ETag.schema?.pattern
-    if (etagPattern) assert.match(headers.etag, new RegExp(etagPattern), `${path} HTTP ${status} ETag does not match its documented pattern`)
+    if (etagPattern) {
+      assert.match(
+        headers.etag,
+        new RegExp(etagPattern),
+        `${path} HTTP ${status} ETag does not match its documented pattern`,
+      )
+    }
   }
   const cookieHeader = responseSpec.headers?.['Set-Cookie']
   const cookieRef = cookieHeader?.$ref
@@ -109,7 +132,9 @@ function assertResponse(path, status, body, method, headers = {}) {
     if (headers['set-cookie'] !== undefined) assertSessionCookie(path, status, headers['set-cookie'])
   } else if (cookieRef) {
     const cookieSpec = contract.components.headers[cookieRef.split('/').pop()]
-    if (cookieSpec.required === true || headers['set-cookie'] !== undefined) assertSessionCookie(path, status, headers['set-cookie'])
+    if (cookieSpec.required === true || headers['set-cookie'] !== undefined) {
+      assertSessionCookie(path, status, headers['set-cookie'])
+    }
   } else if (path === '/api/v1/auth/oidc/start' && status === 200) {
     assert.ok(cookieHeader, `${path} HTTP ${status} missing Set-Cookie contract declaration`)
     const cookies = cookieValues(headers['set-cookie'])
@@ -121,7 +146,10 @@ function assertResponse(path, status, body, method, headers = {}) {
     assertFlowCookie(path,status,cookies[0],false)
   } else if (cookieHeader && path === '/api/v1/auth/oidc/callback') {
     const cookies = cookieValues(headers['set-cookie'])
-    assert.ok(cookies.length >= 1 && cookies.length <= 2, `${path} HTTP ${status} must clear flow cookie and may set session cookie`)
+    assert.ok(
+      cookies.length >= 1 && cookies.length <= 2,
+      `${path} HTTP ${status} must clear flow cookie and may set session cookie`,
+    )
     const flow = cookies.find(value => /^(tendo_oidc|__Host-tendo_oidc)=/.test(value))
     assert.ok(flow, `${path} HTTP ${status} missing flow cookie clear`)
     assertFlowCookie(path,status,flow,true)
@@ -137,7 +165,13 @@ function assertResponse(path, status, body, method, headers = {}) {
   }
   if (responseSpec.headers?.Location) {
     const locationSchema = responseSpec.headers.Location.schema ?? {}
-    if (locationSchema.const !== undefined) assert.equal(headers.location, locationSchema.const, `${path} HTTP ${status} has invalid Location`)
+    if (locationSchema.const !== undefined) {
+      assert.equal(
+        headers.location,
+        locationSchema.const,
+        `${path} HTTP ${status} has invalid Location`,
+      )
+    }
     else {
       assert.ok(headers.location, `${path} HTTP ${status} missing Location`)
       if (locationSchema.pattern) assert.match(headers.location, new RegExp(locationSchema.pattern), `${path} HTTP ${status} has invalid Location`)
@@ -181,7 +215,10 @@ if (fixturePath) {
   const fixtures = JSON.parse(await readFile(fixturePath, 'utf8'))
   assert.ok(Array.isArray(fixtures), 'response fixtures must be a JSON array')
   for (const fixture of fixtures) {
-    assertResponse(fixture.path, fixture.status, fixture.body, fixture.method.toLowerCase(), Object.fromEntries(Object.entries(fixture.headers ?? {}).map(([key, value]) => [key.toLowerCase(), value])))
+    const headers = Object.fromEntries(
+      Object.entries(fixture.headers ?? {}).map(([key, value]) => [key.toLowerCase(), value]),
+    )
+    assertResponse(fixture.path, fixture.status, fixture.body, fixture.method.toLowerCase(), headers)
   }
   if (process.env.API_REQUIRE_OPERATION_COVERAGE === '1') {
     const captured = new Map()
@@ -192,25 +229,65 @@ if (fixturePath) {
         captured.get(operation.operationId).add(Number(fixture.status))
       }
     }
-    const exemptions = Object.fromEntries((process.env.API_OPERATION_COVERAGE_EXEMPTIONS ?? '').split(',').map(value => value.trim()).filter(Boolean).map(value => value.split(':', 2)))
-    const scope = new Set((process.env.API_OPERATION_COVERAGE_SCOPE ?? '').split(',').map(value => value.trim()).filter(Boolean))
-    const operationIds = Object.values(contract.paths).flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))
+    const exemptionValues = (process.env.API_OPERATION_COVERAGE_EXEMPTIONS ?? '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean)
+      .map(value => value.split(':', 2))
+    const exemptions = Object.fromEntries(exemptionValues)
+    const scopeValues = (process.env.API_OPERATION_COVERAGE_SCOPE ?? '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean)
+    const scope = new Set(scopeValues)
+    const operationIds = Object.values(contract.paths).flatMap(pathItem =>
+      Object.values(pathItem)
+        .map(operation => operation?.operationId)
+        .filter(Boolean),
+    )
     const knownIds = new Set(operationIds)
-    assert.deepEqual([...scope].filter(operationId => !knownIds.has(operationId)), [], 'coverage scope contains unknown operationId')
-    assert.deepEqual(Object.keys(exemptions).filter(operationId => !knownIds.has(operationId)), [], 'coverage exemption contains unknown operationId')
-    if (scope.size === 0) assert.deepEqual([...knownIds].filter(operationId => !captured.has(operationId) && !exemptions[operationId]), [], 'OpenAPI operations have no captured HTTP response')
+    assert.deepEqual(
+      [...scope].filter(operationId => !knownIds.has(operationId)),
+      [],
+      'coverage scope contains unknown operationId',
+    )
+    assert.deepEqual(
+      Object.keys(exemptions).filter(operationId => !knownIds.has(operationId)),
+      [],
+      'coverage exemption contains unknown operationId',
+    )
+    if (scope.size === 0) {
+      const missing = [...knownIds].filter(
+        operationId => !captured.has(operationId) && !exemptions[operationId],
+      )
+      assert.deepEqual(missing, [], 'OpenAPI operations have no captured HTTP response')
+    }
     const failures = Object.values(contract.paths).flatMap(pathItem => Object.values(pathItem))
       .filter(operation => operation?.operationId && (scope.size === 0 || scope.has(operation.operationId)))
       .flatMap(operation => {
         const statuses = captured.get(operation.operationId) ?? new Set()
         const declared = Object.keys(operation.responses ?? {}).map(Number)
         const successful = declared.filter(status => status >= 200 && status < 300)
-        if (successful.length === 0) successful.push(...declared.filter(status => status >= 300 && status < 400))
-        const critical = declared.filter(status => status >= 400 && [400, 401, 403, 404, 409, 412, 422, 428].includes(status))
-        if (critical.length === 0) critical.push(...declared.filter(status => status >= 400))
+        if (successful.length === 0) {
+          successful.push(...declared.filter(status => status >= 300 && status < 400))
+        }
+        const critical = declared.filter(
+          status => status >= 400 && [400, 401, 403, 404, 409, 412, 422, 428].includes(status),
+        )
+        if (critical.length === 0) {
+          critical.push(...declared.filter(status => status >= 400))
+        }
         const exemption = exemptions[operation.operationId]
-        assert.ok(!exemption || String(exemption).trim().length > 0, `${operation.operationId} coverage exemption requires a reason`)
-        if (exemption) assert.ok(statuses.size > 0, `${operation.operationId} exemption cannot replace a captured response`)
+        assert.ok(
+          !exemption || String(exemption).trim().length > 0,
+          `${operation.operationId} coverage exemption requires a reason`,
+        )
+        if (exemption) {
+          assert.ok(
+            statuses.size > 0,
+            `${operation.operationId} exemption cannot replace a captured response`,
+          )
+        }
         return [
           ...(successful.length && !successful.some(status => statuses.has(status)) ? [`${operation.operationId}:success`] : []),
           ...(critical.length && !critical.some(status => statuses.has(status)) && !exemption ? [`${operation.operationId}:critical-error`] : []),

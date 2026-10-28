@@ -2,7 +2,11 @@
 set -Eeuo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project="tendo-setup-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
-export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
+export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD
+export TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT
+export TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN
+export TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET
+export TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
@@ -43,59 +47,15 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "$origin" >&2; exit 1; fi
-SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$fixtures" python3 - <<'PY'
-import json,os,sys,urllib.request,urllib.error
-origin=os.environ['SETUP_SMOKE_ORIGIN']
-token=os.environ['TENDO_SETUP_TOKEN']
-path=os.environ['SETUP_SMOKE_FIXTURES']
-fixtures=[]
-item_fixtures=[]
-def req(method,url,body=None,headers=None):
- h={'Content-Type':'application/json',**(headers or {})}
- data=body if isinstance(body,bytes) else json.dumps(body,ensure_ascii=False).encode() if body is not None else None
- r=urllib.request.Request(origin+url,data=data,headers=h,method=method)
- try:
-  with urllib.request.urlopen(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
- except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
- result=json.loads(raw) if raw else None
- if url in ('/api/v1/auth/setup','/api/v1/session') and status != 409:
-  fixture={'path':url,'method':method.lower(),'status':status,'headers':dict(hs.items())}
-  if result is not None: fixture['body']=result
-  fixtures.append(fixture)
- return status,hs,result
-status,h,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True} and h['ETag']=='"setup-v1-required"'
-status,h,oidc_status=req('GET','/api/v1/auth/oidc');assert status==200 and oidc_status=={'enabled':False},('OIDC disabled status',status,oidc_status)
-fixtures.append({'path':'/api/v1/auth/oidc','method':'get','status':status,'headers':dict(h.items()),'body':oidc_status})
-status,h,oidc_origin_error=req('GET','/api/v1/auth/oidc',headers={'Origin':'http://foreign.example'});assert status==403,('OIDC status foreign origin',status)
-fixtures.append({'path':'/api/v1/auth/oidc','method':'get','status':status,'headers':dict(h.items()),'body':oidc_origin_error})
-status,h,oidc_identity=req('GET','/api/v1/auth/oidc/identity');assert status==404 and oidc_identity['code']=='oidc_disabled',('OIDC identity disabled',status,oidc_identity)
-fixtures.append({'path':'/api/v1/auth/oidc/identity','method':'get','status':status,'headers':dict(h.items()),'body':oidc_identity})
-
-status,h,oidc_start=req('POST','/api/v1/auth/oidc/start',{'purpose':'login'},{'Origin':origin});assert status==404 and oidc_start['code']=='oidc_disabled',('OIDC start disabled',status,oidc_start)
-fixtures.append({'path':'/api/v1/auth/oidc/start','method':'post','status':status,'headers':dict(h.items()),'body':oidc_start})
-status,h,setup_origin_error=req('GET','/api/v1/auth/setup',headers={'Origin':'http://foreign.example'});assert status==403,('foreign origin',status)
-fixtures.append({'path':'/api/v1/auth/setup','method':'get','status':status,'headers':dict(h.items()),'body':setup_origin_error})
-status,_,_=req('GET','/api/v1/auth/setup',headers={'Host':'attacker.example'});assert status==421,('wrong authority',status)
-valid={'login':'owner_smoke','password':'correct horse battery','householdName':'Veselí 家族','timezone':'Europe/Prague'}
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':'wrong'});assert status==401,('wrong token',status)
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'X-Tendo-Setup-Token':token});assert status==403,('missing origin',status)
-status,_,_=req('PUT','/api/v1/auth/setup',b'x'*8193,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==413,('size',status)
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':'http://foreign.example','X-Tendo-Setup-Token':token});assert status==403,('foreign origin',status)
-status,_,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True},('state changed before setup',status,b)
-status,_,_=req('PUT','/api/v1/auth/setup',b'{}',{'Origin':origin,'X-Tendo-Setup-Token':token,'Content-Type':'text/plain'});assert status==415,('media',status)
-invalid={**valid,'timezone':'Not/A_Timezone'}
-status,_,_=req('PUT','/api/v1/auth/setup',invalid,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==422,('validation',status)
-status,_,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True},('still required',status,b)
-status,h,b=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==201 and b=={'required':False},('create',status,b,dict(h))
-fixtures.append({'path':'/api/v1/auth/setup','method':'PUT','status':status,'headers':dict(h.items()),'body':b})
-status,_,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':False},('after setup',status,b)
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==429,('duplicate rate limit',status)
-with open(path,'w',encoding='utf-8') as f:json.dump(fixtures,f,ensure_ascii=False)
-PY
+python3 "$root/scripts/setup_smoke_api_capture.py" initial "$origin" "$TENDO_SETUP_TOKEN" "$fixtures"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
-"${compose[@]}" exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
+"${compose[@]}" exec -T postgres psql -U postgres -d tendo \
+  -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
 psql_command="${compose[*]} exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -At"
-SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$session_fixtures" SETUP_SMOKE_ITEM_FIXTURES="$item_fixtures" SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
+SETUP_SMOKE_ORIGIN="$origin" \
+  SETUP_SMOKE_FIXTURES="$session_fixtures" \
+  SETUP_SMOKE_ITEM_FIXTURES="$item_fixtures" \
+  SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
 import base64,hashlib,json,os,shlex,subprocess,urllib.request,urllib.error
 origin=os.environ['SETUP_SMOKE_ORIGIN']
 fixtures=[]
@@ -311,7 +271,10 @@ assert status==200 and patched['title']=='Insurance follow-up' and patched['work
 assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::text,'NULL')||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|NULL|2','item patch persisted'
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert status==428 and b['code']=='precondition_required',('item missing If-Match',status,b)
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
-status,_,item_invalid_patch=ireq('PATCH',ipath,IITEM,{'title':'   '},{**mut,'If-Match':'"2"'});assert status==422 and item_invalid_patch['field']=='title' and item_invalid_patch['code']=='invalid_length',('item patch validation',status,item_invalid_patch)
+status,_,item_invalid_patch=ireq(
+ 'PATCH',ipath,IITEM,{'title':'   '},{**mut,'If-Match':'"2"'})
+assert status==422 and item_invalid_patch['field']=='title'
+assert item_invalid_patch['code']=='invalid_length',('item patch validation',status,item_invalid_patch)
 status,_,null_first=ireq('GET',ibase+'?sort=attention_on&limit=1',ICOLL,headers=cookie_header);assert status==200 and null_first['items'][0]['id']==immediate['id'] and null_first['items'][0]['attentionOn'] is None and null_first['nextCursor'],('attention null first',status,null_first)
 status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
 status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id'],fixed['id'],fluid['id']],('active items',status,active_items)
@@ -664,7 +627,10 @@ status,_,logout_origin_error,_=req('DELETE',headers={'Cookie':f'tendo_session={t
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
 status,_,b=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{'Origin':origin,'Cookie':f'tendo_session={token}','If-Match':'"3"'});assert status==401 and b['code']=='unauthenticated',('undo with revoked cookie',status,b)
 status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
-st,stale_summary_headers,stale_summary=ireq('GET',summary_url,SUMMARY,headers=cookie_header);assert st==401 and stale_summary['code']=='unauthenticated' and 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
+st,stale_summary_headers,stale_summary=ireq(
+ 'GET',summary_url,SUMMARY,headers=cookie_header)
+assert st==401 and stale_summary['code']=='unauthenticated'
+assert 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
 stale_summary_cookie=[p.strip().lower() for p in stale_summary_headers['Set-Cookie'].split(';')]
 assert stale_summary_cookie[0]=='tendo_session=' and 'max-age=0' in stale_summary_cookie,stale_summary_cookie
 login_headers={'Origin':origin,'Content-Type':'application/json'}
@@ -683,14 +649,8 @@ API_RESPONSE_FIXTURES="$session_fixtures" node "$root/api/check-health.mjs"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 API_RESPONSE_FIXTURES="$item_fixtures" node "$root/api/check-health.mjs"
 all_fixtures=$(mktemp)
-python3 - "$session_fixtures" "$fixtures" "$item_fixtures" "$all_fixtures" <<'PY'
-import json,sys
-merged=[]
-for path in sys.argv[1:4]:
- with open(path,encoding='utf-8') as stream: merged.extend(json.load(stream))
-with open(sys.argv[4],'w',encoding='utf-8') as stream: json.dump(merged,stream)
-PY
-API_RESPONSE_FIXTURES="$all_fixtures" API_REQUIRE_OPERATION_COVERAGE=1 API_OPERATION_COVERAGE_SCOPE=getInitialSetup,createInitialOwner,createSession,getSession,deleteSession,createInvitation,listInvitations,revokeInvitation,acceptInvitationWithNewAccount,acceptInvitation,listMembers,getHousehold,createSubject,listSubjects,getSubject,updateSubject,createItem,listItems,createItemCompletion,listItemCompletions,undoItemCompletion,getItemsSummary,getItem,updateItem node "$root/api/check-health.mjs"
+python3 "$root/scripts/setup_smoke_api_capture.py" validate "$root" \
+  "$session_fixtures" "$fixtures" "$item_fixtures" "$all_fixtures"
 rm -f "$all_fixtures"
 rm -f "$session_fixtures"
 "${compose[@]}" restart app >/dev/null
@@ -700,14 +660,5 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if (( persisted == 0 )); then printf 'First-owner setup state did not persist across app restart\n' >&2; exit 1; fi
-SETUP_SMOKE_ORIGIN="$origin" python3 - <<'PY'
-import json,os,urllib.request,urllib.error
-origin=os.environ['SETUP_SMOKE_ORIGIN']
-request=urllib.request.Request(origin+'/api/v1/auth/setup',data=json.dumps({'login':'owner_smoke','password':'correct horse battery','householdName':'Veselí 家族','timezone':'Europe/Prague'},ensure_ascii=False).encode(),headers={'Content-Type':'application/json','Origin':origin,'X-Tendo-Setup-Token':os.environ['TENDO_SETUP_TOKEN']},method='PUT')
-try:
- urllib.request.urlopen(request,timeout=8)
- raise AssertionError('duplicate setup unexpectedly succeeded')
-except urllib.error.HTTPError as error:
- assert error.code==409,('duplicate setup after restart',error.code)
-PY
+python3 "$root/scripts/setup_smoke_api_capture.py" duplicate-setup "$origin" "$TENDO_SETUP_TOKEN"
 printf 'First-owner setup and local session API smoke passed.\n'

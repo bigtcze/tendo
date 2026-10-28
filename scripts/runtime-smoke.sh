@@ -70,13 +70,18 @@ poll_status() {
 "${compose[@]}" up -d --build --wait --wait-timeout 90
 poll_status /health/live 200
 poll_status /health/ready 200
-RUNTIME_HEALTH_ORIGIN="http://127.0.0.1:${TENDO_HOST_PORT}" node "$root/api/check-health.mjs"
+RUNTIME_HEALTH_ORIGIN="http://127.0.0.1:${TENDO_HOST_PORT}" \
+  node "$root/api/check-health.mjs"
 python3 - "$temp_dir/health-fixtures.json" "http://127.0.0.1:${TENDO_HOST_PORT}" <<'PY'
 import json, sys, urllib.request
 fixtures=[]
 for path in ('/health/live','/health/ready'):
     with urllib.request.urlopen(sys.argv[2]+path, timeout=3) as response:
-        fixtures.append({'path':path,'method':'get','status':response.status,'headers':dict(response.headers.items()),'body':json.loads(response.read())})
+        fixtures.append({
+        'path': path, 'method': 'get', 'status': response.status,
+        'headers': dict(response.headers.items()),
+        'body': json.loads(response.read()),
+    })
 with open(sys.argv[1],'w') as output: json.dump(fixtures,output)
 PY
 curl --silent --show-error --max-time 5 -D "$temp_dir/headers" -o "$temp_dir/body" \
@@ -94,7 +99,8 @@ PY
 "${compose[@]}" stop postgres
 poll_status /health/ready 503
 poll_status /health/live 200
-RUNTIME_HEALTH_ORIGIN="http://127.0.0.1:${TENDO_HOST_PORT}" RUNTIME_HEALTH_EXPECT=unavailable node "$root/api/check-health.mjs"
+RUNTIME_HEALTH_ORIGIN="http://127.0.0.1:${TENDO_HOST_PORT}" \
+  RUNTIME_HEALTH_EXPECT=unavailable node "$root/api/check-health.mjs"
 python3 - "$temp_dir/health-fixtures.json" "http://127.0.0.1:${TENDO_HOST_PORT}" <<'PY'
 import json, sys, urllib.request, urllib.error
 with open(sys.argv[1]) as source: fixtures=json.load(source)
@@ -104,10 +110,16 @@ for path in ('/health/live','/health/ready'):
     except urllib.error.HTTPError as error:
         response=error
     raw=response.read()
-    fixtures.append({'path':path,'method':'get','status':response.status,'headers':dict(response.headers.items()),'body':json.loads(raw) if raw else None})
+    fixtures.append({
+        'path': path, 'method': 'get', 'status': response.status,
+        'headers': dict(response.headers.items()),
+        'body': json.loads(raw) if raw else None,
+    })
 with open(sys.argv[1],'w') as output: json.dump(fixtures,output)
 PY
-API_RESPONSE_FIXTURES="$temp_dir/health-fixtures.json" API_REQUIRE_OPERATION_COVERAGE=1 API_OPERATION_COVERAGE_SCOPE=getLiveness,getReadiness node "$root/api/check-health.mjs"
+API_RESPONSE_FIXTURES="$temp_dir/health-fixtures.json" \
+  API_REQUIRE_OPERATION_COVERAGE=1 API_OPERATION_COVERAGE_SCOPE=getLiveness,getReadiness \
+  node "$root/api/check-health.mjs"
 "${compose[@]}" start postgres
 "${compose[@]}" up -d --wait --wait-timeout 90 postgres
 poll_status /health/ready 200

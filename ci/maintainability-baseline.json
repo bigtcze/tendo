@@ -44,7 +44,7 @@
   {
     "kind": "file_lines",
     "path": "scripts/setup-smoke.sh",
-    "allowed": 666,
+    "allowed": 660,
     "reason": "Setup smoke provisions the app and verifies first-owner setup, auth and household/item flows; split lifecycle phases while retaining cleanup and assertions.",
     "owner": "tooling-scripts"
   },
@@ -285,13 +285,6 @@
     "path": "api/check-generation.mjs",
     "allowed": 24,
     "reason": "API code-generation checker compares generated declarations against current OpenAPI inputs; keep drift failures actionable and reformat compact checks.",
-    "owner": "tooling-scripts"
-  },
-  {
-    "kind": "long_lines",
-    "path": "api/check-health.mjs",
-    "allowed": 2,
-    "reason": "Health contract checker validates endpoint/model agreement across API artifacts; retain fail-closed contract checks while reformatting assertions.",
     "owner": "tooling-scripts"
   },
   {
@@ -717,7 +710,7 @@
   {
     "kind": "long_lines",
     "path": "scripts/oidc-smoke.sh",
-    "allowed": 11,
+    "allowed": 9,
     "reason": "Operational script coordinates oidc-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
     "owner": "tooling-scripts"
   },

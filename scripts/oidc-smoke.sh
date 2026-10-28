@@ -134,7 +134,9 @@ assert status==200 and b=={'linked':False},('identity before link',status,b)
 status,h,b,_=start('link','wrong password')
 assert status==401 and b['code']=='invalid_credentials',('bad link password',status,b)
 status,h,b,_,_=auth_start('link',old_session,sub='owner-subject',password='correct horse battery')
-assert status==303 and h['Location']=='/account#oidc=connected' and not b and h['Cache-Control']=='no-store' and h['Referrer-Policy']=='no-referrer',('link callback',status,dict(h),b)
+assert status == 303 and h['Location'] == '/account#oidc=connected'
+assert not b and h['Cache-Control'] == 'no-store'
+assert h['Referrer-Policy'] == 'no-referrer', ('link callback', status, dict(h), b)
 flow_clears=[x for x in h.get_all('Set-Cookie') if x.startswith('tendo_oidc=')]
 assert len(flow_clears)==1 and 'Max-Age=0' in flow_clears[0],flow_clears
 new_session=session_cookie(h)
@@ -146,10 +148,16 @@ assert status==204 and logout_h.get('Cache-Control')=='no-store' and not logout_
 status,h,b,login_callback,login_flow=auth_start('login',sub='owner-subject')
 assert status==303 and h['Location']=='/',('oidc login callback',status,h.get('Location'))
 login_session=session_cookie(h)
-status,_,session,_=request('GET','/api/v1/session',headers={'Cookie':login_session}); assert status==200 and session['login']=='oidc_owner',('oidc login session',status,session)
+status,_,session,_=request(
+ 'GET','/api/v1/session',headers={'Cookie':login_session})
+assert status==200 and session['login']=='oidc_owner',('oidc login session',status,session)
 household=session['defaultHouseholdId']
-status,_,hb,_=request('GET','/api/v1/households/'+household,headers={'Cookie':login_session}); assert status==200 and hb['name']=='OIDC Smoke',('OIDC household read',status,hb)
-status,h,b,_=request('GET',login_callback,headers={'Cookie':login_flow}); assert status==303 and h['Location']=='/login#oidcError=invalid_flow' and not b,('callback replay',status,h.get('Location'))
+status,_,hb,_=request(
+ 'GET','/api/v1/households/'+household,headers={'Cookie':login_session})
+assert status==200 and hb['name']=='OIDC Smoke',('OIDC household read',status,hb)
+status,h,b,_=request('GET',login_callback,headers={'Cookie':login_flow})
+assert status==303 and h['Location']=='/login#oidcError=invalid_flow' and not b
+
 def dbcounts():
  command=os.environ['OIDC_SMOKE_PSQL'].split()+['-c',"SELECT (SELECT count(*) FROM user_accounts)||'|'||(SELECT count(*) FROM household_memberships)||'|'||(SELECT count(*) FROM user_sessions)"]
  return subprocess.check_output(command,text=True).strip().splitlines()[-1]
@@ -158,14 +166,20 @@ status,h,b,_,_=auth_start('login',sub='unknown-subject'); assert status==303 and
 after_counts=dbcounts(); assert before_counts==after_counts,('unknown identity changed admission tables',before_counts,after_counts)
 status,h,b,_,_=auth_start('login',deny=True); assert status==303 and h['Location']=='/login#oidcError=cancelled' and not b,('provider denied',status,h.get('Location'))
 status,h,b,_=start('login',origin_header='http://foreign.invalid'); assert status==403,('foreign Origin',status,b)
-status,h,b,_=request('GET','/api/v1/auth/oidc/callback',headers={'Origin':'http://foreign.invalid'}); assert status==403,('callback foreign Origin',status,b)
+status,h,b,_=request(
+ 'GET','/api/v1/auth/oidc/callback',headers={'Origin':'http://foreign.invalid'})
+assert status==403,('callback foreign Origin',status,b)
 for fixture in fixtures:
  if fixture['status']==303:
-  assert fixture['headers'].get('cache-control')=='no-store' and fixture['headers'].get('referrer-policy')=='no-referrer',fixture
-  assert 'body' not in fixture,fixture
+  assert fixture['headers'].get('cache-control') == 'no-store' \
+   and fixture['headers'].get('referrer-policy') == 'no-referrer', fixture
+  assert 'body' not in fixture, fixture
 with open(os.environ['OIDC_SMOKE_FIXTURES'],'w',encoding='utf-8') as f: json.dump(fixtures,f)
 PY
-API_REQUIRE_OPERATION_COVERAGE=1 API_OPERATION_COVERAGE_SCOPE=completeOidcCallback,startOidc,getOidcStatus,getOidcIdentity node "$root/api/check-health.mjs" "$fixtures"
+API_REQUIRE_OPERATION_COVERAGE=1 \
+  API_OPERATION_COVERAGE_SCOPE=completeOidcCallback,startOidc,\
+getOidcStatus,getOidcIdentity \
+  node "$root/api/check-health.mjs" "$fixtures"
 "${compose[@]}" logs --no-color app >"$logs"
 while IFS= read -r secret; do
   [[ -z "$secret" ]] && continue
