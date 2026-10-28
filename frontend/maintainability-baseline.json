@@ -1,21 +1,5 @@
 [
   {
-    "file": "src/app/App.tsx",
-    "function": "App",
-    "rule": "max-lines-per-function",
-    "allowed": 250,
-    "reason": "P2 candidate: route/session composition is a central app lifecycle boundary; retain composition and extract lifecycle logic carefully.",
-    "owner": "frontend-app"
-  },
-  {
-    "file": "src/app/App.tsx",
-    "function": "App",
-    "rule": "complexity",
-    "allowed": 34,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-app"
-  },
-  {
     "file": "src/features/auth/AccountScreen.tsx",
     "function": "AccountScreen",
     "rule": "max-lines-per-function",

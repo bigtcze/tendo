@@ -3,7 +3,7 @@ import { NavLink } from './NavLink';
 import { useI18n } from '../i18n';
 
 export type HouseholdRoute = 'home' | 'allItems' | 'people' | 'members' | 'account' | 'item';
-type NavigationActions = { home: () => void; allItems: () => void; people: () => void; members: () => void; account: () => void };
+export type NavigationActions = { home: () => void; allItems: () => void; people: () => void; members: () => void; account: () => void };
 export const HouseholdNavigationContext = createContext<{ route: HouseholdRoute; actions: NavigationActions; household: boolean } | null>(null);
 
 export function HouseholdNavigation() {
