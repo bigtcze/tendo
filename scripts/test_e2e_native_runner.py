@@ -58,7 +58,7 @@ class ChildProcessTests(unittest.TestCase):
         env = os.environ.copy()
         env.pop("E2E_SR_AUDIT_DIR", None)
         env.pop("E2E_SR_DEBUG_FILE", None)
-        env.update({"E2E_BASE_URL": "http://127.0.0.1:1", "E2E_SETUP_TOKEN": "test-token", "E2E_OWNER_PASSWORD": "test-password", "E2E_EXISTING_PASSWORD": "existing-password", "E2E_CONFLICT_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000004", "E2E_CLOCK_NOW": "2026-05-14T08:00:00Z", "E2E_FOREIGN_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000001", "E2E_FOREIGN_SUBJECT_ID": "01890000-0000-7000-8000-000000000002", "E2E_FOREIGN_ITEM_ID": "01890000-0000-7000-8000-000000000003"})
+        env.update({"E2E_BASE_URL": "http://127.0.0.1:1", "E2E_SETUP_TOKEN": "test-token", "E2E_OWNER_PASSWORD": "test-password", "E2E_EXISTING_PASSWORD": "existing-password", "E2E_CONFLICT_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000004", "E2E_LARGE_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000005", "E2E_LARGE_OWNER_LOGIN": "large_paging_owner_e2e", "E2E_CLOCK_NOW": "2026-05-14T08:00:00Z", "E2E_FOREIGN_HOUSEHOLD_ID": "01890000-0000-7000-8000-000000000001", "E2E_FOREIGN_SUBJECT_ID": "01890000-0000-7000-8000-000000000002", "E2E_FOREIGN_ITEM_ID": "01890000-0000-7000-8000-000000000003"})
         result = subprocess.run(
             [str(root / "frontend/node_modules/.bin/playwright"), "test", "--list"],
             cwd=root / "frontend", env=env, text=True, capture_output=True, timeout=30,
@@ -381,6 +381,67 @@ class ChildProcessTests(unittest.TestCase):
                 runner.db_fixtures.seed_existing_invitation_accounts(
                     {}, runner.register_sensitive_value
                 )
+
+    def test_large_paging_seed_uses_set_based_fixtures_and_validates_ids(self):
+        household_id = "01890000-0000-7000-8000-000000000004"
+        owner_id = "01890000-0000-7000-8000-000000000005"
+        runner.SENSITIVE_VALUES.clear()
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value=f"{household_id}|{owner_id}|1001|1001|1001") as query:
+            self.assertEqual(
+                runner.db_fixtures.seed_large_paging_household({}, runner.register_sensitive_value),
+                (household_id, "large_paging_owner_e2e"),
+            )
+        sql = query.call_args.args[1]
+        self.assertIn("generate_series(1, 1001)", sql)
+        self.assertIn("INSERT INTO household_invitations", sql)
+        self.assertIn("decode(md5(", sql)
+        self.assertIn("FROM member_rows", sql)
+        self.assertIn("FROM subjects", sql)
+        self.assertIn("FROM invitations", sql)
+        self.assertIn("token_hash", sql)
+        self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD_HASH, sql)
+        self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD, runner.SENSITIVE_VALUES)
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value=f"{household_id}|invalid|1001|1001|1001"):
+            with self.assertRaisesRegex(RuntimeError, "fixture counts"):
+                runner.db_fixtures.seed_large_paging_household({}, runner.register_sensitive_value)
+
+    def test_large_paging_fixture_postcheck_requires_exact_counts(self):
+        household_id = "01890000-0000-7000-8000-000000000004"
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value="1002|1001|1001|1001|1001|0"):
+            runner.db_fixtures.assert_large_paging_household({}, household_id, "large_paging_owner_e2e")
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value="1002|1001|1000|1001|1001|0"):
+            with self.assertRaisesRegex(RuntimeError, "state mismatch"):
+                runner.db_fixtures.assert_large_paging_household({}, household_id, "large_paging_owner_e2e")
+        with self.assertRaisesRegex(RuntimeError, "identifiers"):
+            runner.db_fixtures.assert_large_paging_household({}, "invalid", "wrong")
+
+    def test_large_paging_cleanup_removes_only_the_fixture(self):
+        household_id = "01890000-0000-7000-8000-000000000004"
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["1", "1", "1002"]) as query:
+            runner.db_fixtures.cleanup_large_paging_household({}, household_id)
+        self.assertIn("DELETE FROM households", query.call_args_list[1].args[1])
+        self.assertIn("large_paging_member_%", query.call_args_list[2].args[1])
+        self.assertTrue(all("SELECT count(*)" in call.args[1] for call in query.call_args_list))
+        # psql prints "UPDATE 1"/"DELETE 1" after bare DML; counts must come from the CTE, not line counting.
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["1", "1", "1001"]):
+            with self.assertRaisesRegex(RuntimeError, "cleanup mismatch"):
+                runner.db_fixtures.cleanup_large_paging_household({}, household_id)
+
+    def test_suite_fixture_verification_always_removes_large_household(self):
+        fixture_env = {
+            "E2E_FOREIGN_HOUSEHOLD_ID": "f", "E2E_FOREIGN_SUBJECT_ID": "s", "E2E_FOREIGN_ITEM_ID": "i",
+            "E2E_CONFLICT_HOUSEHOLD_ID": "c", "E2E_LARGE_HOUSEHOLD_ID": "l", "E2E_LARGE_OWNER_LOGIN": "o",
+        }
+        fixtures = runner.db_fixtures
+        with mock.patch.object(fixtures, "assert_foreign_seed_unchanged") as foreign, \
+                mock.patch.object(fixtures, "assert_existing_invitation_accounts") as existing, \
+                mock.patch.object(fixtures, "assert_large_paging_household", side_effect=RuntimeError("state mismatch")), \
+                mock.patch.object(fixtures, "cleanup_large_paging_household") as cleanup:
+            with self.assertRaisesRegex(RuntimeError, "state mismatch"):
+                fixtures.verify_suite_fixtures({}, fixture_env)
+        foreign.assert_called_once_with({}, "f", "s", "i")
+        existing.assert_called_once_with({}, "c")
+        cleanup.assert_called_once_with({}, "l")
 
     def test_foreign_household_seed_returns_validated_uuid_tuple(self):
         ids = (

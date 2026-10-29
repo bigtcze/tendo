@@ -757,8 +757,7 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     migration_env = env.copy()
     migration_env["DATABASE_URL"] = inherited["TEST_DATABASE_ADMIN_URL"]
     children.run([str(app_path), "migrate"], migration_env, "production migration", root / "backend", 150)
-    foreign_household_id, foreign_subject_id, foreign_item_id = db_fixtures.seed_foreign_household(inherited)
-    conflict_household_id = db_fixtures.seed_existing_invitation_accounts(inherited, register_sensitive_value)
+    fixture_env = db_fixtures.seed_suite_fixtures(inherited, register_sensitive_value)
 
     host_port, issuer_port = port(), port()
     app_origin = f"http://localhost:{host_port}"
@@ -809,11 +808,7 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
         "E2E_CLOCK_FIXTURE_PATH": str(artifact_dir / "attention-clock.json"),
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
         "E2E_ARTIFACT_DIR": str(artifact_dir),
-        "E2E_FOREIGN_HOUSEHOLD_ID": foreign_household_id,
-        "E2E_FOREIGN_SUBJECT_ID": foreign_subject_id,
-        "E2E_FOREIGN_ITEM_ID": foreign_item_id,
-        "E2E_EXISTING_PASSWORD": db_fixtures.EXISTING_ACCOUNT_PASSWORD,
-        "E2E_CONFLICT_HOUSEHOLD_ID": conflict_household_id,
+        **fixture_env,
     })
     run_playwright(root, base, children)
     before = base.copy()
@@ -826,8 +821,7 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     after = base.copy()
     after.update({"E2E_CLOCK_PHASE": "after", "E2E_CLOCK_NOW": "2026-01-15T23:00:00Z"})
     run_playwright(root, after, children, "e2e/attention-clock.spec.ts")
-    db_fixtures.assert_foreign_seed_unchanged(inherited, foreign_household_id, foreign_subject_id, foreign_item_id)
-    db_fixtures.assert_existing_invitation_accounts(inherited, conflict_household_id)
+    db_fixtures.verify_suite_fixtures(inherited, fixture_env)
 
 
 def main():
