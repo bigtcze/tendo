@@ -211,6 +211,10 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
 }
 
 const fixturePath = process.argv[2] ?? process.env.API_RESPONSE_FIXTURES
+assert.ok(
+  fixturePath || process.env.API_REQUIRE_OPERATION_COVERAGE !== '1',
+  'API_REQUIRE_OPERATION_COVERAGE=1 requires captured responses (argument or API_RESPONSE_FIXTURES)',
+)
 if (fixturePath) {
   const fixtures = JSON.parse(await readFile(fixturePath, 'utf8'))
   assert.ok(Array.isArray(fixtures), 'response fixtures must be a JSON array')

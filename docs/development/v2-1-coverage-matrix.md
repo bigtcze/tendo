@@ -46,9 +46,9 @@ Every operation below is from `api/openapi.yaml`. Middleware/common concerns are
 
 ### G10 operation response-contract inventory
 
-Operation mapping is exhaustive (28 API operationIds in `api/openapi.yaml`; health endpoints are inventoried separately as O1/O2 in the route crosswalk). Live fixtures are written from actual HTTP responses and checked by `api/check-health.mjs`; required CI runs the setup, OIDC, and runtime smoke jobs. Setup-smoke gates its 24 non-OIDC API operations against the union of its three fixture sets, OIDC-smoke gates all four OIDC operations, and runtime-smoke gates both health operations. Every operation has a captured success and critical error response; callback's 403 is captured from the foreign-Origin request, so no coverage exemption is needed. The checker validates status, media type, documented headers, body schema, and RFC9457 status correspondence.
+Operation mapping is exhaustive (28 API operationIds in `api/openapi.yaml`; health endpoints are inventoried separately as O1/O2 in the route crosswalk). Live fixtures are written from actual HTTP responses and checked by `api/check-health.mjs`; required CI runs the setup, OIDC, and runtime smoke jobs. Setup-smoke gates its 24 non-OIDC API operations against the union of its three fixture sets, OIDC-smoke gates all four OIDC operations, and runtime-smoke gates both health operations. Every operation has a captured success response and, where its contract declares one, a representative critical-error capture (`getLiveness` declares only 200, so a liveness error capture is not applicable); callback's 403 is captured from the foreign-Origin request, so no coverage exemption is needed. The checker validates status, media type, documented headers, body schema, and RFC9457 status correspondence.
 
-| operationId | live success capture | live critical-error capture |
+| operationId | live success capture | live critical-error capture | notes |
 |---|---|---|---|
 | `getInitialSetup` | setup-smoke: 200 | setup-smoke: 403 foreign Origin | captured real success + critical problem response |
 | `createInitialOwner` | setup-smoke: 201 | setup-smoke: 422 invalid timezone | captured real success + validation problem; token/origin errors also asserted live |
@@ -63,7 +63,7 @@ Operation mapping is exhaustive (28 API operationIds in `api/openapi.yaml`; heal
 | `listMembers`, `getHousehold` | setup-smoke: 200 with member and household bodies/ETag | setup-smoke: 401 anonymous, 404 nonmember/missing household | captured real response fixtures |
 | `createSubject`, `listSubjects`, `getSubject`, `updateSubject` | setup-smoke: 201/200; Location/ETag on mutations | setup-smoke: 400 malformed/query, 404 missing, 412 stale, 422 validation, 428 missing If-Match | all four operations included in coverage gate |
 | `createItem`, `listItems`, `createItemCompletion`, `listItemCompletions`, `undoItemCompletion`, `getItemsSummary`, `getItem`, `updateItem` | setup-smoke: create/list/get/patch/completion/history/undo/summary successful responses | setup-smoke: 400 query/key errors, 401 anonymous, 404 missing/nonmember, 412 stale, 422 validation, 428 precondition | all eight operationIds covered by live fixtures and gate; create/undo Location/ETag where documented |
-| `getLiveness`, `getReadiness` | runtime-smoke: 200 JSON | runtime-smoke: readiness 503 problem while PostgreSQL stopped | `check-health.mjs` validates live and ready success/unavailable contracts |
+| `getLiveness`, `getReadiness` | runtime-smoke: 200 JSON | liveness: not applicable (contract declares only 200); readiness: runtime-smoke 503 problem while PostgreSQL stopped | `check-health.mjs` validates live and ready success/unavailable contracts |
 
 ## Domain, persisted-state and journey crosswalk
 
