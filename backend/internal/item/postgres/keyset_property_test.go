@@ -37,8 +37,9 @@ func TestFilteredAttentionKeysetWalkPostgres(t *testing.T) {
 	if err := wantRows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if len(want) < 100 {
-		t.Fatalf("filter fixture only matched %d rows", len(want))
+	// Matching rows are multiples of six (even subject, open, recurring): floor(1007/6) = 167.
+	if len(want) != 167 {
+		t.Fatalf("filter fixture matched %d rows, want 167", len(want))
 	}
 	for _, limit := range []int{100, 7} {
 		q := item.ListQuery{SubjectID: f.subject, WorkflowState: "open", Recurring: boolPtr(true), Sort: item.SortAttention, Limit: limit}
