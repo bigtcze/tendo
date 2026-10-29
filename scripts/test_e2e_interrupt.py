@@ -15,13 +15,13 @@ APP = r'''#!/usr/bin/env python3
 import os,signal,subprocess,sys
 from http.server import BaseHTTPRequestHandler,HTTPServer
 if len(sys.argv)>1 and sys.argv[1]=="migrate":
- # Minimal stand-in schema so the runner's foreign-household seed succeeds; credentials go via PG* env only.
+ # Minimal stand-in schema so the runner's fixture seeds succeed; credentials go via PG* env only.
  import urllib.parse
  u=urllib.parse.urlsplit(os.environ["DATABASE_URL"])
  env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
  env.update(PGHOST=u.hostname,PGPORT=str(u.port or 5432),PGUSER=urllib.parse.unquote(u.username),PGPASSWORD=urllib.parse.unquote(u.password or ""),PGDATABASE=urllib.parse.unquote(u.path.lstrip("/")))
  for k,v in urllib.parse.parse_qsl(u.query):env["PG"+k.upper()]=v
- sql="CREATE TABLE households(id uuid PRIMARY KEY DEFAULT uuidv7(),name text,timezone text);CREATE TABLE subjects(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,type text,name text);CREATE TABLE items(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,subject_id uuid,title text);CREATE TABLE user_accounts(id uuid PRIMARY KEY DEFAULT uuidv7(),login text,default_household_id uuid);CREATE TABLE local_credentials(user_id uuid,password_hash text);CREATE TABLE household_memberships(user_id uuid,household_id uuid,role text);"
+ sql="CREATE TABLE households(id uuid PRIMARY KEY DEFAULT uuidv7(),name text,timezone text);CREATE TABLE subjects(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,type text,name text);CREATE TABLE items(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,subject_id uuid,title text);CREATE TABLE user_accounts(id uuid PRIMARY KEY DEFAULT uuidv7(),login text,default_household_id uuid);CREATE TABLE local_credentials(user_id uuid,password_hash text);CREATE TABLE household_memberships(user_id uuid,household_id uuid,role text);CREATE TABLE household_invitations(id uuid PRIMARY KEY DEFAULT uuidv7(),household_id uuid,created_by_user_id uuid,creation_key text,token_hash bytea,created_at timestamptz,expires_at timestamptz);"
  raise SystemExit(subprocess.run([PSQL_BIN,"-X","-q","-v","ON_ERROR_STOP=1","-c",sql],env=env).returncode)
 marker=os.environ["INTERRUPT_MARKERS"]
 with open(marker+"/app.pid","w") as f:f.write(str(os.getpid()))

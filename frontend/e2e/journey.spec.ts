@@ -24,6 +24,8 @@ const foreignSubjectId = required('E2E_FOREIGN_SUBJECT_ID');
 const foreignItemId = required('E2E_FOREIGN_ITEM_ID');
 const existingAccountPassword = required('E2E_EXISTING_PASSWORD');
 const conflictHouseholdId = required('E2E_CONFLICT_HOUSEHOLD_ID');
+const largeHouseholdId = required('E2E_LARGE_HOUSEHOLD_ID');
+const largeOwnerLogin = required('E2E_LARGE_OWNER_LOGIN');
 const expectedCompletionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(new Date(e2eClockNow));
 const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
@@ -3699,6 +3701,119 @@ test.describe('Tendo production journey', () => {
     }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailure) throw cleanupFailure;
+  });
+
+  // G7 browser evidence: a runner-seeded, isolated household (scripts/e2e_db_fixtures.py) holds 1001 people,
+  // 1002 members and 1001 pending invitations; every UI page must equal the matching authenticated API page.
+  test('n28. People, Members and invitations walk 1000+ rows with bounded pages and stable pager history', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const large = `/api/v1/households/${largeHouseholdId}`;
+    const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'UTC' });
+    const actor = await context.newPage();
+    const errors: string[] = [];
+    actor.on('pageerror', (error) => errors.push(error.message));
+    // Seeded invitations were created on distinct days, so each row's "Created" date identifies it.
+    const createdDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
+    type Row = { id: string; label: string };
+    const apiPages = async (path: string, query: Record<string, string> = {}) => {
+      const pages: Row[][] = [];
+      let cursor: string | undefined;
+      do {
+        const response = await actor.request.get(path, { params: { limit: '50', ...query, ...(cursor ? { cursor } : {}) } });
+        expect(response.status(), `n28 API ${path}`).toBe(200);
+        const body = await response.json() as { items: Array<{ id?: string; userId?: string; login?: string; name?: string; createdAt?: string }>; nextCursor: string | null };
+        pages.push(body.items.map((item) => ({
+          id: item.id ?? item.userId!,
+          label: item.name ?? item.login ?? en['members.invitation.created'].replace('{date}', createdDate.format(new Date(item.createdAt!))),
+        })));
+        cursor = body.nextCursor ?? undefined;
+      } while (cursor);
+      return pages;
+    };
+    const walk = async (name: 'subjects' | 'members' | 'invitations', expected: Row[][]) => {
+      const kind = name === 'subjects' ? 'subject' : name === 'members' ? 'member' : 'invitation';
+      const prefix = name === 'subjects' ? 'subjects' : 'members';
+      const responsePath = `${large}/${name}`;
+      const responses: string[][] = [];
+      const onResponse = async (response: import('@playwright/test').Response) => {
+        if (new URL(response.url()).pathname !== responsePath || response.request().method() !== 'GET') return;
+        const body = await response.json().catch(() => ({ items: [] })) as { items: Array<{ id?: string; userId?: string }> };
+        responses.push(body.items.map((item) => item.id ?? item.userId!));
+      };
+      actor.on('response', onResponse);
+      try {
+        await actor.goto(name === 'subjects' ? '/people' : '/members');
+        const main = actor.getByRole('main');
+        const scope = name === 'subjects' ? main
+          : main.getByRole('heading', { name: en[name === 'members' ? 'members.list.title' : 'members.invitations.title'], exact: true }).locator('xpath=ancestor::section[1]');
+        const rows = name === 'subjects' ? scope.locator('[data-focus^="row:"]') : scope.locator('ul').last().locator(':scope > li');
+        const pager = scope.locator(`button[data-${kind}-page]`);
+        const next = pager.filter({ hasText: en[`${prefix}.page.next`] });
+        const visible = async (): Promise<string[]> => name === 'subjects'
+          ? rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-focus')!.slice('row:'.length)))
+          : rows.evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim()));
+        const expectPage = async (index: number, label: string) => {
+          const page = expected[index]!;
+          if (name === 'subjects') await expect.poll(visible, { message: `n28 ${label} subject IDs` }).toEqual(page.map((row) => row.id));
+          else if (name === 'members') {
+            // The first span of each member row is the login, with " (you)" for the signed-in owner.
+            const logins = () => rows.evaluateAll((els) => els.map((el) => el.querySelector(':scope > span')?.textContent ?? ''));
+            await expect.poll(logins, { message: `n28 ${label} member logins in API order` })
+              .toEqual(page.map((row) => (row.label === largeOwnerLogin ? `${row.label} (${en['members.you']})` : row.label)));
+          } else {
+            // Each row shows its status, then "Created {date} · Expires {date}".
+            const created = () => rows.evaluateAll((els) => els.map((el) => (el.querySelector('p + p')?.textContent ?? '').split(' · ')[0]));
+            await expect.poll(created, { message: `n28 ${label} invitation created dates in API order` }).toEqual(page.map((row) => row.label));
+            expect((await visible()).every((text) => text.startsWith(en['members.invitation.status.pending'])), `n28 ${label} invitations pending`).toBe(true);
+          }
+          await expect(scope.getByText(en[`${prefix}.page.number`].replace('{n}', String(index + 1)), { exact: true })).toBeVisible();
+        };
+        for (let index = 0; index < expected.length; index += 1) {
+          await expectPage(index, `${name} page ${index + 1}`);
+          await expect.poll(() => responses.length, { message: `n28 ${name} one request per page` }).toBe(index + 1);
+          expect(responses[index], `n28 ${name} page ${index + 1} response equals API walk`).toEqual(expected[index]!.map((row) => row.id));
+          expect(await actor.locator('*').count(), `n28 ${name} page ${index + 1} DOM bounded`).toBeLessThan(1500);
+          if (index < expected.length - 1) await next.click();
+        }
+        await expect(next, `n28 ${name} last page has no Next`).toHaveCount(0);
+        const seen = responses.flat();
+        expect(seen.length, `n28 ${name} walk length`).toBe(expected.flat().length);
+        expect(new Set(seen).size, `n28 ${name} no duplicates`).toBe(seen.length);
+        // Previous restores the exact earlier page from the cursor stack, then Next returns to the last page.
+        const last = expected.length - 1;
+        const revisit = async (index: number, count: number, label: string) => {
+          await expectPage(index, `${name} ${label}`);
+          await expect.poll(() => responses.length, { message: `n28 ${name} ${label} fetched once` }).toBe(count);
+          expect(responses[count - 1], `n28 ${name} ${label} response equals API walk`).toEqual(expected[index]!.map((row) => row.id));
+        };
+        await pager.filter({ hasText: en[`${prefix}.page.previous`] }).click();
+        await revisit(last - 1, expected.length + 1, 'previous');
+        await next.click();
+        await revisit(last, expected.length + 2, 'next again');
+      } finally {
+        actor.off('response', onResponse);
+      }
+    };
+    try {
+      const login = await actor.request.post('/api/v1/session', { headers: { Origin: baseURL }, data: { login: largeOwnerLogin, password: existingAccountPassword } });
+      expect(login.status(), 'n28 large-household owner signs in').toBe(201);
+      const subjects = await apiPages(`${large}/subjects`, { archived: 'false' });
+      const members = await apiPages(`${large}/members`);
+      const invitations = await apiPages(`${large}/invitations`);
+      for (const [name, pages, total] of [['subjects', subjects, 1001], ['members', members, 1002], ['invitations', invitations, 1001]] as const) {
+        expect(pages.flat().length, `n28 ${name} fixture size`).toBe(total);
+        expect(new Set(pages.flat().map((row) => row.id)).size, `n28 ${name} fixture IDs unique`).toBe(total);
+        expect(pages.slice(0, -1).every((page) => page.length === 50), `n28 ${name} full 50-row pages`).toBe(true);
+        expect(pages.at(-1)!.length, `n28 ${name} final page past the 1000-row boundary`).toBe(total - 1000);
+      }
+      await walk('subjects', subjects);
+      await walk('members', members);
+      await walk('invitations', invitations);
+      expect(errors, 'n28 no page errors').toEqual([]);
+    } finally {
+      await actor.request.delete('/api/v1/session', { headers: { Origin: baseURL } }).catch(() => undefined);
+      await context.close();
+    }
   });
 
   // n14/n21 emulate zoom with CDP device metrics. This test uses Chromium's own page zoom instead: the
