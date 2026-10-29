@@ -1,4 +1,6 @@
 import base64
+import contextlib
+import io
 import json
 import importlib.util
 import pathlib
@@ -417,17 +419,52 @@ class ChildProcessTests(unittest.TestCase):
 
     def test_large_paging_cleanup_removes_only_the_fixture(self):
         household_id = "01890000-0000-7000-8000-000000000004"
-        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["1", "1", "1002"]) as query:
+        members = "\n".join(f"01890000-0000-7000-8000-{n:012d}" for n in range(1002))
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=[members, "1", "1", "1002"]) as query:
             runner.db_fixtures.cleanup_large_paging_household({}, household_id)
-        self.assertIn("DELETE FROM households", query.call_args_list[1].args[1])
-        self.assertIn("large_paging_member_%", query.call_args_list[2].args[1])
-        self.assertTrue(all("SELECT count(*)" in call.args[1] for call in query.call_args_list))
+        selection, owner, household, accounts = (call.args[1] for call in query.call_args_list)
+        self.assertIn(f"m.household_id='{household_id}'", selection)
+        self.assertIn("'^large_paging_member_[0-9]{4}$'", selection)
+        self.assertNotIn("LIKE", selection)
+        self.assertIn("DELETE FROM households", household)
+        self.assertIn("id = ANY(ARRAY['01890000-0000-7000-8000-000000000000',", accounts)
+        self.assertNotIn("login", accounts)
+        self.assertTrue(all("SELECT count(*)" in sql for sql in (owner, household, accounts)))
         # psql prints "UPDATE 1"/"DELETE 1" after bare DML; counts must come from the CTE, not line counting.
-        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["1", "1", "1001"]):
+        with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=[members, "1", "1", "1001"]):
             with self.assertRaisesRegex(RuntimeError, "cleanup mismatch"):
                 runner.db_fixtures.cleanup_large_paging_household({}, household_id)
+        with mock.patch.object(runner.db_fixtures, "psql_admin", return_value="01890000-0000-7000-8000-000000000001") as query:
+            with self.assertRaisesRegex(RuntimeError, "found 1 fixture accounts"):
+                runner.db_fixtures.cleanup_large_paging_household({}, household_id)
+        self.assertEqual(query.call_count, 1, "nothing is deleted when the fixture membership is not exact")
 
-    def test_suite_fixture_verification_always_removes_large_household(self):
+    def test_large_paging_cleanup_runs_after_success_and_any_failure(self):
+        fixtures = runner.db_fixtures
+        with mock.patch.object(fixtures, "cleanup_large_paging_household") as cleanup:
+            with fixtures.large_paging_household_cleanup({}, "l"):
+                pass
+        cleanup.assert_called_once_with({}, "l")
+        for failure in (RuntimeError("browser failed"), KeyboardInterrupt()):
+            with mock.patch.object(fixtures, "cleanup_large_paging_household", side_effect=RuntimeError("cleanup failed")) as cleanup:
+                with self.assertRaises(type(failure)) as raised, contextlib.redirect_stderr(io.StringIO()) as stderr:
+                    with fixtures.large_paging_household_cleanup({}, "l"):
+                        raise failure
+            self.assertIs(raised.exception, failure, "the primary failure is preserved")
+            self.assertIn("cleanup also failed", stderr.getvalue())
+            cleanup.assert_called_once_with({}, "l")
+
+    def test_run_suite_cleans_large_fixture_when_the_seeded_suite_fails(self):
+        inherited = {"TEST_DATABASE_ADMIN_URL": "postgres://x@h/d"}
+        with mock.patch.object(runner.Children, "run"), \
+                mock.patch.object(runner.db_fixtures, "seed_suite_fixtures", return_value={"E2E_LARGE_HOUSEHOLD_ID": "l"}), \
+                mock.patch.object(runner, "run_seeded_suite", side_effect=RuntimeError("Playwright exited")), \
+                mock.patch.object(runner.db_fixtures, "cleanup_large_paging_household") as cleanup:
+            with self.assertRaisesRegex(RuntimeError, "Playwright exited"), contextlib.redirect_stderr(io.StringIO()):
+                runner.run_suite(pathlib.Path("/r"), pathlib.Path("/app"), pathlib.Path("/p"), inherited, runner.Children(), pathlib.Path("/a"))
+        cleanup.assert_called_once_with(inherited, "l")
+
+    def test_suite_fixture_verification_checks_every_fixture(self):
         fixture_env = {
             "E2E_FOREIGN_HOUSEHOLD_ID": "f", "E2E_FOREIGN_SUBJECT_ID": "s", "E2E_FOREIGN_ITEM_ID": "i",
             "E2E_CONFLICT_HOUSEHOLD_ID": "c", "E2E_LARGE_HOUSEHOLD_ID": "l", "E2E_LARGE_OWNER_LOGIN": "o",
@@ -435,13 +472,11 @@ class ChildProcessTests(unittest.TestCase):
         fixtures = runner.db_fixtures
         with mock.patch.object(fixtures, "assert_foreign_seed_unchanged") as foreign, \
                 mock.patch.object(fixtures, "assert_existing_invitation_accounts") as existing, \
-                mock.patch.object(fixtures, "assert_large_paging_household", side_effect=RuntimeError("state mismatch")), \
-                mock.patch.object(fixtures, "cleanup_large_paging_household") as cleanup:
-            with self.assertRaisesRegex(RuntimeError, "state mismatch"):
-                fixtures.verify_suite_fixtures({}, fixture_env)
+                mock.patch.object(fixtures, "assert_large_paging_household") as large:
+            fixtures.verify_suite_fixtures({}, fixture_env)
         foreign.assert_called_once_with({}, "f", "s", "i")
         existing.assert_called_once_with({}, "c")
-        cleanup.assert_called_once_with({}, "l")
+        large.assert_called_once_with({}, "l", "o")
 
     def test_foreign_household_seed_returns_validated_uuid_tuple(self):
         ids = (

@@ -3528,10 +3528,12 @@ test.describe('Tendo production journey', () => {
   test('n28. People, Members and invitations walk 1000+ rows with bounded pages and stable pager history', async ({ browser }) => {
     test.setTimeout(120_000);
     const large = `/api/v1/households/${largeHouseholdId}`;
-    const context = await browser.newContext({ baseURL, locale: 'en-US' });
+    const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'UTC' });
     const actor = await context.newPage();
     const errors: string[] = [];
     actor.on('pageerror', (error) => errors.push(error.message));
+    // Seeded invitations were created on distinct days, so each row's "Created" date identifies it.
+    const createdDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
     type Row = { id: string; label: string };
     const apiPages = async (path: string, query: Record<string, string> = {}) => {
       const pages: Row[][] = [];
@@ -3539,8 +3541,11 @@ test.describe('Tendo production journey', () => {
       do {
         const response = await actor.request.get(path, { params: { limit: '50', ...query, ...(cursor ? { cursor } : {}) } });
         expect(response.status(), `n28 API ${path}`).toBe(200);
-        const body = await response.json() as { items: Array<{ id?: string; userId?: string; login?: string; name?: string }>; nextCursor: string | null };
-        pages.push(body.items.map((item) => ({ id: item.id ?? item.userId!, label: item.name ?? item.login ?? '' })));
+        const body = await response.json() as { items: Array<{ id?: string; userId?: string; login?: string; name?: string; createdAt?: string }>; nextCursor: string | null };
+        pages.push(body.items.map((item) => ({
+          id: item.id ?? item.userId!,
+          label: item.name ?? item.login ?? en['members.invitation.created'].replace('{date}', createdDate.format(new Date(item.createdAt!))),
+        })));
         cursor = body.nextCursor ?? undefined;
       } while (cursor);
       return pages;
@@ -3576,7 +3581,9 @@ test.describe('Tendo production journey', () => {
             await expect.poll(logins, { message: `n28 ${label} member logins in API order` })
               .toEqual(page.map((row) => (row.label === largeOwnerLogin ? `${row.label} (${en['members.you']})` : row.label)));
           } else {
-            await expect.poll(async () => (await visible()).length, { message: `n28 ${label} invitation row count` }).toBe(page.length);
+            // Each row shows its status, then "Created {date} · Expires {date}".
+            const created = () => rows.evaluateAll((els) => els.map((el) => (el.querySelector('p + p')?.textContent ?? '').split(' · ')[0]));
+            await expect.poll(created, { message: `n28 ${label} invitation created dates in API order` }).toEqual(page.map((row) => row.label));
             expect((await visible()).every((text) => text.startsWith(en['members.invitation.status.pending'])), `n28 ${label} invitations pending`).toBe(true);
           }
           await expect(scope.getByText(en[`${prefix}.page.number`].replace('{n}', String(index + 1)), { exact: true })).toBeVisible();
@@ -3594,11 +3601,15 @@ test.describe('Tendo production journey', () => {
         expect(new Set(seen).size, `n28 ${name} no duplicates`).toBe(seen.length);
         // Previous restores the exact earlier page from the cursor stack, then Next returns to the last page.
         const last = expected.length - 1;
+        const revisit = async (index: number, count: number, label: string) => {
+          await expectPage(index, `${name} ${label}`);
+          await expect.poll(() => responses.length, { message: `n28 ${name} ${label} fetched once` }).toBe(count);
+          expect(responses[count - 1], `n28 ${name} ${label} response equals API walk`).toEqual(expected[index]!.map((row) => row.id));
+        };
         await pager.filter({ hasText: en[`${prefix}.page.previous`] }).click();
-        await expectPage(last - 1, `${name} previous`);
+        await revisit(last - 1, expected.length + 1, 'previous');
         await next.click();
-        await expectPage(last, `${name} next again`);
-        expect(responses.at(-1), `n28 ${name} revisited last page`).toEqual(expected[last]!.map((row) => row.id));
+        await revisit(last, expected.length + 2, 'next again');
       } finally {
         actor.off('response', onResponse);
       }

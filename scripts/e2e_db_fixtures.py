@@ -1,10 +1,12 @@
 """Database fixture setup and persisted-state checks for native E2E runs."""
 from __future__ import annotations
 
+import contextlib
 import re
 import subprocess
+import sys
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 
 UUID_PATTERN = re.compile(
@@ -170,7 +172,7 @@ def seed_large_paging_household(
       )
       SELECT membership.household_id, membership.user_id, 'large-paging-' || n,
         decode(md5('large-paging-token-' || n) || md5('large-paging-token-check-' || n), 'hex'),
-        now(), now() + interval '7 days'
+        now() - n * interval '1 day', now() + interval '7 days'
       FROM generate_series(1, 1001) n CROSS JOIN membership
       RETURNING id
     ), materialized AS (
@@ -213,18 +215,38 @@ def assert_large_paging_household(
 
 
 def cleanup_large_paging_household(inherited: dict[str, str], household_id: str) -> None:
-    """Remove the isolated fixture household and its generated accounts after verification."""
+    """Remove the isolated fixture household and exactly the accounts that are its members."""
     if not UUID_PATTERN.fullmatch(household_id):
         raise RuntimeError("large paging fixture household ID must be a UUID")
+    members = psql_admin(inherited, f"""SELECT user_id::text FROM household_memberships m
+      JOIN user_accounts u ON u.id=m.user_id WHERE m.household_id='{household_id}'
+      AND (u.login='large_paging_owner_e2e' OR u.login ~ '^large_paging_member_[0-9]{{4}}$') ORDER BY 1""").split()
+    if len(members) != 1002 or not all(UUID_PATTERN.fullmatch(value) for value in members):
+        raise RuntimeError(f"large paging fixture cleanup found {len(members)} fixture accounts, expected 1002")
+    ids = "ARRAY[" + ",".join(f"'{value}'" for value in members) + "]::uuid[]"
     # Bare DML would also print psql's command tag, so each statement reports its row count via a CTE.
-    owner = psql_admin(inherited, """WITH changed AS (UPDATE user_accounts SET default_household_id=NULL
-      WHERE login='large_paging_owner_e2e' RETURNING id) SELECT count(*) FROM changed""")
+    owner = psql_admin(inherited, f"""WITH changed AS (UPDATE user_accounts SET default_household_id=NULL
+      WHERE id = ANY({ids}) AND default_household_id='{household_id}' RETURNING id) SELECT count(*) FROM changed""")
     households = psql_admin(inherited, f"""WITH removed AS (DELETE FROM households
       WHERE id='{household_id}' RETURNING id) SELECT count(*) FROM removed""")
-    accounts = psql_admin(inherited, """WITH removed AS (DELETE FROM user_accounts WHERE login='large_paging_owner_e2e'
-      OR login LIKE 'large_paging_member_%' RETURNING id) SELECT count(*) FROM removed""")
+    accounts = psql_admin(inherited, f"""WITH removed AS (DELETE FROM user_accounts
+      WHERE id = ANY({ids}) RETURNING id) SELECT count(*) FROM removed""")
     if (owner, households, accounts) != ("1", "1", "1002"):
         raise RuntimeError(f"large paging fixture cleanup mismatch: owner={owner} households={households} accounts={accounts}")
+
+
+@contextlib.contextmanager
+def large_paging_household_cleanup(inherited: dict[str, str], household_id: str) -> Iterator[None]:
+    """Always remove the large fixture; a cleanup error never hides the suite's primary failure."""
+    try:
+        yield
+    except BaseException:
+        try:
+            cleanup_large_paging_household(inherited, household_id)
+        except Exception as error:  # noqa: BLE001 - reported, primary failure re-raised
+            print(f"large paging fixture cleanup also failed: {error}", file=sys.stderr)
+        raise
+    cleanup_large_paging_household(inherited, household_id)
 
 
 def assert_existing_invitation_accounts(
@@ -318,15 +340,12 @@ def seed_suite_fixtures(
 
 
 def verify_suite_fixtures(inherited: dict[str, str], fixture_env: dict[str, str]) -> None:
-    """Assert persisted fixture state after the suite; the large household is removed even when its check fails."""
+    """Assert persisted fixture state after the suite; cleanup is owned by large_paging_household_cleanup."""
     assert_foreign_seed_unchanged(
         inherited, fixture_env["E2E_FOREIGN_HOUSEHOLD_ID"],
         fixture_env["E2E_FOREIGN_SUBJECT_ID"], fixture_env["E2E_FOREIGN_ITEM_ID"],
     )
     assert_existing_invitation_accounts(inherited, fixture_env["E2E_CONFLICT_HOUSEHOLD_ID"])
-    try:
-        assert_large_paging_household(
-            inherited, fixture_env["E2E_LARGE_HOUSEHOLD_ID"], fixture_env["E2E_LARGE_OWNER_LOGIN"]
-        )
-    finally:
-        cleanup_large_paging_household(inherited, fixture_env["E2E_LARGE_HOUSEHOLD_ID"])
+    assert_large_paging_household(
+        inherited, fixture_env["E2E_LARGE_HOUSEHOLD_ID"], fixture_env["E2E_LARGE_OWNER_LOGIN"]
+    )

@@ -758,7 +758,12 @@ def run_suite(root: Path, app_path: Path, provider_path: Path, inherited: dict[s
     migration_env["DATABASE_URL"] = inherited["TEST_DATABASE_ADMIN_URL"]
     children.run([str(app_path), "migrate"], migration_env, "production migration", root / "backend", 150)
     fixture_env = db_fixtures.seed_suite_fixtures(inherited, register_sensitive_value)
+    with db_fixtures.large_paging_household_cleanup(inherited, fixture_env["E2E_LARGE_HOUSEHOLD_ID"]):
+        run_seeded_suite(root, app_path, provider_path, inherited, children, artifact_dir, env, fixture_env)
 
+
+def run_seeded_suite(root, app_path, provider_path, inherited, children, artifact_dir, env, fixture_env):
+    """Run the browser suites against seeded fixtures and verify their persisted state."""
     host_port, issuer_port = port(), port()
     app_origin = f"http://localhost:{host_port}"
     issuer = f"http://127.0.0.1:{issuer_port}"
