@@ -204,10 +204,20 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 		}
 		return result
 	}
+	flowCount := func() int {
+		var count int
+		if e := admin.QueryRow(ctx, `SELECT count(*) FROM oidc_flows`).Scan(&count); e != nil {
+			t.Fatal(e)
+		}
+		return count
+	}
 	callback := func(st identity.OIDCStartResult, token string) identity.OIDCCallbackResult {
 		auth, e := url.Parse(adapter.lastURL)
 		if e != nil {
 			t.Fatal(e)
+		}
+		if got := flowCount(); got != 1 {
+			t.Fatalf("expected exactly one pending flow before callback, got %d", got)
 		}
 		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		response, e := client.Get(auth.String())
@@ -223,15 +233,36 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		if got := flowCount(); got != 0 {
+			t.Fatalf("callback did not consume flow exactly once: remaining=%d", got)
+		}
+		replay, replayErr := service.Callback(ctx, url.Values{"state": {adapter.last.State}, "code": {location.Query().Get("code")}}, st.BrowserToken, token)
+		if replayErr != nil || replay.Destination != "/login#oidcError=invalid_flow" || replay.SessionToken != "" {
+			t.Fatalf("callback replay=%+v err=%v", replay, replayErr)
+		}
+		if got := flowCount(); got != 0 {
+			t.Fatalf("replayed callback recreated a flow: remaining=%d", got)
+		}
 		return result
 	}
 	beforeA, beforeM, beforeS, beforeD := counts()
+	fake.Faults.JWKSUnavailable = true
+	outage := start("known-subject", identity.OIDCPurposeLogin, "")
+	outageResult := callback(outage, "")
+	fake.Faults.JWKSUnavailable = false
+	if outageResult.Destination != "/login#oidcError=unavailable" || outageResult.SessionToken != "" {
+		t.Fatalf("JWKS outage=%+v", outageResult)
+	}
+	a, m, s, d := counts()
+	if a != beforeA || m != beforeM || s != beforeS || d != beforeD {
+		t.Fatalf("JWKS outage changed admission state: %d/%d/%d/%s", a, m, s, d)
+	}
 	unknown := start("unlinked-subject", identity.OIDCPurposeLogin, "")
 	unknownResult := callback(unknown, "")
 	if unknownResult.Destination != "/login#oidcError=identity_not_linked" {
 		t.Fatalf("unknown=%+v", unknownResult)
 	}
-	a, m, s, d := counts()
+	a, m, s, d = counts()
 	if a != beforeA || m != beforeM || s != beforeS || d != beforeD {
 		t.Fatalf("unknown identity changed state: %d/%d/%d/%s", a, m, s, d)
 	}
@@ -280,6 +311,14 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 	}
 	if initiating != 0 {
 		t.Fatalf("link initiator still present: %d", initiating)
+	}
+	newLinkHash := sha256.Sum256([]byte(linkResult.SessionToken))
+	var replacementSession string
+	if err = admin.QueryRow(ctx, `SELECT id::text FROM user_sessions WHERE token_hash=$1 AND user_id=$2`, newLinkHash[:], user).Scan(&replacementSession); err != nil {
+		t.Fatalf("replacement session not persisted: %v", err)
+	}
+	if replacementSession == linkSessionID {
+		t.Fatal("link replacement reused initiating session row")
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_identities WHERE issuer=$1 AND subject='new-linked-subject' AND user_id=$2`, fake.Issuer(), user).Scan(&linkedIdentity); err != nil || linkedIdentity != 1 {
 		t.Fatalf("linked identity=%d err=%v", linkedIdentity, err)
