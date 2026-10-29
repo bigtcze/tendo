@@ -361,6 +361,11 @@ func TestOIDCJWKSOutageCallbackUnavailableAndClearsFlow(t *testing.T) {
 	if !cleared || len(repo.sessions) != 1 || len(repo.flows) != 0 {
 		t.Fatalf("cleared=%v sessions=%d flows=%d", cleared, len(repo.sessions), len(repo.flows))
 	}
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "tendo_oidc" && (cookie.Value != "" || cookie.Path != "/" || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge >= 0) {
+			t.Fatalf("flow cookie clearing attributes=%+v", cookie)
+		}
+	}
 }
 
 func TestOIDCLoginActiveSessionHTTPRejectedBeforeExchange(t *testing.T) {
@@ -554,6 +559,35 @@ func TestOIDCLatestFlowAttemptWinsHTTP(t *testing.T) {
 		t.Fatal("second flow was not created")
 	}
 }
+func TestOIDCFailureRedirectAndCookies(t *testing.T) {
+	for _, tc := range []struct {
+		name, subject, location string
+		jwksOutage              bool
+	}{
+		{name: "unknown identity", subject: "unknown-subject", location: "/login#oidcError=identity_not_linked"},
+		{name: "JWKS outage", subject: "subject-1", location: "/login#oidcError=unavailable", jwksOutage: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, provider, _, _, mux := newRealOIDCHTTP(t, tc.subject)
+			if tc.jwksOutage {
+				provider.Faults.JWKSUnavailable = true
+			}
+			query, flow := doOIDCStart(t, mux, "login", "")
+			w := performOIDCCallback(t, provider, mux, query, flow, "")
+			if w.Code != http.StatusSeeOther || w.Header().Get("Location") != tc.location || w.Body.Len() != 0 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" {
+				t.Fatalf("status=%d location=%q headers=%v body=%q", w.Code, w.Header().Get("Location"), w.Header(), w.Body.String())
+			}
+			cookies := w.Result().Cookies()
+			if len(cookies) != 1 || cookies[0].Name != "tendo_oidc" || cookies[0].Value != "" || cookies[0].MaxAge >= 0 || cookies[0].Path != "/" || !cookies[0].HttpOnly || cookies[0].Secure || cookies[0].SameSite != http.SameSiteLaxMode {
+				t.Fatalf("failure cookies=%+v Set-Cookie=%q", cookies, w.Header().Values("Set-Cookie"))
+			}
+			if len(repo.sessions) != 1 || len(repo.flows) != 0 {
+				t.Fatalf("failure persisted session or left flow: sessions=%d flows=%d", len(repo.sessions), len(repo.flows))
+			}
+		})
+	}
+}
+
 func TestOIDCLoginHTTPRoundTrip(t *testing.T) {
 	repo, p, _, _, mux := newRealOIDCHTTP(t, "subject-1")
 	repo.identities[p.Issuer()+"\x00subject-1"] = "user-1"
@@ -579,6 +613,11 @@ func TestOIDCLoginHTTPRoundTrip(t *testing.T) {
 	if !cleared || session == "" {
 		t.Fatalf("flow cleared=%v session=%q", cleared, session)
 	}
+	for _, cookie := range cookies {
+		if cookie.Name == "tendo_session" && (cookie.Path != "/" || !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge != int(identity.SessionLifetime/time.Second)) {
+			t.Fatalf("session cookie attributes=%+v", cookie)
+		}
+	}
 	sum := sha256.Sum256([]byte(session))
 	if _, ok := repo.sessions[string(sum[:])]; !ok {
 		t.Fatal("new session not stored")
@@ -589,17 +628,26 @@ func TestOIDCLinkHTTPRoundTripRevokesOldSession(t *testing.T) {
 	old := "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 	query, flow := doOIDCStart(t, mux, "link", old)
 	w := performOIDCCallback(t, p, mux, query, flow, old)
-	if w.Code != 303 || w.Header().Get("Location") != "/account#oidc=connected" || w.Header().Get("Referrer-Policy") != "no-referrer" || w.Body.Len() != 0 {
+	if w.Code != 303 || w.Header().Get("Location") != "/account#oidc=connected" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" || w.Body.Len() != 0 {
 		t.Fatalf("status=%d headers=%v body=%q", w.Code, w.Header(), w.Body.String())
 	}
 	var session string
-	for _, c := range w.Result().Cookies() {
+	cookies := w.Result().Cookies()
+	for _, c := range cookies {
 		if c.Name == "tendo_session" {
 			session = c.Value
 		}
 	}
-	if session == "" {
-		t.Fatal("missing new session")
+	if len(cookies) != 2 || session == "" {
+		t.Fatalf("missing new session or flow clearing cookie: %+v", cookies)
+	}
+	for _, cookie := range cookies {
+		if cookie.Name == "tendo_oidc" && (cookie.Value != "" || cookie.MaxAge >= 0 || cookie.Path != "/" || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode) {
+			t.Fatalf("flow cookie clearing attributes=%+v", cookie)
+		}
+		if cookie.Name == "tendo_session" && (cookie.Path != "/" || !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge != int(identity.SessionLifetime/time.Second)) {
+			t.Fatalf("session cookie attributes=%+v", cookie)
+		}
 	}
 	oldHash := sha256.Sum256([]byte(old))
 	if _, ok := repo.sessions[string(oldHash[:])]; ok {
