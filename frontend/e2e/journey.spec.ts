@@ -4311,6 +4311,108 @@ test.describe('Tendo production journey', () => {
     } finally { await free.context.close(); }
   });
 
+  test('n27. two signed-in sessions reject stale item edits and undo without overwriting persisted state', async ({ browser }) => {
+    test.setTimeout(120_000);
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+    const subjectsResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
+    expect(subjectsResponse.status()).toBe(200);
+    const subjectId = ((await subjectsResponse.json()) as { items: Array<{ id: string }> }).items[0]!.id;
+    const title = 'Two-session concurrency E2E';
+    const create = await page.request.post(`/api/v1/households/${householdId}/items`, {
+      headers: { Origin: baseURL, 'Idempotency-Key': `e2e-two-session-${crypto.randomUUID()}` },
+      data: { title, subjectId },
+    });
+    expect(create.status()).toBe(201);
+    const created = await create.json() as { id: string };
+    const itemPath = `/api/v1/households/${householdId}/items/${created.id}`;
+    const completionsPath = `${itemPath}/completions`;
+    const contexts: import('@playwright/test').BrowserContext[] = [];
+    const actorContext = async () => {
+      const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+      contexts.push(context); // owned by the cleanup below before any step can fail
+      const actor = await context.newPage();
+      await trackInFlightApiFetches(actor);
+      await actor.goto('/');
+      await actor.getByLabel(en['login.login']).fill(ownerLogin);
+      await actor.getByLabel(en['login.password']).fill(ownerPassword);
+      await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      await expect(actor.getByRole('button', { name: en['header.signOut'] })).toBeVisible();
+      await actor.goto(`/items/${created.id}`);
+      await expect(actor.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      return { context, actor };
+    };
+    let primaryFailure: unknown;
+    try {
+      const first = await actorContext();
+      const second = await actorContext();
+      // Both item detail forms load version 1 (asynchronous GET + choices) before session A commits.
+      await first.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+      await second.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+      const formA = first.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      const formB = second.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(formA.getByLabel(en['items.title'])).toHaveValue(title);
+      await expect(formB.getByLabel(en['items.title'])).toHaveValue(title);
+      await formA.getByLabel(en['items.title']).fill('Two-session winner');
+      await formA.getByRole('button', { name: en['itemDetail.save'] }).click();
+      await expect(first.actor.getByRole('status')).toContainText(en['itemDetail.updated']);
+      await formB.getByLabel(en['items.title']).fill('Two-session stale draft');
+      await formB.getByRole('button', { name: en['itemDetail.save'] }).click();
+      await expect(second.actor.getByText(en['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
+      await expect(second.actor.getByText(en['itemDetail.edit.conflictHint'], { exact: true })).toBeVisible();
+      await expect(formB.getByLabel(en['items.title'])).toHaveValue('Two-session stale draft');
+      await expect(second.actor.getByText('Two-session winner', { exact: true })).toBeVisible();
+
+      // The documented recovery is an explicit second save against the rebased ETag.
+      await formB.getByRole('button', { name: en['itemDetail.save'] }).click();
+      await expect(second.actor.getByRole('status')).toContainText(en['itemDetail.updated']);
+      let current = await second.actor.request.get(itemPath);
+      expect(current.status()).toBe(200);
+      expect(current.headers()['etag']).toBe('"3"');
+      expect(await current.json()).toMatchObject({ id: created.id, title: 'Two-session stale draft', done: false });
+      const staleETag = current.headers()['etag']!;
+
+      // Session A completes with the current ETag; session B tries to undo using its captured stale version.
+      const completion = await first.actor.request.post(completionsPath, {
+        headers: { Origin: baseURL, 'If-Match': staleETag, 'Idempotency-Key': `e2e-two-session-complete-${crypto.randomUUID()}` },
+        data: { completedOn: expectedCompletionDate },
+      });
+      expect(completion.status()).toBe(201);
+      const receipt = await completion.json() as { id: string; undoneAt: string | null };
+      expect(receipt.undoneAt).toBeNull();
+      const completedItem = await first.actor.request.get(itemPath);
+      expect(completedItem.status()).toBe(200);
+      const completionETag = completedItem.headers()['etag']!;
+      expect(completionETag).toBe('"4"');
+      const staleUndo = await second.actor.request.patch(`${completionsPath}/${receipt.id}`, {
+        headers: { Origin: baseURL, 'If-Match': staleETag }, data: { undone: true },
+      });
+      expect(staleUndo.status(), 'stale completion undo must be rejected with 412').toBe(412);
+      current = await second.actor.request.get(itemPath);
+      expect(current.status()).toBe(200);
+      expect(current.headers()['etag']).toBe(completionETag);
+      expect(await current.json()).toMatchObject({ id: created.id, title: 'Two-session stale draft', done: true, lastCompletedOn: expectedCompletionDate });
+      const history = await second.actor.request.get(completionsPath);
+      expect(history.status()).toBe(200);
+      const receipts = ((await history.json()) as { items: Array<{ id: string; undoneAt: string | null }> }).items;
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]).toMatchObject({ id: receipt.id, undoneAt: null });
+    } catch (error) {
+      primaryFailure = error;
+    }
+    // Attempt every cleanup step; a cleanup failure is reported only when the test body passed.
+    const cleanupFailures: unknown[] = [];
+    for (const context of contexts) await context.close().catch((error: unknown) => cleanupFailures.push(error));
+    try {
+      const latest = await page.request.get(itemPath);
+      expect(latest.status(), 'n27 cleanup reads item').toBe(200);
+      const archive = await page.request.patch(itemPath, { headers: { Origin: baseURL, 'If-Match': latest.headers()['etag']! }, data: { archived: true } });
+      expect(archive.status(), 'n27 cleanup archives item').toBe(200);
+    } catch (error) { cleanupFailures.push(error); }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailures.length) throw cleanupFailures[0];
+  });
+
   test('r. security headers are present and the journey produced no console errors', async () => {
     const response = await page.goto('/');
     expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
