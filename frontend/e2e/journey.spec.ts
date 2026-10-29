@@ -2297,9 +2297,9 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('n15. responsive: every household route fits 320, 390, 768 and 1440 px without horizontal overflow or clipped primary actions', async () => {
+  test('n15. responsive: every household route fits 320, 360, 390, 768 and 1440 px without horizontal overflow or clipped primary actions', async () => {
     const title = 'Responsive route evidence item';
-    const widths = [320, 390, 768, 1440];
+    const widths = [320, 360, 390, 768, 1440];
     await page.goto('/');
     await addItem({ title, subject: 'Anička' });
     const created = await serverItem(title);
@@ -2356,6 +2356,32 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
         // n9 already linked the owner, so Account has no primary action: assert the linked section content instead.
         await check(`Account ${width}`, [], [main.getByRole('heading', { level: 2, name: en['account.oidc.title'].replace('{provider}', 'OIDC Smoke Provider') }), main.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))]);
+
+        // SPA routes must also work as direct deep links after a reload and remain traversable
+        // through the browser history. Every implemented signed-in route is sampled at each width;
+        // invite/login/setup lifecycle behavior is covered by n7/n25, a–d, and n19.
+        const routeChecks = [
+          { path: '/', heading: householdName },
+          { path: '/items', heading: en['allItems.title'] },
+          { path: `/items/${created.id}`, heading: title },
+          { path: '/people', heading: en['subjects.title'] },
+          { path: '/members', heading: en['members.title'] },
+          { path: '/account', heading: en['account.title'] },
+        ];
+        for (const route of routeChecks) {
+          await page.goto(route.path);
+          await expect(page.getByRole('heading', { level: 1, name: route.heading })).toBeVisible();
+          await page.reload();
+          await expect(page.getByRole('heading', { level: 1, name: route.heading })).toBeVisible();
+        }
+        await page.goto('/');
+        await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+        await page.goBack();
+        await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+        await page.goForward();
+        await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+        await expectNoHorizontalOverflow(`route history ${width}`);
       }
 
       await page.setViewportSize({ width: 320, height: 800 });
@@ -2480,6 +2506,160 @@ test.describe('Tendo production journey', () => {
     const completions = await serverCompletions(saved.id);
     expect(completions).toHaveLength(1);
     expect(completions[0]!.undoneAt).not.toBeNull();
+  });
+
+  // G6 keyboard pairings beyond n16's item flow: each control is reached with Tab and activated with
+  // Enter/arrow keys only; the visible outcome, focus destination and persisted server state are asserted.
+  test('n16b. keyboard only: People add/type/edit/archive/undo, Members invite/revoke cancel/confirm, All items search/open/back', async () => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const subjectsPath = `/api/v1/households/${householdId}/subjects`;
+    const invitationsPath = `/api/v1/households/${householdId}/invitations`;
+    const subjectName = 'Keyboard pairing shed';
+    const renamedSubject = 'Keyboard pairing garden';
+    const itemTitle = 'Keyboard pairing search target';
+    const main = page.getByRole('main');
+    const tabTo = async (target: import('@playwright/test').Locator, description: string) => {
+      await expect(target, `${description} rendered`).toBeVisible();
+      for (let i = 0; i < 200; i += 1) {
+        if (await target.evaluate((element) => element === document.activeElement)) return;
+        await page.keyboard.press('Tab');
+      }
+      throw new Error(`Could not tab to ${description} within 200 stops`);
+    };
+    const startFromTop = async () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const activeSubjects = async () => {
+      const response = await page.request.get(subjectsPath, { params: { archived: 'false', limit: '100' } });
+      expect(response.status()).toBe(200);
+      return (await response.json()) as { items: Array<{ id: string; name: string; type: string; archived: boolean }>; nextCursor: string | null };
+    };
+    const invitationList = async () => {
+      const response = await page.request.get(invitationsPath, { params: { limit: '100' } });
+      expect(response.status()).toBe(200);
+      return (await response.json()) as { items: Array<{ id: string; status: string }>; nextCursor: string | null };
+    };
+    let subjectId: string | undefined;
+    let itemId: string | undefined;
+    let primaryFailure: unknown;
+    try {
+      // People: Add → name → type radio by arrow key → submit; Archive → Undo restores focus to the row; Edit → Save.
+      const before = await activeSubjects();
+      expect(before.items.length, 'n16b People fixture fits on the first UI page').toBeLessThan(50);
+      await page.goto('/people');
+      await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+      await startFromTop();
+      await tabTo(main.getByRole('button', { name: en['subjects.add'], exact: true }), 'People Add');
+      await page.keyboard.press('Enter');
+      const addForm = main.getByRole('form', { name: en['subjects.add.formLabel'] });
+      await expect(addForm.getByLabel(en['subjects.name'])).toBeFocused();
+      await page.keyboard.type(subjectName);
+      await tabTo(addForm.getByRole('radio', { name: en['subjects.type.person'] }), 'checked Person type');
+      await page.keyboard.press('ArrowRight');
+      await expect(addForm.getByRole('radio', { name: en['subjects.type.home'] })).toBeChecked();
+      await tabTo(addForm.getByRole('button', { name: en['subjects.add.submit'], exact: true }), 'People submit');
+      await page.keyboard.press('Enter');
+      await expect(main.getByRole('status')).toContainText(en['subjects.notice.added'].replace('{name}', subjectName));
+      const created = (await activeSubjects()).items.find((subject) => subject.name === subjectName);
+      expect(created, 'n16b keyboard-added subject persisted').toMatchObject({ type: 'home', archived: false });
+      subjectId = created!.id;
+
+      await tabTo(main.getByRole('button', { name: en['subjects.archive.label'].replace('{name}', subjectName) }), 'Archive subject');
+      await page.keyboard.press('Enter');
+      await expect(main.getByRole('status')).toContainText(en['subjects.notice.archived'].replace('{name}', subjectName));
+      expect((await activeSubjects()).items.some((subject) => subject.id === subjectId), 'n16b archived subject leaves active list').toBe(false);
+      await tabTo(main.getByRole('button', { name: en['subjects.undo'], exact: true }), 'Undo archive');
+      await page.keyboard.press('Enter');
+      const editButton = main.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', subjectName) });
+      await expect(editButton, 'n16b undo returns focus to the restored row').toBeFocused();
+      expect((await activeSubjects()).items.some((subject) => subject.id === subjectId), 'n16b undo restores subject').toBe(true);
+
+      await page.keyboard.press('Enter');
+      const editName = main.getByLabel(en['subjects.name']);
+      await expect(editName).toBeFocused();
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.type(renamedSubject);
+      await tabTo(main.getByRole('button', { name: en['subjects.save'], exact: true }), 'People Save');
+      await page.keyboard.press('Enter');
+      await expect(main.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', renamedSubject) }), 'n16b save returns focus to the row').toBeFocused();
+      expect((await activeSubjects()).items.find((subject) => subject.id === subjectId), 'n16b keyboard rename persisted').toMatchObject({ name: renamedSubject, type: 'home' });
+
+      // Members: Create invite link focuses the link; Revoke → Cancel restores focus; Revoke → Yes revokes.
+      const invitationsBefore = await invitationList();
+      expect(invitationsBefore.nextCursor, 'n16b invitations fit on one API page').toBeNull();
+      expect(invitationsBefore.items.length, 'n16b invitations fit on the first UI page').toBeLessThan(49);
+      await page.goto('/members');
+      await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await startFromTop();
+      await tabTo(main.getByRole('button', { name: en['members.invite.action'], exact: true }), 'Create invite link');
+      await page.keyboard.press('Enter');
+      const link = main.getByLabel(en['members.invite.link']);
+      await expect(link, 'n16b new invite link takes focus').toBeFocused();
+      await expect(link).toHaveValue(/\/invite#/);
+      const added = (await invitationList()).items.filter((invitation) => !invitationsBefore.items.some((old) => old.id === invitation.id));
+      expect(added, 'n16b exactly one invitation created').toHaveLength(1);
+      expect(added[0]!.status).toBe('pending');
+      const invitationRows = main.getByRole('heading', { name: en['members.invitations.title'], exact: true }).locator('xpath=following-sibling::ul[1]/li');
+      const newestRow = invitationRows.last(); // invitations are listed oldest first by ID
+      const revoke = newestRow.getByRole('button', { name: en['members.invitation.revoke'], exact: true });
+      await tabTo(revoke, 'Revoke newest invitation');
+      await page.keyboard.press('Enter');
+      await expect(newestRow.getByRole('button', { name: en['members.invitation.yes'], exact: true }), 'n16b confirm takes focus').toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(newestRow.getByRole('button', { name: en['members.invitation.cancel'], exact: true })).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(revoke, 'n16b cancel restores focus to Revoke').toBeFocused();
+      expect((await invitationList()).items.find((invitation) => invitation.id === added[0]!.id)?.status, 'n16b cancel keeps invitation pending').toBe('pending');
+      await page.keyboard.press('Enter');
+      await expect(newestRow.getByRole('button', { name: en['members.invitation.yes'], exact: true })).toBeFocused();
+      await page.keyboard.press('Enter');
+      // The Members notice container (role=status, tabIndex=-1) receives focus, not <body>.
+      const revokedNotice = main.getByRole('status').filter({ hasText: en['members.invite.revoked'] });
+      await expect(revokedNotice).toHaveCount(1);
+      await expect(revokedNotice, 'n16b revoke notice takes focus').toBeFocused();
+      expect((await invitationList()).items.find((invitation) => invitation.id === added[0]!.id)?.status, 'n16b keyboard revoke persisted').toBe('revoked');
+
+      // All items: search field → Enter applies q; result link → detail heading; Back link restores the filtered URL.
+      const create = await page.request.post(`/api/v1/households/${householdId}/items`, {
+        headers: { Origin: baseURL, 'Idempotency-Key': `e2e-keyboard-pairing-${crypto.randomUUID()}` },
+        data: { title: itemTitle, subjectId },
+      });
+      expect(create.status()).toBe(201);
+      itemId = ((await create.json()) as { id: string }).id;
+      await page.goto('/items');
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      await startFromTop();
+      const search = main.getByRole('searchbox', { name: en['allItems.search'], exact: true });
+      await tabTo(search, 'All items search');
+      await page.keyboard.type(itemTitle);
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/[?&]q=Keyboard\+pairing\+search\+target/);
+      const result = main.getByRole('link', { name: itemTitle, exact: true });
+      await expect(main.getByRole('region', { name: en['allItems.results'] }).getByRole('link')).toHaveCount(1);
+      await tabTo(result, 'search result');
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('heading', { level: 1, name: itemTitle })).toBeFocused();
+      await expect(page).toHaveURL(new RegExp(`/items/${itemId}$`));
+      await startFromTop();
+      await tabTo(page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }), 'Back to all items');
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/\/items\?q=Keyboard\+pairing\+search\+target$/);
+      await expect(main.getByRole('searchbox', { name: en['allItems.search'], exact: true })).toHaveValue(itemTitle);
+      await expect(main.getByRole('link', { name: itemTitle, exact: true })).toBeVisible();
+    } catch (error) {
+      primaryFailure = error;
+    }
+    // Attempt every cleanup independently; a cleanup failure is reported only when the test body passed.
+    const cleanupFailures: unknown[] = [];
+    for (const path of [itemId ? `/api/v1/households/${householdId}/items/${itemId}` : null, subjectId ? `${subjectsPath}/${subjectId}` : null]) {
+      if (!path) continue;
+      try {
+        const current = await page.request.get(path);
+        expect(current.status(), `n16b cleanup reads ${path}`).toBe(200);
+        const archived = await page.request.patch(path, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true } });
+        expect(archived.status(), `n16b cleanup archives ${path}`).toBe(200);
+      } catch (error) { cleanupFailures.push(error); }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailures.length) throw cleanupFailures[0];
   });
 
   test('n17. network failure and server errors show recoverable states', async () => {
