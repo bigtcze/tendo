@@ -83,121 +83,181 @@ func originMiddlewareConfig(config originConfig, err error) func(http.Handler) h
 }
 
 func requestOrigin(r *http.Request, config originConfig) (RequestMetadata, int) {
-	remoteHost, _, splitErr := net.SplitHostPort(r.RemoteAddr)
-	if splitErr != nil {
+	metadata, peer := socketMetadata(r)
+	if trustedPeer(peer, config.trusted) {
+		if status := trustedForwardedMetadata(r, &metadata); status != 0 {
+			return RequestMetadata{}, status
+		}
+	}
+	if !canonicalAuthority(metadata, config.public) {
+		return RequestMetadata{}, http.StatusMisdirectedRequest
+	}
+	if status := validateBrowserOrigin(r, config.public); status != 0 {
+		return RequestMetadata{}, status
+	}
+	return metadata, 0
+}
+
+func socketMetadata(r *http.Request) (RequestMetadata, net.IP) {
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
 		remoteHost = r.RemoteAddr
 	}
-	clientIP := net.ParseIP(remoteHost)
+	peer := net.ParseIP(remoteHost)
 	metadata := RequestMetadata{Scheme: "http", Host: r.Host}
 	if r.TLS != nil {
 		metadata.Scheme = "https"
 	}
-	if clientIP != nil {
-		metadata.ClientIP = clientIP.String()
+	if peer != nil {
+		metadata.ClientIP = peer.String()
 	}
-	if remoteAddr, err := netip.ParseAddr(remoteHost); err == nil && remoteAddr.Is6() && remoteAddr.Zone() == "" {
-		metadata.ClientIP = remoteAddr.String()
+	if addr, err := netip.ParseAddr(remoteHost); err == nil && addr.Is6() && addr.Zone() == "" {
+		metadata.ClientIP = addr.String()
 	}
-	trusted := false
-	for _, network := range config.trusted {
-		if clientIP != nil && network.Contains(clientIP) {
-			trusted = true
-			break
+	return metadata, peer
+}
+
+func trustedPeer(peer net.IP, networks []*net.IPNet) bool {
+	for _, network := range networks {
+		if peer != nil && network.Contains(peer) {
+			return true
 		}
 	}
-	if trusted {
-		forwarded, present, status := forwardedValues(r)
+	return false
+}
+
+func trustedForwardedMetadata(r *http.Request, metadata *RequestMetadata) int {
+	forwarded, present, status := forwardedValues(r)
+	if status != 0 {
+		return status
+	}
+	if !present {
+		x, xPresent, status := xForwardedValues(r)
 		if status != 0 {
-			return RequestMetadata{}, status
+			return status
 		}
-		if present {
-			x, xPresent, status := xForwardedValues(r)
-			if status != 0 {
-				return RequestMetadata{}, status
+		if xPresent {
+			if x.scheme != "" {
+				metadata.Scheme, metadata.Host = x.scheme, x.host
 			}
-			if xPresent && (x.scheme != forwarded.scheme || !sameAuthority(x.scheme, x.host, forwarded.host) || x.clientIP != "" && forwarded.clientIP != "" && x.clientIP != forwarded.clientIP) {
-				return RequestMetadata{}, http.StatusBadRequest
-			}
-			metadata.Scheme, metadata.Host = forwarded.scheme, forwarded.host
-			if forwarded.clientIP != "" {
-				metadata.ClientIP = forwarded.clientIP
-			}
-		} else {
-			x, supplied, status := xForwardedValues(r)
-			if status != 0 {
-				return RequestMetadata{}, status
-			}
-			if supplied {
-				if x.scheme != "" {
-					metadata.Scheme, metadata.Host = x.scheme, x.host
-				}
-				if x.clientIP != "" {
-					metadata.ClientIP = x.clientIP
-				}
+			if x.clientIP != "" {
+				metadata.ClientIP = x.clientIP
 			}
 		}
+		return 0
 	}
+	x, xPresent, status := xForwardedValues(r)
+	if status != 0 {
+		return status
+	}
+	if xPresent && !forwardingAgrees(x, forwarded) {
+		return http.StatusBadRequest
+	}
+	return applyForwardedMetadata(metadata, forwarded)
+}
+
+func applyForwardedMetadata(metadata *RequestMetadata, forwarded forwardedOrigin) int {
+	metadata.Scheme, metadata.Host = forwarded.scheme, forwarded.host
+	if forwarded.clientIP != "" {
+		metadata.ClientIP = forwarded.clientIP
+	}
+	return 0
+}
+
+func forwardingAgrees(x xForwardedOrigin, forwarded forwardedOrigin) bool {
+	return x.scheme == forwarded.scheme && sameAuthority(x.scheme, x.host, forwarded.host) &&
+		(x.clientIP == "" || forwarded.clientIP == "" || x.clientIP == forwarded.clientIP)
+}
+
+func canonicalAuthority(metadata RequestMetadata, public parsedOrigin) bool {
 	request, ok := parseAuthority(metadata.Scheme, metadata.Host)
-	if !ok || !sameParsedOrigin(request, config.public) {
-		return RequestMetadata{}, http.StatusMisdirectedRequest
-	}
+	return ok && sameParsedOrigin(request, public)
+}
+
+func validateBrowserOrigin(r *http.Request, public parsedOrigin) int {
 	origins := r.Header.Values("Origin")
 	if len(origins) > 1 {
-		return RequestMetadata{}, http.StatusForbidden
+		return http.StatusForbidden
 	}
 	if len(origins) == 1 {
 		origin, ok := parseOrigin(origins[0])
-		if !ok || !sameParsedOrigin(origin, config.public) {
-			return RequestMetadata{}, http.StatusForbidden
+		if !ok || !sameParsedOrigin(origin, public) {
+			return http.StatusForbidden
 		}
-	} else if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-		return RequestMetadata{}, http.StatusForbidden
+		return 0
 	}
-
-	return metadata, 0
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+		return http.StatusForbidden
+	}
+	return 0
 }
 
 type forwardedOrigin struct{ scheme, host, clientIP string }
 
 func forwardedValues(r *http.Request) (forwardedOrigin, bool, int) {
-	values := r.Header.Values("Forwarded")
-	if len(values) == 0 {
-		return forwardedOrigin{}, false, 0
+	value, present, status := singleForwardedEnvelope(r.Header.Values("Forwarded"))
+	if status != 0 || !present {
+		return forwardedOrigin{}, present, status
 	}
-	if len(values) != 1 || strings.TrimSpace(values[0]) == "" || strings.Contains(values[0], ",") {
+	params, ok := decodeForwardedParams(value)
+	if !ok {
 		return forwardedOrigin{}, false, http.StatusBadRequest
 	}
+	return validateForwardedParams(params)
+}
+
+func singleForwardedEnvelope(values []string) (string, bool, int) {
+	if len(values) == 0 {
+		return "", false, 0
+	}
+	if len(values) != 1 || strings.TrimSpace(values[0]) == "" || strings.Contains(values[0], ",") {
+		return "", false, http.StatusBadRequest
+	}
+	return values[0], true, 0
+}
+
+func decodeForwardedParams(value string) (map[string]string, bool) {
 	params := map[string]string{}
-	for _, part := range strings.Split(values[0], ";") {
-		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+	for _, part := range strings.Split(value, ";") {
+		key, raw, ok := strings.Cut(strings.TrimSpace(part), "=")
 		key = strings.ToLower(strings.TrimSpace(key))
-		value = strings.TrimSpace(value)
-		if !ok || (key != "proto" && key != "host" && key != "for") || key == "" || value == "" {
-			return forwardedOrigin{}, false, http.StatusBadRequest
+		raw = strings.TrimSpace(raw)
+		if !ok || !forwardedKey(key) || raw == "" {
+			return nil, false
 		}
 		if _, exists := params[key]; exists {
-			return forwardedOrigin{}, false, http.StatusBadRequest
+			return nil, false
 		}
-		decoded, ok := forwardedValue(value)
+		decoded, ok := forwardedValue(raw)
 		if !ok {
-			return forwardedOrigin{}, false, http.StatusBadRequest
+			return nil, false
 		}
 		params[key] = decoded
 	}
-	if params["proto"] == "" || params["host"] == "" {
+	return params, true
+}
+
+func forwardedKey(key string) bool {
+	return key == "proto" || key == "host" || key == "for"
+}
+
+func validateForwardedParams(params map[string]string) (forwardedOrigin, bool, int) {
+	proto, host := params["proto"], params["host"]
+	if proto == "" || host == "" {
 		return forwardedOrigin{}, false, http.StatusBadRequest
 	}
-	if _, ok := parseAuthority(params["proto"], params["host"]); !ok {
+	if _, ok := parseAuthority(proto, host); !ok {
 		return forwardedOrigin{}, false, http.StatusBadRequest
 	}
 	clientIP := ""
 	if value := params["for"]; value != "" {
-		clientIP, _ = parseForwardedIP(value)
-		if clientIP == "" {
+		var ok bool
+		clientIP, ok = parseForwardedIP(value)
+		if !ok {
 			return forwardedOrigin{}, false, http.StatusBadRequest
 		}
 	}
-	return forwardedOrigin{params["proto"], params["host"], clientIP}, true, 0
+	return forwardedOrigin{proto, host, clientIP}, true, 0
 }
 
 func forwardedValue(value string) (string, bool) {
@@ -231,50 +291,63 @@ func parseForwardedIP(value string) (string, bool) {
 type xForwardedOrigin struct{ scheme, host, clientIP string }
 
 func xForwardedValues(r *http.Request) (xForwardedOrigin, bool, int) {
-	proto, host, forwardedFor := r.Header.Values("X-Forwarded-Proto"), r.Header.Values("X-Forwarded-Host"), r.Header.Values("X-Forwarded-For")
+	proto, host, forwardedFor, present, status := xForwardedHeaders(r.Header)
+	if status != 0 || !present {
+		return xForwardedOrigin{}, present, status
+	}
+	return validateXForwarded(proto, host, forwardedFor)
+}
+
+func xForwardedHeaders(header http.Header) ([]string, []string, []string, bool, int) {
+	proto := header.Values("X-Forwarded-Proto")
+	host := header.Values("X-Forwarded-Host")
+	forwardedFor := header.Values("X-Forwarded-For")
 	if len(proto) > 1 || len(host) > 1 || len(forwardedFor) > 1 {
-		return xForwardedOrigin{}, false, http.StatusBadRequest
+		return nil, nil, nil, false, http.StatusBadRequest
 	}
-	if len(proto) == 0 && len(host) == 0 && len(forwardedFor) == 0 {
-		return xForwardedOrigin{}, false, 0
+	present := len(proto)+len(host)+len(forwardedFor) > 0
+	if !present {
+		return nil, nil, nil, false, 0
 	}
+	return proto, host, forwardedFor, true, 0
+}
+
+func validateXForwarded(proto, host, forwardedFor []string) (xForwardedOrigin, bool, int) {
 	if len(forwardedFor) > 0 && (len(proto) != 1 || len(host) != 1) {
 		return xForwardedOrigin{}, false, http.StatusBadRequest
 	}
 	if len(proto) == 0 && len(host) == 0 {
-		clientIP := ""
-		if len(forwardedFor) == 1 {
-			if strings.Contains(forwardedFor[0], ",") || strings.TrimSpace(forwardedFor[0]) != forwardedFor[0] {
-				return xForwardedOrigin{}, false, http.StatusBadRequest
-			}
-			ip := net.ParseIP(forwardedFor[0])
-			if ip == nil {
-				return xForwardedOrigin{}, false, http.StatusBadRequest
-			}
-			clientIP = ip.String()
+		ip, ok := forwardedClientIP(forwardedFor)
+		if !ok {
+			return xForwardedOrigin{}, false, http.StatusBadRequest
 		}
-		return xForwardedOrigin{clientIP: clientIP}, true, 0
+		return xForwardedOrigin{clientIP: ip}, true, 0
 	}
 	if len(proto) != 1 || len(host) != 1 || strings.ContainsAny(proto[0]+host[0], ",\r\n\t ") || proto[0] != "http" && proto[0] != "https" {
 		return xForwardedOrigin{}, false, http.StatusBadRequest
 	}
-	if len(proto) == 1 {
-		if _, ok := parseAuthority(proto[0], host[0]); !ok {
-			return xForwardedOrigin{}, false, http.StatusBadRequest
-		}
+	if _, ok := parseAuthority(proto[0], host[0]); !ok {
+		return xForwardedOrigin{}, false, http.StatusBadRequest
 	}
-	clientIP := ""
-	if len(forwardedFor) == 1 {
-		if strings.Contains(forwardedFor[0], ",") || strings.TrimSpace(forwardedFor[0]) != forwardedFor[0] {
-			return xForwardedOrigin{}, false, http.StatusBadRequest
-		}
-		ip := net.ParseIP(forwardedFor[0])
-		if ip == nil {
-			return xForwardedOrigin{}, false, http.StatusBadRequest
-		}
-		clientIP = ip.String()
+	ip, ok := forwardedClientIP(forwardedFor)
+	if !ok {
+		return xForwardedOrigin{}, false, http.StatusBadRequest
 	}
-	return xForwardedOrigin{proto[0], host[0], clientIP}, true, 0
+	return xForwardedOrigin{proto[0], host[0], ip}, true, 0
+}
+
+func forwardedClientIP(values []string) (string, bool) {
+	if len(values) == 0 {
+		return "", true
+	}
+	if strings.Contains(values[0], ",") || strings.TrimSpace(values[0]) != values[0] {
+		return "", false
+	}
+	ip := net.ParseIP(values[0])
+	if ip == nil {
+		return "", false
+	}
+	return ip.String(), true
 }
 
 func parseOrigin(raw string) (parsedOrigin, bool) {

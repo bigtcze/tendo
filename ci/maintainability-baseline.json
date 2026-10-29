@@ -30,7 +30,7 @@
   {
     "kind": "file_lines",
     "path": "scripts/e2e-native-runner.py",
-    "allowed": 859,
+    "allowed": 857,
     "reason": "Native E2E runner supervises server/browser processes, diagnostics, cancellation, and cleanup; separate lifecycle helpers while preserving fail-fast cleanup.",
     "owner": "tooling-scripts"
   },
@@ -170,42 +170,10 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/platform/httporigin/origin.go",
-    "name": "ParseAuthority",
-    "allowed": 35,
-    "reason": "Authority parser validates host/port/origin syntax used at the HTTP boundary; extract parse stages while preserving accepted-origin rules.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/platform/httpx/jsonapi.go",
     "name": "parseListParams",
     "allowed": 18,
     "reason": "Parses list query parameters including limit and cursor values; isolate parameter validation while retaining HTTP problem mapping.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/httpx/origin.go",
-    "name": "forwardedValues",
-    "allowed": 19,
-    "reason": "Parses Forwarded header elements into trusted host/proto values; simplify parsing while preserving invalid/duplicate header rejection.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/httpx/origin.go",
-    "name": "requestOrigin",
-    "allowed": 34,
-    "reason": "HTTP origin resolver interprets Origin and forwarded headers; split trusted-proxy parsing while preserving spoofing protections.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/httpx/origin.go",
-    "name": "xForwardedValues",
-    "allowed": 27,
-    "reason": "Parses X-Forwarded host/proto values under proxy trust rules; separate normalization from validation without trusting unconfigured peers.",
     "owner": "backend-platform"
   },
   {
@@ -443,23 +411,9 @@
   },
   {
     "kind": "long_lines",
-    "path": "backend/internal/platform/httporigin/origin.go",
-    "allowed": 1,
-    "reason": "Authority parser validates host/port/origin syntax used at the HTTP boundary; extract parse stages while preserving accepted-origin rules.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "long_lines",
     "path": "backend/internal/platform/httpx/jsonapi.go",
     "allowed": 3,
     "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/httpx/origin.go",
-    "allowed": 1,
-    "reason": "HTTP origin resolver interprets Origin and forwarded headers; split trusted-proxy parsing while preserving spoofing protections.",
     "owner": "backend-platform"
   },
   {

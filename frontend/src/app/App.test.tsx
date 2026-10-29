@@ -164,6 +164,31 @@ describe('signed in', () => {
     }
   });
 
+  it('shared navigation and popstate restore the prior route and focus', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const nav = await screen.findByRole('navigation', { name: 'Household navigation' });
+    const people = within(nav).getByRole('link', { name: 'People and things' });
+    people.focus();
+    expect(people).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'People and things' })).toHaveFocus();
+    expect(window.location.pathname).toBe('/people');
+
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('link', { name: 'Household members' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Household members' })).toHaveFocus();
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe('/people'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'People and things' })).toHaveFocus();
+    window.history.forward();
+    await waitFor(() => expect(window.location.pathname).toBe('/members'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Household members' })).toHaveFocus();
+  });
+
   it('opens the selected group in All items from the bounded Home link', async () => {
     const base = `/api/v1/households/${HOUSEHOLD_ID}`;
     const entries = Array.from({ length: 101 }, (_, index) => ({ id: `needs-${index}`, subjectId: 's-1', responsibleUserId: null, title: `Needs ${index}`, notes: null, attentionOn: null, recurrence: null, workflowState: 'open' as const, attention: 'needs_attention' as const, archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }));
