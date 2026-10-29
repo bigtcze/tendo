@@ -4147,8 +4147,10 @@ test.describe('Tendo production journey', () => {
     const created = await create.json() as { id: string };
     const itemPath = `/api/v1/households/${householdId}/items/${created.id}`;
     const completionsPath = `${itemPath}/completions`;
+    const contexts: import('@playwright/test').BrowserContext[] = [];
     const actorContext = async () => {
       const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+      contexts.push(context); // owned by the cleanup below before any step can fail
       const actor = await context.newPage();
       await trackInFlightApiFetches(actor);
       await actor.goto('/');
@@ -4160,14 +4162,17 @@ test.describe('Tendo production journey', () => {
       await expect(actor.getByRole('heading', { level: 1, name: title })).toBeVisible();
       return { context, actor };
     };
-    const first = await actorContext();
-    const second = await actorContext();
+    let primaryFailure: unknown;
     try {
-      // Both item detail forms capture version 1 before session A commits.
+      const first = await actorContext();
+      const second = await actorContext();
+      // Both item detail forms load version 1 (asynchronous GET + choices) before session A commits.
       await first.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
       await second.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
       const formA = first.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       const formB = second.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(formA.getByLabel(en['items.title'])).toHaveValue(title);
+      await expect(formB.getByLabel(en['items.title'])).toHaveValue(title);
       await formA.getByLabel(en['items.title']).fill('Two-session winner');
       await formA.getByRole('button', { name: en['itemDetail.save'] }).click();
       await expect(first.actor.getByRole('status')).toContainText(en['itemDetail.updated']);
@@ -4212,11 +4217,20 @@ test.describe('Tendo production journey', () => {
       const receipts = ((await history.json()) as { items: Array<{ id: string; undoneAt: string | null }> }).items;
       expect(receipts).toHaveLength(1);
       expect(receipts[0]).toMatchObject({ id: receipt.id, undoneAt: null });
-    } finally {
-      await first.context.close();
-      await second.context.close();
-      await page.request.patch(itemPath, { headers: { Origin: baseURL, 'If-Match': (await page.request.get(itemPath)).headers()['etag']! }, data: { archived: true } });
+    } catch (error) {
+      primaryFailure = error;
     }
+    // Attempt every cleanup step; a cleanup failure is reported only when the test body passed.
+    const cleanupFailures: unknown[] = [];
+    for (const context of contexts) await context.close().catch((error: unknown) => cleanupFailures.push(error));
+    try {
+      const latest = await page.request.get(itemPath);
+      expect(latest.status(), 'n27 cleanup reads item').toBe(200);
+      const archive = await page.request.patch(itemPath, { headers: { Origin: baseURL, 'If-Match': latest.headers()['etag']! }, data: { archived: true } });
+      expect(archive.status(), 'n27 cleanup archives item').toBe(200);
+    } catch (error) { cleanupFailures.push(error); }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailures.length) throw cleanupFailures[0];
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {
