@@ -31,6 +31,8 @@ func TestOriginMiddleware(t *testing.T) {
 		{name: "untrusted malformed forwarding ignored over socket tls", method: "GET", host: "example.test", remote: "203.0.113.5:1234", tls: true, headers: http.Header{"Forwarded": {"not valid"}, "X-Forwarded-Proto": {"http,https"}, "X-Forwarded-Host": {"forged.test,example.test"}, "X-Forwarded-For": {"bad,chain"}}, want: http.StatusNoContent, wantScheme: "https", wantHost: "example.test", wantIP: "203.0.113.5"},
 		{name: "untrusted forged ignored", method: "POST", host: "example.test", remote: "203.0.113.5:1234", headers: http.Header{"X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"example.test"}, "Origin": {"https://example.test"}}, want: http.StatusMisdirectedRequest},
 		{name: "trusted forwarded", method: "POST", host: "internal", origin: "https://example.test", remote: "192.0.2.4:1234", headers: http.Header{"Forwarded": {"for=\"[2001:db8::1]:443\";proto=https;host=example.test"}}, want: http.StatusNoContent, wantScheme: "https", wantHost: "example.test", wantIP: "2001:db8::1"},
+		{name: "forwarded signed authority port rejected", method: "GET", host: "internal", remote: "192.0.2.4:1234", headers: http.Header{"X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"example.test:+443"}}, want: http.StatusBadRequest},
+		{name: "forwarded signed authority zero port rejected", method: "GET", host: "internal", remote: "192.0.2.4:1234", headers: http.Header{"X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"example.test:-0"}}, want: http.StatusBadRequest},
 		{name: "forwarded quoted bracket IPv6 without port", method: "POST", host: "internal", origin: "https://example.test", remote: "192.0.2.4:1234", headers: http.Header{"Forwarded": {"for=\"[2001:db8::1]\";proto=https;host=example.test"}}, want: http.StatusNoContent, wantScheme: "https", wantHost: "example.test", wantIP: "2001:db8::1"},
 		{name: "untrusted malformed forwarded ignored", method: "GET", host: "example.test", remote: "203.0.113.5:1234", headers: http.Header{"Forwarded": {"not valid"}, "X-Forwarded-For": {"bad,chain"}}, want: http.StatusMisdirectedRequest},
 		{name: "forwarded conflicting client IP rejected", method: "POST", host: "internal", origin: "https://example.test", remote: "192.0.2.4:1234", headers: http.Header{"Forwarded": {"for=203.0.113.1;proto=https;host=example.test"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"example.test"}, "X-Forwarded-For": {"203.0.113.2"}}, want: http.StatusBadRequest},
@@ -39,6 +41,7 @@ func TestOriginMiddleware(t *testing.T) {
 		{name: "trusted x forwarded optional for", method: "POST", host: "internal", origin: "https://example.test", remote: "192.0.2.4:1234", headers: http.Header{"X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"example.test"}}, want: http.StatusNoContent, wantScheme: "https", wantHost: "example.test", wantIP: "192.0.2.4"},
 		{name: "trusted malformed", method: "POST", host: "example.test", remote: "192.0.2.4:1234", headers: http.Header{"Forwarded": {"proto=https,host=example.test"}}, want: http.StatusBadRequest},
 		{name: "trusted xff only rejected", method: "POST", host: "example.test", remote: "192.0.2.4:1234", headers: http.Header{"X-Forwarded-For": {"203.0.113.8"}}, want: http.StatusBadRequest},
+		{name: "trusted canonical tls xff only rejected", method: "GET", host: "example.test", remote: "192.0.2.4:1234", tls: true, headers: http.Header{"X-Forwarded-For": {"203.0.113.8"}}, want: http.StatusBadRequest},
 		{name: "forwarded with xff only rejected", method: "POST", host: "internal", origin: "https://example.test", remote: "192.0.2.4:1234", headers: http.Header{"Forwarded": {"proto=https;host=example.test"}, "X-Forwarded-For": {"203.0.113.8"}}, want: http.StatusBadRequest},
 		{name: "untrusted malformed forwarding ignored", method: "GET", host: "example.test", remote: "203.0.113.5:1234", headers: http.Header{"X-Forwarded-For": {"bad,chain"}}, want: http.StatusMisdirectedRequest},
 		{name: "forwarded and matching x", method: "POST", host: "internal", origin: "https://example.test", remote: "192.0.2.4:1234", headers: http.Header{"Forwarded": {"proto=https;host=example.test"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"example.test"}}, want: http.StatusNoContent, wantScheme: "https", wantHost: "example.test", wantIP: "192.0.2.4"},
@@ -132,6 +135,29 @@ func assertProblemResponse(t *testing.T, w *httptest.ResponseRecorder) {
 	}
 	if strings.Contains(w.Body.String(), "example.test") {
 		t.Fatalf("response leaked host: %s", w.Body.String())
+	}
+}
+
+func TestOriginRejectsUnicodeFoldedBrowserHost(t *testing.T) {
+	for _, tc := range []struct{ public, browser string }{
+		{"i.example", "İ.example"},
+		{"k.example", "\u212A.example"},
+		{"s.example", "ſ.example"},
+	} {
+		t.Run(tc.public, func(t *testing.T) {
+			config, err := newOriginConfig(OriginPolicy{PublicURL: "https://" + tc.public})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := httptest.NewRequest(http.MethodGet, "https://"+tc.public+"/", nil)
+			r.Host = tc.public
+			r.RemoteAddr = "203.0.113.5:1234"
+			r.Header.Set("Origin", "https://"+tc.browser)
+			metadata, status := requestOrigin(r, config)
+			if status != http.StatusForbidden || metadata != (RequestMetadata{}) {
+				t.Fatalf("metadata=%+v status=%d", metadata, status)
+			}
+		})
 	}
 }
 
