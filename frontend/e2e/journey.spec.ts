@@ -2539,6 +2539,7 @@ test.describe('Tendo production journey', () => {
     };
     let subjectId: string | undefined;
     let itemId: string | undefined;
+    let primaryFailure: unknown;
     try {
       // People: Add → name → type radio by arrow key → submit; Archive → Undo restores focus to the row; Edit → Save.
       const before = await activeSubjects();
@@ -2610,9 +2611,10 @@ test.describe('Tendo production journey', () => {
       await page.keyboard.press('Enter');
       await expect(newestRow.getByRole('button', { name: en['members.invitation.yes'], exact: true })).toBeFocused();
       await page.keyboard.press('Enter');
-      const revokedNotice = main.getByText(en['members.invite.revoked'], { exact: true });
-      await expect(revokedNotice).toBeVisible();
-      await expect.poll(() => page.evaluate(() => document.activeElement?.textContent ?? ''), { message: 'n16b revoke notice takes focus' }).toContain(en['members.invite.revoked']);
+      // The Members notice container (role=status, tabIndex=-1) receives focus, not <body>.
+      const revokedNotice = main.getByRole('status').filter({ hasText: en['members.invite.revoked'] });
+      await expect(revokedNotice).toHaveCount(1);
+      await expect(revokedNotice, 'n16b revoke notice takes focus').toBeFocused();
       expect((await invitationList()).items.find((invitation) => invitation.id === added[0]!.id)?.status, 'n16b keyboard revoke persisted').toBe('revoked');
 
       // All items: search field → Enter applies q; result link → detail heading; Back link restores the filtered URL.
@@ -2642,16 +2644,22 @@ test.describe('Tendo production journey', () => {
       await expect(page).toHaveURL(/\/items\?q=Keyboard\+pairing\+search\+target$/);
       await expect(main.getByRole('searchbox', { name: en['allItems.search'], exact: true })).toHaveValue(itemTitle);
       await expect(main.getByRole('link', { name: itemTitle, exact: true })).toBeVisible();
-    } finally {
-      for (const path of [itemId ? `/api/v1/households/${householdId}/items/${itemId}` : null, subjectId ? `${subjectsPath}/${subjectId}` : null]) {
-        if (!path) continue;
-        const current = await page.request.get(path);
-        if (current.status() === 200) {
-          const archived = await page.request.patch(path, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true } });
-          expect(archived.status(), `n16b cleanup archives ${path}`).toBe(200);
-        }
-      }
+    } catch (error) {
+      primaryFailure = error;
     }
+    // Attempt every cleanup independently; a cleanup failure is reported only when the test body passed.
+    const cleanupFailures: unknown[] = [];
+    for (const path of [itemId ? `/api/v1/households/${householdId}/items/${itemId}` : null, subjectId ? `${subjectsPath}/${subjectId}` : null]) {
+      if (!path) continue;
+      try {
+        const current = await page.request.get(path);
+        expect(current.status(), `n16b cleanup reads ${path}`).toBe(200);
+        const archived = await page.request.patch(path, { headers: { Origin: baseURL, 'If-Match': current.headers()['etag']! }, data: { archived: true } });
+        expect(archived.status(), `n16b cleanup archives ${path}`).toBe(200);
+      } catch (error) { cleanupFailures.push(error); }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailures.length) throw cleanupFailures[0];
   });
 
   test('n17. network failure and server errors show recoverable states', async () => {
