@@ -325,20 +325,23 @@ func TestAttentionCursorNullBoundarySurvivesEdit(t *testing.T) {
 }
 func TestAttentionTraversalWithConcurrentNonKeyAndKeyEdits(t *testing.T) {
 	f := newAttentionFixture(t)
-	a := f.add(t, f.subject, "2026-01-01", false, false, false, "open", nil)
-	b := f.add(t, f.subject, "2026-02-01", false, false, false, "open", nil)
-	c := f.add(t, f.subject, "2026-03-01", false, false, false, "open", nil)
-	d := f.add(t, f.subject, "2026-04-01", false, false, false, "open", nil)
-	first := f.list(t, item.ListQuery{Sort: item.SortAttention, Limit: 2})
+	a := f.add(t, f.subject, "2026-01-01", false, false, true, "open", nil)
+	b := f.add(t, f.subject, "2026-02-01", false, false, true, "open", nil)
+	c := f.add(t, f.subject, "2026-03-01", false, false, true, "open", nil)
+	d := f.add(t, f.subject, "2026-04-01", false, false, true, "open", nil)
+	query := item.ListQuery{SubjectID: f.subject, WorkflowState: "open", Recurring: ptrBool(true), Sort: item.SortAttention, Limit: 2}
+	first := f.list(t, query)
 	exactIDs(t, first.Items, []string{a, b})
 	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET title='title edit' WHERE id=$1::uuid`, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01' WHERE id=$1::uuid`, d); err != nil {
+	if _, err := f.admin.Exec(f.ctx, `UPDATE items SET attention_on='2027-01-01',recurrence_interval_value=NULL,recurrence_interval_unit=NULL,recurrence_mode=NULL WHERE id=$1::uuid`, d); err != nil {
 		t.Fatal(err)
 	}
-	next := f.list(t, item.ListQuery{Sort: item.SortAttention, Limit: 5, Cursor: *first.NextCursor})
-	exactIDs(t, next.Items, []string{c, d})
+	query.Limit = 5
+	query.Cursor = *first.NextCursor
+	next := f.list(t, query)
+	exactIDs(t, next.Items, []string{c})
 }
 func TestAttentionSortHouseholdIsolation(t *testing.T) {
 	f := newAttentionFixture(t)
