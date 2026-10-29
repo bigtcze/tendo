@@ -79,6 +79,49 @@ const cases = [
   }],
 ]
 
+test('operation coverage gate fails when any OpenAPI operation lacks a captured response', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const directory = await mkdtemp(join(tmpdir(), 'tendo-operation-coverage-'))
+  const fixturePath = join(directory, 'responses.json')
+  const fixture = { path: '/health/live', method: 'get', status: 200, headers: { 'x-request-id': requestId, 'cache-control': 'no-store', 'content-type': 'application/json' }, body: { status: 'ok' } }
+  try {
+    await writeFile(fixturePath, JSON.stringify([fixture]))
+    const child = spawn(process.execPath, [checker.pathname, fixturePath], { env: { ...process.env, API_REQUIRE_OPERATION_COVERAGE: '1', API_OPERATION_COVERAGE_EXEMPTIONS: '', RUNTIME_HEALTH_ORIGIN: undefined, SETUP_URL: undefined }, stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''; child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+    const [code] = await once(child, 'close')
+    assert.notEqual(code, 0)
+    assert.match(stderr, /OpenAPI operations have no captured HTTP response/)
+    assert.match(stderr, /getInitialSetup/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('operation coverage gate fails when required mode has no captured responses', async () => {
+  const env = { ...process.env, API_REQUIRE_OPERATION_COVERAGE: '1', API_OPERATION_COVERAGE_SCOPE: 'getInitialSetup' }
+  for (const key of ['API_RESPONSE_FIXTURES', 'SETUP_URL', 'CONTRACT_SETUP_ORIGIN', 'RUNTIME_HEALTH_ORIGIN']) delete env[key]
+  const child = spawn(process.execPath, [checker.pathname], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+  let stderr = ''; child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
+  const [code] = await once(child, 'close')
+  assert.notEqual(code, 0)
+  assert.match(stderr, /requires captured responses/)
+})
+
+test('smoke coverage scopes partition every OpenAPI operationId', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const operationIds = Object.values(contract.paths)
+    .flatMap(pathItem => Object.values(pathItem).map(operation => operation?.operationId).filter(Boolean))
+  const scripts = new URL('../scripts/', import.meta.url)
+  const read = name => readFile(new URL(name, scripts), 'utf8')
+  const ids = text => text.match(/[A-Za-z]+/g) ?? []
+  const setup = ids((await read('setup_smoke_api_capture.py')).match(/COVERAGE_SCOPE = ','\.join\(\(([\s\S]*?)\)\)/)[1])
+  const oidc = ids((await read('oidc-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=([\s\S]*?) \\\n {2}node/)[1].replace(/\\\n/g, ''))
+  const runtime = ids((await read('runtime-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=(\S+)/)[1])
+  const scoped = [...setup, ...oidc, ...runtime]
+  assert.deepEqual([...scoped].sort(), [...new Set(scoped)].sort(), 'an operationId appears in more than one smoke scope')
+  assert.deepEqual([...scoped].sort(), [...operationIds].sort(), 'smoke coverage scopes must cover every OpenAPI operationId exactly once')
+})
+
 test('health checker accepts the backend OIDC start Set-Cookie format and rejects malformed cookies', async () => {
   const directory = await (await import('node:fs/promises')).mkdtemp(join(tmpdir(), 'tendo-oidc-start-cookie-'))
   const fixturePath = join(directory, 'responses.json')

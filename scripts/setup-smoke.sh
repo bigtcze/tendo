@@ -2,7 +2,11 @@
 set -Eeuo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 project="tendo-setup-smoke-${GITHUB_RUN_ID:-local}-$$-${RANDOM}"
-export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
+export COMPOSE_PROJECT_NAME=$project POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD
+export TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT
+export TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN
+export TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET
+export TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
@@ -43,47 +47,15 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "$origin" >&2; exit 1; fi
-SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$fixtures" python3 - <<'PY'
-import json,os,sys,urllib.request,urllib.error
-origin=os.environ['SETUP_SMOKE_ORIGIN']
-token=os.environ['TENDO_SETUP_TOKEN']
-path=os.environ['SETUP_SMOKE_FIXTURES']
-fixtures=[]
-item_fixtures=[]
-def req(method,url,body=None,headers=None):
- h={'Content-Type':'application/json',**(headers or {})}
- data=body if isinstance(body,bytes) else json.dumps(body,ensure_ascii=False).encode() if body is not None else None
- r=urllib.request.Request(origin+url,data=data,headers=h,method=method)
- try:
-  with urllib.request.urlopen(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
- except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
- result=json.loads(raw) if raw else None
- if url=='/api/v1/auth/setup' and method=='PUT' and status != 409:
-  fixtures.append({'path':url,'method':method,'status':status,'headers':dict(hs.items()),'body':result})
- return status,hs,result
-status,h,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True} and h['ETag']=='"setup-v1-required"'
-status,_,_=req('GET','/api/v1/auth/setup',headers={'Origin':'http://foreign.example'});assert status==403,('foreign origin',status)
-status,_,_=req('GET','/api/v1/auth/setup',headers={'Host':'attacker.example'});assert status==421,('wrong authority',status)
-valid={'login':'owner_smoke','password':'correct horse battery','householdName':'Veselí 家族','timezone':'Europe/Prague'}
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':'wrong'});assert status==401,('wrong token',status)
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'X-Tendo-Setup-Token':token});assert status==403,('missing origin',status)
-status,_,_=req('PUT','/api/v1/auth/setup',b'x'*8193,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==413,('size',status)
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':'http://foreign.example','X-Tendo-Setup-Token':token});assert status==403,('foreign origin',status)
-status,_,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True},('state changed before setup',status,b)
-status,_,_=req('PUT','/api/v1/auth/setup',b'{}',{'Origin':origin,'X-Tendo-Setup-Token':token,'Content-Type':'text/plain'});assert status==415,('media',status)
-invalid={**valid,'timezone':'Not/A_Timezone'}
-status,_,_=req('PUT','/api/v1/auth/setup',invalid,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==422,('validation',status)
-status,_,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':True},('still required',status,b)
-status,h,b=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==201 and b=={'required':False},('create',status,b,dict(h))
-fixtures.append({'path':'/api/v1/auth/setup','method':'PUT','status':status,'headers':dict(h.items()),'body':b})
-status,_,b=req('GET','/api/v1/auth/setup');assert status==200 and b=={'required':False},('after setup',status,b)
-status,_,_=req('PUT','/api/v1/auth/setup',valid,{'Origin':origin,'X-Tendo-Setup-Token':token});assert status==429,('duplicate rate limit',status)
-with open(path,'w',encoding='utf-8') as f:json.dump(fixtures,f,ensure_ascii=False)
-PY
+python3 "$root/scripts/setup_smoke_api_capture.py" initial "$origin" "$TENDO_SETUP_TOKEN" "$fixtures"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
-"${compose[@]}" exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
+"${compose[@]}" exec -T postgres psql -U postgres -d tendo \
+  -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
 psql_command="${compose[*]} exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -At"
-SETUP_SMOKE_ORIGIN="$origin" SETUP_SMOKE_FIXTURES="$session_fixtures" SETUP_SMOKE_ITEM_FIXTURES="$item_fixtures" SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
+SETUP_SMOKE_ORIGIN="$origin" \
+  SETUP_SMOKE_FIXTURES="$session_fixtures" \
+  SETUP_SMOKE_ITEM_FIXTURES="$item_fixtures" \
+  SETUP_SMOKE_PSQL="$psql_command" python3 - <<'PY'
 import base64,hashlib,json,os,shlex,subprocess,urllib.request,urllib.error
 origin=os.environ['SETUP_SMOKE_ORIGIN']
 fixtures=[]
@@ -291,6 +263,7 @@ for rec_item, expected in ((fixed, '1|year|fixed'),(fluid,'1|month|after_complet
 ipath=ibase+'/'+immediate['id']
 status,h,got=ireq('GET',ipath,IITEM,headers=cookie_header)
 assert status==200 and got==immediate and h['ETag']=='"1"',('item get',status,got)
+status,_,item_missing=ireq('GET',ibase+'/'+random_id,IITEM,headers=cookie_header);assert status==404 and item_missing['code']=='not_found',('missing item uniform 404',status,item_missing)
 status,h,fixed_get=ireq('GET',ibase+'/'+fixed['id'],IITEM,headers=cookie_header)
 assert status==200 and fixed_get['recurrence']=={'intervalValue':1,'intervalUnit':'year','mode':'fixed'} and fixed_get['attentionOn']=='2030-01-15',('fixed item get',status,fixed_get)
 status,h,patched=ireq('PATCH',ipath,IITEM,{'title':'Insurance follow-up','workflowState':'in_progress','attentionOn':None},{**mut,'If-Match':'"1"'})
@@ -298,6 +271,10 @@ assert status==200 and patched['title']=='Insurance follow-up' and patched['work
 assert psql(f"SELECT title||'|'||workflow_state||'|'||COALESCE(attention_on::text,'NULL')||'|'||version FROM items WHERE id='{immediate['id']}'")== 'Insurance follow-up|in_progress|NULL|2','item patch persisted'
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'missing precondition'},mut);assert status==428 and b['code']=='precondition_required',('item missing If-Match',status,b)
 status,_,b=ireq('PATCH',ipath,IITEM,{'title':'stale'},{**mut,'If-Match':'"1"'});assert status==412 and b['code']=='precondition_failed',('item stale If-Match',status,b)
+status,_,item_invalid_patch=ireq(
+ 'PATCH',ipath,IITEM,{'title':'   '},{**mut,'If-Match':'"2"'})
+assert status==422 and item_invalid_patch['field']=='title'
+assert item_invalid_patch['code']=='invalid_length',('item patch validation',status,item_invalid_patch)
 status,_,null_first=ireq('GET',ibase+'?sort=attention_on&limit=1',ICOLL,headers=cookie_header);assert status==200 and null_first['items'][0]['id']==immediate['id'] and null_first['items'][0]['attentionOn'] is None and null_first['nextCursor'],('attention null first',status,null_first)
 status,h,archived=ireq('PATCH',ipath,IITEM,{'archived':True},{**mut,'If-Match':'"2"'});assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('item archive',status,archived)
 status,_,active_items=ireq('GET',ibase,ICOLL,headers=cookie_header);assert status==200 and [x['id'] for x in active_items['items']]==[future['id'],fixed['id'],fluid['id']],('active items',status,active_items)
@@ -365,14 +342,19 @@ assert status==422 and historical_invalid['field']=='historicalCompletedOn' and 
 # Completion vertical slice: fixed/fluid cadence, one-off lifecycle and receipt idempotency.
 cpath=lambda x:ibase+'/'+x+'/completions'
 fixed_late=ireq('POST',ibase,ICOLL,{'title':'Completion fixed late','subjectId':person['id'],'attentionOn':'2026-09-01','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}},{**mut,'Idempotency-Key':'setup-item-completion-fixed'})[2]
-status,_,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
+status,receipt_headers,receipt=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{**mut,'If-Match':'"1"','Idempotency-Key':'fixed-late'})
 assert status==201 and receipt['completedOn']=='2026-10-06' and receipt['nextAttentionOn']=='2027-09-01',('fixed completion',status,receipt)
+item_fixtures.append({'path':CITEM,'method':'post','status':status,'headers':dict(receipt_headers.items()),'body':receipt})
 assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2027-09-01|2|false','fixed completion persistence'
 fixed_undo_path=cpath(fixed_late['id'])+'/'+receipt['id']
 CUNDO='/api/v1/households/{householdId}/items/{itemId}/completions/{completionId}'
 CITEM_PATCH='/api/v1/households/{householdId}/items/{itemId}'
-status,_,undone=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'})
+status,undo_headers,undone=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'})
 assert status==200 and undone['undoneAt'] and undone['undoneByUserId'] and undone['id']==receipt['id'],('undo receipt',status,undone)
+item_fixtures.append({'path':CUNDO,'method':'patch','status':status,'headers':dict(undo_headers.items()),'body':undone})
+status,_,undo_missing_match=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},mut);assert status==428 and undo_missing_match['code']=='precondition_required',('undo missing If-Match',status,undo_missing_match)
+status,foreign_undo_headers,foreign_undo=ireq('PATCH',f"/api/v1/households/{other_id}/items/{fixed_late['id']}/completions/{receipt['id']}",CUNDO,{'undone':True},{**mut,'If-Match':'\"2\"'});assert status==404 and foreign_undo['code']=='not_found',('foreign undo uniform 404',status,foreign_undo)
+item_fixtures.append({'path':CUNDO,'method':'patch','status':status,'headers':dict(foreign_undo_headers.items()),'body':foreign_undo})
 assert psql(f"SELECT attention_on::text||'|'||version||'|'||done FROM items WHERE id='{fixed_late['id']}'")== '2026-09-01|3|false' and psql(f"SELECT undone_at IS NOT NULL FROM item_completions WHERE id='{receipt['id']}'")== 't','undo restored state and receipt'
 status,_,item_after_undo=ireq('GET',ibase+'/'+fixed_late['id'],IITEM,headers=cookie_header);assert status==200 and item_after_undo['lastCompletedOn'] is None,('undo lastCompletedOn',status,item_after_undo)
 status,_,undo_replay=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{**mut,'If-Match':'\"1\"'},record=False);assert status==200 and undo_replay['id']==undone['id'] and undo_replay['undoneAt']==undone['undoneAt'] and psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")== '3',('undo replay',status,undo_replay)
@@ -596,6 +578,8 @@ st,_,member_conflict_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idem
 assert st==201,('member conflict invitation',st,member_conflict_invite)
 st,_,new_member_conflict,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':member_conflict_invite['token']}, {**member_cookie,'Origin':origin})
 assert st==409 and new_member_conflict['code']=='already_member',('existing member acceptance conflict',st,new_member_conflict)
+st,_,anonymous_existing_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':'invalid'}, {'Origin':origin});assert st==401 and anonymous_existing_accept['code']=='unauthenticated',('existing acceptance requires session',st,anonymous_existing_accept)
+st,_,anonymous_existing_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':'invalid'}, {'Origin':origin});assert st==401 and anonymous_existing_accept['code']=='unauthenticated',('existing acceptance requires session',st,anonymous_existing_accept)
 assert psql(f"SELECT accepted_at IS NULL FROM household_invitations WHERE id='{member_conflict_invite['id']}'")=='t','already member conflict consumed invitation'
 # Skip 429 fixture: the limiter shares client-IP budget with the remaining invitation checks.
 st,_,_,_=xreq('DELETE',revoke_path,INV_ITEM,headers=owner_mut)
@@ -614,6 +598,17 @@ psql(f"UPDATE household_invitations SET created_at=now()-interval '8 days', expi
 assert psql(f"SELECT expires_at<now() FROM household_invitations WHERE id='{expired['id']}'")=='t','could not expire invitation fixture'
 st,_,expired_accept,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':expired['token'],'login':'expired_smoke','password':'a sufficiently long expired passphrase'},{'Origin':origin})
 assert st==404 and expired_accept['code']=='invalid_invitation',('expired invitation',st,expired_accept)
+# Existing-account acceptance success uses a free account and a fresh invitation.
+free_user=psql("INSERT INTO user_accounts(login) VALUES ('free_smoke') RETURNING id").splitlines()[0]
+owner_hash=psql("SELECT password_hash FROM local_credentials WHERE user_id=(SELECT id FROM user_accounts WHERE login='owner_smoke')")
+psql(f"INSERT INTO local_credentials(user_id,password_hash) VALUES ('{free_user}','{owner_hash}')")
+st,_,free_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-free-account'})
+assert st==201,('free-account invitation',st,free_invite)
+st,free_headers,_,_=req('POST',{'login':'free_smoke','password':'correct horse battery'},{'Origin':origin})
+assert st==201,('free account login',st)
+free_cookie={'Cookie':free_headers['Set-Cookie'].split(';',1)[0]}
+st,_,free_accept,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':free_invite['token']},{**free_cookie,'Origin':origin})
+assert st==201 and free_accept['role']=='member',('free existing-account acceptance',st,free_accept)
 # The owner already belongs to this household; acceptance must be refused without consuming a fresh invitation.
 st,_,own_invite,_=xreq('POST',invite_base,INV,{}, {**owner_mut,'Idempotency-Key':'smoke-owner-conflict'})
 assert st==201,('owner conflict invitation',st,own_invite)
@@ -622,15 +617,20 @@ assert st==409 and owner_conflict['code']=='already_member',('owner already belo
 assert psql(f"SELECT accepted_at IS NULL AND revoked_at IS NULL FROM household_invitations WHERE id='{own_invite['id']}'")=='t','already-member failure consumed invitation'
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
+fixtures.append({'path':'/api/v1/session','method':'delete','status':status,'headers':dict(h.items())})
+
 st,stale_headers,stale_problem,_=xreq('GET',invite_base,INV,headers={'Cookie':f'tendo_session={token}'})
 assert st==401 and stale_problem['code']=='unauthenticated' and 'Set-Cookie' in stale_headers,('stale session invitation 401',st,stale_problem,dict(stale_headers))
 cleared=[p.strip().lower() for p in h['Set-Cookie'].split(';')]
 assert cleared[0]=='tendo_session=' and 'max-age=0' in cleared and 'httponly' in cleared and 'samesite=lax' in cleared and 'path=/' in cleared,cleared
-status,_,_,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'},record=False);assert status==403,('logout without Origin',status)
+status,_,logout_origin_error,_=req('DELETE',headers={'Cookie':f'tendo_session={token}'});assert status==403,('logout without Origin',status)
 status,_,b,_=req('GET',headers={'Cookie':f'tendo_session={token}'});assert status==401 and b['code']=='unauthenticated',('revoked cookie',status,b)
 status,_,b=ireq('PATCH',fixed_undo_path,CUNDO,{'undone':True},{'Origin':origin,'Cookie':f'tendo_session={token}','If-Match':'"3"'});assert status==401 and b['code']=='unauthenticated',('undo with revoked cookie',status,b)
 status,h,b_revoked=hreq(household,cookie_header);assert status==401 and b_revoked['code']=='unauthenticated',('household with revoked cookie',status,b_revoked)
-st,stale_summary_headers,stale_summary=ireq('GET',summary_url,SUMMARY,headers=cookie_header);assert st==401 and stale_summary['code']=='unauthenticated' and 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
+st,stale_summary_headers,stale_summary=ireq(
+ 'GET',summary_url,SUMMARY,headers=cookie_header)
+assert st==401 and stale_summary['code']=='unauthenticated'
+assert 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
 stale_summary_cookie=[p.strip().lower() for p in stale_summary_headers['Set-Cookie'].split(';')]
 assert stale_summary_cookie[0]=='tendo_session=' and 'max-age=0' in stale_summary_cookie,stale_summary_cookie
 login_headers={'Origin':origin,'Content-Type':'application/json'}
@@ -648,6 +648,10 @@ PY
 API_RESPONSE_FIXTURES="$session_fixtures" node "$root/api/check-health.mjs"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 API_RESPONSE_FIXTURES="$item_fixtures" node "$root/api/check-health.mjs"
+all_fixtures=$(mktemp)
+python3 "$root/scripts/setup_smoke_api_capture.py" validate "$root" \
+  "$session_fixtures" "$fixtures" "$item_fixtures" "$all_fixtures"
+rm -f "$all_fixtures"
 rm -f "$session_fixtures"
 "${compose[@]}" restart app >/dev/null
 persisted=0
@@ -656,14 +660,5 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if (( persisted == 0 )); then printf 'First-owner setup state did not persist across app restart\n' >&2; exit 1; fi
-SETUP_SMOKE_ORIGIN="$origin" python3 - <<'PY'
-import json,os,urllib.request,urllib.error
-origin=os.environ['SETUP_SMOKE_ORIGIN']
-request=urllib.request.Request(origin+'/api/v1/auth/setup',data=json.dumps({'login':'owner_smoke','password':'correct horse battery','householdName':'Veselí 家族','timezone':'Europe/Prague'},ensure_ascii=False).encode(),headers={'Content-Type':'application/json','Origin':origin,'X-Tendo-Setup-Token':os.environ['TENDO_SETUP_TOKEN']},method='PUT')
-try:
- urllib.request.urlopen(request,timeout=8)
- raise AssertionError('duplicate setup unexpectedly succeeded')
-except urllib.error.HTTPError as error:
- assert error.code==409,('duplicate setup after restart',error.code)
-PY
+python3 "$root/scripts/setup_smoke_api_capture.py" duplicate-setup "$origin" "$TENDO_SETUP_TOKEN"
 printf 'First-owner setup and local session API smoke passed.\n'
