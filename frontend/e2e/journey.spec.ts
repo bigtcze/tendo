@@ -31,6 +31,7 @@ const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
 
 const problems: string[] = [];
+const problem503 = { type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' };
 const failedResponses = new Set<string>();
 let n17OfflineActive = false;
 let n17FailurePhaseActive = false;
@@ -4282,10 +4283,13 @@ test.describe('Tendo production journey', () => {
       await trackInFlightApiFetches(actor);
       const issues: string[] = [];
       const failures: string[] = [];
+      let acceptRefreshFailureActive = false;
+      let invalidInviteFailureActive = false;
       actor.on('console', message => {
         if (message.type() !== 'error') return;
         const path = new URL(message.location().url || 'about:blank').pathname;
-        if (path === '/api/v1/session' || path === '/api/v1/invitations/accept') return;
+        if (path === '/api/v1/session' && (message.text().includes('status of 401') || acceptRefreshFailureActive && message.text().includes('status of 503'))) return;
+        if (path === '/api/v1/invitations/accept' && (message.text().includes('status of 409') || invalidInviteFailureActive && message.text().includes('status of 404'))) return;
         issues.push(`console: ${message.text()}`);
       });
       actor.on('pageerror', error => issues.push(`pageerror: ${error.message}`));
@@ -4294,7 +4298,7 @@ test.describe('Tendo production journey', () => {
         const failure = `${response.request().method()} ${path} ${response.status()}`;
         if (response.status() >= 400 && !(failure === 'GET /api/v1/session 401')) failures.push(failure);
       });
-      return { context, actor, assertClean: (expectedFailures: string[]) => {
+      return { context, actor, issues, failures, setAcceptRefreshFailureActive: (active: boolean) => { acceptRefreshFailureActive = active; }, setInvalidInviteFailureActive: (active: boolean) => { invalidInviteFailureActive = active; }, assertClean: (expectedFailures: string[]) => {
         expect(issues).toEqual([]);
         expect([...failures].sort()).toEqual([...expectedFailures].sort());
       } };
@@ -4414,8 +4418,38 @@ test.describe('Tendo production journey', () => {
       await expect(free.actor.getByRole('heading', { level: 1, name: en['home.noHousehold.title'] })).toBeVisible();
       await free.actor.goto(freeInvite.link);
       await expect(free.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_free_e2e') })).toBeVisible();
-      await free.actor.getByRole('button', { name: en['invite.join'] }).click();
+      await waitForSettledHouseholdRequests(free.actor);
+      const sessionPath = '/api/v1/session';
+      let injectedRefreshFailure = false;
+      const freeFailuresBeforeRefresh = free.failures.length;
+      const rejectFirstRefresh = async (route: import('@playwright/test').Route) => {
+        if (route.request().method() === 'GET' && !injectedRefreshFailure) {
+          injectedRefreshFailure = true;
+          return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify(problem503) });
+        }
+        return route.fallback();
+      };
+      await free.actor.route(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(sessionPath)}$`), rejectFirstRefresh);
+      free.setAcceptRefreshFailureActive(true);
+      const acceptResponsePromise = free.actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/invitations/accept');
+      await free.actor.getByRole('button', { name: en['invite.join'], exact: true }).click();
+      const acceptedResponse = await acceptResponsePromise;
+      expect(acceptedResponse.status()).toBe(201);
+      const acceptedNotice = free.actor.getByRole('status').filter({ hasText: en['invite.error.accepted'] });
+      await expect(acceptedNotice).toBeVisible();
+      await expect(acceptedNotice).toBeFocused();
+      await expect(free.actor.getByRole('button', { name: en['invite.continue'], exact: true })).toBeVisible();
+      await expectInvitationStatus(freeInvite.id, 'accepted');
+      const joinedBeforeContinue = await listOwnerMembers();
+      expect(joinedBeforeContinue.filter(member => member.login === 'existing_free_e2e' && member.role === 'member')).toHaveLength(1);
+      free.setAcceptRefreshFailureActive(false);
+      await free.actor.unroute(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(sessionPath)}$`), rejectFirstRefresh);
+      const continueSessionPromise = free.actor.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname === sessionPath);
+      await free.actor.getByRole('button', { name: en['invite.continue'], exact: true }).click();
+      const continuedSessionResponse = await continueSessionPromise;
+      expect(continuedSessionResponse.status()).toBe(200);
       await expect(free.actor.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      expect(free.failures.slice(freeFailuresBeforeRefresh)).toEqual(['GET /api/v1/session 503']);
       const freeSession = await free.actor.request.get('/api/v1/session');
       expect(freeSession.status()).toBe(200);
       expect((await freeSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
@@ -4423,13 +4457,15 @@ test.describe('Tendo production journey', () => {
       await expect(free.actor.getByRole('listitem').filter({ hasText: 'existing_free_e2e' })).toContainText(en['members.role.member']);
       await free.actor.goto(freeInvite.link);
       await expect(free.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_free_e2e') })).toBeVisible();
+      free.setInvalidInviteFailureActive(true);
       await free.actor.getByRole('button', { name: en['invite.join'] }).click();
       await expect(free.actor.getByRole('status')).toContainText(en['invite.error.invalid']);
+      free.setInvalidInviteFailureActive(false);
       await expectInvitationStatus(freeInvite.id, 'accepted');
       const listedMembers = await listOwnerMembers();
       expect(listedMembers.find(member => member.login === 'existing_free_e2e')?.role).toBe('member');
       await waitForSettledHouseholdRequests(free.actor);
-      free.assertClean(['POST /api/v1/invitations/accept 404']);
+      free.assertClean(['GET /api/v1/session 503', 'POST /api/v1/invitations/accept 404']);
     } finally { await free.context.close(); }
   });
 
