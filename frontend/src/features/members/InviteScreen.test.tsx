@@ -305,7 +305,7 @@ describe('invitation acceptance', () => {
 
   it('ignores duplicate form submissions while acceptance is pending', async () => {
     window.history.replaceState(null, '', `/invite#${token}`);
-    let release!: (response: Response) => void;
+    let release: ((response: Response) => void) | undefined;
     const acceptResponse = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer(signedOutRoutes({
       'POST /api/v1/auth/invitations/accept': () => acceptResponse,
@@ -313,7 +313,9 @@ describe('invitation acceptance', () => {
     renderApp();
     await userEvent.type(await screen.findByLabelText('Login'), 'newuser');
     await userEvent.type(screen.getByLabelText('Password'), 'long enough password');
-    const form = screen.getByRole('button', { name: 'Create account and join' }).closest('form')!;
+    const button = screen.getByRole('button', { name: 'Create account and join' });
+    const form = button.closest('form');
+    if (!form) throw new Error('Create account button must be inside a form');
 
     act(() => { fireEvent.submit(form); });
     await waitFor(() => {
@@ -321,7 +323,12 @@ describe('invitation acceptance', () => {
       expect(screen.getByRole('button', { name: 'Creating…' })).toBeDisabled();
     });
     act(() => { fireEvent.submit(form); });
+    expect(screen.getByRole('button', { name: 'Creating…' })).toBeDisabled();
+    await act(async () => {
+      if (!release) throw new Error('Accept request was not started');
+      release(json(201, {}));
+    });
+    expect(await screen.findByText('Your account is ready. Sign in.')).toBeVisible();
     expect(fake.requests.filter((request) => request.method === 'POST' && request.path === '/api/v1/auth/invitations/accept')).toHaveLength(1);
-    await act(async () => { release(json(201, {})); });
   });
 });

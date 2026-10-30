@@ -36,8 +36,8 @@ export function useInviteAcceptState(token: string | null, session: Session | un
   }
 
   return {
-    loginName, setLoginName, password, setPassword, error, setError, fieldError,
-    pending, setPending, signedOutMode, setSignedOutMode, invalidLink, setInvalidLink,
+    loginName, setLoginName, password, setPassword, error, setError,
+    pending, setPending, setSignedOutMode, invalidLink,
     accepted, setAccepted, mounted, loginRef, passwordRef, noticeRef, valid, currentSession, fail,
   };
 }

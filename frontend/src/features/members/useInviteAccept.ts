@@ -7,35 +7,34 @@ import {
 import { useInviteAcceptState } from './useInviteAcceptState';
 
 type Props = InviteCallbacks & { token: string | null; session?: Session; focusLogin: boolean };
-type Mounted = { current: boolean };
 
-async function refreshSession(mounted: Mounted, callbacks: InviteCallbacks): Promise<'handled' | 'retry' | 'unmounted'> {
-  const refreshed = await fetchSession();
-  if (!mounted.current) return 'unmounted';
-  if (refreshed.kind === 'signedIn') {
-    callbacks.onSignedIn(refreshed.session);
-    return 'handled';
-  }
-  if (refreshed.kind === 'signedOut') {
-    callbacks.onJoinedSignedOut();
-    return 'handled';
-  }
-  return 'retry';
+async function refreshSession(): Promise<Awaited<ReturnType<typeof fetchSession>>> {
+  return fetchSession();
+}
+
+function dispatchRefreshedSession(
+  refreshed: Awaited<ReturnType<typeof fetchSession>>,
+  callbacks: InviteCallbacks,
+): boolean {
+  if (refreshed.kind === 'signedIn') callbacks.onSignedIn(refreshed.session);
+  else if (refreshed.kind === 'signedOut') callbacks.onJoinedSignedOut();
+  else return false;
+  return true;
 }
 
 export function useInviteAccept({ token, session, focusLogin, ...callbacks }: Props) {
   const state = useInviteAcceptState(token, session, focusLogin);
-  const { loginName, setLoginName, password, setPassword, error, setError, fieldError,
+  const { loginName, setLoginName, password, setPassword, error, setError,
     pending, setPending, setSignedOutMode, invalidLink, accepted, setAccepted,
     mounted, loginRef, passwordRef, noticeRef, valid, currentSession, fail } = state;
 
   async function retrySession() {
     if (pending || !accepted || !mounted.current) return;
     setPending(true);
-    const result = await refreshSession(mounted, callbacks);
-    if (result === 'unmounted') return;
+    const refreshed = await refreshSession();
+    if (!mounted.current) return;
     setPending(false);
-    if (result === 'retry') noticeRef.current?.focus();
+    if (!dispatchRefreshedSession(refreshed, callbacks)) noticeRef.current?.focus();
   }
 
   async function submitNewAccount(validToken: string) {
@@ -68,8 +67,9 @@ export function useInviteAccept({ token, session, focusLogin, ...callbacks }: Pr
       } else fail(outcome.error);
       return;
     }
-    const refreshed = await refreshSession(mounted, callbacks);
-    if (refreshed !== 'retry') return;
+    const refreshed = await refreshSession();
+    if (!mounted.current) return;
+    if (dispatchRefreshedSession(refreshed, callbacks)) return;
     setAccepted(true);
     setPending(false);
     setError(null);
@@ -98,7 +98,7 @@ export function useInviteAccept({ token, session, focusLogin, ...callbacks }: Pr
   }
 
   return {
-    loginName, setLoginName, password, setPassword, error, fieldError,
+    loginName, setLoginName, password, setPassword, error,
     pending, currentSession, valid, invalidLink, accepted,
     loginRef, passwordRef, noticeRef, submit, retrySession, signOutAndContinue,
   };

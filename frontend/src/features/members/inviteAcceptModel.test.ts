@@ -57,9 +57,15 @@ describe('invite acceptance model', () => {
   });
 
   it.each([
-    ['loginInvalid', 'invite.error.loginValidation'],
-    ['passwordInvalid', 'invite.error.passwordValidation'],
+    ['invalid', 'invite.error.invalid'],
     ['loginTaken', 'invite.error.loginTaken'],
+    ['login', 'invite.error.login'],
+    ['loginInvalid', 'invite.error.loginValidation'],
+    ['password', 'invite.error.password'],
+    ['passwordInvalid', 'invite.error.passwordValidation'],
+    ['rateLimited', 'invite.error.rateLimited'],
+    ['unavailable', 'invite.error.unavailable'],
+    ['alreadyMember', 'invite.error.alreadyMember'],
     ['householdConflict', 'invite.error.householdConflict'],
   ] as const)('maps %s to an existing message key %s', (error, key) => {
     expect(inviteErrorMessageKey(error)).toBe(key);
