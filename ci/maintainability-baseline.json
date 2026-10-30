@@ -58,14 +58,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/identity/oidcprovider/provider.go",
-    "name": "Provider.Exchange",
-    "allowed": 31,
-    "reason": "Provider adapter exchanges authorization codes and validates upstream OIDC tokens; preserve issuer, audience, nonce, and JWKS failure handling.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/item/httpapi/item.go",
     "name": "Handler.create",
     "allowed": 17,
@@ -262,13 +254,6 @@
     "path": "backend/internal/identity/invitations.go",
     "allowed": 1,
     "reason": "Invitation service validates invitation tokens and coordinates expiry, acceptance, and membership transitions; preserve single-use and authorization rules.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/identity/oidcprovider/provider.go",
-    "allowed": 4,
-    "reason": "Provider adapter exchanges authorization codes and validates upstream OIDC tokens; preserve issuer, audience, nonce, and JWKS failure handling.",
     "owner": "backend-identity"
   },
   {

@@ -126,7 +126,8 @@ func supportedSigningAlgorithms(advertised []string) []string {
 
 func validateEndpoint(raw string, allowHTTP bool) error {
 	u, err := url.Parse(raw)
-	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "https" && u.Scheme != "http") || (u.Scheme == "http" && !allowHTTP) {
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" ||
+		(u.Scheme != "https" && u.Scheme != "http") || (u.Scheme == "http" && !allowHTTP) {
 		return errors.New("invalid OIDC endpoint")
 	}
 	return nil
@@ -141,8 +142,16 @@ func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthoriz
 		return "", identity.ErrOIDCAuthenticationFailed
 	}
 	sum := sha256.Sum256([]byte(a.PKCEVerifier))
-	cfg := oauth2.Config{ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(), RedirectURL: a.RedirectURL, Scopes: []string{oidc.ScopeOpenID}}
-	options := []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("nonce", a.Nonce), oauth2.SetAuthURLParam("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:])), oauth2.SetAuthURLParam("code_challenge_method", "S256"), oauth2.SetAuthURLParam("response_mode", "query")}
+	cfg := oauth2.Config{
+		ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(),
+		RedirectURL: a.RedirectURL, Scopes: []string{oidc.ScopeOpenID},
+	}
+	options := []oauth2.AuthCodeOption{
+		oauth2.SetAuthURLParam("nonce", a.Nonce),
+		oauth2.SetAuthURLParam("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:])),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+		oauth2.SetAuthURLParam("response_mode", "query"),
+	}
 	if a.Purpose == identity.OIDCPurposeLink {
 		options = append(options, oauth2.SetAuthURLParam("prompt", "login"))
 	}
@@ -189,28 +198,52 @@ func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) 
 	if err != nil {
 		return identity.OIDCVerifiedIdentity{}, err
 	}
+	token, err := p.tokenRequest(ctx, provider, x)
+	if err != nil {
+		return identity.OIDCVerifiedIdentity{}, err
+	}
+	id, err := p.verifyIDToken(ctx, keySet, algorithms, token)
+	if err != nil {
+		return identity.OIDCVerifiedIdentity{}, err
+	}
+	return p.validateClaims(id, x.Nonce)
+}
+
+func (p *Provider) tokenRequest(ctx context.Context, provider *oidc.Provider, x identity.OIDCExchangeParams) (*oauth2.Token, error) {
 	ctx = oidc.ClientContext(ctx, p.client)
-	cfg := oauth2.Config{ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(), RedirectURL: x.RedirectURL, Scopes: []string{oidc.ScopeOpenID}}
+	cfg := oauth2.Config{
+		ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(),
+		RedirectURL: x.RedirectURL, Scopes: []string{oidc.ScopeOpenID},
+	}
 	tok, err := cfg.Exchange(ctx, x.Code, oauth2.SetAuthURLParam("code_verifier", x.PKCEVerifier))
 	if err != nil {
 		var retrieve *oauth2.RetrieveError
 		if errors.As(err, &retrieve) && retrieve.Response != nil && retrieve.Response.StatusCode >= 400 && retrieve.Response.StatusCode < 500 {
-			return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
+			return nil, identity.ErrOIDCAuthenticationFailed
 		}
-		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCProviderUnavailable
+		return nil, identity.ErrOIDCProviderUnavailable
 	}
-	raw, ok := tok.Extra("id_token").(string)
+	return tok, nil
+}
+
+func (p *Provider) verifyIDToken(ctx context.Context, keySet *observedKeySet, algorithms []string, token *oauth2.Token) (*oidc.IDToken, error) {
+	raw, ok := token.Extra("id_token").(string)
 	if !ok || raw == "" {
-		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
+		return nil, identity.ErrOIDCAuthenticationFailed
 	}
 	observer := &verificationObserver{}
+	ctx = oidc.ClientContext(ctx, p.client)
 	ctx = context.WithValue(ctx, verificationObserverKey{}, observer)
 	verifier := oidc.NewVerifier(p.issuer, keySet, &oidc.Config{ClientID: p.clientID, Now: p.clock, SupportedSigningAlgs: algorithms})
 	id, err := verifier.Verify(ctx, raw)
 	if err != nil {
-		return identity.OIDCVerifiedIdentity{}, classifyVerificationError(observer)
+		return nil, classifyVerificationError(observer)
 	}
-	if id.Nonce != x.Nonce || id.Issuer != p.issuer || id.Subject == "" || len(id.Subject) > 255 || id.IssuedAt.After(p.clock().Add(time.Minute)) {
+	return id, nil
+}
+
+func (p *Provider) validateClaims(id *oidc.IDToken, nonce string) (identity.OIDCVerifiedIdentity, error) {
+	if id.Nonce != nonce || id.Issuer != p.issuer || id.Subject == "" || len(id.Subject) > 255 || id.IssuedAt.After(p.clock().Add(time.Minute)) {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	var claims struct {
@@ -220,22 +253,33 @@ func (p *Provider) Exchange(ctx context.Context, x identity.OIDCExchangeParams) 
 	if id.Claims(&claims) != nil || claims.IssuedAt == nil {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
-	issuedAt, parseErr := claims.IssuedAt.Float64()
-	if parseErr != nil {
-		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
-	}
-	if math.IsNaN(issuedAt) || math.IsInf(issuedAt, 0) || issuedAt < 0 || issuedAt > float64(p.clock().Add(time.Minute).Unix()) {
-		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
+	if err := validateIssuedAt(claims.IssuedAt, p.clock()); err != nil {
+		return identity.OIDCVerifiedIdentity{}, err
 	}
 	if len(id.Audience) > 1 && claims.Azp != p.clientID || claims.Azp != "" && claims.Azp != p.clientID {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
-	for _, r := range id.Subject {
-		if r < 0x21 || r > 0x7e {
-			return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
-		}
+	if !validSubject(id.Subject) {
+		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
 	return identity.OIDCVerifiedIdentity{Issuer: id.Issuer, Subject: id.Subject}, nil
+}
+
+func validateIssuedAt(value *json.Number, now time.Time) error {
+	issuedAt, err := value.Float64()
+	if err != nil || math.IsNaN(issuedAt) || math.IsInf(issuedAt, 0) || issuedAt < 0 || issuedAt > float64(now.Add(time.Minute).Unix()) {
+		return identity.ErrOIDCAuthenticationFailed
+	}
+	return nil
+}
+
+func validSubject(subject string) bool {
+	for _, r := range subject {
+		if r < 0x21 || r > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // RedirectPolicy is exposed for focused verification of transport downgrade protection.
