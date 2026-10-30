@@ -8,7 +8,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | --- | --- | --- | --- |
 | Go toolchain (CI, Docker build, OIDC test provider) | 1.27.3 | 1.27.3 | Current |
 | `go` directive (`backend/go.mod`) | 1.26.0 | — | Minimum language version; builds use the pinned toolchain |
-| Node.js (CI, Docker web build) | 24.22.2 | 24.22.2 (LTS) | Current; 24.22.2 is a V8-backport and stream async-context patch; package engines still allow `^22.22.2` for local work |
+| Node.js (CI, Docker web build) | 26.13.0 | 26.13.0 (LTS "Lithium") | Current; see Node.js 26 migration notes below; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
 | mise (installer used by `scripts/dev-exec.sh`) | 2026.10.21 | 2026.10.24 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
@@ -102,6 +102,14 @@ For extraction/lookup diagnostics, use the official Renovate CLI with `--platfor
 ## Held upgrades
 
 - **TypeScript 7.0.2**: `typescript-eslint` 8.71.1 declares a `typescript <6.1.0` peer range. TypeScript's documented side-by-side setup (TS 6 for tooling, TS 7 native compiler for type checking) is possible but adds a second compiler; revisit when `typescript-eslint` supports TS 7.
+
+## Node.js 26 LTS migration notes (24.22.2 → 26.13.0)
+
+- **LTS only**: 26.13.0 (2026-10-28) is the first Node 26 LTS release ("Lithium", supported through April 2029) and changes only release metadata from 26.12.1, which was Current. Renovate PR #286 first proposed 26.12.0/26.12.1 and left `toolchain.json` `node` on 24.22.2, so `scripts/test_toolchain_manifest.py` failed; all pins now move together to 26.13.0.
+- **Bundled tools**: npm 11.19.1 → 11.20.0 (same major, no breaking changes listed); V8 13.6 → 14.6; OpenSSL 3.5.9 unchanged; Undici 8; Temporal enabled by default.
+- **Removed or deprecated APIs** (Node 25/26): `http.Server.prototype.writeHeader()`, legacy `_stream_*` modules, `--experimental-transform-types`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` aliases and `SlowBuffer` removed; `module.register()` runtime-deprecated; Corepack no longer bundled. Repository scripts use none of these and Tendo does not use Corepack.
+- **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the `dev-exec.sh` provisioned binary all run it; the Docker web build and every deployment smoke pass.
+- Sources: [v26.0.0](https://nodejs.org/en/blog/release/v26.0.0), [v25.0.0](https://nodejs.org/en/blog/release/v25.0.0), [v26.13.0](https://nodejs.org/en/blog/release/v26.13.0).
 
 ## oapi-codegen v2.8.1 notes
 
