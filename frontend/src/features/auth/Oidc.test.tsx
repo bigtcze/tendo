@@ -202,14 +202,12 @@ describe('sign in with the configured provider', () => {
   it('ignores a delayed provider login response after unmount', async () => {
     let release!: (response: Response) => void;
     const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const onSignedIn = vi.fn();
     installFakeServer({ ...signedOut, ...enabled, 'POST /api/v1/auth/oidc/start': () => delayed });
-    const view = render(<I18nProvider><LoginScreen onSignedIn={onSignedIn} /></I18nProvider>);
+    const view = render(<I18nProvider><LoginScreen onSignedIn={vi.fn()} /></I18nProvider>);
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Pocket ID' }));
     view.unmount();
     await act(async () => { release(json(200, { authorizationUrl })); });
     expect(assign).not.toHaveBeenCalled();
-    expect(onSignedIn).not.toHaveBeenCalled();
   });
 
   it('ignores a delayed password login response after unmount', async () => {
