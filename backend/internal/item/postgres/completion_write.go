@@ -63,14 +63,6 @@ func insertCompletionAndUpdateItem(
 	if err != nil {
 		return item.Completion{}, errPersistence
 	}
-	if completeAfterInsertHook != nil {
-		if err = completeAfterInsertHook(); err != nil {
-			if errors.Is(err, item.ErrUnavailable) {
-				return item.Completion{}, item.ErrUnavailable
-			}
-			return item.Completion{}, err
-		}
-	}
 	params := dbgen.UpdateItemForCompletionParams{
 		HouseholdID: household, ID: id, AttentionOn: dbDate(plan.Item.AttentionOn),
 		WorkflowState: string(plan.Item.WorkflowState), Done: plan.Item.Done,

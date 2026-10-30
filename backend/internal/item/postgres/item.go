@@ -140,11 +140,6 @@ func (r *Repository) createInitialized(ctx context.Context, hid pgtype.UUID, d i
 	if err != nil {
 		return item.Item{}, false, errPersistence
 	}
-	if completeAfterInsertHook != nil {
-		if err = completeAfterInsertHook(); err != nil {
-			return item.Item{}, false, errPersistence
-		}
-	}
 	if err = q.UpdateItemForCompletion(ctx, dbgen.UpdateItemForCompletionParams{
 		HouseholdID: hid, ID: uuid(created.ID), AttentionOn: date(receipt.NextAttentionOn),
 		WorkflowState: string(item.StateOpen), Done: false,
