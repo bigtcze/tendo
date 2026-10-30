@@ -98,30 +98,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/item/postgres/item.go",
-    "name": "Repository.List",
-    "allowed": 20,
-    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/postgres/item.go",
-    "name": "Repository.Update",
-    "allowed": 18,
-    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/postgres/item.go",
-    "name": "toItem",
-    "allowed": 16,
-    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/platform/database/migrate.go",
     "name": "Migrate",
     "allowed": 17,
@@ -311,13 +287,6 @@
     "allowed": 7,
     "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
     "owner": "test-support"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/item/postgres/item.go",
-    "allowed": 16,
-    "reason": "PostgreSQL item repository handles list/update persistence and row mapping; separate query mapping from write patches without changing storage behavior.",
-    "owner": "backend-item"
   },
   {
     "kind": "long_lines",
