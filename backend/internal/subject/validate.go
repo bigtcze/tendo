@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 )
 
+// ParseType accepts only the exact lowercase wire values.
 func ParseType(s string) (Type, bool) {
 	switch t := Type(s); t {
 	case TypePerson, TypeHome, TypeVehicle, TypePet, TypeCustom:
@@ -14,6 +15,7 @@ func ParseType(s string) (Type, bool) {
 	return "", false
 }
 
+// ValidateName returns the trimmed name or a ValidationError.
 func ValidateName(name string) (string, error) {
 	if !utf8.ValidString(name) {
 		return "", &ValidationError{"name", "invalid_characters"}
@@ -32,6 +34,7 @@ func ValidateName(name string) (string, error) {
 	return name, nil
 }
 
+// validUUID accepts only the canonical 8-4-4-4-12 hexadecimal form.
 func validUUID(s string) bool {
 	if len(s) != 36 {
 		return false

@@ -47,8 +47,6 @@ const (
 	TypeCustom  Type = "custom"
 )
 
-// ParseType accepts only the exact lowercase wire values.
-
 // Subject is a household-scoped tracked entity. HouseholdID is populated by
 // repositories but is not part of the public representation.
 type Subject struct {
@@ -172,74 +170,3 @@ func (s *Service) Get(ctx context.Context, userID, householdID, subjectID string
 	}
 	return found, nil
 }
-
-// validationAfterExistenceCheck keeps a bad PATCH on an existing subject as
-// 422 while preserving 404 for missing or foreign-household targets.
-func (s *Service) validationAfterExistenceCheck(ctx context.Context, householdID, subjectID string, validationErr error) error {
-	var validation *ValidationError
-	if !errors.As(validationErr, &validation) {
-		return validationErr
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	_, err := s.repository.Get(probeCtx, householdID, subjectID)
-	if errors.Is(err, ErrNotFound) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return ErrUnavailable
-	}
-	return validationErr
-}
-
-// Stored type/link state matters only when the patch changes one side while
-// omitting the other; explicit type+link or unlinking fully determines validity.
-func subjectTypeLinkDependsOnStoredState(p Patch) bool {
-	return (p.Type != nil && !p.LinkedUserIDSet) || (p.Type == nil && p.LinkedUserIDSet && p.LinkedUserID != nil)
-}
-
-func resultingType(p Patch, storedType Type) Type {
-	if p.Type != nil {
-		return *p.Type
-	}
-	return storedType
-}
-
-func resultingLink(p Patch, storedLink *string) *string {
-	if p.LinkedUserIDSet {
-		return p.LinkedUserID
-	}
-	return storedLink
-}
-
-// staleTypeLinkError resolves the stored-state invariant only when one side is
-// omitted; otherwise the request already determines validity. The scoped probe
-// distinguishes 404, unavailable, requires_person, and ordinary stale 412.
-func (s *Service) staleTypeLinkError(ctx context.Context, householdID, subjectID string, p Patch, updateErr error) error {
-	if !errors.Is(updateErr, ErrVersionMismatch) || !subjectTypeLinkDependsOnStoredState(p) {
-		return mapRepoErr(updateErr)
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	stored, err := s.repository.Get(probeCtx, householdID, subjectID)
-	if errors.Is(err, ErrNotFound) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return ErrUnavailable
-	}
-	if resultingLink(p, stored.LinkedUserID) != nil && resultingType(p, stored.Type) != TypePerson {
-		return &ValidationError{"linkedUserId", "requires_person"}
-	}
-	return ErrVersionMismatch
-}
-
-// ValidateName returns the trimmed name or a ValidationError.
-
-// EncodeCursor returns the opaque, versioned cursor for the last returned id.
-
-// DecodeCursor returns the canonical lowercase id inside a cursor.
-
-// CanonicalIDs validates, lowercases, sorts, and deduplicates list filter IDs.
-
-// validUUID accepts only the canonical 8-4-4-4-12 hexadecimal form.

@@ -10,56 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func rowFromCreated(r dbgen.CreateSubjectRow) row {
-	return rowFromFields(
-		r.ID, r.HouseholdID, r.Type, r.Name, r.Archived,
-		r.CreatedAt, r.UpdatedAt, r.Version, r.LinkedUserID,
-	)
-}
-
-func rowFromFields(id, householdID, typ, name string, archived bool, createdAt, updatedAt pgtype.Timestamptz, version int64, linkedUserID pgtype.UUID) row {
-	return row{
-		ID: id, HouseholdID: householdID, Type: typ, Name: name,
-		Archived: archived, CreatedAt: createdAt, UpdatedAt: updatedAt,
-		Version: version, LinkedUserID: linkedUserID,
-	}
-}
-
-func rowFromFound(r dbgen.FindSubjectCreationRow) row {
-	return rowFromFields(
-		r.ID, r.HouseholdID, r.Type, r.Name, r.Archived,
-		r.CreatedAt, r.UpdatedAt, r.Version, r.LinkedUserID,
-	)
-}
-
-func rowFromGet(r dbgen.GetSubjectRow) row {
-	return rowFromFields(
-		r.ID, r.HouseholdID, r.Type, r.Name, r.Archived,
-		r.CreatedAt, r.UpdatedAt, r.Version, r.LinkedUserID,
-	)
-}
-
-func rowFromFilteredItem(r dbgen.ListSubjectsByIDsRow) row {
-	return rowFromFields(
-		r.ID, r.HouseholdID, r.Type, r.Name, r.Archived,
-		r.CreatedAt, r.UpdatedAt, r.Version, r.LinkedUserID,
-	)
-}
-
-func rowFromItem(r dbgen.ListSubjectsRow) row {
-	return rowFromFields(
-		r.ID, r.HouseholdID, r.Type, r.Name, r.Archived,
-		r.CreatedAt, r.UpdatedAt, r.Version, r.LinkedUserID,
-	)
-}
-
-func rowFromUpdated(r dbgen.UpdateSubjectRow) row {
-	return rowFromFields(
-		r.ID, r.HouseholdID, r.Type, r.Name, r.Archived,
-		r.CreatedAt, r.UpdatedAt, r.Version, r.LinkedUserID,
-	)
-}
-
 func toSubject(r row) subject.Subject {
 	var linked *string
 	if r.LinkedUserID.Valid {
@@ -107,7 +57,7 @@ func (r *Repository) Update(ctx context.Context, householdID, subjectID string, 
 	}
 	updated, err := r.queries.UpdateSubject(ctx, params)
 	if err == nil {
-		return toSubject(rowFromUpdated(updated)), nil
+		return toSubject(row(updated)), nil
 	}
 	if mapped := updateConstraintError(err); mapped != nil {
 		return subject.Subject{}, mapped

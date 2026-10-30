@@ -64,10 +64,12 @@ func (s *Service) List(ctx context.Context, userID, householdID string, q ListQu
 	return page, nil
 }
 
+// EncodeCursor returns the opaque, versioned cursor for the last returned id.
 func EncodeCursor(id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(cursorPrefix + strings.ToLower(id)))
 }
 
+// DecodeCursor returns the canonical lowercase id inside a cursor.
 func DecodeCursor(cursor string) (string, error) {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(cursor)
 	if err != nil {
@@ -80,6 +82,7 @@ func DecodeCursor(cursor string) (string, error) {
 	return strings.ToLower(id), nil
 }
 
+// CanonicalIDs validates, lowercases, sorts, and deduplicates list filter IDs.
 func CanonicalIDs(input []string) ([]string, error) {
 	if input == nil {
 		return nil, nil

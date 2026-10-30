@@ -73,12 +73,18 @@ func parseUUID(s string) (pgtype.UUID, bool) {
 	return u, true
 }
 
+// row mirrors the field set and order of every generated subject row except
+// FindSubjectCreationRow, so those rows convert with row(generated).
 type row struct {
-	ID, HouseholdID, Type, Name string
-	LinkedUserID                pgtype.UUID
-	Archived                    bool
-	CreatedAt, UpdatedAt        pgtype.Timestamptz
-	Version                     int64
+	ID           string
+	HouseholdID  string
+	Type         string
+	Name         string
+	Archived     bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	Version      int64
+	LinkedUserID pgtype.UUID
 }
 
 func (r *Repository) CreateIdempotent(
@@ -112,7 +118,7 @@ func (r *Repository) CreateIdempotent(
 	if err != nil {
 		return subject.Subject{}, false, errPersistence
 	}
-	return toSubject(rowFromCreated(created)), true, nil
+	return toSubject(row(created)), true, nil
 }
 
 func (r *Repository) FindCreation(ctx context.Context, householdID, actorID, key string) (subject.Subject, []byte, error) {
@@ -132,7 +138,11 @@ func (r *Repository) FindCreation(ctx context.Context, householdID, actorID, key
 	if err != nil {
 		return subject.Subject{}, nil, errPersistence
 	}
-	return toSubject(rowFromFound(found)), found.CreationRequestFingerprint, nil
+	return toSubject(row{
+		ID: found.ID, HouseholdID: found.HouseholdID, Type: found.Type, Name: found.Name,
+		Archived: found.Archived, CreatedAt: found.CreatedAt, UpdatedAt: found.UpdatedAt,
+		Version: found.Version, LinkedUserID: found.LinkedUserID,
+	}), found.CreationRequestFingerprint, nil
 }
 
 func (r *Repository) Get(ctx context.Context, householdID, subjectID string) (subject.Subject, error) {
@@ -148,7 +158,7 @@ func (r *Repository) Get(ctx context.Context, householdID, subjectID string) (su
 	if err != nil {
 		return subject.Subject{}, errPersistence
 	}
-	return toSubject(rowFromGet(found)), nil
+	return toSubject(row(found)), nil
 }
 
 func (r *Repository) List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]subject.Subject, error) {
@@ -163,7 +173,7 @@ func (r *Repository) List(ctx context.Context, householdID string, archived bool
 	}
 	items := make([]subject.Subject, 0, len(rows))
 	for _, item := range rows {
-		items = append(items, toSubject(rowFromItem(item)))
+		items = append(items, toSubject(row(item)))
 	}
 	return items, nil
 }
@@ -192,7 +202,7 @@ func (r *Repository) ListByIDs(ctx context.Context, householdID string, archived
 	}
 	items := make([]subject.Subject, 0, len(rows))
 	for _, item := range rows {
-		items = append(items, toSubject(rowFromFilteredItem(item)))
+		items = append(items, toSubject(row(item)))
 	}
 	return items, nil
 }
