@@ -1,11 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prefix = 'tendo.pendingCompletion:';
 const keyFor = (userId: string, householdId: string, itemId: string) => `${prefix}${userId}:${householdId}:${itemId}`;
 
-afterEach(() => {
+beforeEach(() => {
   sessionStorage.clear();
+});
+
+afterEach(() => {
   vi.restoreAllMocks();
+  vi.resetModules();
 });
 
 describe('pending completion storage', () => {
@@ -42,6 +46,43 @@ describe('pending completion storage', () => {
 
     expect(sessionStorage.getItem(keyFor('user-1', 'home-1', 'item-1'))).toBeNull();
     expect(sessionStorage.getItem('unrelated')).toBe('keep');
+  });
+
+  it('does not resurrect a settled key after sign-out cleanup fails', async () => {
+    const pending = await import('./pendingCompletions');
+    pending.setPendingCompletion('user-1', 'home-1', 'item-1', 'attempt-1');
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('storage unavailable'); });
+
+    pending.clearPendingCompletion('user-1', 'home-1', 'item-1', 'attempt-1');
+    expect(pending.getPendingCompletion('user-1', 'home-1', 'item-1')).toBeUndefined();
+
+    pending.clearPendingCompletions();
+
+    expect(pending.getPendingCompletion('user-1', 'home-1', 'item-1')).toBeUndefined();
+  });
+
+  it('does not recover stored entries after failed sign-out cleanup when they were unknown to memory', async () => {
+    const pending = await import('./pendingCompletions');
+    sessionStorage.setItem(keyFor('user-1', 'home-1', 'item-1'), 'stored-attempt');
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('storage unavailable'); });
+
+    pending.clearPendingCompletions();
+
+    expect(pending.getPendingCompletion('user-1', 'home-1', 'item-1')).toBeUndefined();
+  });
+
+  it('clears memory and storage after successful sign-out cleanup so new attempts recover', async () => {
+    const pending = await import('./pendingCompletions');
+    pending.setPendingCompletion('user-1', 'home-1', 'item-1', 'old-attempt');
+
+    pending.clearPendingCompletions();
+
+    expect(pending.getPendingCompletion('user-1', 'home-1', 'item-1')).toBeUndefined();
+    pending.setPendingCompletion('user-1', 'home-1', 'item-1', 'new-attempt');
+    vi.resetModules();
+    const recovered = await import('./pendingCompletions');
+
+    expect(recovered.getPendingCompletion('user-1', 'home-1', 'item-1')).toBe('new-attempt');
   });
 
   it('does not resurrect a settled key when removing it from storage fails', async () => {
