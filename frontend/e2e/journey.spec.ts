@@ -31,11 +31,15 @@ const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
 
 const problems: string[] = [];
+const problem503 = { type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' };
 const failedResponses = new Set<string>();
 let n17OfflineActive = false;
 let n17FailurePhaseActive = false;
 let n19PhaseActive = false;
 let n20OidcFailureActive = false;
+type InjectedFailure = { key: string; url: string };
+type FailureWindow = { injected: InjectedFailure[]; declared: string[]; observed: string[] };
+const failureWindows = new WeakMap<Page, FailureWindow>();
 const n19FailedResponses: string[] = [];
 const n20FailedResponses: string[] = [];
 const n17OfflineExpectedResources: RegExp[] = [];
@@ -88,6 +92,12 @@ function watch(page: Page, options: { fullChromium?: boolean } = {}) {
     const path = new URL(message.location().url || 'about:blank').pathname;
     if (options.fullChromium && path === '/favicon.ico' && message.text().includes('status of 404')) return;
     if (n17OfflineActive && message.text().includes('Failed to load resource') && message.text().includes('ERR_INTERNET_DISCONNECTED') && n17OfflineExpectedResources.some((expected) => expected.test(message.location().url))) return;
+    const failureWindow = failureWindows.get(page);
+    if (failureWindow && message.text().includes('Failed to load resource')) {
+      if (failureWindow.injected.some((failure) => failure.url === message.location().url)) return;
+      const match = message.text().match(/status of (\d{3})/);
+      if (match && failureWindow.declared.some((entry) => entry.endsWith(` ${path} ${match[1]}`))) return;
+    }
     if (n17FailurePhaseActive && n17ExpectedFailurePaths.has(path) && message.text().includes('Failed to load resource')) return;
     // The response check below asserts the exact expected HTTP failures.
     if (expectedFailedPaths.has(path)) return;
@@ -97,9 +107,19 @@ function watch(page: Page, options: { fullChromium?: boolean } = {}) {
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
+  page.on('requestfailed', (request) => {
+    const window = failureWindows.get(page);
+    const path = new URL(request.url()).pathname;
+    // Every failed API request is ledgered, including net::ERR_ABORTED (a cancelled fetch logs no console error).
+    if (window && path.startsWith('/api/')) {
+      window.observed.push(`${request.method()} ${path} ${request.failure()?.errorText ?? 'unknown failure'}`);
+    }
+  });
   page.on('response', (response) => {
     if (response.status() >= 400) {
       const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
+      const window = failureWindows.get(page);
+      if (window) { window.observed.push(failure); return; }
       if (n19PhaseActive) n19FailedResponses.push(failure);
       else if (n20OidcFailureActive && failure === 'GET /api/v1/auth/oidc 503') n20FailedResponses.push(failure);
       else failedResponses.add(failure);
@@ -4275,10 +4295,13 @@ test.describe('Tendo production journey', () => {
       await trackInFlightApiFetches(actor);
       const issues: string[] = [];
       const failures: string[] = [];
+      let acceptRefreshFailureActive = false;
+      let invalidInviteFailureActive = false;
       actor.on('console', message => {
         if (message.type() !== 'error') return;
         const path = new URL(message.location().url || 'about:blank').pathname;
-        if (path === '/api/v1/session' || path === '/api/v1/invitations/accept') return;
+        if (path === '/api/v1/session' && (message.text().includes('status of 401') || acceptRefreshFailureActive && message.text().includes('status of 503'))) return;
+        if (path === '/api/v1/invitations/accept' && (message.text().includes('status of 409') || invalidInviteFailureActive && message.text().includes('status of 404'))) return;
         issues.push(`console: ${message.text()}`);
       });
       actor.on('pageerror', error => issues.push(`pageerror: ${error.message}`));
@@ -4287,7 +4310,7 @@ test.describe('Tendo production journey', () => {
         const failure = `${response.request().method()} ${path} ${response.status()}`;
         if (response.status() >= 400 && !(failure === 'GET /api/v1/session 401')) failures.push(failure);
       });
-      return { context, actor, assertClean: (expectedFailures: string[]) => {
+      return { context, actor, issues, failures, setAcceptRefreshFailureActive: (active: boolean) => { acceptRefreshFailureActive = active; }, setInvalidInviteFailureActive: (active: boolean) => { invalidInviteFailureActive = active; }, assertClean: (expectedFailures: string[]) => {
         expect(issues).toEqual([]);
         expect([...failures].sort()).toEqual([...expectedFailures].sort());
       } };
@@ -4407,8 +4430,38 @@ test.describe('Tendo production journey', () => {
       await expect(free.actor.getByRole('heading', { level: 1, name: en['home.noHousehold.title'] })).toBeVisible();
       await free.actor.goto(freeInvite.link);
       await expect(free.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_free_e2e') })).toBeVisible();
-      await free.actor.getByRole('button', { name: en['invite.join'] }).click();
+      await waitForSettledHouseholdRequests(free.actor);
+      const sessionPath = '/api/v1/session';
+      let injectedRefreshFailure = false;
+      const freeFailuresBeforeRefresh = free.failures.length;
+      const rejectFirstRefresh = async (route: import('@playwright/test').Route) => {
+        if (route.request().method() === 'GET' && !injectedRefreshFailure) {
+          injectedRefreshFailure = true;
+          return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify(problem503) });
+        }
+        return route.fallback();
+      };
+      await free.actor.route(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(sessionPath)}$`), rejectFirstRefresh);
+      free.setAcceptRefreshFailureActive(true);
+      const acceptResponsePromise = free.actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/invitations/accept');
+      await free.actor.getByRole('button', { name: en['invite.join'], exact: true }).click();
+      const acceptedResponse = await acceptResponsePromise;
+      expect(acceptedResponse.status()).toBe(201);
+      const acceptedNotice = free.actor.getByRole('status').filter({ hasText: en['invite.error.accepted'] });
+      await expect(acceptedNotice).toBeVisible();
+      await expect(acceptedNotice).toBeFocused();
+      await expect(free.actor.getByRole('button', { name: en['invite.continue'], exact: true })).toBeVisible();
+      await expectInvitationStatus(freeInvite.id, 'accepted');
+      const joinedBeforeContinue = await listOwnerMembers();
+      expect(joinedBeforeContinue.filter(member => member.login === 'existing_free_e2e' && member.role === 'member')).toHaveLength(1);
+      free.setAcceptRefreshFailureActive(false);
+      await free.actor.unroute(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(sessionPath)}$`), rejectFirstRefresh);
+      const continueSessionPromise = free.actor.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname === sessionPath);
+      await free.actor.getByRole('button', { name: en['invite.continue'], exact: true }).click();
+      const continuedSessionResponse = await continueSessionPromise;
+      expect(continuedSessionResponse.status()).toBe(200);
       await expect(free.actor.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      expect(free.failures.slice(freeFailuresBeforeRefresh)).toEqual(['GET /api/v1/session 503']);
       const freeSession = await free.actor.request.get('/api/v1/session');
       expect(freeSession.status()).toBe(200);
       expect((await freeSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
@@ -4416,13 +4469,15 @@ test.describe('Tendo production journey', () => {
       await expect(free.actor.getByRole('listitem').filter({ hasText: 'existing_free_e2e' })).toContainText(en['members.role.member']);
       await free.actor.goto(freeInvite.link);
       await expect(free.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_free_e2e') })).toBeVisible();
+      free.setInvalidInviteFailureActive(true);
       await free.actor.getByRole('button', { name: en['invite.join'] }).click();
       await expect(free.actor.getByRole('status')).toContainText(en['invite.error.invalid']);
+      free.setInvalidInviteFailureActive(false);
       await expectInvitationStatus(freeInvite.id, 'accepted');
       const listedMembers = await listOwnerMembers();
       expect(listedMembers.find(member => member.login === 'existing_free_e2e')?.role).toBe('member');
       await waitForSettledHouseholdRequests(free.actor);
-      free.assertClean(['POST /api/v1/invitations/accept 404']);
+      free.assertClean(['GET /api/v1/session 503', 'POST /api/v1/invitations/accept 404']);
     } finally { await free.context.close(); }
   });
 
@@ -4526,6 +4581,275 @@ test.describe('Tendo production journey', () => {
     } catch (error) { cleanupFailures.push(error); }
     if (primaryFailure) throw primaryFailure;
     if (cleanupFailures.length) throw cleanupFailures[0];
+  });
+
+  test('n29. residual controls recover against the production API and PostgreSQL', async () => {
+    test.setTimeout(120_000);
+    const ownedRoutes: Array<{ url: RegExp; handler: (route: import('@playwright/test').Route) => void | Promise<void> }> = [];
+    let primaryFailure: unknown;
+    let cleanupFailure: unknown;
+    const openWindow = async (declared: string[] = []) => {
+      if (failureWindows.has(page)) throw new Error('n29 failure window already open');
+      // Open only at API quiescence so an earlier step's in-flight request cannot fail inside this window.
+      await waitForSettledHouseholdRequests(page);
+      failureWindows.set(page, { injected: [], declared, observed: [] });
+    };
+    const inject = async (url: RegExp, method: string, opts: { times?: number; abort?: boolean; match?: (req: import('@playwright/test').Request) => boolean } = {}) => {
+      let count = 0;
+      const handler = async (route: import('@playwright/test').Route) => {
+        const req = route.request();
+        if (req.method() !== method || (opts.match && !opts.match(req)) || count >= (opts.times ?? 1)) return route.fallback();
+        const window = failureWindows.get(page);
+        if (!window) throw new Error('n29 injection requires an open failure window');
+        count += 1;
+        const requestURL = req.url();
+        const path = new URL(requestURL).pathname;
+        window.injected.push({ key: `${method} ${path} ${opts.abort ? 'net::ERR_FAILED' : 503}`, url: requestURL });
+        if (opts.abort) { await route.fetch(); return route.abort('failed'); }
+        return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify(problem503) });
+      };
+      ownedRoutes.push({ url, handler });
+      await page.route(url, handler);
+      return { count: () => count, stop: async () => { await page.unroute(url, handler); ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === handler), 1); } };
+    };
+    const closeWindow = async (routes: Array<{ stop: () => Promise<void> }> = []) => {
+      const window = failureWindows.get(page);
+      if (!window) throw new Error('n29 failure window is not open');
+      await waitForSettledHouseholdRequests(page);
+      for (const route of routes) await route.stop();
+      expect([...window.observed].sort()).toEqual([...window.injected.map((entry) => entry.key), ...window.declared].sort());
+      failureWindows.delete(page);
+    };
+    const getSubjectByName = async (name: string) => (await serverSubjects(false)).find((subject) => subject.name === name);
+    const contexts: BrowserContext[] = [];
+    try {
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
+
+      // Catalogue lookup uses limit/archived query; label reads carry id= and remain untouched.
+      const cataloguePath = `/api/v1/households/${householdId}/subjects`;
+      const catalogueUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?.*$`);
+      await openWindow();
+      const catalogueFailure = await inject(catalogueUrl, 'GET', { times: 2, match: (req) => { const query = new URL(req.url()).searchParams; return query.get('limit') === '100' && query.get('archived') === 'false' && !query.has('id'); } });
+      const addItemButton = page.getByRole('button', { name: en['items.add'], exact: true });
+      await addItemButton.click();
+      await expect(page.getByText(en['items.subjects.error'], { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(page.getByText(en['items.subjects.error'], { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
+      await expect(addItemButton).toBeFocused();
+      await addItemButton.click();
+      await expect(page.getByText(en['items.subjects.error'], { exact: true })).toBeVisible();
+      expect(catalogueFailure.count()).toBe(2);
+      await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
+      await page.getByRole('form', { name: en['items.add.formLabel'] }).getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(addItemButton).toBeFocused();
+      await closeWindow([catalogueFailure]);
+
+      // Use a real persisted item and receipt, then exercise both independent detail loaders.
+      await addItem({ title: 'N29 detail retry persisted', subject: 'Anička', historicalCompletedOn: expectedCompletionDate, repeat: { value: '1', unit: 'week', fluid: false } });
+      const createdItem = await serverItem('N29 detail retry persisted');
+      const itemPath = `/api/v1/households/${householdId}/items/${createdItem.id}`;
+      const itemResponse = await page.request.get(itemPath);
+      expect(itemResponse.status()).toBe(200);
+      const itemBody = await itemResponse.json() as { id: string; attentionOn: string | null };
+      expect(itemBody).toMatchObject({ id: createdItem.id, attentionOn: createdItem.attentionOn });
+      const itemGetPath = itemPath;
+      const homePath = `/api/v1/households/${householdId}/items/summary`;
+      const groupPath = `/api/v1/households/${householdId}/items`;
+      const homeRouteUrl = new RegExp(`^${escapeRegExp(baseURL)}(?:${escapeRegExp(homePath)}|${escapeRegExp(groupPath)})(?:\\?.*)?$`);
+      await openWindow();
+      const homeFailures = await inject(homeRouteUrl, 'GET', { times: 2, match: (req) => new URL(req.url()).pathname === homePath || new URL(req.url()).pathname === groupPath });
+      await page.goto('/');
+      await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await waitForSettledHome(page, householdName);
+      // Home may request either summary or groups first, but both paths are independently eligible.
+      expect(homeFailures.count()).toBeGreaterThanOrEqual(1);
+      await closeWindow([homeFailures]);
+
+      // Both active and archived label lookups are separate requests for the visible home rows.
+      const subjectsURL = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?.*$`);
+      await openWindow();
+      const failedLabels = await inject(subjectsURL, 'GET', { times: 2, match: (req) => new URL(req.url()).searchParams.has('id') });
+      await page.goto('/');
+      await expect(page.getByText(en['items.subjectLabels.error'], { exact: true })).toBeVisible();
+      const labelRetry = page.getByRole('button', { name: en['items.subjectLabels.retry'], exact: true });
+      await expect(labelRetry).toBeVisible();
+      // A visible batch can contain active and archived subject lookups.
+      expect(failedLabels.count()).toBeGreaterThanOrEqual(2);
+      const labelResponse = page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === cataloguePath && new URL(response.url()).searchParams.has('id') && response.status() === 200);
+      await labelRetry.click();
+      await labelResponse;
+      await expect(page.getByText(en['items.subjectLabels.error'], { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('main').getByText('Anička', { exact: true }).first()).toBeVisible();
+      await expect.poll(() => page.evaluate(() => { const active = document.activeElement; return active instanceof HTMLHeadingElement && active.tagName !== 'H1'; })).toBe(true);
+      await closeWindow([failedLabels]);
+      await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      const detailItemRow = page.getByRole('main').getByRole('listitem').filter({ hasText: 'N29 detail retry persisted' });
+      await expect(detailItemRow).toBeVisible();
+      await openWindow();
+      const itemFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(itemGetPath)}(?:\\?.*)?$`), 'GET');
+      await page.getByRole('main').getByRole('link').filter({ hasText: 'N29 detail retry persisted' }).click();
+      await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: 'N29 detail retry persisted' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
+      expect(itemFailure.count()).toBe(1);
+      await closeWindow([itemFailure]);
+      const historyPath = `${itemPath}/completions`;
+      await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
+      await waitForSettledHome(page, householdName);
+      await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      const historyItemRow = page.getByRole('main').getByRole('listitem').filter({ hasText: 'N29 detail retry persisted' });
+      await expect(historyItemRow).toBeVisible();
+      await openWindow();
+      const historyFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(historyPath)}(?:\\?.*)?$`), 'GET');
+      await historyItemRow.getByRole('link').click();
+      await expect(page.getByText(en['itemDetail.historyError'], { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await expect(page.locator('ol').getByRole('listitem')).toHaveCount(1);
+      const historyAfterRetry = await page.request.get(historyPath);
+      expect(historyAfterRetry.status()).toBe(200);
+      expect((await historyAfterRetry.json() as { items: unknown[] }).items).toHaveLength(1);
+      expect(historyFailure.count()).toBe(1);
+      await closeWindow([historyFailure]);
+
+      // People list failure is visibly retryable; linked account is persisted on write and clear.
+      await page.goto('/'); await waitForSettledHome(page, householdName);
+      const peoplePath = `/api/v1/households/${householdId}/subjects`;
+      await openWindow();
+      const peopleFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(peoplePath)}(?:\\?.*)?$`), 'GET');
+      await page.goto('/people');
+      await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
+      expect(peopleFailure.count()).toBe(1);
+      await closeWindow([peopleFailure]);
+      await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+      const members = await page.request.get(`/api/v1/households/${householdId}/members`);
+      expect(members.status()).toBe(200);
+      const linkedMember = ((await members.json()) as { items: Array<{ login: string; userId: string }> }).items.find((member) => member.login === 'member_e2e');
+      expect(linkedMember).toBeTruthy();
+      const linkedName = 'N29 linked account residual';
+      await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+      const personForm = page.getByRole('form', { name: en['subjects.add.formLabel'] });
+      await personForm.getByLabel(en['subjects.name']).fill(linkedName);
+      await expect(personForm.getByRole('combobox', { name: en['subjects.link.label'] })).toBeVisible();
+      await personForm.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(linkedMember!.userId);
+      await personForm.getByRole('button', { name: en['subjects.add.submit'] }).click();
+      await expect(page.getByRole('listitem').filter({ hasText: linkedName })).toContainText(linkedMember!.login);
+      const linkedSubject = await getSubjectByName(linkedName);
+      expect(linkedSubject?.linkedUserId).toBe(linkedMember!.userId);
+      const linkedPath = `${peoplePath}/${linkedSubject!.id}`;
+      await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', linkedName) }).click();
+      const linkedEdit = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', linkedName) });
+      await linkedEdit.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption('');
+      await linkedEdit.getByRole('button', { name: en['subjects.save'] }).click();
+      await expect(page.getByRole('listitem').filter({ hasText: linkedName })).not.toContainText(linkedMember!.login);
+      expect((await (await page.request.get(linkedPath)).json() as { linkedUserId: string | null }).linkedUserId).toBeNull();
+
+      // Members invitation list recovery, clipboard success and rejection fallback.
+      await page.goto('/'); await waitForSettledHome(page, householdName);
+      const invitationsPath = `/api/v1/households/${householdId}/invitations`;
+      const invitationURL = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(invitationsPath)}(?:\\?.*)?$`);
+      await openWindow();
+      const invitationListFailure = await inject(invitationURL, 'GET');
+      await page.goto('/members');
+      await expect(page.getByText(en['members.invitations.error'], { exact: true })).toBeVisible();
+      expect(invitationListFailure.count()).toBe(1);
+      await closeWindow([invitationListFailure]);
+      const invitationRetry = page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === invitationsPath && response.status() === 200);
+      await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await invitationRetry;
+      await expect(page.getByText(en['members.invitations.error'], { exact: true })).toHaveCount(0);
+      const invitationHeading = page.getByRole('heading', { name: en['members.invitations.title'] });
+      const invitationContent = invitationHeading.locator('..');
+      const invitationRows = invitationContent.getByRole('listitem');
+      if (await invitationRows.count()) await expect(invitationRows.first()).toBeVisible();
+      else await expect(invitationContent.getByText(en['members.invitations.empty'], { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.getByRole('button', { name: en['members.invite.action'] }).click();
+      const linkField = page.getByRole('textbox', { name: en['members.invite.link'] });
+      const shownLink = await linkField.inputValue();
+      await page.getByRole('button', { name: en['members.invite.copy'], exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shownLink);
+      await page.getByRole('button', { name: en['members.invite.copiedButton'] }).click();
+      await expect(page.getByRole('status')).toContainText(en['members.invite.copied']);
+      await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: () => Promise.reject(new Error('clipboard denied')) }));
+      await page.getByRole('button', { name: en['members.invite.copiedButton'] }).click();
+      await expect(page.getByRole('status')).toContainText(en['members.invite.manualCopy']);
+      await expect(linkField).toBeFocused();
+      await expect(linkField).toHaveJSProperty('selectionStart', 0);
+      await expect(linkField).toHaveJSProperty('selectionEnd', shownLink.length);
+
+      // Lose the first create response after the server commits. Replay and revoke the exact created id.
+      const beforeInvitesResponse = await page.request.get(`${invitationsPath}?limit=100`);
+      expect(beforeInvitesResponse.status()).toBe(200);
+      const beforeIds = new Set(((await beforeInvitesResponse.json()) as { items: Array<{ id: string }> }).items.map((item) => item.id));
+      const createInvitePath = invitationsPath;
+      const createdKeys: string[] = [];
+      const inviteUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(createInvitePath)}$`);
+      await openWindow();
+      const lostCreate = await inject(inviteUrl, 'POST', { abort: true, times: 1, match: (req) => { createdKeys.push(req.headers()['idempotency-key'] ?? ''); return true; } });
+      await page.getByRole('button', { name: en['members.invite.action'] }).click();
+      await expect(page.getByRole('button', { name: en['members.invite.checkAgain'] })).toBeVisible();
+      await page.getByRole('button', { name: en['members.invite.checkAgain'] }).click();
+      await expect(page.getByText(en['members.invite.existingNoLink'], { exact: true })).toBeVisible();
+      expect(lostCreate.count()).toBe(1);
+      expect(createdKeys).toHaveLength(2);
+      expect(createdKeys[1]).toBe(createdKeys[0]);
+      const afterInvitesResponse = await page.request.get(`${invitationsPath}?limit=100`);
+      expect(afterInvitesResponse.status()).toBe(200);
+      const createdInvitations = ((await afterInvitesResponse.json()) as { items: Array<{ id: string; status: string }> }).items.filter((item) => !beforeIds.has(item.id));
+      expect(createdInvitations).toHaveLength(1);
+      await page.getByRole('button', { name: en['members.invite.revokeRecovered'] }).click();
+      await expect(page.getByRole('status').filter({ hasText: en['members.invite.revoked'] })).toBeVisible();
+      const persistedInvites = ((await (await page.request.get(`${invitationsPath}?limit=100`)).json()) as { items: Array<{ id: string; status: string }> }).items;
+      expect(persistedInvites.find((item) => item.id === createdInvitations[0]!.id)?.status).toBe('revoked');
+      await closeWindow([lostCreate]);
+
+      // Invalid token acceptance is a real server 404, declared for this step only.
+      await openWindow(['POST /api/v1/invitations/accept 404']);
+      await page.goto(`/invite#${'Z'.repeat(43)}`);
+      await page.getByRole('button', { name: en['invite.join'], exact: true }).click();
+      await closeWindow();
+      await expect(page.getByRole('status')).toContainText(en['invite.error.invalid']);
+      await expect(page.getByRole('link', { name: en['invite.home'], exact: true })).toBeVisible();
+      await page.getByRole('link', { name: en['invite.home'], exact: true }).click();
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+      expect(itemBody).toMatchObject({ id: createdItem.id, attentionOn: createdItem.attentionOn });
+    } catch (error) { primaryFailure = error; }
+    finally {
+      n17FailurePhaseActive = false;
+      for (const entry of ownedRoutes) await page.unroute(entry.url, entry.handler).catch((error: unknown) => { cleanupFailure ??= error; });
+      failureWindows.delete(page);
+      n17FailurePhaseActive = false;
+      for (const context of contexts) await context.close().catch((error: unknown) => { cleanupFailure ??= error; });
+      // The journey requires no leaked invitation/item state; archive the new item and People row.
+      try {
+        const currentItem = await page.request.get(`/api/v1/households/${householdId}/items`);
+        expect(currentItem.status()).toBe(200);
+        const itemRow = ((await currentItem.json()) as { items: Array<{ id: string; title: string }> }).items.find((item) => item.title === 'N29 detail retry persisted');
+        if (itemRow) {
+          const detail = await page.request.get(`/api/v1/households/${householdId}/items/${itemRow.id}`);
+          const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemRow.id}`, { headers: { Origin: baseURL, 'If-Match': detail.headers()['etag']! }, data: { archived: true } });
+          expect(archived.status()).toBe(200);
+        }
+        const subject = await getSubjectByName('N29 linked account residual');
+        if (subject) {
+          const detail = await page.request.get(`/api/v1/households/${householdId}/subjects/${subject.id}`);
+          const archived = await page.request.patch(`/api/v1/households/${householdId}/subjects/${subject.id}`, { headers: { Origin: baseURL, 'If-Match': detail.headers()['etag']! }, data: { archived: true } });
+          expect(archived.status()).toBe(200);
+        }
+      } catch (error) { cleanupFailure ??= error; }
+    }
+    if (primaryFailure) throw primaryFailure;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('r. security headers are present and the journey produced no console errors', async () => {
