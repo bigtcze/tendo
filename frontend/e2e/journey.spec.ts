@@ -37,10 +37,9 @@ let n17OfflineActive = false;
 let n17FailurePhaseActive = false;
 let n19PhaseActive = false;
 let n20OidcFailureActive = false;
-let n29FailurePhaseActive = false;
-const n29FailedResponses: string[] = [];
-const n29ExpectedFailures: string[] = [];
-const n29ExpectedFailurePaths = new Set<string>();
+type InjectedFailure = { key: string; url: string };
+type FailureWindow = { injected: InjectedFailure[]; declared: string[]; observed: string[] };
+const failureWindows = new WeakMap<Page, FailureWindow>();
 const n19FailedResponses: string[] = [];
 const n20FailedResponses: string[] = [];
 const n17OfflineExpectedResources: RegExp[] = [];
@@ -93,8 +92,13 @@ function watch(page: Page, options: { fullChromium?: boolean } = {}) {
     const path = new URL(message.location().url || 'about:blank').pathname;
     if (options.fullChromium && path === '/favicon.ico' && message.text().includes('status of 404')) return;
     if (n17OfflineActive && message.text().includes('Failed to load resource') && message.text().includes('ERR_INTERNET_DISCONNECTED') && n17OfflineExpectedResources.some((expected) => expected.test(message.location().url))) return;
-    if ((n17FailurePhaseActive && n17ExpectedFailurePaths.has(path) || n29FailurePhaseActive && n29ExpectedFailurePaths.has(path)) && message.text().includes('Failed to load resource')) return;
-    if ((n29FailurePhaseActive || n29ExpectedFailurePaths.has(path)) && (path === '/api/v1/invitations/accept' && message.text().includes('status of 404') || n29ExpectedFailurePaths.has(path) && /status of 503|ERR_FAILED/.test(message.text()))) return;
+    const failureWindow = failureWindows.get(page);
+    if (failureWindow && message.text().includes('Failed to load resource')) {
+      if (failureWindow.injected.some((failure) => failure.url === message.location().url)) return;
+      const match = message.text().match(/status of (\d{3})/);
+      if (match && failureWindow.declared.some((entry) => entry.endsWith(` ${path} ${match[1]}`))) return;
+    }
+    if (n17FailurePhaseActive && n17ExpectedFailurePaths.has(path) && message.text().includes('Failed to load resource')) return;
     // The response check below asserts the exact expected HTTP failures.
     if (expectedFailedPaths.has(path)) return;
     if (expectedForeignDetailPath.test(path) && /status of 404/.test(message.text())) return;
@@ -103,13 +107,20 @@ function watch(page: Page, options: { fullChromium?: boolean } = {}) {
     problems.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
+  page.on('requestfailed', (request) => {
+    const window = failureWindows.get(page);
+    const path = new URL(request.url()).pathname;
+    if (window && path.startsWith('/api/') && request.failure()?.errorText !== 'net::ERR_ABORTED') {
+      window.observed.push(`${request.method()} ${path} abort`);
+    }
+  });
   page.on('response', (response) => {
     if (response.status() >= 400) {
       const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
+      const window = failureWindows.get(page);
+      if (window) { window.observed.push(failure); return; }
       if (n19PhaseActive) n19FailedResponses.push(failure);
       else if (n20OidcFailureActive && failure === 'GET /api/v1/auth/oidc 503') n20FailedResponses.push(failure);
-      else if (n29FailurePhaseActive) n29FailedResponses.push(failure);
-      else if (failure === 'POST /api/v1/invitations/accept 404') n29FailedResponses.push(failure);
       else failedResponses.add(failure);
     }
   });
@@ -4574,30 +4585,37 @@ test.describe('Tendo production journey', () => {
   test('n29. residual controls recover against the production API and PostgreSQL', async () => {
     test.setTimeout(120_000);
     const ownedRoutes: Array<{ url: RegExp; handler: (route: import('@playwright/test').Route) => void | Promise<void> }> = [];
-    const failurePaths: string[] = [];
-    const expectedFailures: string[] = [];
     let primaryFailure: unknown;
     let cleanupFailure: unknown;
-    const ownFailure = async (path: string, method: string) => {
-      const url = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(path)}(?:\\?.*)?$`);
-      let injected = false;
+    const openWindow = (declared: string[] = []) => {
+      if (failureWindows.has(page)) throw new Error('n29 failure window already open');
+      failureWindows.set(page, { injected: [], declared, observed: [] });
+    };
+    const inject = async (url: RegExp, method: string, opts: { times?: number; abort?: boolean; match?: (req: import('@playwright/test').Request) => boolean } = {}) => {
+      let count = 0;
       const handler = async (route: import('@playwright/test').Route) => {
-        if (route.request().method() !== method || injected) return route.continue();
-        injected = true;
-        n29FailedResponses.push(`${method} ${path} 503`);
-        expectedFailures.push(`${method} ${path} 503`);
-        return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
+        const req = route.request();
+        if (req.method() !== method || (opts.match && !opts.match(req)) || count >= (opts.times ?? 1)) return route.fallback();
+        const window = failureWindows.get(page);
+        if (!window) throw new Error('n29 injection requires an open failure window');
+        count += 1;
+        const requestURL = req.url();
+        const path = new URL(requestURL).pathname;
+        window.injected.push({ key: `${method} ${path} ${opts.abort ? 'abort' : 503}`, url: requestURL });
+        if (opts.abort) { await route.fetch(); return route.abort(); }
+        return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify(problem503) });
       };
       ownedRoutes.push({ url, handler });
-      n17ExpectedFailurePaths.add(path);
-      n29ExpectedFailurePaths.add(path);
-      failurePaths.push(path);
-      n29FailurePhaseActive = true;
       await page.route(url, handler);
+      return { count: () => count, stop: async () => { await page.unroute(url, handler); ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === handler), 1); } };
     };
-    const clearFailure = async (path: string) => {
-      const entry = ownedRoutes.find((route) => route.url.test(`${baseURL}${path}`));
-      if (entry) { await page.unroute(entry.url, entry.handler); ownedRoutes.splice(ownedRoutes.indexOf(entry), 1); }
+    const closeWindow = async (routes: Array<{ stop: () => Promise<void> }> = []) => {
+      const window = failureWindows.get(page);
+      if (!window) throw new Error('n29 failure window is not open');
+      await waitForSettledHouseholdRequests(page);
+      for (const route of routes) await route.stop();
+      expect([...window.observed].sort()).toEqual([...window.injected.map((entry) => entry.key), ...window.declared].sort());
+      failureWindows.delete(page);
     };
     const getSubjectByName = async (name: string) => (await serverSubjects(false)).find((subject) => subject.name === name);
     const contexts: BrowserContext[] = [];
@@ -4605,28 +4623,26 @@ test.describe('Tendo production journey', () => {
       await page.goto('/');
       await waitForSettledHome(page, householdName);
 
-      // Add catalogue GET fails once; retry opens the form and Cancel returns focus to Add item.
+      // Catalogue lookup uses limit/archived query; label reads carry id= and remain untouched.
       const cataloguePath = `/api/v1/households/${householdId}/subjects`;
-      n29ExpectedFailures.push(...Array.from({ length: 3 }, () => `GET ${cataloguePath} 503`));
-      // The catalogue query is intentionally exact; row-label reads are not intercepted.
-      const catalogueUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?limit=100&archived=false$`);
-      let catalogueFailures = 0;
-      const catalogueRoute = async (route: import('@playwright/test').Route) => {
-        if (route.request().method() !== 'GET') return route.continue();
-        if (catalogueFailures++ === 0) { n29FailedResponses.push(`GET ${cataloguePath} 503`); n29ExpectedFailures.push(`GET ${cataloguePath} 503`); return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) }); }
-        return route.continue();
-      };
-      ownedRoutes.push({ url: catalogueUrl, handler: catalogueRoute });
-      n17ExpectedFailurePaths.add(cataloguePath); n29ExpectedFailurePaths.add(cataloguePath); failurePaths.push(cataloguePath); n29FailurePhaseActive = true;
-      await page.route(catalogueUrl, catalogueRoute);
-      await page.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const catalogueUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?.*$`);
+      openWindow();
+      const catalogueFailure = await inject(catalogueUrl, 'GET', { times: 2, match: (req) => { const query = new URL(req.url()).searchParams; return query.get('limit') === '100' && query.get('archived') === 'false' && !query.has('id'); } });
+      const addItemButton = page.getByRole('button', { name: en['items.add'], exact: true });
+      await addItemButton.click();
       await expect(page.getByText(en['items.subjects.error'], { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(page.getByText(en['items.subjects.error'], { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
+      await expect(addItemButton).toBeFocused();
+      await addItemButton.click();
+      await expect(page.getByText(en['items.subjects.error'], { exact: true })).toBeVisible();
+      expect(catalogueFailure.count()).toBe(2);
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
       await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
       await page.getByRole('form', { name: en['items.add.formLabel'] }).getByRole('button', { name: en['items.cancel'], exact: true }).click();
-      await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toBeFocused();
-      await page.unroute(catalogueUrl, catalogueRoute); ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === catalogueRoute), 1);
-      n17ExpectedFailurePaths.delete(cataloguePath);
+      await expect(addItemButton).toBeFocused();
+      await closeWindow([catalogueFailure]);
 
       // Use a real persisted item and receipt, then exercise both independent detail loaders.
       await addItem({ title: 'N29 detail retry persisted', subject: 'Anička', historicalCompletedOn: expectedCompletionDate, repeat: { value: '1', unit: 'week', fluid: false } });
@@ -4639,52 +4655,56 @@ test.describe('Tendo production journey', () => {
       const itemGetPath = itemPath;
       const homePath = `/api/v1/households/${householdId}/items/summary`;
       const groupPath = `/api/v1/households/${householdId}/items`;
-      const homeFailures: string[] = [];
-      let failHome = true;
-      const homeRoute = async (route: import('@playwright/test').Route) => {
-        const path = new URL(route.request().url()).pathname;
-        if (route.request().method() === 'GET' && failHome && (path === homePath || path === groupPath)) {
-          homeFailures.push(`${route.request().method()} ${path}`);
-          n29FailedResponses.push(`GET ${path} 503`);
-          n29ExpectedFailures.push(`GET ${path} 503`);
-          return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
-        }
-        return route.continue();
-      };
-      const homeRouteUrl = new RegExp(`^${escapeRegExp(baseURL)}/api/v1/households/${escapeRegExp(householdId)}/items(?:/summary)?(?:\\?.*)?$`);
-      n29ExpectedFailurePaths.add(homePath);
-      n29ExpectedFailurePaths.add(groupPath);
-      failurePaths.push(homePath, groupPath);
-      ownedRoutes.push({ url: homeRouteUrl, handler: homeRoute });
-      await page.route(homeRouteUrl, homeRoute);
+      const homeRouteUrl = new RegExp(`^${escapeRegExp(baseURL)}(?:${escapeRegExp(homePath)}|${escapeRegExp(groupPath)})(?:\\?.*)?$`);
+      openWindow();
+      const homeFailures = await inject(homeRouteUrl, 'GET', { times: 2, match: (req) => new URL(req.url()).pathname === homePath || new URL(req.url()).pathname === groupPath });
       await page.goto('/');
       await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
-      failHome = false;
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
-      await expect.poll(async () => homeFailures.length).toBeGreaterThan(0);
       await waitForSettledHome(page, householdName);
-      await page.unroute(homeRouteUrl, homeRoute); ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === homeRoute), 1);
-      n29ExpectedFailurePaths.delete(homePath); n29ExpectedFailurePaths.delete(groupPath);
+      // Home may request either summary or groups first, but both paths are independently eligible.
+      expect(homeFailures.count()).toBeGreaterThanOrEqual(1);
+      await closeWindow([homeFailures]);
+
+      // Both active and archived label lookups are separate requests for the visible home rows.
+      const subjectsURL = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?.*$`);
+      openWindow();
+      const failedLabels = await inject(subjectsURL, 'GET', { times: 2, match: (req) => new URL(req.url()).searchParams.has('id') });
+      await page.goto('/');
+      await expect(page.getByText(en['items.subjectLabels.error'], { exact: true })).toBeVisible();
+      const labelRetry = page.getByRole('button', { name: en['items.subjectLabels.retry'], exact: true });
+      await expect(labelRetry).toBeVisible();
+      // A visible batch can contain active and archived subject lookups.
+      expect(failedLabels.count()).toBeGreaterThanOrEqual(2);
+      const labelResponse = page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === cataloguePath && new URL(response.url()).searchParams.has('id') && response.status() === 200);
+      await labelRetry.click();
+      await labelResponse;
+      await expect(page.getByText(en['items.subjectLabels.error'], { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('main').getByText('Anička', { exact: true }).first()).toBeVisible();
+      await expect.poll(() => page.evaluate(() => { const active = document.activeElement; return active instanceof HTMLHeadingElement && active.tagName !== 'H1'; })).toBe(true);
+      await closeWindow([failedLabels]);
       await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
       const detailItemRow = page.getByRole('main').getByRole('listitem').filter({ hasText: 'N29 detail retry persisted' });
       await expect(detailItemRow).toBeVisible();
-      await ownFailure(itemGetPath, 'GET');
+      openWindow();
+      const itemFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(itemGetPath)}(?:\\?.*)?$`), 'GET');
       await page.getByRole('main').getByRole('link').filter({ hasText: 'N29 detail retry persisted' }).click();
       await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: 'N29 detail retry persisted' })).toBeVisible();
       await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
-      await clearFailure(itemGetPath);
+      expect(itemFailure.count()).toBe(1);
+      await closeWindow([itemFailure]);
       const historyPath = `${itemPath}/completions`;
-      n29ExpectedFailures.push(`GET ${itemGetPath} 503`, `GET ${itemGetPath} 503`, `GET ${historyPath} 503`, `GET ${historyPath} 503`);
       await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
       await waitForSettledHome(page, householdName);
       await page.getByRole('link', { name: en['nav.allItems'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
       const historyItemRow = page.getByRole('main').getByRole('listitem').filter({ hasText: 'N29 detail retry persisted' });
       await expect(historyItemRow).toBeVisible();
-      await ownFailure(historyPath, 'GET');
+      openWindow();
+      const historyFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(historyPath)}(?:\\?.*)?$`), 'GET');
       await historyItemRow.getByRole('link').click();
       await expect(page.getByText(en['itemDetail.historyError'], { exact: true })).toBeVisible();
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
@@ -4692,15 +4712,18 @@ test.describe('Tendo production journey', () => {
       const historyAfterRetry = await page.request.get(historyPath);
       expect(historyAfterRetry.status()).toBe(200);
       expect((await historyAfterRetry.json() as { items: unknown[] }).items).toHaveLength(1);
-      await clearFailure(historyPath);
+      expect(historyFailure.count()).toBe(1);
+      await closeWindow([historyFailure]);
 
       // People list failure is visibly retryable; linked account is persisted on write and clear.
       await page.goto('/'); await waitForSettledHome(page, householdName);
       const peoplePath = `/api/v1/households/${householdId}/subjects`;
-      await ownFailure(peoplePath, 'GET');
+      openWindow();
+      const peopleFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(peoplePath)}(?:\\?.*)?$`), 'GET');
       await page.goto('/people');
       await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
-      await clearFailure(peoplePath);
+      expect(peopleFailure.count()).toBe(1);
+      await closeWindow([peopleFailure]);
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
       const members = await page.request.get(`/api/v1/households/${householdId}/members`);
@@ -4728,12 +4751,22 @@ test.describe('Tendo production journey', () => {
       // Members invitation list recovery, clipboard success and rejection fallback.
       await page.goto('/'); await waitForSettledHome(page, householdName);
       const invitationsPath = `/api/v1/households/${householdId}/invitations`;
-      n29ExpectedFailures.push(`GET ${invitationsPath} 503`, `GET ${invitationsPath} 503`);
-      await ownFailure(invitationsPath, 'GET');
+      const invitationURL = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(invitationsPath)}(?:\\?.*)?$`);
+      openWindow();
+      const invitationListFailure = await inject(invitationURL, 'GET');
       await page.goto('/members');
       await expect(page.getByText(en['members.invitations.error'], { exact: true })).toBeVisible();
-      await clearFailure(invitationsPath);
+      expect(invitationListFailure.count()).toBe(1);
+      await closeWindow([invitationListFailure]);
+      const invitationRetry = page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === invitationsPath && response.status() === 200);
       await page.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+      await invitationRetry;
+      await expect(page.getByText(en['members.invitations.error'], { exact: true })).toHaveCount(0);
+      const invitationHeading = page.getByRole('heading', { name: en['members.invitations.title'] });
+      const invitationContent = invitationHeading.locator('..');
+      const invitationRows = invitationContent.getByRole('listitem');
+      if (await invitationRows.count()) await expect(invitationRows.first()).toBeVisible();
+      else await expect(invitationContent.getByText(en['members.invitations.empty'], { exact: true })).toBeVisible();
       await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
       await page.getByRole('button', { name: en['members.invite.action'] }).click();
@@ -4756,20 +4789,14 @@ test.describe('Tendo production journey', () => {
       const beforeIds = new Set(((await beforeInvitesResponse.json()) as { items: Array<{ id: string }> }).items.map((item) => item.id));
       const createInvitePath = invitationsPath;
       const createdKeys: string[] = [];
-      let dropCreate = true;
-      const lostCreate = async (route: import('@playwright/test').Route) => {
-        if (route.request().method() !== 'POST') return route.continue();
-        createdKeys.push((await route.request().allHeaders())['idempotency-key'] ?? '');
-        if (dropCreate) { dropCreate = false; n29FailedResponses.push(`POST ${createInvitePath} 503`); n29ExpectedFailures.push(`POST ${createInvitePath} 503`); await route.fetch(); return route.abort(); }
-        return route.continue();
-      };
       const inviteUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(createInvitePath)}$`);
-      ownedRoutes.push({ url: inviteUrl, handler: lostCreate }); n17ExpectedFailurePaths.add(createInvitePath); n29ExpectedFailurePaths.add(createInvitePath); failurePaths.push(createInvitePath); n29FailurePhaseActive = true;
-      await page.route(inviteUrl, lostCreate);
+      openWindow();
+      const lostCreate = await inject(inviteUrl, 'POST', { abort: true, times: 1, match: (req) => { createdKeys.push(req.headers()['idempotency-key'] ?? ''); return true; } });
       await page.getByRole('button', { name: en['members.invite.action'] }).click();
       await expect(page.getByRole('button', { name: en['members.invite.checkAgain'] })).toBeVisible();
       await page.getByRole('button', { name: en['members.invite.checkAgain'] }).click();
       await expect(page.getByText(en['members.invite.existingNoLink'], { exact: true })).toBeVisible();
+      expect(lostCreate.count()).toBe(1);
       expect(createdKeys).toHaveLength(2);
       expect(createdKeys[1]).toBe(createdKeys[0]);
       const afterInvitesResponse = await page.request.get(`${invitationsPath}?limit=100`);
@@ -4780,11 +4807,13 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('status').filter({ hasText: en['members.invite.revoked'] })).toBeVisible();
       const persistedInvites = ((await (await page.request.get(`${invitationsPath}?limit=100`)).json()) as { items: Array<{ id: string; status: string }> }).items;
       expect(persistedInvites.find((item) => item.id === createdInvitations[0]!.id)?.status).toBe('revoked');
-      await page.unroute(inviteUrl, lostCreate); ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === lostCreate), 1);
+      await closeWindow([lostCreate]);
 
-      // Invalid token offers Home; clicking it navigates to the real household home.
+      // Invalid token acceptance is a real server 404, declared for this step only.
+      openWindow(['POST /api/v1/invitations/accept 404']);
       await page.goto(`/invite#${'Z'.repeat(43)}`);
       await page.getByRole('button', { name: en['invite.join'], exact: true }).click();
+      await closeWindow();
       await expect(page.getByRole('status')).toContainText(en['invite.error.invalid']);
       await expect(page.getByRole('link', { name: en['invite.home'], exact: true })).toBeVisible();
       await page.getByRole('link', { name: en['invite.home'], exact: true }).click();
@@ -4795,9 +4824,8 @@ test.describe('Tendo production journey', () => {
     finally {
       n17FailurePhaseActive = false;
       for (const entry of ownedRoutes) await page.unroute(entry.url, entry.handler).catch((error: unknown) => { cleanupFailure ??= error; });
-      for (const path of failurePaths) n17ExpectedFailurePaths.delete(path);
+      failureWindows.delete(page);
       n17FailurePhaseActive = false;
-      n29FailurePhaseActive = true;
       for (const context of contexts) await context.close().catch((error: unknown) => { cleanupFailure ??= error; });
       // The journey requires no leaked invitation/item state; archive the new item and People row.
       try {
@@ -4835,8 +4863,6 @@ test.describe('Tendo production journey', () => {
     const subjectConflict = `PATCH /api/v1/households/${householdId}/subjects/${vehicleId} 412`;
     const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
     const n17FailedResponses = [`GET /api/v1/households/${householdId}/items/summary 503`, `GET /api/v1/households/${householdId}/members 403`];
-    n29ExpectedFailures.push(`GET /api/v1/households/${householdId}/items/summary 503`, 'POST /api/v1/invitations/accept 404');
-    expect([...new Set(n29FailedResponses)].sort()).toEqual([...new Set(n29ExpectedFailures)].sort());
     expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound].sort());
     expect(problems).toEqual([]);
   });
