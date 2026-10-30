@@ -510,13 +510,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/subjects/SubjectForm.tsx",
-    "allowed": 1,
-    "reason": "Subject form validates type-specific fields and linked-user constraints; separate field validation while preserving invariants.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/i18n/cs.ts",
     "allowed": 1,
     "reason": "Czech locale catalog contains one existing long line; retain file-size and long-line measurements rather than excluding the catalog.",
