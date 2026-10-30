@@ -95,6 +95,72 @@ func TestCompletionIdempotencyReplayConflictAndConcurrentVersions(t *testing.T) 
 	}
 }
 
+func TestCompletionItemLockSerializesVersionDecisionsPostgres(t *testing.T) {
+	ctx := context.Background()
+	appURL, adminURL := integrationURLs(t)
+	admin, app := pool(t, ctx, adminURL), pool(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	f := newCompletionFixture(t, ctx, admin, app)
+	i := f.create(t, "completion lock serialization", nil, nil)
+	repo := f.repo
+	firstEntered := make(chan struct{})
+	secondEntered := make(chan struct{}, 1)
+	secondProceed := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	decider := func(name string) item.CompletionDecider {
+		return func(current item.Item, _ *item.Completion) (item.CompletionPlan, error) {
+			if name == "first" {
+				close(firstEntered)
+				<-releaseFirst
+			} else {
+				secondEntered <- struct{}{}
+				<-secondProceed
+			}
+			if current.Version != 1 {
+				return item.CompletionPlan{}, item.ErrVersionMismatch
+			}
+			receipt := item.Completion{HouseholdID: f.household, ItemID: i.ID, CompletedByUserID: f.actor, CompletedOn: f.today, PriorWorkflowState: current.WorkflowState, ItemVersionBefore: current.Version, IdempotencyKey: name}
+			updated := current
+			updated.Done = true
+			updated.Version++
+			return item.CompletionPlan{Receipt: receipt, Item: updated}, nil
+		}
+	}
+	firstResult := make(chan error, 1)
+	go func() {
+		_, _, err := repo.Complete(ctx, f.household, i.ID, "first", [32]byte{1}, decider("first"))
+		firstResult <- err
+	}()
+	<-firstEntered
+	secondStarted := make(chan struct{})
+	secondResult := make(chan error, 1)
+	go func() {
+		close(secondStarted)
+		_, _, err := repo.Complete(ctx, f.household, i.ID, "second", [32]byte{2}, decider("second"))
+		secondResult <- err
+	}()
+	<-secondStarted
+	select {
+	case <-secondEntered:
+		close(secondProceed)
+		close(releaseFirst)
+		<-firstResult
+		<-secondResult
+		t.Fatal("second version decision entered before the first transaction released the item lock")
+	case <-time.After(time.Second):
+	}
+	close(releaseFirst)
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first completion: %v", err)
+	}
+	close(secondProceed)
+	if err := <-secondResult; !errors.Is(err, item.ErrVersionMismatch) {
+		t.Fatalf("second completion=%v, want version conflict", err)
+	}
+}
+
 func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 	ctx := context.Background()
 	appURL, adminURL := integrationURLs(t)
@@ -140,6 +206,10 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 	latest, err := repo.UndoCompletion(ctx, f.household, i.ID, second.ID, undo)
 	if err != nil || latest.UndoneAt == nil {
 		t.Fatalf("latest undo=%+v err=%v", latest, err)
+	}
+	current, err := repo.Get(ctx, f.household, i.ID)
+	if err != nil || current.AttentionOn == nil || current.AttentionOn.String() != "2027-03-01" || current.LastCompletedOn == nil || current.LastCompletedOn.String() != f.today.String() {
+		t.Fatalf("latest undo state=%+v err=%v", current, err)
 	}
 }
 

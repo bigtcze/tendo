@@ -55,7 +55,7 @@ func decodeReceipt(
 		return item.Completion{}, errPersistence
 	}
 	workflow, ok := item.ParseWorkflowState(state)
-	if !ok || (cycleDate == nil && nextDate != nil && recurrence == nil) {
+	if !ok || (cycleDate == nil && nextDate != nil && recurrence == nil) || (recurrence != nil && nextDate == nil) {
 		return item.Completion{}, errPersistence
 	}
 	var fp [sha256Size]byte
