@@ -1,6 +1,6 @@
 # Build stages run on the build host's platform; only the final stage is per target platform.
 # Build the production frontend; vite writes to /src/backend/internal/platform/webui/dist.
-FROM --platform=$BUILDPLATFORM node:24.22.2-bookworm-slim AS web
+FROM --platform=$BUILDPLATFORM node:26.13.0-bookworm-slim AS web
 WORKDIR /src/frontend
 COPY api/generated/ /src/api/generated/
 COPY frontend/package.json frontend/package-lock.json ./
