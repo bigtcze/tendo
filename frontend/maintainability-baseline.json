@@ -48,30 +48,6 @@
     "owner": "frontend-items"
   },
   {
-    "file": "src/features/members/InviteScreen.tsx",
-    "function": "InviteScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 102,
-    "reason": "P2 candidate: invite screen composes invitation fields, validation, submission, and result states; extract a focused form/action boundary.",
-    "owner": "frontend-members"
-  },
-  {
-    "file": "src/features/members/InviteScreen.tsx",
-    "function": "InviteScreen",
-    "rule": "complexity",
-    "allowed": 36,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-members"
-  },
-  {
-    "file": "src/features/members/InviteScreen.tsx",
-    "function": "InviteScreen.submit",
-    "rule": "complexity",
-    "allowed": 26,
-    "reason": "Submit handler validates invitation fields, sends request and maps failures/results; extract response mapping while preserving validation and retry UX.",
-    "owner": "frontend-members"
-  },
-  {
     "file": "src/features/subjects/SubjectForm.tsx",
     "function": "SubjectForm",
     "rule": "max-lines-per-function",

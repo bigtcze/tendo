@@ -1,115 +1,133 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { FormEvent, RefObject } from 'react';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { useI18n } from '../../i18n';
-import { fetchSession, login, logout, type Session } from '../auth/sessionApi';
-import { acceptInvitationAsCurrentUser, acceptNewAccount } from './membersApi';
+import { useI18n, type Translate } from '../../i18n';
+import { inviteErrorMessageKey, isFieldError, isLoginError, isPasswordError, type ErrorState } from './inviteAcceptModel';
+import { useInviteAccept } from './useInviteAccept';
+import type { Session } from '../auth/sessionApi';
 
-type ErrorState = 'invalid' | 'loginTaken' | 'login' | 'loginInvalid' | 'password' | 'passwordInvalid' | 'rateLimited' | 'unavailable' | 'alreadyMember' | 'householdConflict';
-type AcceptState = 'idle' | 'accepted';
+type ScreenProps = {
+  token: string | null;
+  session?: Session;
+  onSignedIn: (session: Session) => void;
+  onSignedOut: () => void;
+  onAccountReady: () => void;
+  onJoinedSignedOut: () => void;
+  focusLogin?: boolean;
+};
 
-export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccountReady, onJoinedSignedOut, focusLogin = false }:  { token: string | null; session?: Session; onSignedIn: (session: Session) => void; onSignedOut: () => void; onAccountReady: () => void; onJoinedSignedOut: () => void; focusLogin?: boolean }) {
+type FormProps = {
+  t: Translate;
+  pending: boolean;
+  loginName: string;
+  setLoginName: (value: string) => void;
+  password: string;
+  setPassword: (value: string) => void;
+  error: ErrorState | null;
+  loginRef: RefObject<HTMLInputElement | null>;
+  passwordRef: RefObject<HTMLInputElement | null>;
+};
+
+function InviteNotice({ error, accepted, noticeRef, t }: {
+  error: ErrorState | null; accepted: boolean; noticeRef: RefObject<HTMLDivElement | null>; t: Translate;
+}) {
+  let message: string;
+  if (accepted) message = t('invite.error.accepted');
+  else if (error && !isFieldError(error)) message = t(inviteErrorMessageKey(error));
+  else return null;
+  return <div ref={noticeRef} tabIndex={-1} role="status" className="mt-5 rounded-xl bg-sand px-4 py-3 outline-none">{message}</div>;
+}
+
+function NewAccountForm(props: FormProps & { onSubmit: (event: FormEvent) => void }) {
+  const { t, pending, loginName, setLoginName, password, setPassword, error, loginRef, passwordRef, onSubmit } = props;
+  const loginInvalid = isLoginError(error);
+  const passwordInvalid = isPasswordError(error);
+  const message = error && isFieldError(error) ? t(inviteErrorMessageKey(error)) : '';
+  return <form onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
+    <div className="space-y-2"><Label htmlFor="invite-login">{t('onboarding.login')}</Label>
+      <Input ref={loginRef} id="invite-login" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={loginName}
+        onChange={(event) => setLoginName(event.target.value)} aria-invalid={loginInvalid}
+        aria-describedby={`invite-login-hint${loginInvalid ? ' invite-error' : ''}`} />
+      <p id="invite-login-hint" className="text-sm text-muted">{t('onboarding.login.hint')}</p>
+    </div>
+    <div className="space-y-2"><Label htmlFor="invite-password">{t('onboarding.password')}</Label>
+      <Input ref={passwordRef} id="invite-password" type="password" autoComplete="new-password" required value={password}
+        onChange={(event) => setPassword(event.target.value)} aria-invalid={passwordInvalid}
+        aria-describedby={`invite-password-hint${passwordInvalid ? ' invite-error' : ''}`} />
+      <p id="invite-password-hint" className="text-sm text-muted">{t('onboarding.password.hint')}</p>
+    </div>
+    {isFieldError(error) ? <div id="invite-error" role="alert" className="text-base text-danger">{message}</div> : null}
+    <Button type="submit" disabled={pending} className="w-full sm:w-auto">{pending ? t('invite.creating') : t('invite.create')}</Button>
+  </form>;
+}
+
+function SignedInForm({ pending, error, onSubmit, onSignOut, t }: {
+  pending: boolean; error: ErrorState | null; onSubmit: (event: FormEvent) => void;
+  onSignOut: () => void; t: Translate;
+}) {
+  return <form onSubmit={onSubmit} className="mt-6">
+    <Button type="submit" disabled={pending} className="w-full whitespace-normal text-center sm:w-auto">
+      {pending ? t('invite.joining') : t('invite.join')}
+    </Button>
+    {error === 'householdConflict'
+      ? <Button type="button" variant="quiet" className="ml-2" disabled={pending} onClick={onSignOut}>
+        {t('invite.signOutContinue')}
+      </Button>
+      : null}
+  </form>;
+}
+
+function IncompleteInvite({ t }: { t: Translate }) {
+  return <><Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('invite.incomplete')}</Heading>
+    <p className="mt-3 text-muted">{t('invite.incomplete.body')}</p>
+    <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">{t('invite.home')}</a></>;
+}
+
+export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccountReady, onJoinedSignedOut, focusLogin = false }: ScreenProps) {
   const { t } = useI18n();
-  const [loginName, setLoginName] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<ErrorState | null>(null);
-  const [pending, setPending] = useState(false);
-  const [signedOutMode, setSignedOutMode] = useState(!session);
-  const [invalidLink, setInvalidLink] = useState(false);
-  const [acceptState, setAcceptState] = useState<AcceptState>('idle');
-  const mounted = useRef(false);
-  const loginRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
-  const noticeRef = useRef<HTMLDivElement>(null);
-  const valid = token !== null && /^[A-Za-z0-9_-]{43}$/.test(token);
-  const currentSession = session && !signedOutMode ? session : undefined;
-  const fieldError = error === 'login' || error === 'loginTaken' || error === 'loginInvalid' || error === 'password' || error === 'passwordInvalid';
-  const key = error === 'loginInvalid' ? 'loginValidation' : error === 'passwordInvalid' ? 'passwordValidation' : error;
-  const message = error ? t(`invite.error.${key}` as never) : '';
-  useEffect(() => {
-    mounted.current = true;
-    if (focusLogin) loginRef.current?.focus();
-    return () => { mounted.current = false; };
-  }, [focusLogin]);
-  useEffect(() => {
-    if ((error && !fieldError) || acceptState === 'accepted') noticeRef.current?.focus();
-  }, [error, fieldError, acceptState]);
-  function fail(next: ErrorState) {
-    setError(next); setPending(false);
-    if (next === 'login' || next === 'loginTaken' || next === 'loginInvalid') loginRef.current?.focus();
-    if (next === 'password' || next === 'passwordInvalid') passwordRef.current?.focus();
-    if (next === 'invalid') setInvalidLink(true);
-  }
-  async function retrySession() {
-    if (pending || acceptState !== 'accepted' || !mounted.current) return;
-    setPending(true);
-    const refreshed = await fetchSession();
-    if (!mounted.current) return;
-    setPending(false);
-    if (refreshed.kind === 'signedIn') { onSignedIn(refreshed.session); return; }
-    if (refreshed.kind === 'signedOut') { onJoinedSignedOut(); return; }
-    noticeRef.current?.focus();
-  }
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (pending || !valid || !token) return;
-    setPending(true); setError(null);
-    if (!currentSession) {
-      if (!loginName) { fail('login'); return; }
-      if (!password) { fail('password'); return; }
-      const result = await acceptNewAccount(token, loginName, password);
-      if (!mounted.current) return;
-      if (result.kind === 'ok') {
-        const signedIn = await login(loginName, password);
-        if (!mounted.current) return;
-        if (signedIn.kind === 'ok') { onSignedIn(signedIn.session); return; }
-        onAccountReady(); return;
-      }
-      if (result.kind === 'invalid') fail('invalid');
-      else if (result.kind === 'loginTaken') fail('loginTaken');
-      else if (result.kind === 'invalidField') fail(result.field === 'password' ? 'passwordInvalid' : 'loginInvalid');
-      else if (result.kind === 'rateLimited') fail('rateLimited');
-      else fail('unavailable');
-      return;
-    }
-    const result = await acceptInvitationAsCurrentUser(token);
-    if (!mounted.current) return;
-    if (result === 'ok') {
-      const refreshed = await fetchSession();
-      if (!mounted.current) return;
-      if (refreshed.kind === 'signedIn') { onSignedIn(refreshed.session); return; }
-      if (refreshed.kind === 'signedOut') { onJoinedSignedOut(); return; }
-      setAcceptState('accepted'); setPending(false); setError(null); return;
-    }
-    if (result === 'unauthenticated') { setSignedOutMode(true); setPending(false); onSignedOut(); return; }
-    if (result === 'invalid') fail('invalid');
-    else if (result === 'alreadyMember') fail('alreadyMember');
-    else if (result === 'householdConflict') { setError('householdConflict'); setPending(false); }
-    else if (result === 'rateLimited') fail('rateLimited');
-    else fail('unavailable');
-  }
-  async function signOutAndContinue() {
-    if (pending) return;
-    setPending(true);
-    const result = await logout();
-    if (!mounted.current) return;
-    if (result === 'ok') { setSignedOutMode(true); setError(null); setPending(false); onSignedOut(); }
-    else fail('unavailable');
-  }
+  const flow = useInviteAccept({ token, session, focusLogin, onSignedIn, onSignedOut, onAccountReady, onJoinedSignedOut });
+  const title = flow.currentSession ? t('invite.signedIn.title', { login: flow.currentSession.login }) : t('invite.title');
+  const formProps: FormProps = {
+    t,
+    pending: flow.pending,
+    loginName: flow.loginName,
+    setLoginName: flow.setLoginName,
+    password: flow.password,
+    setPassword: flow.setPassword,
+    error: flow.error,
+    loginRef: flow.loginRef,
+    passwordRef: flow.passwordRef,
+  };
+
   return <Layout><section className="settle">
-    {valid ? <>
-      <Heading className={`font-display text-3xl leading-tight sm:text-4xl ${currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{currentSession ? t('invite.signedIn.title', { login: currentSession.login }) : t('invite.title')}</Heading>
-      {acceptState === 'accepted' ? <div ref={noticeRef} tabIndex={-1} role="status" className="mt-5 rounded-xl bg-sand px-4 py-3 outline-none">{t('invite.error.accepted')}</div> : error && !fieldError ? <div ref={noticeRef} tabIndex={-1} role="status" className="mt-5 rounded-xl bg-sand px-4 py-3 outline-none">{message}</div> : null}
-      {error === 'alreadyMember' || error === 'invalid' ? <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">{t('invite.home')}</a> : null}
-      {acceptState === 'accepted' ? <Button className="mt-6" disabled={pending} onClick={() => void retrySession()}>{t('invite.continue')}</Button> : currentSession ? !invalidLink ? <form onSubmit={submit} className="mt-6"><Button type="submit" disabled={pending} className="w-full whitespace-normal text-center sm:w-auto">{pending ? t('invite.joining') : t('invite.join')}</Button>{error === 'householdConflict' ? <Button type="button" variant="quiet" className="ml-2" disabled={pending} onClick={() => void signOutAndContinue()}>{t('invite.signOutContinue')}</Button> : null}</form> : null : !invalidLink ? <form onSubmit={submit} className="mt-8 space-y-5" noValidate>
-        <div className="space-y-2"><Label htmlFor="invite-login">{t('onboarding.login')}</Label><Input ref={loginRef} id="invite-login" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={loginName} onChange={(e) => setLoginName(e.target.value)} aria-invalid={error === 'login' || error === 'loginTaken' || error === 'loginInvalid'} aria-describedby={`invite-login-hint${error === 'login' || error === 'loginTaken' || error === 'loginInvalid' ? ' invite-error' : ''}`}/><p id="invite-login-hint" className="text-sm text-muted">{t('onboarding.login.hint')}</p></div>
-        <div className="space-y-2"><Label htmlFor="invite-password">{t('onboarding.password')}</Label><Input ref={passwordRef} id="invite-password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} aria-invalid={error === 'password' || error === 'passwordInvalid'} aria-describedby={`invite-password-hint${error === 'password' || error === 'passwordInvalid' ? ' invite-error' : ''}`}/><p id="invite-password-hint" className="text-sm text-muted">{t('onboarding.password.hint')}</p></div>
-        {fieldError ? <div id="invite-error" role="alert" className="text-base text-danger">{message}</div> : null}
-        <Button type="submit" disabled={pending} className="w-full sm:w-auto">{pending ? t('invite.creating') : t('invite.create')}</Button>
-      </form> : null}
-    </> : <><Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('invite.incomplete')}</Heading><p className="mt-3 text-muted">{t('invite.incomplete.body')}</p><a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">{t('invite.home')}</a></>}
+    {flow.valid ? <>
+      <Heading className={`font-display text-3xl leading-tight sm:text-4xl ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
+      <InviteNotice error={flow.error} accepted={flow.accepted} noticeRef={flow.noticeRef} t={t} />
+      {flow.error === 'alreadyMember' || flow.error === 'invalid'
+        ? <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">
+          {t('invite.home')}
+        </a>
+        : null}
+      {flow.accepted
+        ? <Button className="mt-6" disabled={flow.pending} onClick={() => void flow.retrySession()}>
+          {t('invite.continue')}
+        </Button>
+        : flow.currentSession
+          ? !flow.invalidLink
+            ? <SignedInForm
+              pending={flow.pending}
+              error={flow.error}
+              onSubmit={(event) => void flow.submit(event)}
+              onSignOut={() => void flow.signOutAndContinue()}
+              t={t}
+            />
+            : null
+          : !flow.invalidLink
+            ? <NewAccountForm {...formProps} onSubmit={(event) => void flow.submit(event)} />
+            : null}
+    </> : <IncompleteInvite t={t} />}
   </section></Layout>;
 }
