@@ -1,21 +1,5 @@
 [
   {
-    "file": "src/features/auth/AccountScreen.tsx",
-    "function": "AccountScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 136,
-    "reason": "P2 candidate: account settings form and actions share rendering; extract cohesive UI sections preserving account update behavior.",
-    "owner": "frontend-auth"
-  },
-  {
-    "file": "src/features/auth/LoginScreen.tsx",
-    "function": "LoginScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 156,
-    "reason": "P2 candidate: sign-in and recovery flows share a screen; extract clear presentation/action boundaries preserving auth semantics.",
-    "owner": "frontend-auth"
-  },
-  {
     "file": "src/features/auth/OnboardingScreen.tsx",
     "function": "OnboardingScreen",
     "rule": "max-lines-per-function",

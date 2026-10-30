@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useRef } from 'react';
 import { Button } from '../../components/ui/button';
+import { LoginProviderOptions } from './LoginProviderOptions';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n, type MessageKey } from '../../i18n';
-import { login, type Session } from './sessionApi';
-import { browserNavigation, fetchOidcStatus, startOidc, type StartResult } from './oidcApi';
+import type { Session } from './sessionApi';
+import { type StartResult } from './oidcApi';
+import { useLoginActions } from './useLoginActions';
+import { useOidcProviderStatus } from './useOidcProviderStatus';
 import { Heading } from '../../app/Heading';
 
 const errorKeys: Record<'invalid' | 'rateLimited' | 'unavailable', MessageKey> = {
@@ -26,92 +29,26 @@ const startErrorKeys: Record<StartFailure, MessageKey> = {
 
 export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Session) => void; notice?: string }) {
   const { t } = useI18n();
-  const [provider, setProvider] = useState<string | null>(null);
-  const [oidcStatus, setOidcStatus] = useState<'loading' | 'enabled' | 'disabled' | 'error'>('loading');
-  const [oidcStatusPending, setOidcStatusPending] = useState(false);
-  const statusGeneration = useRef(0);
-  const statusRetryRef = useRef<HTMLButtonElement>(null);
-  const moveFocusAfterStatus = useRef(false);
-  const [oidcPending, setOidcPending] = useState(false);
-  const [oidcError, setOidcError] = useState<StartFailure | null>(null);
-  const oidcPendingRef = useRef(false);
   const oidcButtonRef = useRef<HTMLButtonElement>(null);
-
   const passwordRef = useRef<HTMLInputElement>(null);
-  const statusMounted = useRef(false);
-
-  async function loadOidcStatus() {
-    const generation = ++statusGeneration.current;
-    setOidcStatusPending(true);
-    const status = await fetchOidcStatus();
-    if (!statusMounted.current || generation !== statusGeneration.current) return;
-    moveFocusAfterStatus.current = document.activeElement === statusRetryRef.current;
-    setProvider(status.kind === 'enabled' ? status.displayName : null);
-    setOidcStatus(status.kind);
-    setOidcStatusPending(false);
-  }
-
-  useEffect(() => {
-    statusMounted.current = true;
-    void Promise.resolve().then(loadOidcStatus);
-    return () => {
-      statusMounted.current = false;
-      statusGeneration.current += 1;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!moveFocusAfterStatus.current || oidcStatusPending) return;
-    moveFocusAfterStatus.current = false;
-    if (oidcStatus === 'enabled') oidcButtonRef.current?.focus();
-    else if (oidcStatus === 'disabled') passwordRef.current?.focus();
-  }, [oidcStatus, oidcStatusPending]);
-
-  async function signInWithProvider() {
-    if (oidcPendingRef.current || pending) return;
-    oidcPendingRef.current = true;
-    setOidcPending(true);
-    setOidcError(null);
-    setError(null);
-    const result = await startOidc({ purpose: 'login' });
-    if (result.kind === 'redirect') {
-      // Leave the button disabled while the browser navigates to the provider.
-      browserNavigation.assign(result.url);
-      return;
-    }
-    if (result.kind === 'disabled') setProvider(null);
-    oidcPendingRef.current = false;
-    setOidcPending(false);
-    setOidcError(result.kind);
-    if (result.kind !== 'disabled') oidcButtonRef.current?.focus();
-  }
-  const [loginName, setLoginName] = useState('');
-  const [password, setPassword] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<keyof typeof errorKeys | null>(null);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (pending || oidcPendingRef.current) return;
-    setPending(true);
-    setError(null);
-    setOidcError(null);
-    const result = await login(loginName, password);
-    if (result.kind === 'ok') {
-      onSignedIn(result.session);
-      return;
-    }
-    setPassword('');
-    setError(result.kind);
-    setPending(false);
-    passwordRef.current?.focus();
-  }
+  const status = useOidcProviderStatus(
+    () => passwordRef.current?.focus(),
+    () => oidcButtonRef.current?.focus(),
+  );
+  const { provider, status: oidcStatus, pending: oidcStatusPending, retryRef: statusRetryRef, retry: loadOidcStatus } = status;
+  const actions = useLoginActions({
+    onSignedIn,
+    focusPassword: () => passwordRef.current?.focus(),
+    focusProvider: () => oidcButtonRef.current?.focus(),
+    onProviderDisabled: status.disableProvider,
+  });
+  const { loginName, setLoginName, password, setPassword, pending, error, oidcPending, oidcError } = actions;
 
   return (
     <section className="settle">
       <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('login.title')}</Heading>
       {notice ? <p role="status" className="mt-4 rounded-xl bg-sand px-4 py-3">{notice}</p> : null}
-      <form onSubmit={submit} className="mt-8 space-y-5" noValidate>
+      <form onSubmit={(event) => void actions.submit(event)} className="mt-8 space-y-5" noValidate>
         <div className="space-y-2">
           <Label htmlFor="login">{t('login.login')}</Label>
           <Input
@@ -150,41 +87,18 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
           {pending ? t('login.submitting') : t('login.submit')}
         </Button>
       </form>
-      {oidcStatus === 'error' ? (
-        <div className="mt-8">
-          <p role="status" className="text-sm text-muted">{t('login.oidc.loadError')}</p>
-          <Button
-            ref={statusRetryRef}
-            type="button"
-            variant="quiet"
-            size="small"
-            aria-disabled={oidcStatusPending}
-            className="mt-2"
-            onClick={() => { if (!oidcStatusPending) void loadOidcStatus(); }}
-          >
-            {t('app.error.retry')}
-          </Button>
-        </div>
-      ) : provider ? (
-        <div className="mt-8">
-          <div className="flex items-center gap-3 text-sm text-muted" aria-hidden="true">
-            <span className="h-px flex-1 bg-line" />
-            {t('login.or')}
-            <span className="h-px flex-1 bg-line" />
-          </div>
-          <Button
-            ref={oidcButtonRef}
-            type="button"
-            variant="quiet"
-            disabled={oidcPending || pending}
-            aria-describedby={oidcError ? 'login-error' : undefined}
-            onClick={() => void signInWithProvider()}
-            className="mt-5 w-full border border-line sm:w-auto"
-          >
-            {oidcPending ? t('login.oidc.submitting', { provider }) : t('login.oidc.submit', { provider })}
-          </Button>
-        </div>
-      ) : null}
+      <LoginProviderOptions
+        provider={provider}
+        status={oidcStatus}
+        statusPending={oidcStatusPending}
+        passwordPending={pending}
+        oidcPending={oidcPending}
+        oidcError={oidcError !== null}
+        retryRef={statusRetryRef}
+        providerRef={oidcButtonRef}
+        retry={loadOidcStatus}
+        signIn={() => void actions.signInWithProvider()}
+      />
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session } from '../../test/fakeServer';
 import { browserNavigation } from './oidcApi';
+import { LoginScreen } from './LoginScreen';
 
 const problem = (status: number, code?: string, extra: Record<string, unknown> = {}) =>
   json(status, { type: 'about:blank', title: 'x', status, ...(code ? { code } : {}), ...extra }, { 'Content-Type': 'application/problem+json' });
@@ -198,6 +199,31 @@ describe('sign in with the configured provider', () => {
     expect(JSON.parse(starts[0]!.body)).toEqual({ purpose: 'login' });
   });
 
+  it('ignores a delayed provider login response after unmount', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedOut, ...enabled, 'POST /api/v1/auth/oidc/start': () => delayed });
+    const view = render(<I18nProvider><LoginScreen onSignedIn={vi.fn()} /></I18nProvider>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Pocket ID' }));
+    view.unmount();
+    await act(async () => { release(json(200, { authorizationUrl })); });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('ignores a delayed password login response after unmount', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const onSignedIn = vi.fn();
+    installFakeServer({ ...signedOut, ...enabled, 'POST /api/v1/session': () => delayed });
+    const view = render(<I18nProvider><LoginScreen onSignedIn={onSignedIn} /></I18nProvider>);
+    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Password'), 'pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    view.unmount();
+    await act(async () => { release(json(201, session())); });
+    expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
   it('a provider outage says so, keeps the password path, and refocuses the button', async () => {
     installFakeServer({ ...signedOut, ...enabled, 'POST /api/v1/auth/oidc/start': problem(503, 'oidc_unavailable') });
     renderApp();
@@ -298,6 +324,30 @@ describe('account screen', () => {
     expect(JSON.parse(start.body)).toEqual({ purpose: 'link', currentPassword: 'correct horse battery' });
   });
 
+  it('sends only one link-start request for synchronous duplicate submits', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
+      'POST /api/v1/auth/oidc/start': () => delayed,
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    const password = await screen.findByLabelText('Current password');
+    await userEvent.type(password, 'pw');
+    const form = password.closest('form');
+    expect(form).not.toBeNull();
+    act(() => {
+      fireEvent.submit(form!);
+      fireEvent.submit(form!);
+    });
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/start')).toHaveLength(1));
+    await act(async () => { release(json(200, { authorizationUrl })); });
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/start')).toHaveLength(1);
+  });
+
   it('retries a status network failure and shows the connect form', async () => {
     const fake = installFakeServer({
       ...signedIn,
@@ -314,6 +364,26 @@ describe('account screen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByLabelText('Current password')).toBeInTheDocument();
     expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
+    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(1);
+  });
+
+  it('does not start identity lookup from a stale StrictMode status response', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      'GET /api/v1/auth/oidc': (req) => {
+        const count = fake.requests.filter((entry) => entry.path === req.path).length;
+        return count === 1 ? delayed : json(200, { enabled: true, displayName: 'Pocket ID' });
+      },
+      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
+    });
+    window.history.replaceState(null, '', '/account');
+    render(<I18nProvider><StrictMode><App /></StrictMode></I18nProvider>);
+    await screen.findByLabelText('Current password');
+    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
+    await act(async () => { release(json(200, { enabled: true, displayName: 'Stale Pocket ID' })); });
+    expect(screen.getByLabelText('Current password')).toBeInTheDocument();
     expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(1);
   });
 
@@ -467,6 +537,46 @@ describe('account screen', () => {
     expect(password).toHaveValue('');
     expect(password).toHaveFocus();
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('does not redirect after leaving Account while a link start is pending', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
+      'POST /api/v1/auth/oidc/start': () => delayed,
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.type(await screen.findByLabelText('Current password'), 'pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Connect Pocket ID' }));
+    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
+    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await act(async () => { release(json(200, { authorizationUrl })); });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('ignores an expired link-start session after leaving Account', async () => {
+    let release!: (response: Response) => void;
+    const delayed = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer({
+      ...signedIn,
+      ...enabled,
+      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
+      'POST /api/v1/auth/oidc/start': () => delayed,
+    });
+    window.history.replaceState(null, '', '/account');
+    renderApp();
+    await userEvent.type(await screen.findByLabelText('Current password'), 'pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Connect Pocket ID' }));
+    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
+    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    const sessionChecks = fake.requests.filter((request) => request.path === '/api/v1/session').length;
+    await act(async () => { release(problem(401, 'unauthenticated')); });
+    expect(fake.requests.filter((request) => request.path === '/api/v1/session')).toHaveLength(sessionChecks);
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 
   it('an expired session during link start signs out', async () => {
