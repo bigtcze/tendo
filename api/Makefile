@@ -1,4 +1,4 @@
-OAPI_CODEGEN_VERSION := v2.8.0
+OAPI_CODEGEN_VERSION := v2.8.1
 
 .PHONY: generate validate check
 
