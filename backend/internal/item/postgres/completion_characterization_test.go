@@ -22,39 +22,37 @@ func TestCompletionIdempotencyReplayConflictAndConcurrentVersions(t *testing.T) 
 		t.Fatal(err)
 	}
 	f := newCompletionFixture(t, ctx, admin, app)
-	repo := NewRepository(app)
-	itemRow := f.create("completion characterize replay", nil, nil)
+	repo := f.repo
+	i := f.create(t, "completion characterize replay", nil, nil)
 	key, fingerprint := "completion-characterize", [32]byte{7}
 	decide := func(current item.Item, existing *item.Completion) (item.CompletionPlan, error) {
 		if existing != nil {
+			if existing.Fingerprint != fingerprint {
+				return item.CompletionPlan{}, item.ErrIdempotencyKeyReused
+			}
 			return item.CompletionPlan{Receipt: *existing, Item: current}, nil
 		}
-		receipt := item.Completion{HouseholdID: f.household, ItemID: itemRow.ID, CompletedByUserID: f.actor, CompletedOn: f.today, PriorWorkflowState: current.WorkflowState, ItemVersionBefore: current.Version, IdempotencyKey: key}
+		receipt := item.Completion{HouseholdID: f.household, ItemID: i.ID, CompletedByUserID: f.actor, CompletedOn: f.today, PriorWorkflowState: current.WorkflowState, ItemVersionBefore: current.Version, IdempotencyKey: key}
 		changed := current
 		changed.Done = true
 		changed.Version++
 		return item.CompletionPlan{Receipt: receipt, Item: changed}, nil
 	}
-	first, replayed, err := repo.Complete(ctx, f.household, itemRow.ID, key, fingerprint, decide)
+	first, replayed, err := repo.Complete(ctx, f.household, i.ID, key, fingerprint, decide)
 	if err != nil || replayed {
 		t.Fatalf("first=%+v replayed=%v err=%v", first, replayed, err)
 	}
-	replay, replayed, err := repo.Complete(ctx, f.household, itemRow.ID, key, fingerprint, decide)
+	replay, replayed, err := repo.Complete(ctx, f.household, i.ID, key, fingerprint, decide)
 	if err != nil || !replayed || replay.ID != first.ID {
 		t.Fatalf("replay=%+v replayed=%v err=%v", replay, replayed, err)
 	}
-	conflictFingerprint := [32]byte{8}
-	_, replayed, err = repo.Complete(ctx, f.household, itemRow.ID, key, conflictFingerprint, func(current item.Item, existing *item.Completion) (item.CompletionPlan, error) {
-		if existing == nil {
-			return item.CompletionPlan{}, errors.New("expected existing receipt")
-		}
-		return item.CompletionPlan{Receipt: *existing, Item: current}, nil
-	})
-	if err != nil || !replayed {
-		t.Fatalf("repository defers fingerprint conflict to service decider: replayed=%v err=%v", replayed, err)
+	fingerprint = [32]byte{8}
+	_, replayed, err = repo.Complete(ctx, f.household, i.ID, key, fingerprint, decide)
+	if !errors.Is(err, item.ErrIdempotencyKeyReused) || replayed {
+		t.Fatalf("different-body conflict replayed=%v err=%v", replayed, err)
 	}
 
-	concurrent := f.create("completion characterize version race", nil, nil)
+	concurrent := f.create(t, "completion characterize version race", nil, nil)
 	const workers = 8
 	start := make(chan struct{})
 	results := make(chan error, workers)
@@ -105,10 +103,11 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newCompletionFixture(t, ctx, admin, app)
-	repo := NewRepository(app)
+	repo := f.repo
 	anchor, _ := schedule.NewDate(2026, time.March, 1)
 	next, _ := schedule.NewDate(2027, time.March, 1)
-	i := f.create("undo characterize", &anchor, &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed})
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	i := f.create(t, "undo characterize", &anchor, policy)
 	complete := func(key string) item.Completion {
 		t.Helper()
 		c, _, err := repo.Complete(ctx, f.household, i.ID, key, [32]byte{byte(len(key))}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
@@ -123,8 +122,7 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 		}
 		return c
 	}
-	first := complete("undo-first")
-	second := complete("undo-second")
+	first, second := complete("undo-first"), complete("undo-second")
 	undo := func(current item.Item, receipt item.Completion, version *int64) (item.CompletionUndoPlan, error) {
 		if version == nil || *version != receipt.ItemVersionBefore {
 			return item.CompletionUndoPlan{}, item.ErrCompletionNotLatest
@@ -150,7 +148,6 @@ type completionFixture struct {
 	today                     schedule.Date
 	repo                      *Repository
 	ctx                       context.Context
-	admin                     *pgxpool.Pool
 }
 
 func newCompletionFixture(t *testing.T, ctx context.Context, admin, app *pgxpool.Pool) *completionFixture {
@@ -170,12 +167,14 @@ func newCompletionFixture(t *testing.T, ctx context.Context, admin, app *pgxpool
 		t.Fatal(err)
 	}
 	today, _ := schedule.NewDate(2026, time.March, 1)
-	return &completionFixture{household: household, actor: actor, subject: subjectID, today: today, repo: NewRepository(app), ctx: ctx, admin: admin}
+	return &completionFixture{household: household, actor: actor, subject: subjectID, today: today, repo: NewRepository(app), ctx: ctx}
 }
-func (f *completionFixture) create(title string, attention *schedule.Date, recurrence *schedule.Policy) item.Item {
+
+func (f *completionFixture) create(t *testing.T, title string, attention *schedule.Date, recurrence *schedule.Policy) item.Item {
+	t.Helper()
 	got, err := createForTest(f.ctx, f.repo, f.household, f.actor, item.Draft{SubjectID: f.subject, Title: title, AttentionOn: attention, Recurrence: recurrence})
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	return got
 }

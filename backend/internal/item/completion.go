@@ -84,72 +84,14 @@ func (s *Service) Complete(ctx context.Context, userID, householdID, itemID stri
 		return Completion{}, false, err
 	}
 	itemID = strings.ToLower(itemID)
-	var requested *schedule.Date
 	repo := s.repository
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	fingerprint := CompletionFingerprint(userID, request.CompletedOn)
-	decide := func(current Item, existing *Completion) (CompletionPlan, error) {
-		if existing != nil {
-			if existing.Fingerprint != fingerprint {
-				return CompletionPlan{}, ErrIdempotencyKeyReused
-			}
-			if existing.UndoneAt != nil {
-				return CompletionPlan{Receipt: *existing, Item: current}, nil
-			}
-			return CompletionPlan{Receipt: *existing, Item: current}, nil
-		}
-		if request.CompletedOn != nil {
-			d, e := ParseDate(*request.CompletedOn)
-			if e != nil {
-				return CompletionPlan{}, &ValidationError{"completedOn", "invalid_date"}
-			}
-			requested = &d
-		}
-		completed := today
-		if requested != nil {
-			completed = *requested
-		}
-		if completed.Compare(today) > 0 {
-			return CompletionPlan{}, &ValidationError{"completedOn", "future_date"}
-		}
-		if current.Version != expectedVersion {
-			return CompletionPlan{}, ErrVersionMismatch
-		}
-		if current.Archived {
-			return CompletionPlan{}, ErrArchived
-		}
-		if current.Done {
-			return CompletionPlan{}, ErrDone
-		}
-		next, err := schedule.NextCycle(current.AttentionOn, completed, policyOrDisabled(current.Recurrence))
-		if errors.Is(err, schedule.ErrDateOverflow) {
-			return CompletionPlan{}, &ValidationError{"recurrence", "date_overflow"}
-		}
-		if err != nil {
-			return CompletionPlan{}, ErrUnavailable
-		}
-		receipt := Completion{HouseholdID: householdID, ItemID: itemID, CompletedByUserID: userID, CompletedOn: completed, CycleAttentionOn: current.AttentionOn, Recurrence: current.Recurrence, PriorWorkflowState: current.WorkflowState, NextAttentionOn: next, ItemVersionBefore: current.Version, IdempotencyKey: key, Fingerprint: fingerprint}
-		updated := current
-		if current.Recurrence != nil {
-			updated.AttentionOn, updated.WorkflowState, updated.Done = next, StateOpen, false
-		} else {
-			updated.Done = true
-		}
-		updated.LastCompletedOn = &completed
-		updated.Version++
-		return CompletionPlan{Receipt: receipt, Item: updated}, nil
-	}
+	decide := completionDecider(userID, householdID, itemID, expectedVersion, key, fingerprint, request, today)
 	result, replayed, err := repo.Complete(ctx, householdID, itemID, key, fingerprint, decide)
-	if errors.Is(err, ErrIdempotencyKeyReused) || errors.Is(err, ErrVersionMismatch) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrArchived) || errors.Is(err, ErrDone) {
+	if err = completionServiceError(err); err != nil {
 		return Completion{}, false, err
-	}
-	if err != nil {
-		var validation *ValidationError
-		if errors.As(err, &validation) {
-			return Completion{}, false, err
-		}
-		return Completion{}, false, ErrUnavailable
 	}
 	return result, replayed, nil
 }
@@ -256,33 +198,14 @@ func (s *Service) ListCompletions(ctx context.Context, userID, householdID, item
 	if !validUUID(itemID) {
 		return CompletionPage{}, ErrNotFound
 	}
-	if limit == 0 {
-		limit = DefaultLimit
-	}
-	if limit < 1 || limit > MaxLimit {
-		return CompletionPage{}, &InvalidQueryError{"limit"}
-	}
-	if order == "" {
-		order = CompletionOrderOldest
-	}
-	if order != CompletionOrderOldest && order != CompletionOrderNewest {
-		return CompletionPage{}, &InvalidQueryError{"order"}
-	}
-	newest := order == CompletionOrderNewest
-	after := nilUUID
-	if newest {
-		after = newestCompletionBoundary
-	}
-	if cursor != "" {
-		after, err = DecodeCompletionCursorForOrder(cursor, order)
-		if err != nil {
-			return CompletionPage{}, &InvalidQueryError{"cursor"}
-		}
+	query, err := parseCompletionListQuery(limit, cursor, order)
+	if err != nil {
+		return CompletionPage{}, err
 	}
 	repo := s.repository
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := repo.ListCompletions(ctx, householdID, strings.ToLower(itemID), after, limit+1, newest)
+	rows, err := repo.ListCompletions(ctx, householdID, strings.ToLower(itemID), query.after, query.limit+1, query.newest)
 	if errors.Is(err, ErrNotFound) {
 		return CompletionPage{}, err
 	}
@@ -290,9 +213,9 @@ func (s *Service) ListCompletions(ctx context.Context, userID, householdID, item
 		return CompletionPage{}, ErrUnavailable
 	}
 	page := CompletionPage{Items: rows}
-	if len(rows) > limit {
-		page.Items = rows[:limit]
-		next := EncodeCompletionCursorForOrder(rows[limit-1].ID, order)
+	if len(rows) > query.limit {
+		page.Items = rows[:query.limit]
+		next := EncodeCompletionCursorForOrder(rows[query.limit-1].ID, query.order)
 		page.NextCursor = &next
 	}
 	if page.Items == nil {
