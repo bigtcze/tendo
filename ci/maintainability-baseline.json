@@ -43,14 +43,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/identity/httpapi/setup.go",
-    "name": "decodeStrictObject",
-    "allowed": 16,
-    "reason": "Setup handler validates initial-owner setup requests and returns setup status; strict JSON decoding and setup-token behavior must remain unchanged.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/item/itemtest/repo.go",
     "name": "Repo.List",
     "allowed": 21,
@@ -72,30 +64,6 @@
     "allowed": 23,
     "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
     "owner": "test-support"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/database/migrate.go",
-    "name": "Migrate",
-    "allowed": 17,
-    "reason": "Migration runner serializes schema application and applies migrations transactionally; retain locking and rollback behavior while clarifying orchestration.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "name": "parseListParams",
-    "allowed": 18,
-    "reason": "Parses list query parameters including limit and cursor values; isolate parameter validation while retaining HTTP problem mapping.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/platform/security/password.go",
-    "name": "parsePasswordHash",
-    "allowed": 22,
-    "reason": "Password hash parser validates encoded algorithm and parameters; isolate format validation while retaining rejection behavior.",
-    "owner": "backend-platform"
   },
   {
     "kind": "func_complexity",
@@ -167,20 +135,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "backend/internal/identity/httpapi/session.go",
-    "allowed": 1,
-    "reason": "Session handlers expose session read/deletion behavior and cookie responses; preserve authentication and cookie contracts.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/identity/httpapi/setup.go",
-    "allowed": 3,
-    "reason": "Setup handler validates initial-owner setup requests and returns setup status; strict JSON decoding and setup-token behavior must remain unchanged.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
     "path": "backend/internal/identity/postgres/oidc.go",
     "allowed": 7,
     "reason": "PostgreSQL OIDC repository persists provider links and resolves identities transactionally; retain uniqueness and locking behavior.",
@@ -234,20 +188,6 @@
     "allowed": 2,
     "reason": "Item summary repository queries completion and attention aggregates; preserve aggregate semantics and query mapping.",
     "owner": "backend-item"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/database/migrate.go",
-    "allowed": 1,
-    "reason": "Migration runner serializes schema application and applies migrations transactionally; retain locking and rollback behavior while clarifying orchestration.",
-    "owner": "backend-platform"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/platform/httpx/jsonapi.go",
-    "allowed": 3,
-    "reason": "JSON API boundary validates request object shape, unknown fields and list parameters; separate decoding from validation while preserving client errors.",
-    "owner": "backend-platform"
   },
   {
     "kind": "long_lines",
