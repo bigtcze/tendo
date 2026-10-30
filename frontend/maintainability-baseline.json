@@ -38,21 +38,5 @@
     "allowed": 17,
     "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
     "owner": "frontend-items"
-  },
-  {
-    "file": "src/features/subjects/SubjectForm.tsx",
-    "function": "SubjectForm",
-    "rule": "max-lines-per-function",
-    "allowed": 183,
-    "reason": "P2 candidate: subject form composes type-specific fields, linked-user selection, validation and submit states; extract field groups preserving invariants.",
-    "owner": "frontend-subjects"
-  },
-  {
-    "file": "src/features/subjects/SubjectForm.tsx",
-    "function": "SubjectForm",
-    "rule": "complexity",
-    "allowed": 27,
-    "reason": "Named baseline exception for the measured current ESLint violation; reduce during the owning feature refactor.",
-    "owner": "frontend-subjects"
   }
 ]
