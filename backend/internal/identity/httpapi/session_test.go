@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -240,6 +242,42 @@ func TestLoginCredentialFailuresShareOneBody(t *testing.T) {
 	assertProblem(t, w, 503, "unavailable")
 	if strings.Contains(w.Body.String(), "secret detail") {
 		t.Fatal("internal error leaked")
+	}
+}
+
+func TestLoginCorruptPasswordHashIsUnauthorizedAndDiagnosed(t *testing.T) {
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
+	service, _, mux := sessionFixture("http://localhost")
+	service.loginErr = security.ErrInvalidPasswordHash
+	corruptHash := "corrupt-hash-secret"
+	request := loginRequest(validLogin)
+	request.Header.Set("X-Request-ID", "request-corrupt-1")
+	wrapped := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: "http://localhost"}, func(r chi.Router) {
+		r.Mount("/", mux)
+	}, logger)
+	response := serve(wrapped, request)
+	assertProblem(t, response, http.StatusUnauthorized, "invalid_credentials")
+	if !strings.Contains(logs.String(), "password_hash_integrity_fault") || !strings.Contains(logs.String(), "request-corrupt-1") {
+		t.Fatalf("diagnostic missing event or request id: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), corruptHash) || strings.Contains(logs.String(), testPasswordForHTTP) {
+		t.Fatalf("diagnostic leaked credential material: %s", logs.String())
+	}
+}
+
+func TestLoginMismatchDoesNotEmitIntegrityDiagnostic(t *testing.T) {
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
+	svc, _, mux := sessionFixture("http://localhost")
+	svc.loginErr = identity.ErrInvalidCredentials
+	wrapped := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: "http://localhost"}, func(r chi.Router) {
+		r.Mount("/", mux)
+	}, logger)
+	response := serve(wrapped, loginRequest(validLogin))
+	assertProblem(t, response, http.StatusUnauthorized, "invalid_credentials")
+	if strings.Contains(logs.String(), "password_hash_integrity_fault") {
+		t.Fatalf("ordinary mismatch emitted integrity diagnostic: %s", logs.String())
 	}
 }
 

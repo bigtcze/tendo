@@ -156,6 +156,25 @@ func TestLoginPasswordLimitCountsUTF8Bytes(t *testing.T) {
 	}
 }
 
+func TestLoginDistinguishesCorruptPasswordHashFromMismatch(t *testing.T) {
+	service, repo, _ := newSessionFixture(t)
+	record := repo.logins["owner_1"]
+	record.PasswordHash = "corrupt-hash-secret"
+	repo.logins["owner_1"] = record
+
+	_, err := service.Login(context.Background(), "owner_1", testPassword)
+	if !errors.Is(err, security.ErrInvalidPasswordHash) {
+		t.Fatalf("corrupt hash error=%v, want ErrInvalidPasswordHash", err)
+	}
+
+	record.PasswordHash, _ = security.HashPassword(testPassword)
+	repo.logins["owner_1"] = record
+	_, err = service.Login(context.Background(), "owner_1", "incorrect password")
+	if err != ErrInvalidCredentials || errors.Is(err, security.ErrInvalidPasswordHash) {
+		t.Fatalf("mismatch error=%v, want only ErrInvalidCredentials", err)
+	}
+}
+
 func TestLoginPropagatesRepositoryFailureWithoutCredentialError(t *testing.T) {
 	service, repo, _ := newSessionFixture(t)
 	delete(repo.logins, "owner_1")
