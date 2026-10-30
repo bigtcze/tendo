@@ -9,6 +9,24 @@ type Controller = {
   running: boolean;
 };
 
+function classifyBatch(
+  active: Awaited<ReturnType<typeof listSubjectsByIDs>>,
+  archived: Awaited<ReturnType<typeof listSubjectsByIDs>>,
+  batch: string[],
+): Map<string, LabelState> {
+  const activeItems = active.kind === 'ok' ? active.subjects : [];
+  const archivedItems = archived.kind === 'ok' ? archived.subjects : [];
+  const returned = new Map<string, Subject>();
+  for (const subject of [...activeItems, ...archivedItems]) returned.set(subject.id, subject);
+  const states = new Map<string, LabelState>();
+  for (const id of batch) {
+    const found = returned.get(id);
+    if (found) states.set(id, { kind: 'found', subject: found });
+    else states.set(id, { kind: active.kind === 'ok' && archived.kind === 'ok' ? 'missing' : 'failed' });
+  }
+  return states;
+}
+
 function makeController(scope: string): Controller {
   return { scope, states: new Map(), queue: [], running: false };
 }
@@ -49,16 +67,7 @@ export function useSubjectLabels(userId: string, householdId: string, visibleIDs
         onSignedOut();
         return;
       }
-      const activeItems = active.kind === 'ok' ? active.subjects : [];
-      const archivedItems = archived.kind === 'ok' ? archived.subjects : [];
-      const returned = new Map<string, Subject>();
-      for (const subject of [...activeItems, ...archivedItems]) returned.set(subject.id, subject);
-      for (const id of batch) {
-        const found = returned.get(id);
-        if (found) target.states.set(id, { kind: 'found', subject: found });
-        else if (active.kind === 'ok' && archived.kind === 'ok') target.states.set(id, { kind: 'missing' });
-        else target.states.set(id, { kind: 'failed' });
-      }
+      for (const [id, state] of classifyBatch(active, archived, batch)) target.states.set(id, state);
       // Publish every batch; IDs appended while requests are in flight run next.
       publish(target);
     }

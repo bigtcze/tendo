@@ -21,6 +21,40 @@ describe('pending item create storage', () => {
     expect(getPendingItemCreate('invalid', 'scope')).toBeUndefined();
   });
 
+  it.each([
+    ['valid optional strings', { body: { ...attempt.body, attentionOn: '2026-01-01', notes: '', responsibleUserId: 'u', historicalCompletedOn: '' } }, true],
+    ['minimum key length', { key: '!' }, true],
+    ['maximum key length', { key: '!'.repeat(128) }, true],
+    ['key too long', { key: '!'.repeat(129) }, false],
+    ['non-object body', { body: null }, false],
+    ['numeric title', { body: { ...attempt.body, title: 1 } }, false],
+    ['numeric subjectId', { body: { ...attempt.body, subjectId: 1 } }, false],
+    ['null notes', { body: { ...attempt.body, notes: null } }, false],
+    ['null responsible user', { body: { ...attempt.body, responsibleUserId: null } }, false],
+    ['null historical completion date', { body: { ...attempt.body, historicalCompletedOn: null } }, false],
+    ['undefined recurrence', { body: { title: 'Name', subjectId: 'subject-a', recurrence: undefined } }, true],
+    ['non-object recurrence', { body: { ...attempt.body, recurrence: 'daily' } }, false],
+    ['bad recurrence mode', { body: { ...attempt.body, recurrence: { intervalValue: 1, intervalUnit: 'day', mode: 'bad' } } }, false],
+    ['valid recurrence', { body: { ...attempt.body, recurrence: { intervalValue: 2, intervalUnit: 'week', mode: 'after_completion' } } }, true],
+    ['null recurrence', { body: { title: 'Name', subjectId: 'subject-a', recurrence: null } }, true],
+    ['null recurrence mode', { body: { ...attempt.body, recurrence: { intervalValue: 1, intervalUnit: 'day', mode: null } } }, false],
+    ['numeric recurrence mode', { body: { ...attempt.body, recurrence: { intervalValue: 1, intervalUnit: 'day', mode: 1 } } }, false],
+    ['array recurrence mode', { body: { ...attempt.body, recurrence: { intervalValue: 1, intervalUnit: 'day', mode: ['fixed'] } } }, false],
+    ['invalid version', { version: 2 }, false],
+    ['empty key', { key: '' }, false],
+    ['non-ascii key', { key: 'aé' }, false],
+    ['unknown body key', { body: { ...attempt.body, extra: true } }, false],
+    ['null attentionOn', { body: { ...attempt.body, attentionOn: null } }, false],
+    ['numeric notes', { body: { ...attempt.body, notes: 1 } }, false],
+    ['non-integer recurrence', { body: { ...attempt.body, recurrence: { intervalValue: 1.5, intervalUnit: 'day', mode: 'fixed' } } }, false],
+    ['bad recurrence unit', { body: { ...attempt.body, recurrence: { intervalValue: 1, intervalUnit: 'hour', mode: 'fixed' } } }, false],
+  ] as const)('validates %s records through sessionStorage', (name, patch, valid) => {
+    const value = { ...attempt, ...patch };
+    sessionStorage.setItem(`tendo.pendingItemCreate.v1:table:${name}`, JSON.stringify(value));
+    expect(getPendingItemCreate('table', name)).toEqual(valid ? value : undefined);
+    if (!valid) expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:table:${name}`)).toBeNull();
+  });
+
   it('restores an attempt from sessionStorage with a fresh module memory map', async () => {
     sessionStorage.setItem('tendo.pendingItemCreate.v1:user-a:household-a', JSON.stringify(attempt));
     vi.resetModules();
