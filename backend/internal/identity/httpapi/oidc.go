@@ -120,6 +120,7 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: request.purpose, Principal: principal, Session: session, CurrentPassword: request.password, PreviousBrowserToken: previousBrowserToken})
 	if err != nil {
+		recordCredentialFault(r, err)
 		writeOIDCStartError(w, err)
 		return
 	}

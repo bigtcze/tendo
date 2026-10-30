@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
@@ -79,6 +80,7 @@ func (h *SessionHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, identity.ErrInvalidCredentials) {
+		recordCredentialFault(r, err)
 		problem(w, 401, "invalid_credentials")
 		return
 	}
@@ -162,4 +164,12 @@ type sessionJSON struct {
 
 func sessionResponse(p identity.Principal, expires time.Time) sessionJSON {
 	return sessionJSON{UserID: p.UserID, Login: p.Login, DefaultHouseholdID: p.DefaultHouseholdID, ExpiresAt: expires.UTC().Format(time.RFC3339)}
+}
+
+// recordCredentialFault marks a corrupt stored password hash on the request's
+// access log entry while the response stays the uniform invalid_credentials.
+func recordCredentialFault(r *http.Request, err error) {
+	if errors.Is(err, security.ErrInvalidPasswordHash) {
+		httpx.RecordFault(r, "password_hash_integrity_fault")
+	}
 }

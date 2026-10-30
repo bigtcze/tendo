@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"time"
 	"unicode/utf8"
 
@@ -116,10 +117,20 @@ func (s *SessionService) VerifyCurrentPassword(hash, password string) error {
 		return ErrInvalidCredentials
 	}
 	valid, err := s.verifyPassword(hash, password)
-	if errors.Is(err, ErrPasswordWorkLimit) {
+	return credentialOutcome(valid, err)
+}
+
+// credentialOutcome maps a stored-hash verification. A corrupt stored hash
+// stays externally indistinguishable from a mismatch (ErrInvalidCredentials)
+// but also matches security.ErrInvalidPasswordHash so adapters can surface
+// the integrity fault operationally.
+func credentialOutcome(valid bool, err error) error {
+	switch {
+	case errors.Is(err, ErrPasswordWorkLimit):
 		return ErrPasswordWorkLimit
-	}
-	if err != nil || !valid {
+	case errors.Is(err, security.ErrInvalidPasswordHash):
+		return fmt.Errorf("%w: %w", ErrInvalidCredentials, security.ErrInvalidPasswordHash)
+	case err != nil || !valid:
 		return ErrInvalidCredentials
 	}
 	return nil
@@ -142,12 +153,8 @@ func (s *SessionService) Login(ctx context.Context, login, password string) (Ses
 	if err != nil {
 		return Session{}, errors.New("session persistence failed")
 	}
-	valid, verifyErr := s.verifyPassword(record.PasswordHash, password)
-	if errors.Is(verifyErr, ErrPasswordWorkLimit) {
-		return Session{}, ErrPasswordWorkLimit
-	}
-	if verifyErr != nil || !valid {
-		return Session{}, ErrInvalidCredentials
+	if err := credentialOutcome(s.verifyPassword(record.PasswordHash, password)); err != nil {
+		return Session{}, err
 	}
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {

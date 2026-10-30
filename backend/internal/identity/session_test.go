@@ -163,8 +163,8 @@ func TestLoginDistinguishesCorruptPasswordHashFromMismatch(t *testing.T) {
 	repo.logins["owner_1"] = record
 
 	_, err := service.Login(context.Background(), "owner_1", testPassword)
-	if !errors.Is(err, security.ErrInvalidPasswordHash) {
-		t.Fatalf("corrupt hash error=%v, want ErrInvalidPasswordHash", err)
+	if !errors.Is(err, security.ErrInvalidPasswordHash) || !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("corrupt hash error=%v, want ErrInvalidCredentials wrapping ErrInvalidPasswordHash", err)
 	}
 
 	record.PasswordHash, _ = security.HashPassword(testPassword)
@@ -277,5 +277,27 @@ func TestLoginAllowsPrincipalWithoutDefaultHousehold(t *testing.T) {
 	session, err := service.Login(context.Background(), "owner_1", testPassword)
 	if err != nil || session.Principal.DefaultHouseholdID != "" {
 		t.Fatalf("session=%+v err=%v", session, err)
+	}
+}
+
+func TestVerifyCurrentPasswordClassifiesStoredHash(t *testing.T) {
+	service, _, _ := newSessionFixture(t)
+	hash, err := security.HashPassword(testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.VerifyCurrentPassword(hash, testPassword); err != nil {
+		t.Fatalf("valid password error=%v", err)
+	}
+	if err := service.VerifyCurrentPassword(hash, "incorrect password"); err != ErrInvalidCredentials {
+		t.Fatalf("mismatch error=%v, want exactly ErrInvalidCredentials", err)
+	}
+	err = service.VerifyCurrentPassword("corrupt-hash-secret", testPassword)
+	if !errors.Is(err, ErrInvalidCredentials) || !errors.Is(err, security.ErrInvalidPasswordHash) || strings.Contains(err.Error(), "corrupt-hash-secret") {
+		t.Fatalf("corrupt hash error=%v, want invalid credentials wrapping the integrity fault", err)
+	}
+	service.SetPasswordVerifier(func(string, string) (bool, error) { return false, ErrPasswordWorkLimit })
+	if err := service.VerifyCurrentPassword(hash, testPassword); err != ErrPasswordWorkLimit {
+		t.Fatalf("work limit error=%v", err)
 	}
 }
