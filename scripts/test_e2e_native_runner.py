@@ -18,6 +18,7 @@ MODULE = pathlib.Path(__file__).with_name("e2e-native-runner.py")
 spec = importlib.util.spec_from_file_location("e2e_native_runner", MODULE)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
+diagnostics = runner.diagnostics
 
 
 class AdminPsqlTests(unittest.TestCase):
@@ -112,7 +113,7 @@ class ChildProcessTests(unittest.TestCase):
             children = runner.Children()
             output = root / "e2e.log"
             output.write_text("")
-            with mock.patch.object(runner.subprocess, "Popen") as popen:
+            with mock.patch.object(diagnostics.subprocess, "Popen") as popen:
                 fake = mock.Mock(pid=123, returncode=0)
                 fake.poll.side_effect = [None, 0, 0]
                 popen.return_value = fake
@@ -128,7 +129,7 @@ class ChildProcessTests(unittest.TestCase):
         children = runner.Children()
         proc = mock.Mock(pid=123, returncode=0)
         proc.poll.side_effect = [None, 0]
-        with mock.patch.object(runner.subprocess, "Popen", return_value=proc), \
+        with mock.patch.object(diagnostics.subprocess, "Popen", return_value=proc), \
              mock.patch.object(children, "group_exists", return_value=False), \
              mock.patch.object(runner.os, "killpg") as killpg, \
              mock.patch.object(runner.time, "sleep"):
@@ -348,19 +349,19 @@ class ChildProcessTests(unittest.TestCase):
         self.assertEqual(children.run.call_args.args[-1], 1800)
 
     def test_existing_account_seed_password_is_registered_before_psql_and_uuid_checked(self):
-        runner.SENSITIVE_VALUES.clear()
+        diagnostics.SENSITIVE_VALUES.clear()
         household_id = "01890000-0000-7000-8000-000000000004"
         conflict_user_id = "01890000-0000-7000-8000-000000000005"
         query_results = iter(["", f"{household_id}|{conflict_user_id}"])
 
         def psql_after_registration(_inherited, sql):
-            self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD, runner.SENSITIVE_VALUES)
+            self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD, diagnostics.SENSITIVE_VALUES)
             return next(query_results)
 
         with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=psql_after_registration) as query:
             self.assertEqual(
                 runner.db_fixtures.seed_existing_invitation_accounts(
-                    {}, runner.register_sensitive_value
+                    {}, diagnostics.register_sensitive_value
                 ),
                 household_id,
             )
@@ -376,21 +377,21 @@ class ChildProcessTests(unittest.TestCase):
         with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["", "invalid|not-a-uuid"]):
             with self.assertRaisesRegex(RuntimeError, "UUIDs"):
                 runner.db_fixtures.seed_existing_invitation_accounts(
-                    {}, runner.register_sensitive_value
+                    {}, diagnostics.register_sensitive_value
                 )
         with mock.patch.object(runner.db_fixtures, "psql_admin", side_effect=["", f"{household_id}|invalid"]):
             with self.assertRaisesRegex(RuntimeError, "UUIDs"):
                 runner.db_fixtures.seed_existing_invitation_accounts(
-                    {}, runner.register_sensitive_value
+                    {}, diagnostics.register_sensitive_value
                 )
 
     def test_large_paging_seed_uses_set_based_fixtures_and_validates_ids(self):
         household_id = "01890000-0000-7000-8000-000000000004"
         owner_id = "01890000-0000-7000-8000-000000000005"
-        runner.SENSITIVE_VALUES.clear()
+        diagnostics.SENSITIVE_VALUES.clear()
         with mock.patch.object(runner.db_fixtures, "psql_admin", return_value=f"{household_id}|{owner_id}|1001|1001|1001") as query:
             self.assertEqual(
-                runner.db_fixtures.seed_large_paging_household({}, runner.register_sensitive_value),
+                runner.db_fixtures.seed_large_paging_household({}, diagnostics.register_sensitive_value),
                 (household_id, "large_paging_owner_e2e"),
             )
         sql = query.call_args.args[1]
@@ -402,10 +403,10 @@ class ChildProcessTests(unittest.TestCase):
         self.assertIn("FROM invitations", sql)
         self.assertIn("token_hash", sql)
         self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD_HASH, sql)
-        self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD, runner.SENSITIVE_VALUES)
+        self.assertIn(runner.db_fixtures.EXISTING_ACCOUNT_PASSWORD, diagnostics.SENSITIVE_VALUES)
         with mock.patch.object(runner.db_fixtures, "psql_admin", return_value=f"{household_id}|invalid|1001|1001|1001"):
             with self.assertRaisesRegex(RuntimeError, "fixture counts"):
-                runner.db_fixtures.seed_large_paging_household({}, runner.register_sensitive_value)
+                runner.db_fixtures.seed_large_paging_household({}, diagnostics.register_sensitive_value)
 
     def test_large_paging_fixture_postcheck_requires_exact_counts(self):
         household_id = "01890000-0000-7000-8000-000000000004"
@@ -528,27 +529,27 @@ class FailureLogTests(unittest.TestCase):
             cert = pathlib.Path(temporary) / "recipient.asc"; cert.write_bytes(exported.stdout)
             listing = subprocess.run(["gpg", "--batch", "--homedir", str(home), "--with-colons", "--fingerprint"], capture_output=True, text=True, check=True)
             fingerprint = next(line.split(":")[9] for line in listing.stdout.splitlines() if line.startswith("fpr:"))
-            self.assertTrue(runner.verify_diagnostics_recipient(cert, fingerprint))
-            self.assertFalse(runner.verify_diagnostics_recipient(cert, runner.EXPECTED_DIAGNOSTICS_FINGERPRINT))
+            self.assertTrue(diagnostics.verify_diagnostics_recipient(cert, fingerprint))
+            self.assertFalse(diagnostics.verify_diagnostics_recipient(cert, diagnostics.EXPECTED_DIAGNOSTICS_FINGERPRINT))
 
     def test_full_redacted_process_log_is_written_without_registered_secret(self):
-        token = runner.generated_secret(32)
+        token = diagnostics.generated_secret(32)
         with tempfile.TemporaryDirectory() as tmp:
             log = pathlib.Path(tmp) / "process.log"
             log.write_text(f"early password={token}\nlate useful failure detail\n")
-            redacted = runner.write_redacted_process_log(log)
+            redacted = diagnostics.write_redacted_process_log(log)
             self.assertEqual(redacted, pathlib.Path(tmp) / "process.redacted.log")
             content = redacted.read_text()
         self.assertEqual(content, "early password=[redacted]\nlate useful failure detail\n")
         self.assertNotIn(token, content)
 
     def test_failure_log_tail_is_bounded_and_redacts_generated_credentials(self):
-        token = runner.generated_secret(32)
+        token = diagnostics.generated_secret(32)
         with tempfile.TemporaryDirectory() as tmp:
             log = pathlib.Path(tmp) / "process.log"
             log.write_text("\n".join([f"line {n}" for n in range(300)] + [f"  1) failed fill password={token}", "  1 failed"]) + "\n")
             with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
-                runner.print_failure_log_tail(log, lines=5)
+                diagnostics.print_failure_log_tail(log, lines=5)
             out = err.getvalue()
         self.assertNotIn(token, out)
         self.assertIn("password=[redacted]", out)
@@ -557,14 +558,14 @@ class FailureLogTests(unittest.TestCase):
         self.assertIn("line 297", out)
 
     def test_registered_secret_redaction_in_neutral_text(self):
-        runner.SENSITIVE_VALUES.clear()
-        token = runner.generated_secret(24)
-        out = runner.redact(f"event detail: {token}")
+        diagnostics.SENSITIVE_VALUES.clear()
+        token = diagnostics.generated_secret(24)
+        out = diagnostics.redact(f"event detail: {token}")
         self.assertNotIn(token, out)
         self.assertEqual(out, "event detail: [redacted]")
 
     def test_structural_redaction_covers_cookies_oidc_invites_db_urls_json_and_ansi(self):
-        runner.register_database_url("postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e")
+        diagnostics.register_database_url("postgresql://tendo_app:p%40ss-W0rd@127.0.0.1:5432/tendo_e2e")
         lines = [
             "\x1b[31m    Cookie: tendo_session=abcSESSION123; other=1\x1b[39m",
             "set-cookie: tendo_session=zzzSESSION999; HttpOnly",
@@ -577,23 +578,23 @@ class FailureLogTests(unittest.TestCase):
             "auth failed for password p@ss-W0rd",
             "  1) e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4",
         ]
-        out = "\n".join(runner.redact(line) for line in lines)
+        out = "\n".join(diagnostics.redact(line) for line in lines)
         for leaked in ("abcSESSION123", "zzzSESSION999", "CODE777", "STATE888", "NONCE555", "INVITEsecretfragment", "TOKENVALUE42", "json-password-value", "p%40ss-W0rd", "p@ss-W0rd", "\x1b["):
             self.assertNotIn(leaked, out)
         self.assertIn("e2e/journey.spec.ts:12:3 > n5 invite > Expected: 3 Received: 4", out)
         self.assertIn("/api/v1/auth/oidc/callback?code=[redacted]", out)
         for line in ('password="!KeepMePrivate$"', "password='!KeepMePrivate$'", "password=!KeepMePrivate$"):
             with self.subTest(line=line):
-                self.assertNotIn("!KeepMePrivate$", runner.redact(line))
-        self.assertIn("Received string: \"#[redacted]!\"", runner.redact('Received string: "#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE!"'))
-        readable = runner.redact("e2e/journey.spec.ts:12:3 report-0123456789abcdef0123456789abcdef")
+                self.assertNotIn("!KeepMePrivate$", diagnostics.redact(line))
+        self.assertIn("Received string: \"#[redacted]!\"", diagnostics.redact('Received string: "#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE!"'))
+        readable = diagnostics.redact("e2e/journey.spec.ts:12:3 report-0123456789abcdef0123456789abcdef")
         self.assertIn("e2e/journey.spec.ts:12:3", readable)
         self.assertIn("report-0123456789abcdef0123456789abcdef", readable)
 
     def test_registered_secret_encodings_are_redacted(self):
-        runner.SENSITIVE_VALUES.clear()
+        diagnostics.SENSITIVE_VALUES.clear()
         secret = "Owner secret /+"
-        runner.register_sensitive_value(secret)
+        diagnostics.register_sensitive_value(secret)
         variants = {
             __import__("urllib.parse", fromlist=["quote"]).quote(secret, safe=""),
             __import__("urllib.parse", fromlist=["quote"]).quote_plus(secret),
@@ -606,11 +607,11 @@ class FailureLogTests(unittest.TestCase):
         }
         for variant in variants:
             with self.subTest(variant=variant):
-                self.assertNotIn(variant, runner.redact(f"failure {variant}"))
+                self.assertNotIn(variant, diagnostics.redact(f"failure {variant}"))
 
     def test_cookie_object_diagnostics_are_redacted(self):
-        diagnostics = '{"name":"tendo_session","value":"cookie-secret"} {"name":"other-cookie","value":"other-secret"}'
-        out = runner.redact(diagnostics)
+        text = '{"name":"tendo_session","value":"cookie-secret"} {"name":"other-cookie","value":"other-secret"}'
+        out = diagnostics.redact(text)
         self.assertNotIn("cookie-secret", out)
         self.assertNotIn("other-secret", out)
 
@@ -620,8 +621,8 @@ class FailureLogTests(unittest.TestCase):
             source = results / "native-run"
             source.mkdir(parents=True)
             secret = "secret/with+symbols"
-            runner.SENSITIVE_VALUES.clear()
-            runner.register_sensitive_value(secret)
+            diagnostics.SENSITIVE_VALUES.clear()
+            diagnostics.register_sensitive_value(secret)
             percent = __import__("urllib.parse", fromlist=["quote"]).quote(secret, safe="")
             encoded = base64.b64encode(secret.encode()).decode()
             escaped = json.dumps({"detail": secret})[1:-1].replace("/", "\\/")
@@ -632,7 +633,7 @@ class FailureLogTests(unittest.TestCase):
             (artifacts / "report-7.json").write_text(json.dumps({"errors": [{"message": f"{percent} {encoded}", "stack": escaped, "snippet": f"cookie={{\"name\":\"tendo_session\",\"value\":\"{secret}\"}}"}]}))
             with mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(results / "upload"), "GITHUB_OUTPUT": str(results / "github-output")}):
                 staged = results / "upload"
-                self.assertTrue(runner.stage_ci_upload(staged, source))
+                self.assertTrue(diagnostics.stage_ci_upload(staged, source))
                 self.assertEqual((results / "github-output").read_text(), "ci_upload=ready\n")
             for path in staged.iterdir():
                 if path.is_file() and path.name not in {"STAGED_OK", "diagnostics.tar.gpg"}:
@@ -692,9 +693,9 @@ class FailureLogTests(unittest.TestCase):
             results = pathlib.Path(tmp) / "test-results"
             source = results / "native-fake"
             source.mkdir(parents=True)
-            runner.SENSITIVE_VALUES.clear()
-            runner.register_sensitive_value("owner-secret-123")
-            runner.register_sensitive_value("database-secret-456")
+            diagnostics.SENSITIVE_VALUES.clear()
+            diagnostics.register_sensitive_value("owner-secret-123")
+            diagnostics.register_sensitive_value("database-secret-456")
             (source / "process.redacted.log").write_text("owner-secret-123 should be hidden\n{\"password\":\"database-secret-456\"}\n")
             artifacts = source / "artifacts" / "test-failed-1"
             artifacts.mkdir(parents=True)
@@ -707,7 +708,7 @@ class FailureLogTests(unittest.TestCase):
             (source / "html-report" / "index.html").write_text("secret")
             staged = results / "ci-upload"
             with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(results / "github-output")}):
-                self.assertTrue(runner.stage_ci_upload(staged, source))
+                self.assertTrue(diagnostics.stage_ci_upload(staged, source))
             files = {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
             self.assertEqual(files, {"process.redacted.log", "report-1.json", "test-failed-1-error-context.md", "STAGED_OK", "diagnostics.tar.gpg", "diagnostics.manifest.json"})
             combined = "\n".join(p.read_text() for p in staged.rglob("*") if p.is_file() and p.name != "diagnostics.tar.gpg")
@@ -731,7 +732,7 @@ class FailureLogTests(unittest.TestCase):
             external.write_text('{"message":"should not copy"}')
             (source / "report-evil.json").symlink_to(external)
             staged = results / "upload"
-            self.assertTrue(runner.stage_ci_upload(staged, source))
+            self.assertTrue(diagnostics.stage_ci_upload(staged, source))
             names = {path.name for path in staged.iterdir()}
             self.assertIn("STAGED_OK", names)
             self.assertNotIn("report-evil.json", names)
@@ -749,7 +750,7 @@ class FailureLogTests(unittest.TestCase):
             (outside / "sentinel").write_text("safe")
             destination.symlink_to(outside, target_is_directory=True)
             with self.assertRaisesRegex(RuntimeError, "already exists"):
-                runner.validate_upload_destination(destination)
+                diagnostics.validate_upload_destination(destination)
             self.assertTrue(destination.is_symlink())
             self.assertEqual((outside / "sentinel").read_text(), "safe")
 
@@ -765,7 +766,7 @@ class FailureLogTests(unittest.TestCase):
                 pathlib.Path(dst).mkdir()
                 raise FileExistsError("collision")
             with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(runner.os, "rename", side_effect=collide):
-                self.assertFalse(runner.stage_ci_upload(destination, source))
+                self.assertFalse(diagnostics.stage_ci_upload(destination, source))
             self.assertFalse(output.exists())
 
     def test_ci_upload_write_failure_publishes_failure_marker_not_partial_staging(self):
@@ -782,7 +783,7 @@ class FailureLogTests(unittest.TestCase):
                 return original_write_text(path, data, *args, **kwargs)
             output = results / "github-output"
             with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(pathlib.Path, "write_text", fail_report):
-                self.assertTrue(runner.stage_ci_upload(results / "upload", source))
+                self.assertTrue(diagnostics.stage_ci_upload(results / "upload", source))
             staged = results / "upload"
             self.assertEqual(set(path.name for path in staged.iterdir()), {"SANITIZE_FAILED", "diagnostics.tar.gpg", "diagnostics.manifest.json"})
             self.assertEqual(output.read_text(), "ci_upload=ready\n")
@@ -794,7 +795,7 @@ class FailureLogTests(unittest.TestCase):
             source.mkdir()
             (source / "process.redacted.log").write_text("safe\n")
             with mock.patch.dict("os.environ", {}, clear=True):
-                self.assertTrue(runner.stage_ci_upload(results / "upload", source))
+                self.assertTrue(diagnostics.stage_ci_upload(results / "upload", source))
 
     def test_ci_upload_sanitizer_failure_leaves_only_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -805,8 +806,8 @@ class FailureLogTests(unittest.TestCase):
             (source / "report-1.json").write_text("{}")
             destination = results / "upload"
             output = results / "github-output"
-            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(runner, "sanitize_json_value", side_effect=ValueError("invalid")):
-                self.assertTrue(runner.stage_ci_upload(destination, source))
+            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), mock.patch.object(diagnostics, "sanitize_json_value", side_effect=ValueError("invalid")):
+                self.assertTrue(diagnostics.stage_ci_upload(destination, source))
             self.assertEqual(set(p.name for p in destination.iterdir()), {"SANITIZE_FAILED", "diagnostics.tar.gpg", "diagnostics.manifest.json"})
             self.assertEqual(output.read_text(), "ci_upload=ready\n")
 
@@ -818,7 +819,7 @@ class FailureLogTests(unittest.TestCase):
             failure = ["2026/10/23 01:55:15 INFO http request request_id=z method=GET route=/api/v1/x status=500 duration=5ms"]
             log.write_text("\n".join(report + access + failure) + "\n")
             with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
-                runner.print_failure_log_tail(log, lines=10)
+                diagnostics.print_failure_log_tail(log, lines=10)
             out = err.getvalue()
         self.assertIn("n12 bounded pages", out)
         self.assertIn("Received: 24", out)
@@ -827,7 +828,7 @@ class FailureLogTests(unittest.TestCase):
 
     def test_missing_failure_log_is_reported_not_raised(self):
         with mock.patch.object(runner.sys, "stderr", new_callable=__import__("io").StringIO) as err:
-            runner.print_failure_log_tail(pathlib.Path("/nonexistent/tendo/process.log"))
+            diagnostics.print_failure_log_tail(pathlib.Path("/nonexistent/tendo/process.log"))
         self.assertIn("E2E process log unavailable", err.getvalue())
 
 
@@ -840,7 +841,7 @@ class FailureReportingLifecycleTests(unittest.TestCase):
                   mock.patch.object(runner, "Children") as children_cls,
                   mock.patch.object(runner, "run_suite", side_effect=suite) as _suite,
                   mock.patch.object(runner, "run_screenshot", side_effect=suite) as _shot,
-                  mock.patch.object(runner, "print_failure_log_tail") as tail,
+                  mock.patch.object(diagnostics, "print_failure_log_tail") as tail,
                   mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider), *argv_extra])):
                 if close is not None:
                     children_cls.return_value.close.side_effect = close
@@ -862,9 +863,9 @@ class FailureReportingLifecycleTests(unittest.TestCase):
             with (mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(destination)}, clear=True),
                   mock.patch.object(runner, "Children"),
                   mock.patch.object(runner, "run_suite", side_effect=KeyboardInterrupt()),
-                  mock.patch.object(runner, "write_redacted_process_log", return_value=None),
-                  mock.patch.object(runner, "print_failure_log_tail"),
-                  mock.patch.object(runner, "stage_ci_upload") as stage,
+                  mock.patch.object(diagnostics, "write_redacted_process_log", return_value=None),
+                  mock.patch.object(diagnostics, "print_failure_log_tail"),
+                  mock.patch.object(diagnostics, "stage_ci_upload") as stage,
                   mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
                 with self.assertRaises(KeyboardInterrupt):
                     runner.main()
@@ -872,7 +873,7 @@ class FailureReportingLifecycleTests(unittest.TestCase):
             stage.assert_called_once_with(destination, mock.ANY)
 
     def test_success_does_not_write_redacted_log(self):
-        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+        with mock.patch.object(diagnostics, "write_redacted_process_log") as write_redacted:
             error, tails = self._main()
         self.assertIsNone(error); self.assertEqual(tails, 0)
         write_redacted.assert_not_called()
@@ -895,7 +896,7 @@ class FailureReportingLifecycleTests(unittest.TestCase):
             with (mock.patch.dict("os.environ", {"E2E_CI_UPLOAD_DIR": str(upload_dir), "GITHUB_OUTPUT": str(output)}, clear=True),
                   mock.patch.object(runner, "Children"),
                   mock.patch.object(runner, "run_suite", side_effect=fail_suite),
-                  mock.patch.object(runner, "print_failure_log_tail"),
+                  mock.patch.object(diagnostics, "print_failure_log_tail"),
                   mock.patch.object(sys, "argv", ["runner", "--root", str(root), "--app", str(app), "--provider", str(provider)])):
                 with self.assertRaisesRegex(RuntimeError, "Playwright failed"):
                     runner.main()
@@ -912,7 +913,7 @@ class FailureReportingLifecycleTests(unittest.TestCase):
             self.assertIsInstance(error, RuntimeError); self.assertEqual(tails, 1)
 
     def test_cleanup_only_failure_prints_log_and_fails(self):
-        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+        with mock.patch.object(diagnostics, "write_redacted_process_log") as write_redacted:
             error, tails = self._main(close=RuntimeError("process group survived"))
         self.assertIsInstance(error, RuntimeError); self.assertIn("survived", str(error)); self.assertEqual(tails, 1)
         write_redacted.assert_called_once()
@@ -930,16 +931,16 @@ class FailureReportingLifecycleTests(unittest.TestCase):
     def test_cancellation_after_suite_returns_prints_log_and_exits_nonzero(self):
         def cancelled(*_args, **_kwargs):
             signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
-        with mock.patch.object(runner, "write_redacted_process_log") as write_redacted:
+        with mock.patch.object(diagnostics, "write_redacted_process_log") as write_redacted:
             error, tails = self._main(suite=cancelled)
         self.assertIsInstance(error, SystemExit); self.assertEqual(error.code, 128 + signal.SIGTERM); self.assertEqual(tails, 1)
         write_redacted.assert_called_once()
 
     def test_database_credentials_are_registered_before_children_start(self):
-        runner.SENSITIVE_VALUES.clear()
+        diagnostics.SENSITIVE_VALUES.clear()
         self._main(env={"TEST_DATABASE_URL": "postgresql://r:runtime%2Fpw@db/app", "TEST_DATABASE_ADMIN_URL": "postgresql://m:adminpw@db/postgres"})
-        self.assertNotIn("runtime/pw", runner.redact("x runtime/pw y"))
-        self.assertNotIn("adminpw", runner.redact("x adminpw y"))
+        self.assertNotIn("runtime/pw", diagnostics.redact("x runtime/pw y"))
+        self.assertNotIn("adminpw", diagnostics.redact("x adminpw y"))
 
 class EncryptedDiagnosticsTests(unittest.TestCase):
     @classmethod
@@ -961,7 +962,7 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def setUp(self):
-        runner._cancel_deadline = None
+        diagnostics._cancel_deadline = None
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.tempdir.name)
         self.source = self.root / "native-uuid"; self.source.mkdir()
@@ -978,12 +979,12 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
 
     def tearDown(self):
         self.tempdir.cleanup()
-        runner._cancel_deadline = None
+        diagnostics._cancel_deadline = None
 
     def _encrypt(self, recipient=None, expected=None):
         recipient = recipient or self.certificate
         expected = expected or self.fingerprint
-        return runner.stage_encrypted_diagnostics(self.destination, self.source, recipient, expected)
+        return diagnostics.stage_encrypted_diagnostics(self.destination, self.source, recipient, expected)
 
     def _decrypt(self, home, ciphertext=None):
         return subprocess.run(["gpg", "--batch", "--yes", "--homedir", str(home), "--decrypt", str(ciphertext or self.destination / "diagnostics.tar.gpg")], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -1017,35 +1018,35 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
         scenarios = [(self.certificate, "0" * 40, "RECIPIENT_INVALID"), (self.root / "missing.asc", self.fingerprint, "RECIPIENT_INVALID")]
         for recipient, fingerprint, marker in scenarios:
             with self.subTest(marker=marker):
-                self.assertFalse(runner.stage_encrypted_diagnostics(self.destination, self.source, recipient, fingerprint))
+                self.assertFalse(diagnostics.stage_encrypted_diagnostics(self.destination, self.source, recipient, fingerprint))
                 self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), marker)
                 self.assertFalse((self.destination / "diagnostics.tar.gpg").exists())
                 self.assertFalse(any(p.suffix == ".tar" for p in self.destination.iterdir()))
                 (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
 
     def test_gpg_missing_failure_timeout_and_limits_make_marker(self):
-        runner._cancel_deadline = None
-        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.shutil, "which", return_value=None):
+        diagnostics._cancel_deadline = None
+        with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics.shutil, "which", return_value=None):
             self.assertFalse(self._encrypt())
         self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "GPG_UNAVAILABLE")
         (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
-        runner._cancel_deadline = time.monotonic() + 0.1
+        diagnostics._cancel_deadline = time.monotonic() + 0.1
         fake_process = mock.Mock(returncode=None)
         fake_process.poll.return_value = None
-        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.subprocess, "Popen", return_value=fake_process):
+        with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics.subprocess, "Popen", return_value=fake_process):
             self.assertFalse(self._encrypt())
         self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "TIMEOUT")
         (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
-        runner._cancel_deadline = None
-        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner, "MAX_DIAGNOSTIC_FILE_SIZE", 1):
+        diagnostics._cancel_deadline = None
+        with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics, "MAX_DIAGNOSTIC_FILE_SIZE", 1):
             self.assertFalse(self._encrypt())
         self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "SIZE_LIMIT")
         (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
-        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner, "MAX_DIAGNOSTIC_TOTAL_SIZE", 1):
+        with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics, "MAX_DIAGNOSTIC_TOTAL_SIZE", 1):
             self.assertFalse(self._encrypt())
         self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "SIZE_LIMIT")
         (self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").unlink()
-        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner, "MAX_DIAGNOSTIC_FILES", 1):
+        with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics, "MAX_DIAGNOSTIC_FILES", 1):
             self.assertFalse(self._encrypt())
         self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "SIZE_LIMIT")
 
@@ -1055,7 +1056,7 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
         self.assertTrue(self._encrypt())
         with mock.patch.dict("os.environ", {}, clear=True):
             staged = self.root / "stage"
-            self.assertTrue(runner.stage_ci_upload(staged, self.source))
+            self.assertTrue(diagnostics.stage_ci_upload(staged, self.source))
         self.assertTrue((staged / "diagnostics.tar.gpg").exists())
         self.assertTrue((staged / "process.redacted.log").exists())
         (self.destination / "diagnostics.tar.gpg").unlink(missing_ok=True)
@@ -1064,7 +1065,7 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
     def test_stage_missing_redacted_log_keeps_encrypted_pair(self):
         (self.source / "process.redacted.log").unlink()
         staged = self.root / "missing-log-upload"
-        self.assertTrue(runner.stage_ci_upload(staged, self.source))
+        self.assertTrue(diagnostics.stage_ci_upload(staged, self.source))
         self.assertTrue((staged / "SANITIZE_FAILED").exists())
         self.assertTrue((staged / "diagnostics.tar.gpg").exists() or (staged / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
 
@@ -1082,19 +1083,19 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
         def fail_encryption(destination, *_args, **_kwargs):
             (destination / "ENCRYPTED_DIAGNOSTICS_FAILED").write_text("GPG_FAILED\\n")
             return False
-        with mock.patch.object(runner, "stage_encrypted_diagnostics", side_effect=fail_encryption):
+        with mock.patch.object(diagnostics, "stage_encrypted_diagnostics", side_effect=fail_encryption):
             staged = self.root / "text-upload"
-            self.assertTrue(runner.stage_ci_upload(staged, source))
+            self.assertTrue(diagnostics.stage_ci_upload(staged, source))
         self.assertTrue((staged / "process.redacted.log").exists())
         self.assertTrue((staged / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
         staged2 = self.root / "sanitizer-upload"
-        with mock.patch.object(runner, "sanitize_json_value", side_effect=ValueError("secret path")):
-            self.assertTrue(runner.stage_ci_upload(staged2, source))
+        with mock.patch.object(diagnostics, "sanitize_json_value", side_effect=ValueError("secret path")):
+            self.assertTrue(diagnostics.stage_ci_upload(staged2, source))
         self.assertTrue((staged2 / "SANITIZE_FAILED").exists())
         self.assertTrue((staged2 / "diagnostics.tar.gpg").exists() or (staged2 / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
         self.assertNotIn("secret path", (staged2 / "SANITIZE_FAILED").read_text())
         missing_log = self.root / "missing-redacted-log"; (source / "process.redacted.log").unlink()
-        self.assertTrue(runner.stage_ci_upload(missing_log, source))
+        self.assertTrue(diagnostics.stage_ci_upload(missing_log, source))
         self.assertTrue((missing_log / "SANITIZE_FAILED").exists())
         self.assertTrue((missing_log / "diagnostics.tar.gpg").exists() or (missing_log / "ENCRYPTED_DIAGNOSTICS_FAILED").exists())
 
@@ -1114,7 +1115,7 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
 
     def test_gpg_nonzero_after_partial_output_leaves_no_final_ciphertext(self):
         real_popen = runner.subprocess.Popen
-        runner._cancel_deadline = None
+        diagnostics._cancel_deadline = None
         class FailedGpg:
             returncode = 2
             def poll(self):
@@ -1126,7 +1127,7 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
         def partial(command, **_kwargs):
             pathlib.Path(command[command.index("--output") + 1]).write_bytes(b"partial")
             return FailedGpg()
-        with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.subprocess, "Popen", side_effect=partial):
+        with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics.subprocess, "Popen", side_effect=partial):
             self.assertFalse(self._encrypt())
         self.assertEqual((self.destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "GPG_FAILED")
         self.assertFalse((self.destination / "diagnostics.tar.gpg").exists())
@@ -1146,8 +1147,9 @@ class EncryptedDiagnosticsTests(unittest.TestCase):
             child_code = f'''import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location("runner", {module_path!r})
 module = importlib.util.module_from_spec(spec)
+sys.path.insert(0, str(pathlib.Path({module_path!r}).parent))
 spec.loader.exec_module(module)
-module.verify_diagnostics_recipient = lambda *_: True
+module.diagnostics.verify_diagnostics_recipient = lambda *_: True
 def fail_suite(root, app, provider, inherited, children, artifacts):
     (artifacts / "process.log").write_text("failure\\n")
     raise RuntimeError("expected test failure")
@@ -1188,14 +1190,14 @@ except RuntimeError:
             fakegpg.write_text(f"#!/usr/bin/python3\nimport pathlib, time\npathlib.Path({str(started_marker)!r}).touch()\ntime.sleep(30)\n")
             fakegpg.chmod(0o755)
             original_which = runner.shutil.which
-            with mock.patch.object(runner, "verify_diagnostics_recipient", return_value=True), mock.patch.object(runner.shutil, "which", side_effect=lambda name: str(fakegpg) if name == "gpg" else original_which(name)):
+            with mock.patch.object(diagnostics, "verify_diagnostics_recipient", return_value=True), mock.patch.object(diagnostics.shutil, "which", side_effect=lambda name: str(fakegpg) if name == "gpg" else original_which(name)):
                 def cancel_when_gpg_starts():
                     deadline = time.monotonic() + 5
                     while time.monotonic() < deadline and not started_marker.exists(): time.sleep(.01)
-                    runner._cancel_deadline = time.monotonic() + runner.CANCELLED_STAGING_BUDGET
+                    diagnostics._cancel_deadline = time.monotonic() + diagnostics.CANCELLED_STAGING_BUDGET
                 timer = threading.Thread(target=cancel_when_gpg_starts)
                 timer.start(); started = time.monotonic()
-                self.assertFalse(runner.stage_encrypted_diagnostics(destination, source, self.certificate))
+                self.assertFalse(diagnostics.stage_encrypted_diagnostics(destination, source, self.certificate))
                 timer.join()
             self.assertLess(time.monotonic() - started, 17)
             self.assertEqual((destination / "ENCRYPTED_DIAGNOSTICS_FAILED").read_text().strip(), "TIMEOUT")
