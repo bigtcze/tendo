@@ -34,23 +34,62 @@ func decodeDate(d pgtype.Date) (*schedule.Date, error) {
 	}
 	return &v, nil
 }
-func decodeReceipt(id, household, itemID, userID string, completed, cycle, next pgtype.Date, iv pgtype.Int4, unit, mode pgtype.Text, state, key string, fingerprint []byte, before int64, created pgtype.Timestamptz) (item.Completion, error) {
-	if len(fingerprint) != sha256Size || before < 1 || !item.ValidateIdempotencyKey(key) || len(id) != 36 || len(household) != 36 || len(itemID) != 36 || len(userID) != 36 || created.InfinityModifier != pgtype.Finite {
+func decodeReceipt(
+	id, household, itemID, userID string,
+	completed, cycle, next pgtype.Date,
+	iv pgtype.Int4, unit, mode pgtype.Text,
+	state, key string,
+	fingerprint []byte,
+	before int64,
+	created pgtype.Timestamptz,
+) (item.Completion, error) {
+	if !validReceiptMetadata(id, household, itemID, userID, key, fingerprint, before, created) {
 		return item.Completion{}, errPersistence
 	}
+	completedOn, cycleDate, nextDate, err := decodeReceiptDates(completed, cycle, next)
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	recurrence, err := decodeRecurrence(iv, unit, mode)
+	if err != nil {
+		return item.Completion{}, errPersistence
+	}
+	workflow, ok := item.ParseWorkflowState(state)
+	if !ok || (cycleDate == nil && nextDate != nil && recurrence == nil) {
+		return item.Completion{}, errPersistence
+	}
+	var fp [sha256Size]byte
+	copy(fp[:], fingerprint)
+	return item.Completion{
+		ID: id, HouseholdID: household, ItemID: itemID, CompletedByUserID: userID,
+		CompletedOn: *completedOn, CycleAttentionOn: cycleDate, Recurrence: recurrence,
+		PriorWorkflowState: workflow, NextAttentionOn: nextDate, ItemVersionBefore: before,
+		IdempotencyKey: key, Fingerprint: fp, CreatedAt: created.Time.UTC(),
+	}, nil
+}
+
+func validReceiptMetadata(id, household, itemID, userID, key string, fingerprint []byte, before int64, created pgtype.Timestamptz) bool {
+	return len(fingerprint) == sha256Size && before >= 1 && item.ValidateIdempotencyKey(key) &&
+		len(id) == 36 && len(household) == 36 && len(itemID) == 36 && len(userID) == 36 && created.InfinityModifier == pgtype.Finite
+}
+
+func decodeReceiptDates(completed, cycle, next pgtype.Date) (*schedule.Date, *schedule.Date, *schedule.Date, error) {
 	completedOn, err := decodeDate(completed)
 	if err != nil || completedOn == nil {
-		return item.Completion{}, errPersistence
+		return nil, nil, nil, errPersistence
 	}
 	cycleDate, err := decodeDate(cycle)
 	if err != nil {
-		return item.Completion{}, errPersistence
+		return nil, nil, nil, errPersistence
 	}
 	nextDate, err := decodeDate(next)
 	if err != nil {
-		return item.Completion{}, errPersistence
+		return nil, nil, nil, errPersistence
 	}
-	var recurrence *schedule.Policy
+	return completedOn, cycleDate, nextDate, nil
+}
+
+func decodeRecurrence(iv pgtype.Int4, unit, mode pgtype.Text) (*schedule.Policy, error) {
 	parts := 0
 	if iv.Valid {
 		parts++
@@ -61,52 +100,24 @@ func decodeReceipt(id, household, itemID, userID string, completed, cycle, next 
 	if mode.Valid {
 		parts++
 	}
-	if parts != 0 && parts != 3 {
-		return item.Completion{}, errPersistence
+	if parts == 0 {
+		return nil, nil
 	}
-	if parts == 3 {
-		recurrence = &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: int(iv.Int32), Unit: schedule.Unit(unit.String)}, Mode: schedule.Mode(mode.String)}
-		if recurrence.Validate() != nil {
-			return item.Completion{}, errPersistence
-		}
+	if parts != 3 || iv.Int32 < 1 || iv.Int32 > 999 {
+		return nil, errPersistence
 	}
-	workflow, ok := item.ParseWorkflowState(state)
-	if !ok {
-		return item.Completion{}, errPersistence
+	policy := &schedule.Policy{
+		Enabled:  true,
+		Interval: schedule.Interval{Value: int(iv.Int32), Unit: schedule.Unit(unit.String)},
+		Mode:     schedule.Mode(mode.String),
 	}
-	var fp [sha256Size]byte
-	copy(fp[:], fingerprint)
-	if iv.Valid && (iv.Int32 < 1 || iv.Int32 > 999) {
-		return item.Completion{}, errPersistence
+	if policy.Validate() != nil {
+		return nil, errPersistence
 	}
-	if cycleDate == nil && nextDate != nil && recurrence == nil {
-		return item.Completion{}, errPersistence
-	}
-	return item.Completion{ID: id, HouseholdID: household, ItemID: itemID, CompletedByUserID: userID, CompletedOn: *completedOn, CycleAttentionOn: cycleDate, Recurrence: recurrence, PriorWorkflowState: workflow, NextAttentionOn: nextDate, ItemVersionBefore: before, IdempotencyKey: key, Fingerprint: fp, CreatedAt: created.Time.UTC()}, nil
+	return policy, nil
 }
 
 const sha256Size = 32
-
-func completionFromRowValues(id, householdID, itemID, completedBy string, completedOn, cycleAttentionOn, nextAttentionOn pgtype.Date, recurrenceIntervalValue pgtype.Int4, recurrenceIntervalUnit, recurrenceMode pgtype.Text, priorWorkflowState, idempotencyKey string, fingerprint []byte, versionBefore int64, createdAt, undoneAt pgtype.Timestamptz, undoneBy pgtype.UUID) (item.Completion, error) {
-	c, err := decodeReceipt(id, householdID, itemID, completedBy, completedOn, cycleAttentionOn, nextAttentionOn, recurrenceIntervalValue, recurrenceIntervalUnit, recurrenceMode, priorWorkflowState, idempotencyKey, fingerprint, versionBefore, createdAt)
-	return withUndo(c, undoneAt, undoneBy, err)
-}
-
-func completionFromRow(r dbgen.InsertCompletionRow) (item.Completion, error) {
-	return completionFromRowValues(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt, r.UndoneAt, r.UndoneByUserID)
-}
-
-func completionFromInitializationRow(r dbgen.InsertInitializationCompletionRow) (item.Completion, error) {
-	return completionFromRowValues(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt, r.UndoneAt, r.UndoneByUserID)
-}
-func completionFromExisting(r dbgen.GetCompletionByKeyRow) (item.Completion, error) {
-	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
-	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
-}
-func completionFromList(r dbgen.ListCompletionsRow) (item.Completion, error) {
-	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
-	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
-}
 
 func withUndo(c item.Completion, at pgtype.Timestamptz, userID pgtype.UUID, err error) (item.Completion, error) {
 	if err != nil {
@@ -128,12 +139,14 @@ func withUndo(c item.Completion, at pgtype.Timestamptz, userID pgtype.UUID, err 
 	return c, nil
 }
 
-func completionFromUndo(r dbgen.GetCompletionForUndoRow) (item.Completion, error) {
-	c, err := decodeReceipt(r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID, r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn, r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode, r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint, r.ItemVersionBefore, r.CreatedAt)
-	return withUndo(c, r.UndoneAt, r.UndoneByUserID, err)
-}
 func completionCurrent(r dbgen.LockItemForCompletionRow) (item.Item, error) {
-	return toItem(row{ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, ResponsibleUserID: r.ResponsibleUserID, Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn, RecurrenceIntervalValue: r.RecurrenceIntervalValue, RecurrenceIntervalUnit: r.RecurrenceIntervalUnit, RecurrenceMode: r.RecurrenceMode, WorkflowState: r.WorkflowState, Archived: r.Archived, Done: r.Done, LastCompletedOn: r.LastCompletedOn, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Version: r.Version})
+	return toItem(row{
+		ID: r.ID, HouseholdID: r.HouseholdID, SubjectID: r.SubjectID, ResponsibleUserID: r.ResponsibleUserID,
+		Title: r.Title, Notes: r.Notes, AttentionOn: r.AttentionOn,
+		RecurrenceIntervalValue: r.RecurrenceIntervalValue, RecurrenceIntervalUnit: r.RecurrenceIntervalUnit,
+		RecurrenceMode: r.RecurrenceMode, WorkflowState: r.WorkflowState, Archived: r.Archived,
+		Done: r.Done, LastCompletedOn: r.LastCompletedOn, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, Version: r.Version,
+	})
 }
 func (r *Repository) Complete(ctx context.Context, hid, iid, key string, fingerprint [32]byte, decide item.CompletionDecider) (item.Completion, bool, error) {
 	h, ok := parseUUID(hid)
@@ -150,27 +163,9 @@ func (r *Repository) Complete(ctx context.Context, hid, iid, key string, fingerp
 	}
 	defer tx.Rollback(ctx)
 	q := dbgen.New(tx)
-	locked, err := q.LockItemForCompletion(ctx, dbgen.LockItemForCompletionParams{HouseholdID: h, ID: id})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return item.Completion{}, false, item.ErrNotFound
-	}
+	current, existing, err := loadCompletionForWrite(ctx, q, h, id, key)
 	if err != nil {
-		return item.Completion{}, false, errPersistence
-	}
-	current, err := completionCurrent(locked)
-	if err != nil {
-		return item.Completion{}, false, errPersistence
-	}
-	existingRow, err := q.GetCompletionByKey(ctx, dbgen.GetCompletionByKeyParams{HouseholdID: h, ItemID: id, IdempotencyKey: key})
-	var existing *item.Completion
-	if err == nil {
-		decoded, e := completionFromExisting(existingRow)
-		if e != nil {
-			return item.Completion{}, false, errPersistence
-		}
-		existing = &decoded
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return item.Completion{}, false, errPersistence
+		return item.Completion{}, false, err
 	}
 	plan, err := decide(current, existing)
 	if err != nil {
@@ -182,31 +177,9 @@ func (r *Repository) Complete(ctx context.Context, hid, iid, key string, fingerp
 		}
 		return *existing, true, nil
 	}
-	receipt := plan.Receipt
-	params := dbgen.InsertCompletionParams{HouseholdID: h, ItemID: id, CompletedOn: date(&receipt.CompletedOn), CompletedByUserID: uuid(receipt.CompletedByUserID), CycleAttentionOn: dbDate(receipt.CycleAttentionOn), PriorWorkflowState: string(receipt.PriorWorkflowState), NextAttentionOn: dbDate(receipt.NextAttentionOn), ItemVersionBefore: receipt.ItemVersionBefore, IdempotencyKey: key, RequestFingerprint: fingerprint[:]}
-	if receipt.Recurrence != nil {
-		params.RecurrenceIntervalValue = pgtype.Int4{Int32: int32(receipt.Recurrence.Interval.Value), Valid: true}
-		params.RecurrenceIntervalUnit = pgtype.Text{String: string(receipt.Recurrence.Interval.Unit), Valid: true}
-		params.RecurrenceMode = pgtype.Text{String: string(receipt.Recurrence.Mode), Valid: true}
-	}
-	stored, err := q.InsertCompletion(ctx, params)
+	result, err := insertCompletionAndUpdateItem(ctx, q, h, id, key, fingerprint, plan)
 	if err != nil {
-		return item.Completion{}, false, errPersistence
-	}
-	if completeAfterInsertHook != nil {
-		if err = completeAfterInsertHook(); err != nil {
-			if errors.Is(err, item.ErrUnavailable) {
-				return item.Completion{}, false, item.ErrUnavailable
-			}
-			return item.Completion{}, false, err
-		}
-	}
-	if err = q.UpdateItemForCompletion(ctx, dbgen.UpdateItemForCompletionParams{HouseholdID: h, ID: id, AttentionOn: dbDate(plan.Item.AttentionOn), WorkflowState: string(plan.Item.WorkflowState), Done: plan.Item.Done}); err != nil {
-		return item.Completion{}, false, errPersistence
-	}
-	result, err := completionFromRow(stored)
-	if err != nil {
-		return item.Completion{}, false, errPersistence
+		return item.Completion{}, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return item.Completion{}, false, errPersistence
@@ -226,54 +199,18 @@ func (r *Repository) UndoCompletion(ctx context.Context, hid, iid, cid string, d
 	}
 	defer tx.Rollback(ctx)
 	q := dbgen.New(tx)
-	locked, err := q.LockItemForCompletion(ctx, dbgen.LockItemForCompletionParams{HouseholdID: h, ID: i})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return item.Completion{}, item.ErrNotFound
-	}
+	current, receipt, latest, err := loadCompletionUndo(ctx, q, h, i, c)
 	if err != nil {
-		return item.Completion{}, errPersistence
-	}
-	current, err := completionCurrent(locked)
-	if err != nil {
-		return item.Completion{}, errPersistence
-	}
-	raw, err := q.GetCompletionForUndo(ctx, dbgen.GetCompletionForUndoParams{HouseholdID: h, ItemID: i, ID: c})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return item.Completion{}, item.ErrNotFound
-	}
-	if err != nil {
-		return item.Completion{}, errPersistence
-	}
-	receipt, err := completionFromUndo(raw)
-	if err != nil {
-		return item.Completion{}, errPersistence
-	}
-	var latest *int64
-	lv, err := q.LatestActiveCompletionVersion(ctx, dbgen.LatestActiveCompletionVersionParams{HouseholdID: h, ItemID: i})
-	if err == nil {
-		latest = &lv
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return item.Completion{}, errPersistence
+		return item.Completion{}, err
 	}
 	plan, err := decide(current, receipt, latest)
 	if err != nil {
 		return item.Completion{}, err
 	}
 	if plan.Apply {
-		rows, e := q.MarkCompletionUndone(ctx, dbgen.MarkCompletionUndoneParams{HouseholdID: h, ItemID: i, ID: c, UndoneAt: pgtype.Timestamptz{Time: plan.UndoneAt, Valid: true}, UndoneByUserID: uuid(plan.UndoneByUserID)})
-		if e != nil || rows != 1 {
-			return item.Completion{}, errPersistence
-		}
-		if e = q.UpdateItemForUndo(ctx, dbgen.UpdateItemForUndoParams{HouseholdID: h, ID: i, AttentionOn: dbDate(plan.Item.AttentionOn), WorkflowState: string(plan.Item.WorkflowState)}); e != nil {
-			return item.Completion{}, errPersistence
-		}
-		stored, e := q.GetCompletionForUndo(ctx, dbgen.GetCompletionForUndoParams{HouseholdID: h, ItemID: i, ID: c})
-		if e != nil {
-			return item.Completion{}, errPersistence
-		}
-		plan.Receipt, e = completionFromUndo(stored)
-		if e != nil {
-			return item.Completion{}, errPersistence
+		plan.Receipt, err = persistCompletionUndo(ctx, q, h, i, c, plan)
+		if err != nil {
+			return item.Completion{}, err
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -284,7 +221,9 @@ func (r *Repository) UndoCompletion(ctx context.Context, hid, iid, cid string, d
 
 func uuid(s string) pgtype.UUID { u, _ := parseUUID(s); return u }
 func uuidString(u pgtype.UUID) string {
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", binary.BigEndian.Uint32(u.Bytes[0:4]), binary.BigEndian.Uint16(u.Bytes[4:6]), binary.BigEndian.Uint16(u.Bytes[6:8]), binary.BigEndian.Uint16(u.Bytes[8:10]), u.Bytes[10:16])
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		binary.BigEndian.Uint32(u.Bytes[0:4]), binary.BigEndian.Uint16(u.Bytes[4:6]),
+		binary.BigEndian.Uint16(u.Bytes[6:8]), binary.BigEndian.Uint16(u.Bytes[8:10]), u.Bytes[10:16])
 }
 func (r *Repository) ListCompletions(ctx context.Context, hid, iid, after string, limit int, newest bool) ([]item.Completion, error) {
 	h, ok1 := parseUUID(hid)

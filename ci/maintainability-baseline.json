@@ -58,14 +58,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/item/completion.go",
-    "name": "Service.ListCompletions",
-    "allowed": 16,
-    "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/item/httpapi/item.go",
     "name": "Handler.create",
     "allowed": 17,
@@ -103,30 +95,6 @@
     "allowed": 23,
     "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
     "owner": "test-support"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/postgres/completion.go",
-    "name": "Repository.Complete",
-    "allowed": 21,
-    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/postgres/completion.go",
-    "name": "Repository.UndoCompletion",
-    "allowed": 21,
-    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/postgres/completion.go",
-    "name": "decodeReceipt",
-    "allowed": 27,
-    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
-    "owner": "backend-item"
   },
   {
     "kind": "func_complexity",
@@ -225,14 +193,6 @@
     "owner": "test-support"
   },
   {
-    "kind": "func_lines",
-    "path": "backend/internal/item/completion.go",
-    "name": "Service.Complete",
-    "allowed": 81,
-    "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
-    "owner": "backend-item"
-  },
-  {
     "kind": "func_nesting",
     "path": "backend/internal/item/itemtest/repo.go",
     "name": "Repo.Complete",
@@ -327,7 +287,7 @@
   {
     "kind": "long_lines",
     "path": "backend/internal/item/completion.go",
-    "allowed": 3,
+    "allowed": 1,
     "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
     "owner": "backend-item"
   },
@@ -351,13 +311,6 @@
     "allowed": 7,
     "reason": "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.",
     "owner": "test-support"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/item/postgres/completion.go",
-    "allowed": 17,
-    "reason": "PostgreSQL completion repository persists completion/undo transactions and receipt decoding; split DB operations while preserving atomicity.",
-    "owner": "backend-item"
   },
   {
     "kind": "long_lines",
