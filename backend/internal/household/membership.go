@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 const membershipRepositoryBudget = 5 * time.Second

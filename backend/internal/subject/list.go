@@ -6,9 +6,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"sort"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func (s *Service) List(ctx context.Context, userID, householdID string, q ListQuery) (Page, error) {

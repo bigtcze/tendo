@@ -5,10 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 

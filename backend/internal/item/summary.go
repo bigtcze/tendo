@@ -2,9 +2,9 @@ package item
 
 import (
 	"context"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 

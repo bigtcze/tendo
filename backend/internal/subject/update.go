@@ -3,8 +3,9 @@ package subject
 import (
 	"context"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func normalizePatch(p Patch) (Patch, error) {

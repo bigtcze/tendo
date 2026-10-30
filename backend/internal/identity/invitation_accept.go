@@ -3,9 +3,9 @@ package identity
 import (
 	"context"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, token, login, password string) (InvitationUser, error) {

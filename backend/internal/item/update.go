@@ -2,9 +2,10 @@ package item
 
 import (
 	"context"
+	"strings"
+
 	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
-	"strings"
 )
 
 // Patch is the unvalidated partial update input. Unset fields are unchanged.

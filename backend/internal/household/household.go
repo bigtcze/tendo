@@ -3,8 +3,9 @@ package household
 import (
 	"context"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 // ErrNotFound means the household does not exist, the identifier is malformed,

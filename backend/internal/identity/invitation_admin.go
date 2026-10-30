@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func (s *InvitationService) CreateInvitation(ctx context.Context, actor, householdID, key string) (InvitationResult, error) {

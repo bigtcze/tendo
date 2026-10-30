@@ -6,9 +6,10 @@ package subject
 import (
 	"context"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 var (

@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
-	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"strconv"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
 type ListSort string

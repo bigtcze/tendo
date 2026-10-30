@@ -6,8 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func (s *Service) Create(ctx context.Context, userID, householdID, key, name string, t Type, linkedUserID *string) (Subject, error) {

@@ -3,12 +3,13 @@ package item
 import (
 	"context"
 	"errors"
-	"github.com/bigtcze/tendo/backend/internal/platform/ids"
-	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
 type ValidationError struct{ Field, Code string }
