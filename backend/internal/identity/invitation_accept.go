@@ -11,9 +11,6 @@ func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, toke
 	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
 	defer cancel()
 	ctx = bounded
-	if err := ctx.Err(); err != nil {
-		return InvitationUser{}, err
-	}
 	if !validInvitationToken(token) {
 		return InvitationUser{}, ErrInvalidInvitation
 	}
