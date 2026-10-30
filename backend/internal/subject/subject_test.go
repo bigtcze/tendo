@@ -805,6 +805,48 @@ func TestUpdateInvalidFieldsCheckTargetBeforeValidation(t *testing.T) {
 	}
 }
 
+func TestUpdateNameValidationPrecedesTypeValidation(t *testing.T) {
+	blank := " "
+	invalidType := Type("robot")
+	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Person", Version: 1}}}
+	svc := NewService(repo, allow, nil)
+	_, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{Name: &blank, Type: &invalidType})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || validation.Field != "name" || validation.Code != "invalid_length" {
+		t.Fatalf("validation=%v, want name/invalid_length before invalid type", err)
+	}
+}
+
+func TestUpdateNewLinkedUserDefaultsValidationTypeToPerson(t *testing.T) {
+	candidate := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	membersCalls := 0
+	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Person", Version: 1}}}
+	svc := NewService(repo, allow, func(context.Context, string, string) error { membersCalls++; return nil })
+	updated, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != candidate || membersCalls != 1 || repo.getCalls != 0 {
+		t.Fatalf("updated=%+v err=%v member checks=%d Get calls=%d", updated, err, membersCalls, repo.getCalls)
+	}
+
+	petRepo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePet, Name: "Pet", Version: 1}}}
+	membersCalls = 0
+	petService := NewService(petRepo, allow, func(context.Context, string, string) error { membersCalls++; return nil })
+	_, err = petService.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || validation.Code != "requires_person" || membersCalls != 1 || petRepo.getCalls != 0 {
+		t.Fatalf("pet update err=%v member checks=%d Get calls=%d", err, membersCalls, petRepo.getCalls)
+	}
+}
+
+func TestUpdateLinkedMembershipUnavailableOnMissingTargetDoesNotProbe(t *testing.T) {
+	candidate := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	repo := &memRepo{}
+	svc := NewService(repo, allow, func(context.Context, string, string) error { return errors.New("membership unavailable") })
+	_, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	if !errors.Is(err, ErrUnavailable) || repo.getCalls != 0 {
+		t.Fatalf("err=%v Get calls=%d, want unavailable and no existence probe", err, repo.getCalls)
+	}
+}
+
 func TestUpdateEvaluationOrderAndStaleRequiresPerson(t *testing.T) {
 	linked := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
 	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypeHome, Name: "Flat", Version: 2}}}
