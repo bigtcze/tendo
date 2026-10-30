@@ -12,7 +12,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
 | mise (installer used by `scripts/dev-exec.sh`) | 2026.10.20 | 2026.10.23 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
-| oapi-codegen | v2.8.0 | v2.8.0 | Current; see migration notes below |
+| oapi-codegen | v2.8.1 | v2.8.1 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
 | GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0, upload-artifact v7.0.2 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
@@ -102,6 +102,11 @@ For extraction/lookup diagnostics, use the official Renovate CLI with `--platfor
 ## Held upgrades
 
 - **TypeScript 7.0.2**: `typescript-eslint` 8.71.1 declares a `typescript <6.1.0` peer range. TypeScript's documented side-by-side setup (TS 6 for tooling, TS 7 native compiler for type checking) is possible but adds a second compiler; revisit when `typescript-eslint` supports TS 7.
+
+## oapi-codegen v2.8.1 notes
+
+- Security release: strict servers bind the validated request body, `allow-remote-refs-from` (default `"*"`) gates remote `$ref`s, and specification strings reaching generated Go are quoted or validated.
+- Tendo generates models only (`strict-server: false`), and `api/openapi.yaml` uses only local `#/components` references, so none of these paths apply. Regenerated output differs from v2.8.0 only in the `Code generated … version` header; `scripts/check-api-generation.sh` pins that header.
 
 ## oapi-codegen v2.8.0 migration notes
 
