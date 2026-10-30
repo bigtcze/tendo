@@ -1,5 +1,5 @@
 import { act, StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -254,5 +254,74 @@ describe('invitation acceptance', () => {
   it('renders invite screen text in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs'); window.history.replaceState(null, '', `/invite#${token}`); installFakeServer(signedOutRoutes()); renderApp();
     expect(await screen.findByRole('heading', { level: 1, name: 'Někdo vás pozval do Tenda' })).toBeVisible();
+  });
+
+  it('empty login shows and focuses the login field error without accepting', async () => {
+    const fake = installFakeServer(signedOutRoutes());
+    window.history.replaceState(null, '', `/invite#${token}`);
+    renderApp();
+    const login = await screen.findByLabelText('Login');
+    await userEvent.type(screen.getByLabelText('Password'), 'long enough password');
+    await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
+
+    expect(login).toHaveFocus();
+    expect(login).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose a login.');
+    expect(fake.requests.filter((request) => request.method === 'POST' && request.path === '/api/v1/auth/invitations/accept')).toHaveLength(0);
+  });
+
+  it('empty password shows and focuses the password field error without accepting', async () => {
+    const fake = installFakeServer(signedOutRoutes());
+    window.history.replaceState(null, '', `/invite#${token}`);
+    renderApp();
+    await screen.findByLabelText('Login');
+    const password = screen.getByLabelText('Password', { selector: 'input' });
+    await userEvent.type(screen.getByLabelText('Login'), 'newuser');
+    await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
+
+    expect(password).toHaveFocus();
+    expect(password).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose a password.');
+    expect(fake.requests.filter((request) => request.method === 'POST' && request.path === '/api/v1/auth/invitations/accept')).toHaveLength(0);
+  });
+
+  it('refocuses notice when Continue session refresh fails again', async () => {
+    window.history.replaceState(null, '', `/invite#${token}`);
+    let sessionReads = 0;
+    const fake = installFakeServer(signedInRoutes({
+      'POST /api/v1/invitations/accept': json(201, {}),
+      'GET /api/v1/session': () => ++sessionReads === 1 ? json(200, session()) : problem(503),
+    }));
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', { name: 'Join household' }));
+    const notice = await screen.findByRole('status');
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(await screen.findByRole('status')).toBe(notice);
+    expect(notice).toHaveFocus();
+    expect(fake.requests.filter((request) => request.method === 'POST' && request.path === '/api/v1/invitations/accept')).toHaveLength(1);
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === '/api/v1/session')).toHaveLength(3);
+  });
+
+  it('ignores duplicate form submissions while acceptance is pending', async () => {
+    window.history.replaceState(null, '', `/invite#${token}`);
+    let release!: (response: Response) => void;
+    const acceptResponse = new Promise<Response>((resolve) => { release = resolve; });
+    const fake = installFakeServer(signedOutRoutes({
+      'POST /api/v1/auth/invitations/accept': () => acceptResponse,
+    }));
+    renderApp();
+    await userEvent.type(await screen.findByLabelText('Login'), 'newuser');
+    await userEvent.type(screen.getByLabelText('Password'), 'long enough password');
+    const form = screen.getByRole('button', { name: 'Create account and join' }).closest('form')!;
+
+    act(() => { fireEvent.submit(form); });
+    await waitFor(() => {
+      expect(fake.requests.filter((request) => request.method === 'POST' && request.path === '/api/v1/auth/invitations/accept')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Creating…' })).toBeDisabled();
+    });
+    act(() => { fireEvent.submit(form); });
+    expect(fake.requests.filter((request) => request.method === 'POST' && request.path === '/api/v1/auth/invitations/accept')).toHaveLength(1);
+    await act(async () => { release(json(201, {})); });
   });
 });

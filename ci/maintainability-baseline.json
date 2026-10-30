@@ -510,13 +510,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/members/InviteScreen.tsx",
-    "allowed": 9,
-    "reason": "Invitation screen validates and submits invitations and presents results; extract flow steps without changing invitation behavior.",
-    "owner": "frontend-members"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/members/membersApi.ts",
     "allowed": 7,
     "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
