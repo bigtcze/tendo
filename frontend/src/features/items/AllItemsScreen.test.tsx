@@ -118,6 +118,8 @@ describe('All items', () => {
     app();
     expect(await screen.findByRole('option', { name: 'Unknown' })).toBeInTheDocument();
     expect(screen.getByLabelText('For')).toHaveValue('unknown-subject');
+    // Facets (subject names) and the item list load independently; Clear exists only once the list settles to no-match.
+    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
     expect(window.location.pathname + window.location.search).toBe('/items');
     expect(unknown.requests.length).toBeGreaterThan(0);
