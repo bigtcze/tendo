@@ -475,13 +475,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/auth/OnboardingScreen.tsx",
-    "allowed": 1,
-    "reason": "Onboarding screen coordinates initial setup states and validation; extract setup sections while preserving first-owner behavior.",
-    "owner": "frontend-auth"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/auth/oidcApi.ts",
     "allowed": 1,
     "reason": "Authentication UI currently combines cohesive sign-in/setup presentation and actions; refactor while preserving authentication flow behavior.",

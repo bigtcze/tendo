@@ -236,4 +236,37 @@ describe('onboarding', () => {
     expect(screen.getByLabelText('Časové pásmo')).toHaveValue('America/New_York');
     expect(screen.getByRole('button', { name: 'Vytvořit domácnost' })).toBeVisible();
   });
+  it('pins exact aria-describedby wiring: hint first, error region only on the failing field', async () => {
+    installFakeServer({ ...setupRequired, 'PUT /api/v1/auth/setup': validation('timezone') });
+    renderApp();
+    const describedBy = () => ({
+      setupCode: screen.getByLabelText('Setup code').getAttribute('aria-describedby'),
+      householdName: screen.getByLabelText('What should we call your household?').getAttribute('aria-describedby'),
+      login: screen.getByLabelText('Login').getAttribute('aria-describedby'),
+      password: screen.getByLabelText('Password').getAttribute('aria-describedby'),
+      timezone: screen.getByLabelText('Time zone').getAttribute('aria-describedby'),
+    });
+    await screen.findByLabelText('Setup code');
+    expect(describedBy()).toEqual({
+      setupCode: 'setup-code-hint', householdName: null, login: 'onboarding-login-hint',
+      password: 'onboarding-password-hint', timezone: 'onboarding-timezone-hint',
+    });
+    await userEvent.type(screen.getByLabelText('Setup code'), 'secret-code');
+    await userEvent.click(screen.getByRole('button', { name: 'Create household' }));
+    await waitFor(() => expect(screen.getByLabelText('What should we call your household?')).toHaveFocus());
+    expect(describedBy()).toEqual({
+      setupCode: 'setup-code-hint', householdName: 'onboarding-error', login: 'onboarding-login-hint',
+      password: 'onboarding-password-hint', timezone: 'onboarding-timezone-hint',
+    });
+    await userEvent.type(screen.getByLabelText('What should we call your household?'), 'The Novák family');
+    await userEvent.type(screen.getByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery');
+    await userEvent.click(screen.getByRole('button', { name: 'Create household' }));
+    await waitFor(() => expect(screen.getByLabelText('Time zone')).toHaveFocus());
+    expect(screen.getByLabelText('Time zone')).toHaveAttribute('aria-invalid', 'true');
+    expect(describedBy()).toEqual({
+      setupCode: 'setup-code-hint', householdName: null, login: 'onboarding-login-hint',
+      password: 'onboarding-password-hint', timezone: 'onboarding-timezone-hint onboarding-error',
+    });
+  });
 });
