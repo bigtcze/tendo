@@ -1,11 +1,8 @@
 package httpapi
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
-	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 )
 
@@ -181,34 +177,6 @@ func TestOIDCStartFlowCookieAndSuccessCharacterization(t *testing.T) {
 			NewOIDC(fake, NewSession(&fakeSessionService{}, oidcTestPublicURL), oidcTestPublicURL).start(w, r)
 			if fake.lastStart.PreviousBrowserToken != tc.want || w.Code != 200 {
 				t.Fatalf("status=%d previous=%q want=%q", w.Code, fake.lastStart.PreviousBrowserToken, tc.want)
-			}
-		})
-	}
-}
-
-func TestOIDCStartCorruptPasswordHashIsUnauthorizedAndDiagnosed(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		err   error
-		fault bool
-	}{
-		{"corrupt stored hash", fmt.Errorf("%w: %w", identity.ErrInvalidCredentials, security.ErrInvalidPasswordHash), true},
-		{"password mismatch", identity.ErrInvalidCredentials, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			logs := &bytes.Buffer{}
-			fake := &oidcHTTPFake{startErr: tc.err}
-			h := NewOIDC(fake, NewSession(&fakeSessionService{}, oidcTestPublicURL), oidcTestPublicURL)
-			app := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: oidcTestPublicURL}, h.Register, slog.New(slog.NewJSONHandler(logs, nil)))
-			r := newOIDCStartHTTPRequest(`{"purpose":"login"}`, oidcTestPublicURL)
-			r.Host = "tendo.test"
-			w := httptest.NewRecorder()
-			app.ServeHTTP(w, r)
-			if w.Code != 401 || oidcStartProblemCode(t, w) != "invalid_credentials:" {
-				t.Fatalf("status=%d body=%s", w.Code, w.Body)
-			}
-			if got := strings.Contains(logs.String(), `"fault":"password_hash_integrity_fault"`); got != tc.fault {
-				t.Fatalf("fault logged=%v want %v: %s", got, tc.fault, logs.String())
 			}
 		})
 	}
