@@ -38,6 +38,7 @@ describe('onboarding model', () => {
     expect(firstEmptyField('token', 'Home', '', '')).toBe('login');
     expect(firstEmptyField('token', 'Home', ' ', 'password')).toBeNull();
     expect(firstEmptyField('token', 'Home', 'login', '')).toBe('password');
+    expect(firstEmptyField('token', 'Home', 'login', ' \t ')).toBeNull();
     expect(firstEmptyField('token', 'Home', 'login', 'password')).toBeNull();
   });
 
