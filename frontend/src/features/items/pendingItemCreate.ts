@@ -56,21 +56,38 @@ export function clearPendingItemCreates(): void {
   } catch { /* ignore unavailable storage */ }
 }
 
+const allowedBodyKeys = ['title', 'subjectId', 'attentionOn', 'notes', 'responsibleUserId', 'historicalCompletedOn', 'recurrence'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+function hasValidBodyKeys(body: Record<string, unknown>): boolean {
+  return !Object.keys(body).some((key) => !allowedBodyKeys.includes(key));
+}
+
+function hasOptionalStringFields(body: Record<string, unknown>): boolean {
+  return ['attentionOn', 'notes', 'responsibleUserId', 'historicalCompletedOn']
+    .every((field) => body[field] === undefined || typeof body[field] === 'string');
+}
+
+function hasValidRecurrence(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return Number.isInteger(value.intervalValue)
+    && typeof value.intervalUnit === 'string'
+    && ['day', 'week', 'month', 'year'].includes(value.intervalUnit)
+    && (value.mode === 'fixed' || value.mode === 'after_completion');
+}
+
 function isPending(value: unknown): value is PendingItemCreate {
-  if (!value || typeof value !== 'object') return false;
-  const record = value as Partial<PendingItemCreate>;
-  const body = record.body;
-  if (record.version !== 1 || typeof record.key !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(record.key) || !body || typeof body !== 'object') return false;
-  const allowed = ['title', 'subjectId', 'attentionOn', 'notes', 'responsibleUserId', 'historicalCompletedOn', 'recurrence'];
-  if (Object.keys(body).some((key) => !allowed.includes(key))) return false;
-  if (typeof body.title !== 'string' || typeof body.subjectId !== 'string') return false;
-  if (body.attentionOn !== undefined && typeof body.attentionOn !== 'string') return false;
-  if (body.notes !== undefined && typeof body.notes !== 'string') return false;
-  if (body.responsibleUserId !== undefined && typeof body.responsibleUserId !== 'string') return false;
-  if (body.historicalCompletedOn !== undefined && typeof body.historicalCompletedOn !== 'string') return false;
-  if (body.recurrence !== null && body.recurrence !== undefined) {
-    const recurrence = body.recurrence;
-    if (!recurrence || typeof recurrence !== 'object' || !Number.isInteger(recurrence.intervalValue) || typeof recurrence.intervalUnit !== 'string' || !['day', 'week', 'month', 'year'].includes(recurrence.intervalUnit) || !['fixed', 'after_completion'].includes(recurrence.mode)) return false;
-  }
-  return true;
+  if (!isRecord(value)) return false;
+  if (value.version !== 1 || typeof value.key !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(value.key)) return false;
+  if (!isRecord(value.body)) return false;
+  const body = value.body;
+  return hasValidBodyKeys(body)
+    && typeof body.title === 'string'
+    && typeof body.subjectId === 'string'
+    && hasOptionalStringFields(body)
+    && hasValidRecurrence(body.recurrence);
 }

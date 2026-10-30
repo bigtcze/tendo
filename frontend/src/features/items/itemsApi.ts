@@ -1,5 +1,6 @@
 import type { components, operations } from '../../../../api/generated/api';
 import { api } from '../../lib/api';
+import { archivedPaging } from './archivedPaging';
 
 export type Item = components['schemas']['Item'];
 export type Subject = components['schemas']['Subject'];
@@ -37,10 +38,26 @@ async function afterItemWrites(): Promise<void> {
 }
 
 export type CompletionPage = { kind: 'ok'; completions: Completion[]; nextCursor: string | null } | Failure | { kind: 'notFound' };
-export async function listCompletions(householdId: string, itemId: string, cursor?: string, options: { order?: 'oldest' | 'newest'; limit?: number } = {}): Promise<CompletionPage> {
+export async function listCompletions(
+  householdId: string,
+  itemId: string,
+  cursor?: string,
+  options: { order?: 'oldest' | 'newest'; limit?: number } = {},
+): Promise<CompletionPage> {
   try {
-    const { data, response } = await api.GET(completionPath, { params: { path: { householdId, itemId }, query: { limit: options.limit ?? 100, ...(options.order ? { order: options.order } : {}), ...(cursor ? { cursor } : {}) } } });
-    if (data && response.status === 200) return { kind: 'ok', completions: data.items, nextCursor: data.nextCursor };
+    const { data, response } = await api.GET(completionPath, {
+      params: {
+        path: { householdId, itemId },
+        query: {
+          limit: options.limit ?? 100,
+          ...(options.order ? { order: options.order } : {}),
+          ...(cursor ? { cursor } : {}),
+        },
+      },
+    });
+    if (data && response.status === 200) {
+      return { kind: 'ok', completions: data.items, nextCursor: data.nextCursor };
+    }
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 404) return { kind: 'notFound' };
   } catch { /* network failure */ }
@@ -54,11 +71,16 @@ export function patchItem(householdId: string, itemId: string, etag: string, bod
 async function sendPatchItem(householdId: string, itemId: string, etag: string, body: components['schemas']['UpdateItemRequest']): Promise<ItemPatch> {
   try {
     const { data, error, response } = await api.PATCH(itemPath, { params: { path: { householdId, itemId }, header: { 'If-Match': etag } }, body });
-    if (data && response.status === 200) return { kind: 'ok', item: data };
+    if (data && response.status === 200) {
+      return { kind: 'ok', item: data };
+    }
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 404) return { kind: 'notFound' };
     if (response.status === 412) return { kind: 'changed' };
-    if (response.status === 422) { const problem = (error ?? {}) as Problem; return { kind: 'invalid', field: problem.field ?? 'unknown', code: problem.code ?? 'unknown' }; }
+    if (response.status === 422) {
+      const problem = (error ?? {}) as Problem;
+      return { kind: 'invalid', field: problem.field ?? 'unknown', code: problem.code ?? 'unknown' };
+    }
   } catch { /* network failure */ }
   return { kind: 'error' };
 }
@@ -77,79 +99,95 @@ async function readThenPatchItem(householdId: string, itemId: string, body: comp
 
 type Problem = { code?: string; field?: string; parameter?: string };
 type ConflictCode = 'item_done' | 'item_archived' | 'completion_not_latest' | 'unknown';
+function completeConflictCode(code: string | undefined): ConflictCode {
+  return code === 'item_done' || code === 'item_archived' ? code : 'unknown';
+}
+function undoConflictCode(code: string | undefined): ConflictCode {
+  return code === 'item_archived' || code === 'completion_not_latest' ? code : 'unknown';
+}
 export type ItemSummary = components['schemas']['ItemSummary'];
 export type ItemGroup = 'needs' | 'inProgress' | 'waiting' | 'upcoming' | 'paused';
-export type ItemGroupPage = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale'; parameter?: string } | Failure | { kind: 'noHousehold' };
+export type ItemGroupPage =
+  | { kind: 'ok'; items: Item[]; nextCursor: string | null }
+  | { kind: 'stale'; parameter?: string }
+  | Failure
+  | { kind: 'noHousehold' };
 export type AllItemsFilters = { q?: string; subjectId?: string; responsibleUserId?: string; recurring?: boolean };
 export type AllItemsStatus = 'active' | 'needs' | 'inProgress' | 'waiting' | 'upcoming' | 'paused' | 'done' | 'archived';
 export type FilteredSummaryResult = { kind: 'ok'; summary: ItemSummary } | { kind: 'unauthenticated' | 'error' } | { kind: 'noHousehold' };
-export type AllItemsPageResult = { kind: 'ok'; items: Item[]; nextCursor: string | null } | { kind: 'stale'; parameter?: string } | { kind: 'invalidQuery' } | { kind: 'unauthenticated' | 'error' } | { kind: 'noHousehold' };
+export type AllItemsPageResult =
+  | { kind: 'ok'; items: Item[]; nextCursor: string | null }
+  | { kind: 'stale'; parameter?: string }
+  | { kind: 'invalidQuery' }
+  | { kind: 'unauthenticated' | 'error' }
+  | { kind: 'noHousehold' };
+function filterQuery(filters: AllItemsFilters) {
+  return {
+    ...(filters.q ? { q: filters.q } : {}),
+    ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
+    ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}),
+    ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' as const : 'false' as const } : {}),
+  };
+}
+
+function groupQuery(
+  status: ItemGroup | Exclude<AllItemsStatus, 'archived'>,
+  attentionDate: string,
+  filters: AllItemsFilters,
+  cursor?: string,
+) {
+  return {
+    limit: 25 as const,
+    sort: 'attention_on' as const,
+    attentionDate,
+    ...filterQuery(filters),
+    ...(status === 'active' ? { archived: false as const, done: false as const } : {}),
+    ...(status === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}),
+    ...(status === 'inProgress' ? { workflowState: 'in_progress' as const } : {}),
+    ...(status === 'waiting' ? { workflowState: 'waiting' as const } : {}),
+    ...(status === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}),
+    ...(status === 'paused' ? { workflowState: 'paused' as const } : {}),
+    ...(status === 'done' ? { done: true as const, archived: false as const } : {}),
+    ...(cursor ? { cursor } : {}),
+  };
+}
+
 export async function getFilteredItemsSummary(householdId: string, filters: AllItemsFilters): Promise<FilteredSummaryResult> {
   await afterItemWrites();
   try {
-    const { data, response } = await api.GET(summaryPath, { params: { path: { householdId }, query: { ...(filters.q ? { q: filters.q } : {}), ...(filters.subjectId ? { subjectId: filters.subjectId } : {}), ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}), ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' : 'false' } : {}) } } });
+    const { data, response } = await api.GET(summaryPath, { params: { path: { householdId }, query: filterQuery(filters) } });
     if (data && response.status === 200) return { kind: 'ok' as const, summary: data };
     if (response.status === 401) return { kind: 'unauthenticated' as const };
     if (response.status === 404) return { kind: 'noHousehold' as const };
   } catch { /* network failure */ }
   return { kind: 'error' as const };
 }
-export async function listAllItems(householdId: string, status: AllItemsStatus, filters: AllItemsFilters, attentionDate: string, cursor?: string): Promise<AllItemsPageResult> {
+export async function listAllItems(
+  householdId: string,
+  status: AllItemsStatus,
+  filters: AllItemsFilters,
+  attentionDate: string,
+  cursor?: string,
+): Promise<AllItemsPageResult> {
   await afterItemWrites();
-  const common = {
-    sort: 'attention_on' as const,
-    attentionDate,
-    ...(filters.q ? { q: filters.q } : {}),
-    ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
-    ...(filters.responsibleUserId ? { responsibleUserId: filters.responsibleUserId } : {}),
-    ...(filters.recurring !== undefined ? { recurring: filters.recurring ? 'true' as const : 'false' as const } : {}),
-  };
+  const common = { sort: 'attention_on' as const, attentionDate, ...filterQuery(filters) };
 
   async function fetchStream(query: operations['listItems']['parameters']['query']) {
     const { data, error, response } = await api.GET(listPath, { params: { path: { householdId }, query } });
     if (data && response.status === 200) return { kind: 'ok' as const, items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' as const };
     if (response.status === 404) return { kind: 'noHousehold' as const };
-    if (response.status === 400 && ['attentionDate', 'cursor'].includes(((error ?? {}) as Problem).parameter ?? '')) return { kind: 'stale' as const, parameter: ((error ?? {}) as Problem).parameter };
-    if (response.status === 400 && ((error ?? {}) as Problem).parameter === 'q') return { kind: 'invalidQuery' as const };
+    const parameter = ((error ?? {}) as Problem).parameter;
+    if (response.status === 400 && ['attentionDate', 'cursor'].includes(parameter ?? '')) {
+      return { kind: 'stale' as const, parameter };
+    }
+    if (response.status === 400 && parameter === 'q') return { kind: 'invalidQuery' as const };
     return { kind: 'error' as const };
   }
 
   try {
-    if (status === 'archived') {
-      // UI cursor wraps two server streams: 'a:<c>' continues unfinished archived items,
-      // 'b:' starts completed archived items and 'b:<c>' continues them. Anything else is stale.
-      const token = cursor ?? '';
-      const archivedDone = token.startsWith('b:');
-      if (token && !archivedDone && !(token.startsWith('a:') && token.length > 2)) return { kind: 'stale', parameter: 'cursor' };
-      const serverCursor = token.slice(2);
-      const first = await fetchStream({ limit: 25, ...common, archived: true, done: archivedDone, ...(serverCursor ? { cursor: serverCursor } : {}) });
-      if (first.kind !== 'ok') return first;
-      if (archivedDone) return { kind: 'ok', items: first.items, nextCursor: first.nextCursor ? `b:${first.nextCursor}` : null };
-      if (first.nextCursor) return { kind: 'ok', items: first.items, nextCursor: `a:${first.nextCursor}` };
-      if (first.items.length === 25) {
-        // Only offer the boundary page when completed archived items actually exist.
-        const probe = await fetchStream({ limit: 1, ...common, archived: true, done: true });
-        if (probe.kind !== 'ok') return probe;
-        return { kind: 'ok', items: first.items, nextCursor: probe.items.length ? 'b:' : null };
-      }
-      const second = await fetchStream({ limit: 25 - first.items.length, ...common, archived: true, done: true });
-      if (second.kind !== 'ok') return second;
-      return { kind: 'ok', items: [...first.items, ...second.items], nextCursor: second.nextCursor ? `b:${second.nextCursor}` : null };
-    }
-
-    const query = {
-      limit: 25 as const,
-      ...common,
-      ...(status === 'active' ? { archived: false as const, done: false as const } : {}),
-      ...(status === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}),
-      ...(status === 'inProgress' ? { workflowState: 'in_progress' as const } : {}),
-      ...(status === 'waiting' ? { workflowState: 'waiting' as const } : {}),
-      ...(status === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}),
-      ...(status === 'paused' ? { workflowState: 'paused' as const } : {}),
-      ...(status === 'done' ? { done: true as const, archived: false as const } : {}),
-      ...(cursor ? { cursor } : {}),
-    };
+    if (status === 'archived') return await archivedPaging(common, cursor, fetchStream);
+    const query = groupQuery(status, attentionDate, filters, cursor);
     return await fetchStream(query);
   } catch { /* network failure */ }
   return { kind: 'error' };
@@ -167,26 +205,24 @@ export async function getItemsSummary(householdId: string): Promise<{ kind: 'ok'
 }
 export async function listItemGroup(householdId: string, group: ItemGroup, attentionDate: string, cursor?: string): Promise<ItemGroupPage> {
   await afterItemWrites();
-  const query = {
-    limit: 25 as const, sort: 'attention_on' as const, attentionDate,
-    ...(group === 'needs' ? { workflowState: 'open' as const, attention: 'needs_attention' as const } : {}),
-    ...(group === 'inProgress' ? { workflowState: 'in_progress' as const } : {}),
-    ...(group === 'waiting' ? { workflowState: 'waiting' as const } : {}),
-    ...(group === 'upcoming' ? { workflowState: 'open' as const, attention: 'upcoming' as const } : {}),
-    ...(group === 'paused' ? { workflowState: 'paused' as const } : {}),
-    ...(cursor ? { cursor } : {}),
-  };
+  const query = groupQuery(group, attentionDate, {}, cursor);
   try {
     const { data, error, response } = await api.GET(listPath, { params: { path: { householdId }, query } });
     if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 404) return { kind: 'noHousehold' };
-    if (response.status === 400 && ['attentionDate', 'cursor'].includes(((error ?? {}) as Problem).parameter ?? '')) return { kind: 'stale' };
+    if (response.status === 400 && ['attentionDate', 'cursor'].includes(((error ?? {}) as Problem).parameter ?? '')) {
+      return { kind: 'stale' };
+    }
   } catch { /* network failure */ }
   return { kind: 'error' };
 }
 
-export type SubjectsResult = { kind: 'ok'; subjects: Subject[]; nextCursor: string | null } | { kind: 'unauthenticated' } | { kind: 'error' } | { kind: 'noHousehold' };
+export type SubjectsResult =
+  | { kind: 'ok'; subjects: Subject[]; nextCursor: string | null }
+  | { kind: 'unauthenticated' }
+  | { kind: 'error' }
+  | { kind: 'noHousehold' };
 export async function listSubjectsByIDs(householdId: string, ids: string[], archived: boolean): Promise<SubjectsResult> {
   try {
     const { data, response } = await api.GET('/api/v1/households/{householdId}/subjects', {
@@ -267,7 +303,7 @@ async function sendCompleteItem(householdId: string, itemId: string, etag: strin
     if (response.status === 404) return { kind: 'notFound' };
     if (response.status === 409) {
       const code = (error as Problem | undefined)?.code;
-      return { kind: 'conflict', code: code === 'item_done' || code === 'item_archived' ? code : 'unknown' };
+      return { kind: 'conflict', code: completeConflictCode(code) };
     }
     if (response.status === 412) return { kind: 'changed' };
     if (response.status === 422) return { kind: 'invalid', code: (error as Problem | undefined)?.code ?? 'unknown' };
@@ -297,7 +333,7 @@ async function sendUndoCompletion(householdId: string, itemId: string, completio
     if (response.status === 404) return { kind: 'notFound' };
     if (response.status === 409) {
       const code = (error as Problem | undefined)?.code;
-      return { kind: 'conflict', code: code === 'item_archived' || code === 'completion_not_latest' ? code : 'unknown' };
+      return { kind: 'conflict', code: undoConflictCode(code) };
     }
     if (response.status === 412) return { kind: 'changed' };
     if (response.status >= 500) return { kind: 'unavailable', code: (error as Problem | undefined)?.code ?? 'unavailable' };

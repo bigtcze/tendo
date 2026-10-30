@@ -489,20 +489,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/items/itemsApi.ts",
-    "allowed": 9,
-    "reason": "Shared item API adapter maps transport responses and errors; split response mapping while preserving client contracts.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "long_lines",
-    "path": "frontend/src/features/items/pendingItemCreate.ts",
-    "allowed": 1,
-    "reason": "Pending item creation helper reconciles persisted uncertain outcomes and retry states; retain recovery semantics while simplifying transitions.",
-    "owner": "frontend-items"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/members/membersApi.ts",
     "allowed": 7,
     "reason": "P1 audit rank 8: membership/invitation lifecycle has authorization impact; extract cohesive responsibilities without changing behavior.",
