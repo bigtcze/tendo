@@ -53,7 +53,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return errors.New("migration files unavailable")
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	if applied > currentVersion {
 		return errors.New("database schema is newer than this application")
 	}
@@ -65,7 +64,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err := applyMigration(bounded, conn, step); err != nil {
 			return err
 		}
-		applied = step.version
 	}
 	return validateMetadata(bounded, conn)
 }

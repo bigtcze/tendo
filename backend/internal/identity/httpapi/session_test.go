@@ -29,10 +29,13 @@ type fakeSessionService struct {
 	logoutErr   error
 	expires     time.Time
 	principal   identity.Principal
+	gotLogin    string
+	gotPassword string
 }
 
 func (f *fakeSessionService) Login(_ context.Context, login, password string) (identity.Session, error) {
 	f.loginCalls++
+	f.gotLogin, f.gotPassword = login, password
 	if f.loginErr != nil {
 		return identity.Session{}, f.loginErr
 	}
@@ -195,7 +198,10 @@ func TestLoginStrictRequestHandling(t *testing.T) {
 		{"duplicate key", `{"login":"a","login":"b","password":"x"}`, nil, 400, "invalid_request"},
 		{"unknown key", `{"login":"a","password":"b","extra":"c"}`, nil, 400, "invalid_request"},
 		{"null value", `{"login":null,"password":"b"}`, nil, 400, "invalid_request"},
+		{"null password", `{"login":"a","password":null}`, nil, 400, "invalid_request"},
+		{"empty object", `{}`, nil, 400, "invalid_request"},
 		{"missing key", `{"login":"a"}`, nil, 400, "invalid_request"},
+		{"missing login", `{"password":"b"}`, nil, 400, "invalid_request"},
 		{"wrong case key", `{"Login":"a","password":"b"}`, nil, 400, "invalid_request"},
 		{"number value", `{"login":1,"password":"b"}`, nil, 400, "invalid_request"},
 		{"trailing data", validLogin + ` {}`, nil, 400, "invalid_request"},
@@ -220,6 +226,11 @@ func TestLoginStrictRequestHandling(t *testing.T) {
 	w := serve(mux, loginRequest(validLogin, func(r *http.Request) { r.Header.Set("Content-Type", "Application/JSON; charset=UTF-8") }))
 	if w.Code != 201 {
 		t.Fatalf("charset utf-8 rejected: %d", w.Code)
+	}
+	svc, _, mux := sessionFixture("http://localhost")
+	w = serve(mux, loginRequest(`{"password":" pass word ","login":" owner_1 "}`))
+	if w.Code != 201 || svc.gotLogin != " owner_1 " || svc.gotPassword != " pass word " {
+		t.Fatalf("status=%d login=%q password=%q", w.Code, svc.gotLogin, svc.gotPassword)
 	}
 }
 

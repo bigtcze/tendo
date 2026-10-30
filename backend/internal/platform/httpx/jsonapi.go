@@ -104,26 +104,22 @@ func parseListParams(w http.ResponseWriter, r *http.Request, maxLimit int, filte
 		}
 		p.Limit = n
 	}
-	if cursor, ok := parseCursor(values["cursor"], values["cursor"] != nil); !ok {
+	cursor, ok := parseCursor(values["cursor"], values.Has("cursor"))
+	if !ok {
 		QueryProblemResponse(w, "cursor")
 		return p, false
-	} else {
-		p.Cursor = cursor
 	}
+	p.Cursor = cursor
 	if filter == ListFilterArchived || filter == ListFilterArchivedDone {
-		if archived, ok := parseQueryBool(values["archived"], values["archived"] != nil); !ok {
+		if p.Archived, ok = parseQueryBool(values["archived"], values.Has("archived")); !ok {
 			QueryProblemResponse(w, "archived")
 			return p, false
-		} else {
-			p.Archived = archived
 		}
 	}
 	if filter == ListFilterDone || filter == ListFilterArchivedDone {
-		if done, ok := parseQueryBool(values["done"], values["done"] != nil); !ok {
+		if p.Done, ok = parseQueryBool(values["done"], values.Has("done")); !ok {
 			QueryProblemResponse(w, "done")
 			return p, false
-		} else {
-			p.Done = done
 		}
 	}
 	return p, true
