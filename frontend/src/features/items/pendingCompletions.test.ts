@@ -27,7 +27,7 @@ describe('pending completion storage', () => {
 
     expect(pending.getPendingCompletion('user-2', 'home-1', 'item-1')).toBe('other-user');
     expect(pending.getPendingCompletion('user-1', 'home-2', 'item-1')).toBe('other-home');
-    pending.clearPendingCompletion('user-1', 'home-1', 'item-1');
+    pending.clearPendingCompletion('user-1', 'home-1', 'item-1', 'one');
     expect(pending.getPendingCompletion('user-1', 'home-1', 'item-1')).toBeUndefined();
     expect(pending.getPendingCompletion('user-2', 'home-1', 'item-1')).toBe('other-user');
     expect(pending.getPendingCompletion('user-1', 'home-2', 'item-1')).toBe('other-home');
@@ -49,7 +49,7 @@ describe('pending completion storage', () => {
     pending.setPendingCompletion('user-1', 'home-1', 'item-1', 'attempt-1');
     vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('storage unavailable'); });
 
-    pending.clearPendingCompletion('user-1', 'home-1', 'item-1');
+    pending.clearPendingCompletion('user-1', 'home-1', 'item-1', 'attempt-1');
 
     expect(pending.getPendingCompletion('user-1', 'home-1', 'item-1')).toBeUndefined();
   });

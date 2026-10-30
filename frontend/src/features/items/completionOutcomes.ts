@@ -35,17 +35,18 @@ async function completionSuccess(
   focusedControl: HTMLElement | null,
   current: Extract<ItemRead, { kind: 'ok' }>,
   completion: Completion,
+  attemptKey: string,
 ) {
   const { userId, householdId, t, locale, refresh, setNotice, focusedRowRef, noticeRef } = tools;
   if (completion.undoneAt) {
-    clearPendingCompletion(userId, householdId, itemId);
+    clearPendingCompletion(userId, householdId, itemId, attemptKey);
     await refresh();
     setNotice({ text: t('items.notice.alreadyUndone') });
     focusedRowRef.current = focused;
     requestAnimationFrame(() => { if (focusUnclaimed(focusedControl)) noticeRef.current?.focus(); });
     return;
   }
-  clearPendingCompletion(userId, householdId, itemId);
+  clearPendingCompletion(userId, householdId, itemId, attemptKey);
   focusedRowRef.current = focused;
   await refresh();
   const date = completion.nextAttentionOn;
@@ -73,7 +74,7 @@ export async function handleCompletionResult(
   const { userId, householdId, t, refresh, setNotice, onSignedOut } = tools;
   if (current.kind === 'unauthenticated') { onSignedOut(); return; }
   if (current.kind === 'notFound') {
-    clearPendingCompletion(userId, householdId, itemId);
+    clearPendingCompletion(userId, householdId, itemId, attemptKey);
     await refresh();
     setNotice({ text: t('items.notice.gone') });
     return;
@@ -84,18 +85,18 @@ export async function handleCompletionResult(
     return;
   }
   if (result.kind === 'unauthenticated') { onSignedOut(); return; }
-  if (result.kind === 'ok') return completionSuccess(tools, itemId, focused, focusedControl, current, result.completion);
+  if (result.kind === 'ok') return completionSuccess(tools, itemId, focused, focusedControl, current, result.completion, attemptKey);
   if (result.kind === 'notFound') {
-    clearPendingCompletion(userId, householdId, itemId);
+    clearPendingCompletion(userId, householdId, itemId, attemptKey);
     await refresh();
     setNotice({ text: t('items.notice.gone') });
   } else if (result.kind === 'conflict') {
-    clearPendingCompletion(userId, householdId, itemId);
+    clearPendingCompletion(userId, householdId, itemId, attemptKey);
     await refresh();
     setNotice({ text: t(completionConflictNoticeKey(result.code)) });
   } else if (result.kind === 'changed') { await refresh(); setNotice({ text: t('items.notice.changed') }); }
   else if (result.kind === 'invalid') {
-    clearPendingCompletion(userId, householdId, itemId);
+    clearPendingCompletion(userId, householdId, itemId, attemptKey);
     setNotice({ text: t(completionInvalidNoticeKey(result.code)) });
   }
   else setNotice({ text: t('items.notice.retry'), itemId, retryKey: attemptKey, retryKind: 'complete' });
