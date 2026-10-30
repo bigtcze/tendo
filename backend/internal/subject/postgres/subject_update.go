@@ -10,20 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func toSubject(r row) subject.Subject {
-	var linked *string
-	if r.LinkedUserID.Valid {
-		value := uuidString(r.LinkedUserID)
-		linked = &value
-	}
-	return subject.Subject{
-		ID: r.ID, HouseholdID: r.HouseholdID, Type: subject.Type(r.Type),
-		Name: r.Name, Archived: r.Archived,
-		CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(),
-		Version: r.Version, LinkedUserID: linked,
-	}
-}
-
 func updateParams(hid, sid pgtype.UUID, expectedVersion int64, p subject.Patch) (dbgen.UpdateSubjectParams, error) {
 	params := dbgen.UpdateSubjectParams{HouseholdID: hid, ID: sid, ExpectedVersion: expectedVersion, SetLinked: p.LinkedUserIDSet}
 	if p.Name != nil {
@@ -45,6 +31,9 @@ func updateParams(hid, sid pgtype.UUID, expectedVersion int64, p subject.Patch) 
 	return params, nil
 }
 
+// Update applies the patch atomically when the stored version equals
+// expectedVersion. When no row matches, a household-scoped lookup tells a
+// missing subject from a stale version.
 func (r *Repository) Update(ctx context.Context, householdID, subjectID string, expectedVersion int64, p subject.Patch) (subject.Subject, error) {
 	hid, ok1 := parseUUID(householdID)
 	sid, ok2 := parseUUID(subjectID)

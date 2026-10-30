@@ -3,18 +3,61 @@ package postgres
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/subject"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const (
+	characterizationHousehold = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	characterizationActor     = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
+	characterizationSubject   = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70"
+)
+
+type faultDB struct {
+	rowErrors []error
+}
+
+func (db *faultDB) Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+func (db *faultDB) Query(context.Context, string, ...interface{}) (pgx.Rows, error) {
+	return nil, errors.New("unexpected Query")
+}
+func (db *faultDB) QueryRow(context.Context, string, ...interface{}) pgx.Row {
+	if len(db.rowErrors) == 0 {
+		return faultRow{err: errors.New("unexpected QueryRow")}
+	}
+	err := db.rowErrors[0]
+	db.rowErrors = db.rowErrors[1:]
+	return faultRow{err: err}
+}
+
+type faultRow struct{ err error }
+
+func (r faultRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	for _, value := range dest {
+		v := reflect.ValueOf(value)
+		if v.Kind() != reflect.Pointer || v.IsNil() {
+			return errors.New("invalid scan destination")
+		}
+		v.Elem().Set(reflect.Zero(v.Elem().Type()))
+	}
+	return nil
+}
+
 func TestMalformedIdentifiersAreRejectedBeforeQuery(t *testing.T) {
 	repo := NewRepository(nil)
 	ctx := context.Background()
-	good := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	good := characterizationHousehold
 	bad := "not-a-uuid"
 	checks := []struct {
 		name string
@@ -52,8 +95,8 @@ func TestMalformedIdentifiersAreRejectedBeforeQuery(t *testing.T) {
 func TestMalformedLinkedUserIsValidationErrorBeforeQuery(t *testing.T) {
 	repo := NewRepository(nil)
 	bad := "bad"
-	_, _, createErr := repo.CreateIdempotent(context.Background(), "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60", "k", "n", subject.TypePerson, &bad, nil)
-	_, updateErr := repo.Update(context.Background(), "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70", 1, subject.Patch{LinkedUserID: &bad, LinkedUserIDSet: true})
+	_, _, createErr := repo.CreateIdempotent(context.Background(), characterizationHousehold, characterizationActor, "k", "n", subject.TypePerson, &bad, nil)
+	_, updateErr := repo.Update(context.Background(), characterizationHousehold, characterizationSubject, 1, subject.Patch{LinkedUserID: &bad, LinkedUserIDSet: true})
 	for _, err := range []error{createErr, updateErr} {
 		var validation *subject.ValidationError
 		if !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "invalid_reference" {
@@ -84,35 +127,81 @@ func TestToSubjectCharacterization(t *testing.T) {
 	}
 }
 
-func TestConstraintErrorClassificationCharacterization(t *testing.T) {
-	for _, tc := range []struct {
-		name, code, constraint, validationCode string
-		createWant, updateWant                 error
+func TestRepositoryCreateConstraintAndFailureMapping(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want error
 	}{
-		{"linked membership", "23503", "subjects_linked_membership_fk", "invalid_reference", nil, nil},
-		{"person only", "23514", "subjects_linked_user_person_only", "requires_person", nil, nil},
-		{"other foreign key", "23503", "other_constraint", "", subject.ErrNotFound, errPersistence},
-	} {
+		{"membership FK", &pgconn.PgError{Code: "23503", ConstraintName: "subjects_linked_membership_fk"}, &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}},
+		{"person check", &pgconn.PgError{Code: "23514", ConstraintName: "subjects_linked_user_person_only"}, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}},
+		{"other FK", &pgconn.PgError{Code: "23503", ConstraintName: "other_constraint"}, subject.ErrNotFound},
+		{"generic", errors.New("database down"), errPersistence},
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mapped := classifyConstraintError(&pgconn.PgError{Code: tc.code, ConstraintName: tc.constraint})
-			if tc.validationCode != "" {
-				var validation *subject.ValidationError
-				if !errors.As(mapped, &validation) || validation.Field != "linkedUserId" || validation.Code != tc.validationCode {
-					t.Fatalf("mapped error=%v", mapped)
-				}
-				updateMapped := updateConstraintError(&pgconn.PgError{Code: tc.code, ConstraintName: tc.constraint})
-				if !errors.As(updateMapped, &validation) || validation.Field != "linkedUserId" || validation.Code != tc.validationCode {
-					t.Fatalf("update mapped error=%v", updateMapped)
-				}
-				return
-			}
-			if !errors.Is(mapped, tc.createWant) {
-				t.Fatalf("create mapping=%v want=%v", mapped, tc.createWant)
-			}
-			if got := updateConstraintError(&pgconn.PgError{Code: tc.code, ConstraintName: tc.constraint}); got != nil {
-				t.Fatalf("update mapping=%v, want fallback %v", got, tc.updateWant)
-			}
+			repo := NewRepository(&faultDB{rowErrors: []error{tc.err}})
+			_, _, err := repo.CreateIdempotent(context.Background(), characterizationHousehold, characterizationActor, "k", "n", subject.TypePerson, nil, nil)
+			assertRepositoryError(t, err, tc.want)
+		})
+	}
+	t.Run("no rows returns full zero tuple", func(t *testing.T) {
+		got, inserted, err := NewRepository(&faultDB{rowErrors: []error{pgx.ErrNoRows}}).CreateIdempotent(context.Background(), characterizationHousehold, characterizationActor, "k", "n", subject.TypePerson, nil, nil)
+		if got != (subject.Subject{}) || inserted || err != nil {
+			t.Fatalf("got=%+v inserted=%v err=%v", got, inserted, err)
+		}
+	})
+}
+
+func TestRepositoryUpdateConstraintAndFailureMapping(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"membership FK", &pgconn.PgError{Code: "23503", ConstraintName: "subjects_linked_membership_fk"}, &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}},
+		{"person check", &pgconn.PgError{Code: "23514", ConstraintName: "subjects_linked_user_person_only"}, &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}},
+		{"other FK", &pgconn.PgError{Code: "23503", ConstraintName: "other_constraint"}, errPersistence},
+		{"generic", errors.New("database down"), errPersistence},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := NewRepository(&faultDB{rowErrors: []error{tc.err}})
+			_, err := repo.Update(context.Background(), characterizationHousehold, characterizationSubject, 1, subject.Patch{})
+			assertRepositoryError(t, err, tc.want)
 		})
 	}
 }
+
+func TestRepositoryUpdateNoRowsProbeMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		probeErr, want error
+	}{
+		{"missing", pgx.ErrNoRows, subject.ErrNotFound},
+		{"stale", nil, subject.ErrVersionMismatch},
+		{"probe failure", errors.New("database down"), errPersistence},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := NewRepository(&faultDB{rowErrors: []error{pgx.ErrNoRows, tc.probeErr}})
+			_, err := repo.Update(context.Background(), characterizationHousehold, characterizationSubject, 1, subject.Patch{})
+			assertRepositoryError(t, err, tc.want)
+		})
+	}
+}
+
+func assertRepositoryError(t *testing.T, got, want error) {
+	t.Helper()
+	var expectedValidation, actualValidation *subject.ValidationError
+	if errors.As(want, &expectedValidation) {
+		if !errors.As(got, &actualValidation) || actualValidation.Field != expectedValidation.Field || actualValidation.Code != expectedValidation.Code {
+			t.Fatalf("got=%v want validation %s/%s", got, expectedValidation.Field, expectedValidation.Code)
+		}
+		return
+	}
+	if !errors.Is(got, want) {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+}
+
 func ptrSubject(s string) *string { return &s }

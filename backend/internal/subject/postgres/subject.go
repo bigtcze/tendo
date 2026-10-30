@@ -87,6 +87,20 @@ type row struct {
 	LinkedUserID pgtype.UUID
 }
 
+func toSubject(r row) subject.Subject {
+	var linked *string
+	if r.LinkedUserID.Valid {
+		value := uuidString(r.LinkedUserID)
+		linked = &value
+	}
+	return subject.Subject{
+		ID: r.ID, HouseholdID: r.HouseholdID, Type: subject.Type(r.Type),
+		Name: r.Name, Archived: r.Archived,
+		CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(),
+		Version: r.Version, LinkedUserID: linked,
+	}
+}
+
 func (r *Repository) CreateIdempotent(
 	ctx context.Context,
 	householdID, actorID, key, name string,
