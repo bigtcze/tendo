@@ -8,7 +8,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | --- | --- | --- | --- |
 | Go toolchain (CI, Docker build, OIDC test provider) | 1.27.3 | 1.27.3 | Current |
 | `go` directive (`backend/go.mod`) | 1.26.0 | — | Minimum language version; builds use the pinned toolchain |
-| Node.js (CI, Docker web build) | 24.22.1 | 24.22.1 (LTS) | Current; package engines still allow `^22.22.2` for local work |
+| Node.js (CI, Docker web build) | 24.22.2 | 24.22.2 (LTS) | Current; 24.22.2 is a V8-backport and stream async-context patch; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
 | mise (installer used by `scripts/dev-exec.sh`) | 2026.10.20 | 2026.10.23 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
