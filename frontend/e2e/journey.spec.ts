@@ -110,8 +110,9 @@ function watch(page: Page, options: { fullChromium?: boolean } = {}) {
   page.on('requestfailed', (request) => {
     const window = failureWindows.get(page);
     const path = new URL(request.url()).pathname;
-    if (window && path.startsWith('/api/') && request.failure()?.errorText !== 'net::ERR_ABORTED') {
-      window.observed.push(`${request.method()} ${path} abort`);
+    // Every failed API request is ledgered, including net::ERR_ABORTED (a cancelled fetch logs no console error).
+    if (window && path.startsWith('/api/')) {
+      window.observed.push(`${request.method()} ${path} ${request.failure()?.errorText ?? 'unknown failure'}`);
     }
   });
   page.on('response', (response) => {
@@ -4587,8 +4588,10 @@ test.describe('Tendo production journey', () => {
     const ownedRoutes: Array<{ url: RegExp; handler: (route: import('@playwright/test').Route) => void | Promise<void> }> = [];
     let primaryFailure: unknown;
     let cleanupFailure: unknown;
-    const openWindow = (declared: string[] = []) => {
+    const openWindow = async (declared: string[] = []) => {
       if (failureWindows.has(page)) throw new Error('n29 failure window already open');
+      // Open only at API quiescence so an earlier step's in-flight request cannot fail inside this window.
+      await waitForSettledHouseholdRequests(page);
       failureWindows.set(page, { injected: [], declared, observed: [] });
     };
     const inject = async (url: RegExp, method: string, opts: { times?: number; abort?: boolean; match?: (req: import('@playwright/test').Request) => boolean } = {}) => {
@@ -4601,8 +4604,8 @@ test.describe('Tendo production journey', () => {
         count += 1;
         const requestURL = req.url();
         const path = new URL(requestURL).pathname;
-        window.injected.push({ key: `${method} ${path} ${opts.abort ? 'abort' : 503}`, url: requestURL });
-        if (opts.abort) { await route.fetch(); return route.abort(); }
+        window.injected.push({ key: `${method} ${path} ${opts.abort ? 'net::ERR_FAILED' : 503}`, url: requestURL });
+        if (opts.abort) { await route.fetch(); return route.abort('failed'); }
         return route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify(problem503) });
       };
       ownedRoutes.push({ url, handler });
@@ -4626,7 +4629,7 @@ test.describe('Tendo production journey', () => {
       // Catalogue lookup uses limit/archived query; label reads carry id= and remain untouched.
       const cataloguePath = `/api/v1/households/${householdId}/subjects`;
       const catalogueUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?.*$`);
-      openWindow();
+      await openWindow();
       const catalogueFailure = await inject(catalogueUrl, 'GET', { times: 2, match: (req) => { const query = new URL(req.url()).searchParams; return query.get('limit') === '100' && query.get('archived') === 'false' && !query.has('id'); } });
       const addItemButton = page.getByRole('button', { name: en['items.add'], exact: true });
       await addItemButton.click();
@@ -4656,7 +4659,7 @@ test.describe('Tendo production journey', () => {
       const homePath = `/api/v1/households/${householdId}/items/summary`;
       const groupPath = `/api/v1/households/${householdId}/items`;
       const homeRouteUrl = new RegExp(`^${escapeRegExp(baseURL)}(?:${escapeRegExp(homePath)}|${escapeRegExp(groupPath)})(?:\\?.*)?$`);
-      openWindow();
+      await openWindow();
       const homeFailures = await inject(homeRouteUrl, 'GET', { times: 2, match: (req) => new URL(req.url()).pathname === homePath || new URL(req.url()).pathname === groupPath });
       await page.goto('/');
       await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
@@ -4668,7 +4671,7 @@ test.describe('Tendo production journey', () => {
 
       // Both active and archived label lookups are separate requests for the visible home rows.
       const subjectsURL = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(cataloguePath)}\\?.*$`);
-      openWindow();
+      await openWindow();
       const failedLabels = await inject(subjectsURL, 'GET', { times: 2, match: (req) => new URL(req.url()).searchParams.has('id') });
       await page.goto('/');
       await expect(page.getByText(en['items.subjectLabels.error'], { exact: true })).toBeVisible();
@@ -4687,7 +4690,7 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
       const detailItemRow = page.getByRole('main').getByRole('listitem').filter({ hasText: 'N29 detail retry persisted' });
       await expect(detailItemRow).toBeVisible();
-      openWindow();
+      await openWindow();
       const itemFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(itemGetPath)}(?:\\?.*)?$`), 'GET');
       await page.getByRole('main').getByRole('link').filter({ hasText: 'N29 detail retry persisted' }).click();
       await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
@@ -4703,7 +4706,7 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
       const historyItemRow = page.getByRole('main').getByRole('listitem').filter({ hasText: 'N29 detail retry persisted' });
       await expect(historyItemRow).toBeVisible();
-      openWindow();
+      await openWindow();
       const historyFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(historyPath)}(?:\\?.*)?$`), 'GET');
       await historyItemRow.getByRole('link').click();
       await expect(page.getByText(en['itemDetail.historyError'], { exact: true })).toBeVisible();
@@ -4718,7 +4721,7 @@ test.describe('Tendo production journey', () => {
       // People list failure is visibly retryable; linked account is persisted on write and clear.
       await page.goto('/'); await waitForSettledHome(page, householdName);
       const peoplePath = `/api/v1/households/${householdId}/subjects`;
-      openWindow();
+      await openWindow();
       const peopleFailure = await inject(new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(peoplePath)}(?:\\?.*)?$`), 'GET');
       await page.goto('/people');
       await expect(page.getByText(en['app.error.body'], { exact: true })).toBeVisible();
@@ -4752,7 +4755,7 @@ test.describe('Tendo production journey', () => {
       await page.goto('/'); await waitForSettledHome(page, householdName);
       const invitationsPath = `/api/v1/households/${householdId}/invitations`;
       const invitationURL = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(invitationsPath)}(?:\\?.*)?$`);
-      openWindow();
+      await openWindow();
       const invitationListFailure = await inject(invitationURL, 'GET');
       await page.goto('/members');
       await expect(page.getByText(en['members.invitations.error'], { exact: true })).toBeVisible();
@@ -4790,7 +4793,7 @@ test.describe('Tendo production journey', () => {
       const createInvitePath = invitationsPath;
       const createdKeys: string[] = [];
       const inviteUrl = new RegExp(`^${escapeRegExp(baseURL)}${escapeRegExp(createInvitePath)}$`);
-      openWindow();
+      await openWindow();
       const lostCreate = await inject(inviteUrl, 'POST', { abort: true, times: 1, match: (req) => { createdKeys.push(req.headers()['idempotency-key'] ?? ''); return true; } });
       await page.getByRole('button', { name: en['members.invite.action'] }).click();
       await expect(page.getByRole('button', { name: en['members.invite.checkAgain'] })).toBeVisible();
@@ -4810,7 +4813,7 @@ test.describe('Tendo production journey', () => {
       await closeWindow([lostCreate]);
 
       // Invalid token acceptance is a real server 404, declared for this step only.
-      openWindow(['POST /api/v1/invitations/accept 404']);
+      await openWindow(['POST /api/v1/invitations/accept 404']);
       await page.goto(`/invite#${'Z'.repeat(43)}`);
       await page.getByRole('button', { name: en['invite.join'], exact: true }).click();
       await closeWindow();
