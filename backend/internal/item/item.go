@@ -7,6 +7,7 @@ package item
 import (
 	"context"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"strings"
 	"time"
@@ -185,7 +186,7 @@ func NewService(repository Repository, households Households, subjects Subjects,
 // authorizes the caller. It returns the canonical identifier and today's date in
 // the household timezone.
 func (s *Service) check(ctx context.Context, userID, householdID string) (string, schedule.Date, error) {
-	if !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(householdID) {
 		return "", schedule.Date{}, ErrNotFound
 	}
 	householdID = strings.ToLower(householdID)
@@ -225,7 +226,7 @@ func derive(i Item, today schedule.Date) (Item, error) {
 	return i, nil
 }
 func (s *Service) Get(ctx context.Context, userID, householdID, itemID string) (Item, error) {
-	if !validUUID(itemID) {
+	if !ids.IsCanonicalUUID(itemID) {
 		return Item{}, ErrNotFound
 	}
 	itemID = strings.ToLower(itemID)

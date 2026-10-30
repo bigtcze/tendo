@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 )
@@ -16,7 +17,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, actor, househo
 	if err := ctx.Err(); err != nil {
 		return InvitationResult{}, err
 	}
-	if !validUUID(actor) || !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(actor) || !ids.IsCanonicalUUID(householdID) {
 		return InvitationResult{}, household.ErrNotFound
 	}
 	if key == "" {
@@ -65,7 +66,7 @@ func decodeInvitationCursor(c string) (string, error) {
 		return "", &ValidationError{"cursor", "invalid_format"}
 	}
 	b, e := base64.RawURLEncoding.DecodeString(c[2:])
-	if e != nil || len(b) != 36 || !validUUID(string(b)) {
+	if e != nil || len(b) != 36 || !ids.IsCanonicalUUID(string(b)) {
 		return "", &ValidationError{"cursor", "invalid_format"}
 	}
 	return string(b), nil
@@ -77,7 +78,7 @@ func (s *InvitationService) ListInvitations(ctx context.Context, actor, househol
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
 	}
-	if !validUUID(actor) || !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(actor) || !ids.IsCanonicalUUID(householdID) {
 		return nil, "", household.ErrNotFound
 	}
 	id, e := decodeInvitationCursor(cursor)
@@ -120,7 +121,7 @@ func (s *InvitationService) RevokeInvitation(ctx context.Context, actor, househo
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validUUID(actor) || !validUUID(householdID) || !validUUID(id) {
+	if !ids.IsCanonicalUUID(actor) || !ids.IsCanonicalUUID(householdID) || !ids.IsCanonicalUUID(id) {
 		return household.ErrNotFound
 	}
 	return s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {

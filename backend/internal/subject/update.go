@@ -3,6 +3,7 @@ package subject
 import (
 	"context"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ func normalizePatch(p Patch) (Patch, error) {
 }
 
 func (s *Service) Update(ctx context.Context, userID, householdID, subjectID string, expectedVersion int64, p Patch) (Subject, error) {
-	if !validUUID(subjectID) {
+	if !ids.IsCanonicalUUID(subjectID) {
 		return Subject{}, ErrNotFound
 	}
 	subjectID = strings.ToLower(subjectID)

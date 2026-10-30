@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 )
@@ -74,7 +75,7 @@ func (s *InvitationService) AcceptInvitationExistingAccount(ctx context.Context,
 	if err := ctx.Err(); err != nil {
 		return InvitationUser{}, err
 	}
-	if !validUUID(userID) || !validInvitationToken(token) {
+	if !ids.IsCanonicalUUID(userID) || !validInvitationToken(token) {
 		return InvitationUser{}, ErrInvalidInvitation
 	}
 	digest := digestInvitationToken(token)

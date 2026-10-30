@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
 )
 
@@ -68,7 +69,7 @@ func (s *Service) validateLinkedUser(ctx context.Context, householdID string, t 
 		return nil, &ValidationError{"linkedUserId", "requires_person"}
 	}
 	id := strings.ToLower(*linked)
-	if !validUUID(id) || s.members == nil {
+	if !ids.IsCanonicalUUID(id) || s.members == nil {
 		return nil, &ValidationError{"linkedUserId", "invalid_reference"}
 	}
 	if err := s.members(ctx, id, householdID); err != nil {

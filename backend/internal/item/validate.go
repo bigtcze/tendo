@@ -3,6 +3,7 @@ package item
 import (
 	"context"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ func (s *Service) checkResponsibleMember(ctx context.Context, householdID string
 		return nil, nil
 	}
 	invalid := &ValidationError{"responsibleUserId", "invalid_reference"}
-	if !validUUID(*candidate) {
+	if !ids.IsCanonicalUUID(*candidate) {
 		return nil, invalid
 	}
 	id := strings.ToLower(*candidate)
@@ -43,7 +44,7 @@ func (s *Service) checkResponsibleMember(ctx context.Context, householdID string
 // checkSubject requires subjectID to name an active subject of the household.
 func (s *Service) checkSubject(ctx context.Context, userID, householdID, subjectID string) (string, error) {
 	invalid := &ValidationError{"subjectId", "invalid_reference"}
-	if !validUUID(subjectID) {
+	if !ids.IsCanonicalUUID(subjectID) {
 		return "", invalid
 	}
 	subjectID = strings.ToLower(subjectID)

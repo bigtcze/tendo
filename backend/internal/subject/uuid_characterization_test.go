@@ -1,6 +1,9 @@
 package subject
 
-import "testing"
+import (
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
+	"testing"
+)
 
 func TestValidUUIDCharacterization(t *testing.T) {
 	cases := []struct {
@@ -14,8 +17,8 @@ func TestValidUUIDCharacterization(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := validUUID(tc.value); got != tc.want {
-				t.Fatalf("validUUID(%q) = %v, want %v", tc.value, got, tc.want)
+			if got := ids.IsCanonicalUUID(tc.value); got != tc.want {
+				t.Fatalf("ids.IsCanonicalUUID(%q) = %v, want %v", tc.value, got, tc.want)
 			}
 		})
 	}

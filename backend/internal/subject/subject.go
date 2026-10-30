@@ -6,6 +6,7 @@ package subject
 import (
 	"context"
 	"errors"
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"strings"
 	"time"
 )
@@ -127,7 +128,7 @@ func NewService(repository Repository, authorize Authorizer, members Members) *S
 // check validates the household identifier, canonicalizes it to lowercase, and
 // authorizes the caller. It returns the canonical identifier.
 func (s *Service) check(ctx context.Context, userID, householdID string) (string, error) {
-	if !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(householdID) {
 		return "", ErrNotFound
 	}
 	householdID = strings.ToLower(householdID)
@@ -154,7 +155,7 @@ func mapRepoErr(err error) error {
 }
 
 func (s *Service) Get(ctx context.Context, userID, householdID, subjectID string) (Subject, error) {
-	if !validUUID(subjectID) {
+	if !ids.IsCanonicalUUID(subjectID) {
 		return Subject{}, ErrNotFound
 	}
 	subjectID = strings.ToLower(subjectID)
