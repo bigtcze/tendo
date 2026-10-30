@@ -39,10 +39,11 @@ func NewInvitationRepository(pool interface {
 }, factory InvitationHouseholdServiceFactory) *InvitationRepository {
 	return &InvitationRepository{pool, factory}
 }
+
 func (r *InvitationRepository) WithInvitationTransaction(ctx context.Context, work func(identity.InvitationTransaction) error) error {
-	tx, e := r.pool.BeginTx(ctx, pgx.TxOptions{})
-	if e != nil {
-		return e
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
 	}
 	defer func() {
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -53,13 +54,14 @@ func (r *InvitationRepository) WithInvitationTransaction(ctx context.Context, wo
 		return errors.New("invitation transaction unavailable")
 	}
 	wrapped := &invitationTx{q: identitydb.New(tx), h: r.factory(tx)}
-	if e = work(wrapped); e != nil {
-		return e
+	if err = work(wrapped); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
-func (r *InvitationRepository) FindInvitation(ctx context.Context, d []byte) (identity.Invitation, error) {
-	return findInvitation(ctx, identitydb.New(r.pool), d, false)
+
+func (r *InvitationRepository) FindInvitation(ctx context.Context, digest []byte) (identity.Invitation, error) {
+	return findInvitation(ctx, identitydb.New(r.pool), digest, false)
 }
 
 type invitationTx struct {
@@ -67,163 +69,202 @@ type invitationTx struct {
 	h InvitationHouseholdService
 }
 
-func (t *invitationTx) RequireOwner(c context.Context, u, h string) error {
-	return t.h.RequireOwner(c, u, h)
+func (t *invitationTx) RequireOwner(ctx context.Context, userID, householdID string) error {
+	return t.h.RequireOwner(ctx, userID, householdID)
 }
-func (t *invitationTx) GetMembership(c context.Context, u, h string) (string, error) {
-	return t.h.GetMembership(c, u, h)
+func (t *invitationTx) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
+	return t.h.GetMembership(ctx, userID, householdID)
 }
-func (t *invitationTx) HasOtherMembership(c context.Context, u, h string) (bool, error) {
-	return t.h.HasMembershipElsewhere(c, u, h)
+func (t *invitationTx) HasOtherMembership(ctx context.Context, userID, householdID string) (bool, error) {
+	return t.h.HasMembershipElsewhere(ctx, userID, householdID)
 }
-func (t *invitationTx) CreateInvitation(c context.Context, in identity.CreateInvitationInput) (identity.Invitation, bool, error) {
-	var h, u pgtype.UUID
-	if e := h.Scan(in.HouseholdID); e != nil {
+func (t *invitationTx) CreateInvitation(ctx context.Context, input identity.CreateInvitationInput) (identity.Invitation, bool, error) {
+	var householdID, actorID pgtype.UUID
+	if err := householdID.Scan(input.HouseholdID); err != nil {
 		return identity.Invitation{}, false, household.ErrNotFound
 	}
-	if e := u.Scan(in.ActorID); e != nil {
+	if err := actorID.Scan(input.ActorID); err != nil {
 		return identity.Invitation{}, false, household.ErrNotFound
 	}
-	row, e := t.q.CreateInvitation(c, identitydb.CreateInvitationParams{HouseholdID: h, CreatedByUserID: u, CreationKey: in.CreationKey, TokenHash: in.TokenHash, CreatedAt: ts(in.CreatedAt), ExpiresAt: ts(in.ExpiresAt)})
-	if errors.Is(e, pgx.ErrNoRows) {
-		existing, x := t.q.FindInvitationByCreationKey(c, identitydb.FindInvitationByCreationKeyParams{HouseholdID: h, CreatedByUserID: u, CreationKey: in.CreationKey})
-		return invite(existing.ID, existing.HouseholdID, existing.CreatedByUserID, existing.CreatedAt, existing.ExpiresAt, existing.AcceptedAt, existing.RevokedAt), false, x
+	params := identitydb.CreateInvitationParams{
+		HouseholdID: householdID, CreatedByUserID: actorID,
+		CreationKey: input.CreationKey, TokenHash: input.TokenHash,
+		CreatedAt: ts(input.CreatedAt), ExpiresAt: ts(input.ExpiresAt),
 	}
-	return invite(row.ID, row.HouseholdID, row.CreatedByUserID, row.CreatedAt, row.ExpiresAt, row.AcceptedAt, row.RevokedAt), e == nil, e
+	row, err := t.q.CreateInvitation(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, lookupErr := t.q.FindInvitationByCreationKey(ctx, identitydb.FindInvitationByCreationKeyParams{
+			HouseholdID: householdID, CreatedByUserID: actorID,
+			CreationKey: input.CreationKey,
+		})
+		return invitationFromColumns(invitationColumns{
+			id: existing.ID, householdID: existing.HouseholdID,
+			creatorID: existing.CreatedByUserID, createdAt: existing.CreatedAt,
+			expiresAt: existing.ExpiresAt, acceptedAt: existing.AcceptedAt,
+			revokedAt: existing.RevokedAt,
+		}), false, lookupErr
+	}
+	return invitationFromColumns(invitationColumns{
+		id: row.ID, householdID: row.HouseholdID, creatorID: row.CreatedByUserID,
+		createdAt: row.CreatedAt, expiresAt: row.ExpiresAt,
+		acceptedAt: row.AcceptedAt, revokedAt: row.RevokedAt,
+	}), err == nil, err
 }
-func (t *invitationTx) ListInvitations(c context.Context, hid, cursor string, limit int) ([]identity.Invitation, string, error) {
-	var h, after pgtype.UUID
-	if e := h.Scan(hid); e != nil {
+
+func (t *invitationTx) ListInvitations(ctx context.Context, householdValue, cursor string, limit int) ([]identity.Invitation, string, error) {
+	var householdID, after pgtype.UUID
+	if err := householdID.Scan(householdValue); err != nil {
 		return nil, "", household.ErrNotFound
 	}
 	if cursor != "" {
-		if e := after.Scan(cursor); e != nil {
+		if err := after.Scan(cursor); err != nil {
 			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 	}
-	rows, e := t.q.ListInvitations(c, identitydb.ListInvitationsParams{HouseholdID: h, Column2: after, Limit: int32(limit)})
-	if e != nil {
-		return nil, "", e
+	rows, err := t.q.ListInvitations(ctx, identitydb.ListInvitationsParams{HouseholdID: householdID, Column2: after, Limit: int32(limit)})
+	if err != nil {
+		return nil, "", err
 	}
-	out := make([]identity.Invitation, 0, len(rows))
+	invitations := make([]identity.Invitation, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, invite(row.ID, row.HouseholdID, row.CreatedByUserID, row.CreatedAt, row.ExpiresAt, row.AcceptedAt, row.RevokedAt))
+		invitations = append(invitations, invitationFromColumns(invitationColumns{
+			id: row.ID, householdID: row.HouseholdID, creatorID: row.CreatedByUserID,
+			createdAt: row.CreatedAt, expiresAt: row.ExpiresAt,
+			acceptedAt: row.AcceptedAt, revokedAt: row.RevokedAt,
+		}))
 	}
-	return out, "", nil
+	return invitations, "", nil
 }
-func (t *invitationTx) RevokeInvitation(c context.Context, hid, id string, now time.Time) error {
-	var h, i pgtype.UUID
-	if e := h.Scan(hid); e != nil {
+
+func (t *invitationTx) RevokeInvitation(ctx context.Context, householdValue, invitationValue string, now time.Time) error {
+	var householdID, invitationID pgtype.UUID
+	if err := householdID.Scan(householdValue); err != nil {
 		return household.ErrNotFound
 	}
-	if e := i.Scan(id); e != nil {
+	if err := invitationID.Scan(invitationValue); err != nil {
 		return household.ErrNotFound
 	}
-	rows, e := t.q.RevokeInvitation(c, identitydb.RevokeInvitationParams{HouseholdID: h, ID: i, RevokedAt: ts(now)})
-	if e != nil {
-		return e
+	rows, err := t.q.RevokeInvitation(ctx, identitydb.RevokeInvitationParams{HouseholdID: householdID, ID: invitationID, RevokedAt: ts(now)})
+	if err != nil {
+		return err
 	}
 	if rows > 0 {
 		return nil
 	}
-	found, e := t.q.InvitationExistsInHousehold(c, identitydb.InvitationExistsInHouseholdParams{HouseholdID: h, ID: i})
-	if e != nil {
-		return e
+	found, err := t.q.InvitationExistsInHousehold(ctx, identitydb.InvitationExistsInHouseholdParams{HouseholdID: householdID, ID: invitationID})
+	if err != nil {
+		return err
 	}
 	if !found {
 		return household.ErrNotFound
 	}
 	return nil
 }
-func (t *invitationTx) FindInvitation(c context.Context, d []byte, lock bool) (identity.Invitation, error) {
-	return findInvitation(c, t.q, d, lock)
+func (t *invitationTx) FindInvitation(ctx context.Context, digest []byte, lock bool) (identity.Invitation, error) {
+	return findInvitation(ctx, t.q, digest, lock)
 }
-func (t *invitationTx) FindLogin(c context.Context, l string) error {
-	_, e := t.q.FindLoginForInvitation(c, l)
-	if errors.Is(e, pgx.ErrNoRows) {
+func (t *invitationTx) FindLogin(ctx context.Context, login string) error {
+	_, err := t.q.FindLoginForInvitation(ctx, login)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.ErrNotFound
 	}
-	return e
+	return err
 }
-func (t *invitationTx) LockUser(c context.Context, id string) (string, error) {
-	var uid pgtype.UUID
-	if e := uid.Scan(id); e != nil {
+func (t *invitationTx) LockUser(ctx context.Context, userValue string) (string, error) {
+	var userID pgtype.UUID
+	if err := userID.Scan(userValue); err != nil {
 		return "", identity.ErrNotFound
 	}
-	row, e := t.q.LockUserForInvitation(c, uid)
-	if errors.Is(e, pgx.ErrNoRows) {
+	row, err := t.q.LockUserForInvitation(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", identity.ErrNotFound
 	}
-	return row.DefaultHouseholdID, e
+	return row.DefaultHouseholdID, err
 }
-
-func (t *invitationTx) CreateUser(c context.Context, l string) (string, error) {
-	id, e := t.q.CreateUser(c, l)
-	var pe *pgconn.PgError
-	if errors.As(e, &pe) && pe.Code == "23505" && pe.ConstraintName == "user_accounts_login_key" {
+func (t *invitationTx) CreateUser(ctx context.Context, login string) (string, error) {
+	id, err := t.q.CreateUser(ctx, login)
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "user_accounts_login_key" {
 		return "", identity.ErrLoginUnavailable
 	}
-	return id, e
+	return id, err
 }
-func (t *invitationTx) CreateCredential(c context.Context, u, h string) error {
-	var id pgtype.UUID
-	if e := id.Scan(u); e != nil {
-		return e
+func (t *invitationTx) CreateCredential(ctx context.Context, userValue, passwordHash string) error {
+	var userID pgtype.UUID
+	if err := userID.Scan(userValue); err != nil {
+		return err
 	}
-	return t.q.CreateLocalCredential(c, identitydb.CreateLocalCredentialParams{UserID: id, PasswordHash: h})
+	return t.q.CreateLocalCredential(ctx, identitydb.CreateLocalCredentialParams{UserID: userID, PasswordHash: passwordHash})
 }
-func (t *invitationTx) AddInvitedMember(c context.Context, u, h string) error {
-	return t.h.AddInvitedMember(c, u, h)
+func (t *invitationTx) AddInvitedMember(ctx context.Context, userID, householdID string) error {
+	return t.h.AddInvitedMember(ctx, userID, householdID)
 }
-func (t *invitationTx) SetDefaultHousehold(c context.Context, u, h string) error {
-	var uid, hid pgtype.UUID
-	if e := uid.Scan(u); e != nil {
-		return e
+func (t *invitationTx) SetDefaultHousehold(ctx context.Context, userValue, householdValue string) error {
+	var userID, householdID pgtype.UUID
+	if err := userID.Scan(userValue); err != nil {
+		return err
 	}
-	if e := hid.Scan(h); e != nil {
-		return e
+	if err := householdID.Scan(householdValue); err != nil {
+		return err
 	}
-	return t.q.SetDefaultHousehold(c, identitydb.SetDefaultHouseholdParams{ID: uid, DefaultHouseholdID: hid})
+	return t.q.SetDefaultHousehold(ctx, identitydb.SetDefaultHouseholdParams{ID: userID, DefaultHouseholdID: householdID})
 }
-func (t *invitationTx) AcceptInvitation(c context.Context, id string, now time.Time) error {
-	var uid pgtype.UUID
-	if e := uid.Scan(id); e != nil {
+func (t *invitationTx) AcceptInvitation(ctx context.Context, invitationValue string, now time.Time) error {
+	var invitationID pgtype.UUID
+	if err := invitationID.Scan(invitationValue); err != nil {
 		return identity.ErrInvalidInvitation
 	}
-	rows, e := t.q.AcceptInvitation(c, identitydb.AcceptInvitationParams{ID: uid, AcceptedAt: ts(now)})
-	if e != nil {
-		return e
+	rows, err := t.q.AcceptInvitation(ctx, identitydb.AcceptInvitationParams{ID: invitationID, AcceptedAt: ts(now)})
+	if err != nil {
+		return err
 	}
 	if rows != 1 {
 		return identity.ErrInvalidInvitation
 	}
 	return nil
 }
-func findInvitation(c context.Context, q *identitydb.Queries, d []byte, lock bool) (identity.Invitation, error) {
+
+func findInvitation(ctx context.Context, queries *identitydb.Queries, digest []byte, lock bool) (identity.Invitation, error) {
 	var row identitydb.FindInvitationByTokenRow
-	var e error
+	var err error
 	if lock {
-		v, x := q.FindInvitationByTokenForUpdate(c, d)
-		row = identitydb.FindInvitationByTokenRow(v)
-		e = x
+		lockedRow, lockErr := queries.FindInvitationByTokenForUpdate(ctx, digest)
+		row = identitydb.FindInvitationByTokenRow(lockedRow)
+		err = lockErr
 	} else {
-		row, e = q.FindInvitationByToken(c, d)
+		row, err = queries.FindInvitationByToken(ctx, digest)
 	}
-	if errors.Is(e, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.Invitation{}, identity.ErrNotFound
 	}
-	return invite(row.ID, row.HouseholdID, row.CreatedByUserID, row.CreatedAt, row.ExpiresAt, row.AcceptedAt, row.RevokedAt), e
+	return invitationFromColumns(invitationColumns{
+		id: row.ID, householdID: row.HouseholdID, creatorID: row.CreatedByUserID,
+		createdAt: row.CreatedAt, expiresAt: row.ExpiresAt,
+		acceptedAt: row.AcceptedAt, revokedAt: row.RevokedAt,
+	}), err
 }
-func invite(id, h, creator string, created, expires, accepted, revoked pgtype.Timestamptz) identity.Invitation {
-	i := identity.Invitation{ID: id, HouseholdID: h, CreatedByUserID: creator, CreatedAt: created.Time.UTC(), ExpiresAt: expires.Time.UTC()}
-	if accepted.Valid {
-		v := accepted.Time.UTC()
-		i.AcceptedAt = &v
-	}
-	if revoked.Valid {
-		v := revoked.Time.UTC()
-		i.RevokedAt = &v
-	}
-	return i
+
+type invitationColumns struct {
+	id, householdID, creatorID                  string
+	createdAt, expiresAt, acceptedAt, revokedAt pgtype.Timestamptz
 }
-func ts(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
+
+func invitationFromColumns(columns invitationColumns) identity.Invitation {
+	invitation := identity.Invitation{
+		ID: columns.id, HouseholdID: columns.householdID, CreatedByUserID: columns.creatorID,
+		CreatedAt: columns.createdAt.Time.UTC(), ExpiresAt: columns.expiresAt.Time.UTC(),
+	}
+	if columns.acceptedAt.Valid {
+		acceptedAt := columns.acceptedAt.Time.UTC()
+		invitation.AcceptedAt = &acceptedAt
+	}
+	if columns.revokedAt.Valid {
+		revokedAt := columns.revokedAt.Time.UTC()
+		invitation.RevokedAt = &revokedAt
+	}
+	return invitation
+}
+
+func ts(value time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: value, Valid: true}
+}
