@@ -63,17 +63,17 @@ func invoke(s *recordingService, method, path, body string, headers map[string]s
 
 func TestCreateRequestMappingAndHeaders(t *testing.T) {
 	for _, tc := range []struct {
-		name, body string
-		want       *string
+		name, body, wantName string
+		want                 *string
 	}{
-		{"omitted", `{"name":"N","type":"person"}`, nil},
-		{"null", `{"name":"N","type":"person","linkedUserId":null}`, nil},
-		{"value", `{"name":"N","type":"person","linkedUserId":"user"}`, ptrHTTP("user")},
+		{"omitted", `{"name":" N ","type":"person"}`, " N ", nil},
+		{"null", `{"name":"N","type":"person","linkedUserId":null}`, "N", nil},
+		{"value", `{"name":"N","type":"person","linkedUserId":"user"}`, "N", ptrHTTP("user")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &recordingService{}
 			w := invoke(s, "POST", base, tc.body, map[string]string{"Idempotency-Key": "key"})
-			if w.Code != http.StatusCreated || s.calls != 1 || s.createKey != "key" || s.createName != "N" || s.createType != subject.TypePerson || !reflect.DeepEqual(s.createLink, tc.want) {
+			if w.Code != http.StatusCreated || s.calls != 1 || s.createKey != "key" || s.createName != tc.wantName || s.createType != subject.TypePerson || !reflect.DeepEqual(s.createLink, tc.want) {
 				t.Fatalf("status=%d calls=%d service=%+v", w.Code, s.calls, s)
 			}
 			if w.Header().Get("Location") != base+"/"+subjectID || w.Header().Get("ETag") != `"2"` {
@@ -88,13 +88,19 @@ func TestPatchRequestMappingOmittedNullAndValue(t *testing.T) {
 		name, body string
 		set        bool
 		want       *string
+		nameValue  *string
+		typeValue  *subject.Type
+		archived   *bool
 	}{
-		{"omitted", `{"archived":false}`, false, nil}, {"null", `{"linkedUserId":null}`, true, nil}, {"value", `{"linkedUserId":"user"}`, true, ptrHTTP("user")},
+		{name: "omitted", body: `{"name":"N"}`, nameValue: ptrHTTP("N")},
+		{name: "null", body: `{"linkedUserId":null}`, set: true},
+		{name: "value", body: `{"linkedUserId":"user"}`, set: true, want: ptrHTTP("user")},
+		{name: "fields", body: `{"name":" N ","type":"pet","archived":true}`, nameValue: ptrHTTP(" N "), typeValue: typeHTTP(subject.TypePet), archived: boolHTTP(true)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &recordingService{}
 			w := invoke(s, "PATCH", one, tc.body, map[string]string{"If-Match": `"1"`})
-			if w.Code != http.StatusOK || s.calls != 1 || s.patch.LinkedUserIDSet != tc.set || !reflect.DeepEqual(s.patch.LinkedUserID, tc.want) {
+			if w.Code != http.StatusOK || s.calls != 1 || s.patch.LinkedUserIDSet != tc.set || !reflect.DeepEqual(s.patch.LinkedUserID, tc.want) || !reflect.DeepEqual(s.patch.Name, tc.nameValue) || !reflect.DeepEqual(s.patch.Type, tc.typeValue) || !reflect.DeepEqual(s.patch.Archived, tc.archived) {
 				t.Fatalf("status=%d calls=%d patch=%+v", w.Code, s.calls, s.patch)
 			}
 		})
@@ -155,4 +161,6 @@ func TestWriteServiceErrorMapping(t *testing.T) {
 		})
 	}
 }
-func ptrHTTP(value string) *string { return &value }
+func ptrHTTP(value string) *string              { return &value }
+func typeHTTP(value subject.Type) *subject.Type { return &value }
+func boolHTTP(value bool) *bool                 { return &value }
