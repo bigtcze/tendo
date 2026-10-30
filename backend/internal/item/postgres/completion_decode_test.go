@@ -42,17 +42,22 @@ func TestDecodeReceiptStoredVariants(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		cycleNull  bool
+		nextNull   bool
 		recurrence *schedule.Policy
 	}{
 		{name: "one-off with cycle"},
 		{name: "initialization without cycle", cycleNull: true},
 		{name: "fixed recurrence", recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitWeek}, Mode: schedule.ModeFixed}},
 		{name: "fluid recurrence", recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 3, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}},
+		{name: "recurrence with null next due", nextNull: true, recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			values := validReceiptValues()
 			if tc.cycleNull {
 				values.cycle = pgtype.Date{}
+			}
+			if tc.nextNull {
+				values.next = pgtype.Date{}
 			}
 			recurrence := tc.recurrence
 			if tc.cycleNull && recurrence == nil {
@@ -72,6 +77,9 @@ func TestDecodeReceiptStoredVariants(t *testing.T) {
 			}
 			if (got.CycleAttentionOn == nil) != tc.cycleNull {
 				t.Fatalf("cycle=%+v cycleNull=%v", got.CycleAttentionOn, tc.cycleNull)
+			}
+			if (got.NextAttentionOn == nil) != tc.nextNull {
+				t.Fatalf("next=%+v nextNull=%v", got.NextAttentionOn, tc.nextNull)
 			}
 			if got.CreatedAt.Location() != time.UTC || got.CreatedAt.Hour() != 0 || got.PriorWorkflowState != item.StatePaused {
 				t.Fatalf("decoded stored values=%+v", got)

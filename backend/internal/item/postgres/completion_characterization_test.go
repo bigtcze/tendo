@@ -11,6 +11,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
+	"github.com/bigtcze/tendo/backend/internal/testpostgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -95,6 +96,58 @@ func TestCompletionIdempotencyReplayConflictAndConcurrentVersions(t *testing.T) 
 	}
 }
 
+func waitForSignal[T any](t *testing.T, signal <-chan T, description string) T {
+	t.Helper()
+	select {
+	case value := <-signal:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", description)
+		var zero T
+		return zero
+	}
+}
+
+func waitForError(t *testing.T, result <-chan error, description string) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", description)
+		return nil
+	}
+}
+
+func waitForDatabaseLock(ctx context.Context, observer *pgxpool.Pool, runtimeRole string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(10 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		var waiting bool
+		err := observer.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_stat_activity a
+				WHERE a.usename = $1 AND a.wait_event_type = 'Lock'
+			)
+		`, runtimeRole).Scan(&waiting)
+		if err != nil {
+			return err
+		}
+		if waiting {
+			return nil
+		}
+		select {
+		case <-deadline.C:
+			return errors.New("timed out waiting for PostgreSQL row-lock wait")
+		case <-poll.C:
+		}
+	}
+}
+
 func TestCompletionItemLockSerializesVersionDecisionsPostgres(t *testing.T) {
 	ctx := context.Background()
 	appURL, adminURL := integrationURLs(t)
@@ -106,17 +159,15 @@ func TestCompletionItemLockSerializesVersionDecisionsPostgres(t *testing.T) {
 	i := f.create(t, "completion lock serialization", nil, nil)
 	repo := f.repo
 	firstEntered := make(chan struct{})
-	secondEntered := make(chan struct{}, 1)
-	secondProceed := make(chan struct{})
 	releaseFirst := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseLock := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+	t.Cleanup(releaseLock)
 	decider := func(name string) item.CompletionDecider {
 		return func(current item.Item, _ *item.Completion) (item.CompletionPlan, error) {
 			if name == "first" {
 				close(firstEntered)
 				<-releaseFirst
-			} else {
-				secondEntered <- struct{}{}
-				<-secondProceed
 			}
 			if current.Version != 1 {
 				return item.CompletionPlan{}, item.ErrVersionMismatch
@@ -129,34 +180,35 @@ func TestCompletionItemLockSerializesVersionDecisionsPostgres(t *testing.T) {
 		}
 	}
 	firstResult := make(chan error, 1)
+	secondResult := make(chan error, 1)
 	go func() {
 		_, _, err := repo.Complete(ctx, f.household, i.ID, "first", [32]byte{1}, decider("first"))
 		firstResult <- err
 	}()
-	<-firstEntered
+	waitForSignal(t, firstEntered, "first completion to enter its decider")
+
+	waitLock := make(chan struct{})
+	secondDone := make(chan error, 1)
 	secondStarted := make(chan struct{})
-	secondResult := make(chan error, 1)
 	go func() {
-		close(secondStarted)
+		defer close(waitLock)
+		secondStarted <- struct{}{}
+		secondDone <- waitForDatabaseLock(ctx, app, testpostgres.MustRuntimeRole(t))
+	}()
+	waitForSignal(t, secondStarted, "lock observer to start")
+	go func() {
 		_, _, err := repo.Complete(ctx, f.household, i.ID, "second", [32]byte{2}, decider("second"))
 		secondResult <- err
 	}()
-	<-secondStarted
-	select {
-	case <-secondEntered:
-		close(secondProceed)
-		close(releaseFirst)
-		<-firstResult
-		<-secondResult
-		t.Fatal("second version decision entered before the first transaction released the item lock")
-	case <-time.After(time.Second):
+	if err := waitForError(t, secondDone, "PostgreSQL lock observation"); err != nil {
+		t.Fatal(err)
 	}
-	close(releaseFirst)
-	if err := <-firstResult; err != nil {
+	waitForSignal(t, waitLock, "lock observer completion")
+	releaseLock()
+	if err := waitForError(t, firstResult, "first completion"); err != nil {
 		t.Fatalf("first completion: %v", err)
 	}
-	close(secondProceed)
-	if err := <-secondResult; !errors.Is(err, item.ErrVersionMismatch) {
+	if err := waitForError(t, secondResult, "second completion"); !errors.Is(err, item.ErrVersionMismatch) {
 		t.Fatalf("second completion=%v, want version conflict", err)
 	}
 }
@@ -171,15 +223,24 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 	f := newCompletionFixture(t, ctx, admin, app)
 	repo := f.repo
 	anchor, _ := schedule.NewDate(2026, time.March, 1)
-	next, _ := schedule.NewDate(2027, time.March, 1)
+	firstNext, _ := schedule.NewDate(2027, time.March, 1)
+	secondNext, _ := schedule.NewDate(2028, time.March, 1)
 	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}
+	initialState := item.StateWaiting
 	i := f.create(t, "undo characterize", &anchor, policy)
-	complete := func(key string) item.Completion {
+	state := initialState
+	updated, err := repo.Update(ctx, f.household, i.ID, i.Version, item.Change{WorkflowState: &state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i = updated
+	complete := func(key string, next schedule.Date, state item.WorkflowState) item.Completion {
 		t.Helper()
 		c, _, err := repo.Complete(ctx, f.household, i.ID, key, [32]byte{byte(len(key))}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
 			r := item.Completion{HouseholdID: f.household, ItemID: i.ID, CompletedByUserID: f.actor, CompletedOn: f.today, CycleAttentionOn: cur.AttentionOn, Recurrence: cur.Recurrence, PriorWorkflowState: cur.WorkflowState, NextAttentionOn: &next, ItemVersionBefore: cur.Version, IdempotencyKey: key}
 			changed := cur
 			changed.AttentionOn = &next
+			changed.WorkflowState = item.StateOpen
 			changed.Version++
 			return item.CompletionPlan{Receipt: r, Item: changed}, nil
 		})
@@ -188,7 +249,14 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 		}
 		return c
 	}
-	first, second := complete("undo-first"), complete("undo-second")
+	first := complete("undo-first", firstNext, item.StatePaused)
+	middleState := item.StateInProgress
+	updated, err = repo.Update(ctx, f.household, i.ID, i.Version+1, item.Change{WorkflowState: &middleState})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i = updated
+	second := complete("undo-second", secondNext, item.StateInProgress)
 	undo := func(current item.Item, receipt item.Completion, version *int64) (item.CompletionUndoPlan, error) {
 		if version == nil || *version != receipt.ItemVersionBefore {
 			return item.CompletionUndoPlan{}, item.ErrCompletionNotLatest
@@ -199,7 +267,7 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 		changed.Version++
 		return item.CompletionUndoPlan{Receipt: receipt, Item: changed, Apply: true, UndoneAt: time.Now().UTC(), UndoneByUserID: f.actor}, nil
 	}
-	_, err := repo.UndoCompletion(ctx, f.household, i.ID, first.ID, undo)
+	_, err = repo.UndoCompletion(ctx, f.household, i.ID, first.ID, undo)
 	if !errors.Is(err, item.ErrCompletionNotLatest) {
 		t.Fatalf("non-latest undo err=%v", err)
 	}
@@ -208,7 +276,7 @@ func TestUndoLatestVersusNonLatestCompletionPostgres(t *testing.T) {
 		t.Fatalf("latest undo=%+v err=%v", latest, err)
 	}
 	current, err := repo.Get(ctx, f.household, i.ID)
-	if err != nil || current.AttentionOn == nil || current.AttentionOn.String() != "2027-03-01" || current.LastCompletedOn == nil || current.LastCompletedOn.String() != f.today.String() {
+	if err != nil || current.AttentionOn == nil || *current.AttentionOn != firstNext || current.WorkflowState != item.StateInProgress || current.LastCompletedOn == nil || *current.LastCompletedOn != f.today {
 		t.Fatalf("latest undo state=%+v err=%v", current, err)
 	}
 }
