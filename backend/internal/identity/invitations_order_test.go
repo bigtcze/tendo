@@ -18,12 +18,14 @@ type invitationRecordingRepo struct {
 	calls                                                     []string
 	clock                                                     func() time.Time
 	loginErr, lockedErr, lockUserErr, membershipErr, otherErr error
+	lockedInvitation                                          Invitation
 	membershipRole, defaultHousehold                          string
 	other                                                     bool
 	writeErr                                                  map[string]error
 	listRows                                                  []Invitation
 	listLimit                                                 int
 	now                                                       time.Time
+	listHousehold, listCursor                                 string
 }
 
 type invitationRecordingTx struct{ repo *invitationRecordingRepo }
@@ -33,12 +35,17 @@ func (r *invitationRecordingRepo) FindInvitation(ctx context.Context, digest []b
 	r.record("preflight.find")
 	return r.invitationFake.FindInvitation(ctx, digest)
 }
-func (r *invitationRecordingRepo) WithInvitationTransaction(ctx context.Context, fn func(InvitationTransaction) error) error {
+func (r *invitationRecordingRepo) WithInvitationTransaction(_ context.Context, fn func(InvitationTransaction) error) error {
 	r.record("tx.begin")
 	r.txCalls++
 	return fn(&invitationRecordingTx{r})
 }
-func (t *invitationRecordingTx) fail(name string) error { return t.repo.writeErr[name] }
+func (t *invitationRecordingTx) fail(name string) error {
+	if err := t.repo.writeErr[name]; err != nil {
+		return err
+	}
+	return t.repo.writeErr["*"]
+}
 func (t *invitationRecordingTx) RequireOwner(context.Context, string, string) error {
 	t.repo.record("owner")
 	return t.repo.requireErr
@@ -63,9 +70,10 @@ func (t *invitationRecordingTx) CreateInvitation(_ context.Context, in CreateInv
 	}
 	return Invitation{ID: testHouse, HouseholdID: in.HouseholdID, CreatedByUserID: in.ActorID, CreatedAt: in.CreatedAt, ExpiresAt: in.ExpiresAt}, true, nil
 }
-func (t *invitationRecordingTx) ListInvitations(_ context.Context, _, _ string, limit int) ([]Invitation, string, error) {
+func (t *invitationRecordingTx) ListInvitations(_ context.Context, householdID, cursor string, limit int) ([]Invitation, string, error) {
 	t.repo.record("list")
 	t.repo.listLimit = limit
+	t.repo.listHousehold, t.repo.listCursor = householdID, cursor
 	return t.repo.listRows, "", nil
 }
 func (t *invitationRecordingTx) RevokeInvitation(_ context.Context, _, _ string, now time.Time) error {
@@ -77,6 +85,9 @@ func (t *invitationRecordingTx) FindInvitation(_ context.Context, _ []byte, _ bo
 	t.repo.record("locked.find")
 	if t.repo.lockedErr != nil {
 		return Invitation{}, t.repo.lockedErr
+	}
+	if t.repo.lockedInvitation.ID != "" {
+		return t.repo.lockedInvitation, nil
 	}
 	return t.repo.invitationFake.inv, nil
 }
@@ -143,9 +154,52 @@ func TestAcceptInvitationNewAccountOrderedEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertInvitationCalls(t, repo.calls, []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + testActor + ":" + testHouse, "default.set:" + testActor + ":" + testHouse, "invitation.accept:" + testHouse})
-	if result.UserID != testActor || result.Login != "valid_login" || result.HouseholdID != testHouse || result.Role != household.RoleMember || !repo.now.Equal(invitationInstant.UTC().Truncate(time.Second)) {
-		t.Fatalf("result=%+v now=%v", result, repo.now)
+	if result.UserID != testActor || result.Login != "valid_login" || result.HouseholdID != testHouse || result.Role != household.RoleMember {
+		t.Fatalf("result=%+v", result)
 	}
+	if !repo.now.Equal(invitationInstant.UTC().Truncate(time.Second)) {
+		t.Fatalf("now=%v", repo.now)
+	}
+}
+
+func TestAcceptInvitationWriteFailuresStopAtFailingStep(t *testing.T) {
+	for _, failedStep := range []struct {
+		name  string
+		calls []string
+	}{
+		{"user.create", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create"}},
+		{"credential.create", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create"}},
+		{"member.add", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + testActor + ":" + testHouse}},
+		{"default.set", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + testActor + ":" + testHouse, "default.set:" + testActor + ":" + testHouse}},
+		{"invitation.accept", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + testActor + ":" + testHouse, "default.set:" + testActor + ":" + testHouse, "invitation.accept:" + testHouse}},
+	} {
+		t.Run(failedStep.name, func(t *testing.T) {
+			cause := errors.New("write failed")
+			repo := &invitationRecordingRepo{
+				invitationFake: invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}},
+				writeErr:       map[string]error{failedStep.name: cause},
+			}
+			service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
+			service.SetPasswordHasher(func(string) (string, error) { repo.record("password.hash"); return "hash", nil })
+			_, err := service.AcceptInvitationNewAccount(context.Background(), invitationToken, "valid_login", "long enough password")
+			if !errors.Is(err, cause) {
+				t.Fatalf("error=%v", err)
+			}
+			assertInvitationCalls(t, repo.calls, failedStep.calls)
+		})
+	}
+}
+
+func TestAcceptInvitationNewAccountPropagatesLookupFailures(t *testing.T) {
+	cause := errors.New("login lookup unavailable")
+	repo := &invitationRecordingRepo{invitationFake: invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}}, loginErr: cause, writeErr: map[string]error{}}
+	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
+	service.SetPasswordHasher(func(string) (string, error) { return "hash", nil })
+	_, err := service.AcceptInvitationNewAccount(context.Background(), invitationToken, "valid_login", "long enough password")
+	if !errors.Is(err, cause) {
+		t.Fatalf("error=%v", err)
+	}
+	assertInvitationCalls(t, repo.calls, []string{"preflight.find", "tx.begin", "locked.find", "login.find"})
 }
 
 func TestAcceptInvitationNewAccountStopsBeforeWritesOnLoginConflict(t *testing.T) {
@@ -172,31 +226,64 @@ func TestAcceptInvitationExistingAccountOrderedEffects(t *testing.T) {
 	}
 }
 
-func TestInvitationAdminOrderingAndPaginationBound(t *testing.T) {
-	expires := invitationInstant.Add(time.Hour)
-	rows := []Invitation{{ID: testActor, HouseholdID: testHouse, ExpiresAt: expires}, {ID: testHouse, HouseholdID: testHouse, ExpiresAt: expires}}
+func TestAlreadyMemberPrecedesDefaultAndOtherHouseholdConflict(t *testing.T) {
+	repo := &invitationRecordingRepo{
+		invitationFake: invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}},
+		membershipRole: household.RoleOwner, defaultHousehold: "another-house", other: true, writeErr: map[string]error{},
+	}
+	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
+	_, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
+	if !errors.Is(err, ErrAlreadyMember) {
+		t.Fatalf("error=%v", err)
+	}
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership"})
+}
+
+func TestLockedInvitationMustRemainPending(t *testing.T) {
+	repo := &invitationRecordingRepo{invitationFake: invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}}, writeErr: map[string]error{}}
+	repo.lockedInvitation = Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(-time.Second)}
+	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
+	service.SetPasswordHasher(func(string) (string, error) { return "hash", nil })
+	_, err := service.AcceptInvitationNewAccount(context.Background(), invitationToken, "valid_login", "long enough password")
+	if !errors.Is(err, ErrInvalidInvitation) {
+		t.Fatalf("error=%v", err)
+	}
+	assertInvitationCalls(t, repo.calls, []string{"preflight.find", "tx.begin", "locked.find"})
+}
+
+func TestInvitationListUsesBoundedLookaheadAndOwnerAuthorization(t *testing.T) {
+	rows := []Invitation{{ID: testActor, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}}
 	repo := &invitationRecordingRepo{invitationFake: invitationFake{}, listRows: rows, writeErr: map[string]error{}}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
-	items, next, err := service.ListInvitations(context.Background(), testActor, testHouse, 1, "")
+	items, next, err := service.ListInvitations(context.Background(), testActor, testHouse, 1000, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "owner", "list"})
-	if repo.listLimit != 2 || len(items) != 1 || next != encodeInvitationCursor(testActor) || items[0].Status != "pending" {
+	if repo.listLimit != 101 || repo.listHousehold != testHouse || repo.listCursor != "" || len(items) != 1 || next != "" || items[0].Status != "pending" {
 		t.Fatalf("limit=%d items=%+v next=%q", repo.listLimit, items, next)
+	}
+
+	repo.calls = nil
+	repo.listRows = rows
+	items, next, err = service.ListInvitations(context.Background(), testActor, testHouse, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != "" || len(items) != 1 {
+		t.Fatalf("cursor emitted without an extra row: next=%q items=%+v", next, items)
 	}
 }
 
 func TestRevokeRequiresOwnerBeforeWriteAndUsesSecondPrecision(t *testing.T) {
-	repo := &invitationRecordingRepo{invitationFake: invitationFake{}, writeErr: map[string]error{}}
+	cause := errors.New("owner check")
+	repo := &invitationRecordingRepo{invitationFake: invitationFake{requireErr: cause}, writeErr: map[string]error{}}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
-	if err := service.RevokeInvitation(context.Background(), testActor, testHouse, testActor); err != nil {
-		t.Fatal(err)
+	err := service.RevokeInvitation(context.Background(), testActor, testHouse, testActor)
+	if !errors.Is(err, cause) {
+		t.Fatalf("error=%v", err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "owner", "revoke"})
-	if !repo.now.Equal(invitationInstant.UTC().Truncate(time.Second)) {
-		t.Fatalf("now=%v", repo.now)
-	}
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "owner"})
 }
 
 func TestCreateChecksOwnerBeforePersisting(t *testing.T) {

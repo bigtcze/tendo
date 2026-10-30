@@ -51,30 +51,20 @@ func (h *InvitationHandler) create(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 || len(keys) == 1 && keys[0] == "" {
-		httpx.ProblemResponse(w, 400, "idempotency_key_required")
-		return
-	}
-	if len(keys) != 1 || !identity.ValidCreationKey(keys[0]) {
-		httpx.ProblemResponse(w, 400, "invalid_idempotency_key")
+	creationKey, ok := invitationCreationKey(w, r)
+	if !ok {
 		return
 	}
 	if _, ok = httpx.ReadObjectAllowEmpty(w, r, map[string]httpx.Field{}, 4096); !ok {
 		return
 	}
-	result, e := h.service.CreateInvitation(r.Context(), actor, chi.URLParam(r, "householdId"), keys[0])
+	result, e := h.service.CreateInvitation(r.Context(), actor, chi.URLParam(r, "householdId"), creationKey)
 	if e != nil {
 		writeInvitationError(w, e)
 		return
 	}
 	w.Header().Set("Location", "/api/v1/households/"+strings.ToLower(chi.URLParam(r, "householdId"))+"/invitations/"+strings.ToLower(result.Invitation.ID))
-	if result.Created {
-		out := invitationDTO(result.Invitation)
-		httpx.WriteJSON(w, 201, InvitationCreated{Id: out.Id, Role: InvitationCreatedRoleMember, Status: out.Status, CreatedAt: out.CreatedAt, ExpiresAt: out.ExpiresAt, AcceptedAt: out.AcceptedAt, RevokedAt: out.RevokedAt, Token: result.Token})
-	} else {
-		httpx.WriteJSON(w, 200, invitationDTO(result.Invitation))
-	}
+	writeInvitationCreated(w, result)
 }
 func (h *InvitationHandler) list(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)
@@ -120,7 +110,11 @@ func (h *InvitationHandler) acceptNew(w http.ResponseWriter, r *http.Request) {
 		rateLimited(w)
 		return
 	}
-	fields := map[string]httpx.Field{"token": {Kind: httpx.KindString, Required: true}, "login": {Kind: httpx.KindString, Required: true}, "password": {Kind: httpx.KindString, Required: true}}
+	fields := map[string]httpx.Field{
+		"token":    {Kind: httpx.KindString, Required: true},
+		"login":    {Kind: httpx.KindString, Required: true},
+		"password": {Kind: httpx.KindString, Required: true},
+	}
 	v, ok := httpx.ReadObject(w, r, fields, 4096)
 	if !ok {
 		return
@@ -159,13 +153,58 @@ func (h *InvitationHandler) acceptExisting(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Location", "/api/v1/households/"+strings.ToLower(u.HouseholdID))
 	httpx.WriteJSON(w, 201, Membership{UserId: u.UserID, HouseholdId: u.HouseholdID, Role: MembershipRoleMember})
 }
-func invitationDTO(i identity.Invitation) Invitation {
-	return Invitation{Id: i.ID, Role: InvitationRoleMember, Status: InvitationStatus(i.Status), CreatedAt: i.CreatedAt.UTC(), ExpiresAt: i.ExpiresAt.UTC(), AcceptedAt: i.AcceptedAt, RevokedAt: i.RevokedAt}
+func invitationDTO(invitation identity.Invitation) Invitation {
+	return Invitation{
+		Id: invitation.ID, Role: InvitationRoleMember,
+		Status:    InvitationStatus(invitation.Status),
+		CreatedAt: invitation.CreatedAt.UTC(), ExpiresAt: invitation.ExpiresAt.UTC(),
+		AcceptedAt: invitation.AcceptedAt, RevokedAt: invitation.RevokedAt,
+	}
 }
 func rateLimited(w http.ResponseWriter) {
 	w.Header().Set("Retry-After", "60")
 	httpx.ProblemResponse(w, 429, "rate_limited")
 }
+func invitationCreationKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	keys := r.Header.Values("Idempotency-Key")
+	if len(keys) == 0 || len(keys) == 1 && keys[0] == "" {
+		httpx.ProblemResponse(w, 400, "idempotency_key_required")
+		return "", false
+	}
+	if len(keys) != 1 || !identity.ValidCreationKey(keys[0]) {
+		httpx.ProblemResponse(w, 400, "invalid_idempotency_key")
+		return "", false
+	}
+	return keys[0], true
+}
+
+func writeInvitationCreated(w http.ResponseWriter, result identity.InvitationResult) {
+	if !result.Created {
+		httpx.WriteJSON(w, 200, invitationDTO(result.Invitation))
+		return
+	}
+	invitation := invitationDTO(result.Invitation)
+	response := InvitationCreated{
+		Id: invitation.Id, Role: InvitationCreatedRoleMember,
+		Status: invitation.Status, CreatedAt: invitation.CreatedAt,
+		ExpiresAt: invitation.ExpiresAt, AcceptedAt: invitation.AcceptedAt,
+		RevokedAt: invitation.RevokedAt, Token: result.Token,
+	}
+	httpx.WriteJSON(w, 201, response)
+}
+
+func writeInvitationValidationProblem(w http.ResponseWriter, validation *identity.ValidationError) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(422)
+	problem := InvitationValidationProblem{
+		Type: "about:blank", Title: "Validation Failed", Status: 422,
+		Field: InvitationValidationProblemField(validation.Field),
+		Code:  InvitationValidationProblemCode(validation.Code),
+	}
+	_ = json.NewEncoder(w).Encode(problem)
+}
+
 func writeInvitationError(w http.ResponseWriter, e error) {
 	switch {
 	case errors.Is(e, household.ErrNotFound):
@@ -192,10 +231,7 @@ func writeInvitationError(w http.ResponseWriter, e error) {
 			if v.Field == "cursor" {
 				httpx.QueryProblemResponse(w, "cursor")
 			} else {
-				w.Header().Set("Content-Type", "application/problem+json")
-				w.Header().Set("Cache-Control", "no-store")
-				w.WriteHeader(422)
-				_ = json.NewEncoder(w).Encode(InvitationValidationProblem{Type: "about:blank", Title: "Validation Failed", Status: 422, Field: InvitationValidationProblemField(v.Field), Code: InvitationValidationProblemCode(v.Code)})
+				writeInvitationValidationProblem(w, v)
 			}
 		} else {
 			httpx.ProblemResponse(w, 503, "unavailable")

@@ -160,13 +160,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "backend/internal/identity/httpapi/invitations.go",
-    "allowed": 4,
-    "reason": "Invitation HTTP handlers map create/list/revoke/accept operations to public responses; preserve authorization and response contracts.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
     "path": "backend/internal/identity/httpapi/oidc.go",
     "allowed": 2,
     "reason": "OIDC HTTP handlers translate start/callback service results into redirects and public errors; retain protocol ordering and redirect contracts.",
@@ -184,20 +177,6 @@
     "path": "backend/internal/identity/httpapi/setup.go",
     "allowed": 3,
     "reason": "Setup handler validates initial-owner setup requests and returns setup status; strict JSON decoding and setup-token behavior must remain unchanged.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/identity/invitations.go",
-    "allowed": 1,
-    "reason": "Invitation service validates invitation tokens and coordinates expiry, acceptance, and membership transitions; preserve single-use and authorization rules.",
-    "owner": "backend-identity"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/identity/postgres/invitations.go",
-    "allowed": 3,
-    "reason": "Invitation repository persists token lifecycle and membership transactions; preserve expiry, uniqueness, and atomic acceptance semantics.",
     "owner": "backend-identity"
   },
   {
