@@ -220,7 +220,3 @@ func (r *Repository) ListByIDs(ctx context.Context, householdID string, archived
 	}
 	return items, nil
 }
-
-// Update applies the patch atomically when the stored version equals
-// expectedVersion. When no row matches, a household-scoped lookup tells a
-// missing subject from a stale version.
