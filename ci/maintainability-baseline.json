@@ -121,13 +121,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "backend/internal/household/setup.go",
-    "allowed": 1,
-    "reason": "Household setup service provisions the initial household and owner transactionally; preserve first-owner and rollback invariants.",
-    "owner": "backend-household"
-  },
-  {
-    "kind": "long_lines",
     "path": "backend/internal/identity/httpapi/oidc.go",
     "allowed": 2,
     "reason": "OIDC HTTP handlers translate start/callback service results into redirects and public errors; retain protocol ordering and redirect contracts.",

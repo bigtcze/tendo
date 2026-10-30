@@ -56,14 +56,10 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if applied > currentVersion {
 		return errors.New("database schema is newer than this application")
 	}
-	steps, err := discoverMigrations(migrations, entries, applied)
-	if err != nil {
+	if err := applyMigrations(migrations, entries, applied, func(step migrationStep) error {
+		return applyMigration(bounded, conn, step)
+	}); err != nil {
 		return err
-	}
-	for _, step := range steps {
-		if err := applyMigration(bounded, conn, step); err != nil {
-			return err
-		}
 	}
 	return validateMetadata(bounded, conn)
 }
@@ -73,28 +69,46 @@ type migrationStep struct {
 	up      string
 }
 
-func discoverMigrations(source fs.FS, entries []fs.DirEntry, applied int64) ([]migrationStep, error) {
+func applyMigrations(source fs.FS, entries []fs.DirEntry, applied int64, apply func(migrationStep) error) error {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	steps := make([]migrationStep, 0, len(entries))
 	for _, entry := range entries {
-		var version int64
-		if _, err := fmt.Sscanf(entry.Name(), "%d_", &version); err != nil {
-			return nil, errors.New("invalid migration filename")
+		version, err := migrationVersion(entry)
+		if err != nil {
+			return err
 		}
 		if version <= applied {
 			continue
 		}
-		raw, err := fs.ReadFile(source, entry.Name())
+		step, err := migrationForEntry(source, entry, version)
 		if err != nil {
-			return nil, errors.New("migration file unavailable")
+			return err
 		}
-		up, _, ok := strings.Cut(string(raw), "-- +goose Down")
-		if !ok {
-			return nil, errors.New("invalid migration")
+		if err := apply(step); err != nil {
+			return err
 		}
-		steps = append(steps, migrationStep{version: version, up: strings.ReplaceAll(up, "-- +goose Up", "")})
+		applied = step.version
 	}
-	return steps, nil
+	return nil
+}
+
+func migrationVersion(entry fs.DirEntry) (int64, error) {
+	var version int64
+	if _, err := fmt.Sscanf(entry.Name(), "%d_", &version); err != nil {
+		return 0, errors.New("invalid migration filename")
+	}
+	return version, nil
+}
+
+func migrationForEntry(source fs.FS, entry fs.DirEntry, version int64) (migrationStep, error) {
+	raw, err := fs.ReadFile(source, entry.Name())
+	if err != nil {
+		return migrationStep{}, errors.New("migration file unavailable")
+	}
+	up, _, ok := strings.Cut(string(raw), "-- +goose Down")
+	if !ok {
+		return migrationStep{}, errors.New("invalid migration")
+	}
+	return migrationStep{version: version, up: strings.ReplaceAll(up, "-- +goose Up", "")}, nil
 }
 
 func applyMigration(ctx context.Context, conn *pgxpool.Conn, step migrationStep) error {
