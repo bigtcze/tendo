@@ -72,8 +72,8 @@ export function useAddItem(options: AddItemOptions) {
     returnFocusRef.current = true;
   }
 
-  async function finishCreated(title: string, hadFocus: boolean): Promise<SubmitOutcome> {
-    recovery.created();
+  async function finishCreated(title: string, hadFocus: boolean, key: string): Promise<SubmitOutcome> {
+    recovery.created(key);
     invalidateHome();
     memberLoadGenerationRef.current++;
     addingRef.current = false;
@@ -93,8 +93,8 @@ export function useAddItem(options: AddItemOptions) {
       const pending = pendingCreate && !recoveryEditable ? pendingCreate : newPendingCreate(values);
       if (!pendingCreate) { setPendingItemCreate(userId, householdId, pending); recovery.track(pending); }
       const result = await createItem(householdId, pending.body, pending.key);
-      if (result.kind === 'ok') return await finishCreated(result.item.title, hadFocus);
-      const outcome = applyOutcome(result, recovery, () => { if (recoveryAttempt) catalogue.loadIfMissing(); }, values.subjectId);
+      if (result.kind === 'ok') return await finishCreated(result.item.title, hadFocus, pending.key);
+      const outcome = applyOutcome(result, recovery, pending.key, () => { if (recoveryAttempt) catalogue.loadIfMissing(); }, values.subjectId);
       if (result.kind === 'unauthenticated') onSignedOut();
       return outcome;
     } finally { lock.end(); }
@@ -123,13 +123,14 @@ export function useAddReturnFocus(adding: boolean, returnFocusRef: RefObject<boo
 function applyOutcome(
   result: CreateOutcome,
   recovery: ReturnType<typeof usePendingCreate>,
+  key: string,
   reloadCatalogue: () => void,
   subjectId: string,
 ): SubmitOutcome {
   if (result.kind === 'unauthenticated') { recovery.signedOut(); return { kind: 'handled' }; }
-  if (result.kind === 'invalid') { recovery.invalid(subjectId); reloadCatalogue(); return result; }
+  if (result.kind === 'invalid') { recovery.invalid(key, subjectId); reloadCatalogue(); return result; }
   if (result.kind === 'error') { recovery.uncertain(); return { kind: 'handled' }; }
-  recovery.rejected(result.kind === 'reused');
+  recovery.rejected(key, result.kind === 'reused');
   return { kind: result.kind === 'reused' ? 'handled' : 'failed' };
 }
 

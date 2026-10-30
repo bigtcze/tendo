@@ -2,12 +2,14 @@ import type { SubjectType } from './subjectsApi';
 
 export type PendingSubjectCreate = { version: 1; key: string; body: { name: string; type: SubjectType; linkedUserId?: string } };
 const memory = new Map<string, PendingSubjectCreate>();
+const memoryAuthoritative = new Set<string>();
 const prefix = 'tendo.pendingSubjectCreate.v1:';
 function storage() { try { return globalThis.sessionStorage; } catch { return undefined; } }
 function scope(userId: string, householdId: string) { return `${userId}:${householdId}`; }
 
 export function getPendingSubjectCreate(userId: string, householdId: string): PendingSubjectCreate | undefined {
   const id = scope(userId, householdId);
+  if (memoryAuthoritative.has(id)) return memory.get(id);
   try {
     const raw = storage()?.getItem(`${prefix}${id}`);
     if (raw) {
@@ -23,17 +25,26 @@ export function getPendingSubjectCreate(userId: string, householdId: string): Pe
 export function setPendingSubjectCreate(userId: string, householdId: string, pending: PendingSubjectCreate): void {
   const id = scope(userId, householdId);
   memory.set(id, pending);
-  try { storage()?.setItem(`${prefix}${id}`, JSON.stringify(pending)); } catch { /* memory fallback */ }
+  // Once persistence fails, memory is authoritative so stale stored records cannot replace newer attempts.
+  const store = storage();
+  if (!store) { memoryAuthoritative.add(id); return; }
+  try { store.setItem(`${prefix}${id}`, JSON.stringify(pending)); memoryAuthoritative.delete(id); }
+  catch { memoryAuthoritative.add(id); }
 }
 
-export function clearPendingSubjectCreate(userId: string, householdId: string): void {
+export function clearPendingSubjectCreate(userId: string, householdId: string, key: string): void {
   const id = scope(userId, householdId);
+  const pending = memoryAuthoritative.has(id) ? memory.get(id) : getPendingSubjectCreate(userId, householdId);
+  if (pending?.key !== key) return;
   memory.delete(id);
-  try { storage()?.removeItem(`${prefix}${id}`); } catch { /* memory fallback */ }
+  // The empty memory record stays authoritative (a tombstone) so a failed removal cannot resurrect it.
+  memoryAuthoritative.add(id);
+  try { storage()?.removeItem(`${prefix}${id}`); } catch { /* memory stays authoritative */ }
 }
 
 export function clearPendingSubjectCreates(): void {
   memory.clear();
+  memoryAuthoritative.clear();
   try {
     const store = storage();
     if (!store) return;
