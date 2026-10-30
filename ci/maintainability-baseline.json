@@ -58,22 +58,6 @@
   },
   {
     "kind": "func_complexity",
-    "path": "backend/internal/item/httpapi/item.go",
-    "name": "Handler.create",
-    "allowed": 17,
-    "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/item/httpapi/item.go",
-    "name": "Handler.list",
-    "allowed": 17,
-    "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "func_complexity",
     "path": "backend/internal/item/itemtest/repo.go",
     "name": "Repo.List",
     "allowed": 21,
@@ -265,20 +249,6 @@
     "path": "backend/internal/item/completion.go",
     "allowed": 1,
     "reason": "Item completion service manages completion, undo, and completion listing semantics; separate lifecycle operations while retaining idempotency and recurrence behavior.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/item/httpapi/completion.go",
-    "allowed": 1,
-    "reason": "Completion HTTP handler maps complete/undo requests and service outcomes; preserve idempotency and public response contracts.",
-    "owner": "backend-item"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/item/httpapi/item.go",
-    "allowed": 4,
-    "reason": "Item HTTP handlers parse item requests and map service results to responses; extract request/response helpers while retaining API contracts.",
     "owner": "backend-item"
   },
   {
