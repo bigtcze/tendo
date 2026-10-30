@@ -48,7 +48,7 @@ export function useSubjectCreate(ctx: CreateContext) {
       return { kind: 'handled' };
     }
     if (result.kind === 'ok') {
-      clearPendingSubjectCreate(userId, householdId);
+      clearPendingSubjectCreate(userId, householdId, pending.key);
       setPendingCreate(undefined);
       setCreateUncertain(false);
       if (started === generation.current) {
@@ -59,7 +59,9 @@ export function useSubjectCreate(ctx: CreateContext) {
       }
       return finishAdd(form, result.subject);
     }
-    const terminal = settleTerminalCreate(result, userId, householdId, setPendingCreate, setCreateUncertain, setNotice);
+    const terminal = settleTerminalCreate(result, {
+      userId, householdId, key: pending.key, setPendingCreate, setCreateUncertain, setNotice,
+    });
     if (terminal?.error) return terminal.error;
     if (terminal?.outcome) return terminal.outcome;
     if (started !== generation.current) return { kind: 'handled' };

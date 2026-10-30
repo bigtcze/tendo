@@ -18,8 +18,8 @@ export function usePendingCreate(userId: string, householdId: string) {
     () => getPendingItemCreate(userId, householdId) ? 'uncertain' : null,
   );
 
-  function settle(uncertain: boolean, editable: boolean) {
-    clearPendingItemCreate(userId, householdId);
+  function settle(key: string, uncertain: boolean, editable: boolean) {
+    clearPendingItemCreate(userId, householdId, key);
     setPendingCreate(undefined);
     setCreateUncertain(uncertain);
     setRecoveryEditable(editable);
@@ -37,17 +37,17 @@ export function usePendingCreate(userId: string, householdId: string) {
       return Boolean(pending);
     },
     track(pending: PendingItemCreate) { setPendingCreate(pending); },
-    signedOut() { clearPendingItemCreate(userId, householdId); setPendingCreate(undefined); },
-    invalid(subjectId: string) {
+    signedOut() { if (pendingCreate) clearPendingItemCreate(userId, householdId, pendingCreate.key); setPendingCreate(undefined); },
+    invalid(key: string, subjectId: string) {
       setCreateNotice(null);
-      settle(false, true);
+      settle(key, false, true);
       setRecoverySubjectId(subjectId);
     },
     uncertain() { setCreateUncertain(true); setRecoveryEditable(false); setCreateNotice('uncertain'); },
-    rejected(reused: boolean) {
-      settle(false, false);
+    rejected(key: string, reused: boolean) {
+      settle(key, false, false);
       if (reused) setCreateNotice('reused');
     },
-    created() { settle(false, false); setCreateNotice(null); },
+    created(key: string) { settle(key, false, false); setCreateNotice(null); },
   };
 }

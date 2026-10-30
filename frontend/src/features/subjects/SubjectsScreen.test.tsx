@@ -315,6 +315,90 @@ describe('list', () => {
 });
 
 describe('add', () => {
+  it('preserves a newer uncertain subject create after an obsolete successful response', async () => {
+    let releaseOriginal!: (response: Response) => void;
+    const originalResponse = new Promise<Response>((resolve) => { releaseOriginal = resolve; });
+    let createCount = 0;
+    const fake = installFakeServer({
+      ...signedIn, [listKey]: page([]), [membersKey]: membersResponse(),
+      [createKey]: (request) => {
+        createCount++;
+        if (createCount === 1) return originalResponse;
+        if (createCount === 2) return json(201, subject('a', JSON.parse(request.body).name));
+        if (createCount === 3) return json(503);
+        return json(201, subject('b', JSON.parse(request.body).name));
+      },
+    });
+    const firstMount = renderApp();
+    let form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Attempt A');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(sent(fake.requests, 'POST')).toHaveLength(1));
+    const originalPost = sent(fake.requests, 'POST')[0]!;
+    const originalKey = originalPost.headers.get('Idempotency-Key')!;
+    firstMount.unmount();
+
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'People and things' }));
+    form = await screen.findByRole('form', { name: 'Add a person or thing' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('Attempt A was added.');
+    form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Attempt B');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible());
+    const storageKey = `tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`;
+    const bStored = JSON.parse(sessionStorage.getItem(storageKey)!);
+    const posts = sent(fake.requests, 'POST');
+    expect(posts).toHaveLength(3);
+    expect(posts[1]!.headers.get('Idempotency-Key')).toBe(originalKey);
+    expect(JSON.parse(posts[1]!.body)).toEqual(JSON.parse(originalPost.body));
+    expect(bStored).toEqual({ version: 1, key: posts[2]!.headers.get('Idempotency-Key'), body: { name: 'Attempt B', type: 'person' } });
+
+    await act(async () => { releaseOriginal(json(201, subject('late-a', 'Attempt A'))); });
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(bStored);
+    expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible();
+    expect(sent(fake.requests, 'POST')).toHaveLength(3);
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('Attempt B was added.');
+    const finalPosts = sent(fake.requests, 'POST');
+    expect(finalPosts).toHaveLength(4);
+    expect(finalPosts[3]!.headers.get('Idempotency-Key')).toBe(bStored.key);
+    expect(JSON.parse(finalPosts[3]!.body)).toEqual(bStored.body);
+  });
+
+  it('does not let an obsolete definitive rejection clear a newer uncertain subject create', async () => {
+    let releaseOriginal!: (response: Response) => void;
+    const originalResponse = new Promise<Response>((resolve) => { releaseOriginal = resolve; });
+    let createCount = 0;
+    const fake = installFakeServer({
+      ...signedIn, [listKey]: page([]), [membersKey]: membersResponse(),
+      [createKey]: () => ++createCount === 1 ? originalResponse : createCount === 2
+        ? json(201, subject('a', 'Attempt A'))
+        : json(503),
+    });
+    const firstMount = renderApp();
+    let form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Attempt A');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(sent(fake.requests, 'POST')).toHaveLength(1));
+    firstMount.unmount();
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'People and things' }));
+    form = await screen.findByRole('form', { name: 'Add a person or thing' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('Attempt A was added.');
+    form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Attempt B');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible());
+    const storageKey = `tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`;
+    const bStored = JSON.parse(sessionStorage.getItem(storageKey)!);
+    await act(async () => { releaseOriginal(json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, code: 'idempotency_key_reused' })); });
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(bStored);
+    expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible();
+    expect(sent(fake.requests, 'POST')).toHaveLength(3);
+  });
   it('creates a person with the exact body and shows it in the list', async () => {
     const fake = installFakeServer({
       ...signedIn,

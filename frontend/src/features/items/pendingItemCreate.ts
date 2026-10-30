@@ -3,12 +3,14 @@ import type { components } from '../../../../api/generated/api';
 type CreateItemRequest = components['schemas']['CreateItemRequest'];
 export type PendingItemCreate = { version: 1; key: string; body: CreateItemRequest };
 const memory = new Map<string, PendingItemCreate>();
+const memoryAuthoritative = new Set<string>();
 const prefix = 'tendo.pendingItemCreate.v1:';
 function storage() { try { return globalThis.sessionStorage; } catch { return undefined; } }
 function scope(userId: string, householdId: string) { return `${userId}:${householdId}`; }
 
 export function getPendingItemCreate(userId: string, householdId: string): PendingItemCreate | undefined {
   const id = scope(userId, householdId);
+  if (memoryAuthoritative.has(id)) return memory.get(id);
   try {
     const raw = storage()?.getItem(`${prefix}${id}`);
     if (raw) {
@@ -24,17 +26,26 @@ export function getPendingItemCreate(userId: string, householdId: string): Pendi
 export function setPendingItemCreate(userId: string, householdId: string, pending: PendingItemCreate): void {
   const id = scope(userId, householdId);
   memory.set(id, pending);
-  try { storage()?.setItem(`${prefix}${id}`, JSON.stringify(pending)); } catch { /* memory fallback */ }
+  // Once persistence fails, memory is authoritative so stale stored records cannot replace newer attempts.
+  const store = storage();
+  if (!store) { memoryAuthoritative.add(id); return; }
+  try { store.setItem(`${prefix}${id}`, JSON.stringify(pending)); memoryAuthoritative.delete(id); }
+  catch { memoryAuthoritative.add(id); }
 }
 
-export function clearPendingItemCreate(userId: string, householdId: string): void {
+export function clearPendingItemCreate(userId: string, householdId: string, key: string): void {
   const id = scope(userId, householdId);
+  const pending = memoryAuthoritative.has(id) ? memory.get(id) : getPendingItemCreate(userId, householdId);
+  if (pending?.key !== key) return;
   memory.delete(id);
-  try { storage()?.removeItem(`${prefix}${id}`); } catch { /* memory fallback */ }
+  // The empty memory record stays authoritative (a tombstone) so a failed removal cannot resurrect it.
+  memoryAuthoritative.add(id);
+  try { storage()?.removeItem(`${prefix}${id}`); } catch { /* memory stays authoritative */ }
 }
 
 export function clearPendingItemCreates(): void {
   memory.clear();
+  memoryAuthoritative.clear();
   try {
     const store = storage();
     if (!store) return;

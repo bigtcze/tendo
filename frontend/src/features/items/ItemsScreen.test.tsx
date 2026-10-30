@@ -36,9 +36,55 @@ async function openForm() {
   return screen.findByRole('form', { name: 'Add an item' });
 }
 beforeEach(() => { clearPendingItemCreates(); sessionStorage.clear(); vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); });
-afterEach(() => { cleanup(); clearPendingItemCreates(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); });
+afterEach(() => { vi.useRealTimers(); cleanup(); clearPendingItemCreates(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); localStorage.removeItem('tendo.locale'); });
 
 describe('item creation', () => {
+  it('preserves newer recovery after the bounded Home-read wait and obsolete success', async () => {
+    let releaseOriginal!: (response: Response) => void;
+    const originalResponse = new Promise<Response>((resolve) => { releaseOriginal = resolve; });
+    let postCount = 0;
+    const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(),
+      [`POST ${base}/items`]: (request) => ++postCount === 1 ? originalResponse : postCount === 2
+        ? json(201, item({ id: 'a', title: JSON.parse(request.body).title }))
+        : postCount === 3 ? json(503) : json(201, item({ id: 'b', title: JSON.parse(request.body).title })),
+    });
+    const firstMount = app();
+    let form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Attempt A');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1));
+    const original = requestsOf(fake.requests, 'POST', `${base}/items`)[0]!;
+    firstMount.unmount();
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    app();
+    form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible();
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(2));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add item' })).toBeVisible());
+    vi.useRealTimers();
+
+    form = await openForm();
+    await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Attempt B');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    await within(form).findByRole('button', { name: 'Check again' });
+    const storageKey = `tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`;
+    const b = JSON.parse(sessionStorage.getItem(storageKey)!);
+    await act(async () => { releaseOriginal(json(201, item({ id: 'late-a', title: 'Attempt A' }))); });
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(b);
+    expect(within(form).getByRole('button', { name: 'Check again' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(3);
+    await userEvent.click(within(form).getByRole('button', { name: 'Check again' }));
+    await screen.findByText('“Attempt B” was added.');
+    const posts = requestsOf(fake.requests, 'POST', `${base}/items`);
+    expect(posts).toHaveLength(4);
+    expect(posts[1]!.headers.get('Idempotency-Key')).toBe(original.headers.get('Idempotency-Key'));
+    expect(JSON.parse(posts[1]!.body)).toEqual(JSON.parse(original.body));
+    expect(posts[3]!.headers.get('Idempotency-Key')).toBe(b.key);
+    expect(JSON.parse(posts[3]!.body)).toEqual(b.body);
+  }, 20_000);
   it('defaults Repeat off and sends an exact one-off body', async () => {
     const source: Item[] = [];
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, () => source), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => { const created = item({ id: 'created-live', title: JSON.parse(request.body).title }); source.push(created); return json(201, created); } });
