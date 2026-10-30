@@ -28,7 +28,7 @@ func TestExchangeValidationOrder(t *testing.T) {
 		p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, &http.Client{Timeout: time.Second}, time.Now, true)
 		_, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{
 			CallbackIssuer: "https://wrong-issuer.example",
-			Code: "unused",
+			Code:           "unused",
 		})
 		if !errors.Is(err, identity.ErrOIDCAuthenticationFailed) {
 			t.Fatalf("error=%v, want authentication failed before discovery", err)
