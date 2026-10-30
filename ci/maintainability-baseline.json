@@ -475,13 +475,6 @@
   },
   {
     "kind": "long_lines",
-    "path": "frontend/src/features/auth/AccountScreen.tsx",
-    "allowed": 3,
-    "reason": "Account screen renders account settings forms/actions; separate presentation from update behavior if scope permits.",
-    "owner": "frontend-auth"
-  },
-  {
-    "kind": "long_lines",
     "path": "frontend/src/features/auth/OnboardingScreen.tsx",
     "allowed": 1,
     "reason": "Onboarding screen coordinates initial setup states and validation; extract setup sections while preserving first-owner behavior.",
