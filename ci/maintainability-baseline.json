@@ -1,13 +1,6 @@
 [
   {
     "kind": "file_lines",
-    "path": "backend/internal/subject/subject.go",
-    "allowed": 505,
-    "reason": "Subject service file contains CRUD and shared validators; preserve stored type/link invariants and validation order while splitting cohesive checks.",
-    "owner": "backend-subject"
-  },
-  {
-    "kind": "file_lines",
     "path": "frontend/src/i18n/cs.ts",
     "allowed": 418,
     "reason": "Czech locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
@@ -103,22 +96,6 @@
     "allowed": 22,
     "reason": "Password hash parser validates encoded algorithm and parameters; isolate format validation while retaining rejection behavior.",
     "owner": "backend-platform"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/subject/postgres/subject.go",
-    "name": "Repository.Update",
-    "allowed": 17,
-    "reason": "PostgreSQL subject repository maps subject rows and applies optional-field dynamic update patches; separate patch construction while preserving link/type invariants.",
-    "owner": "backend-subject"
-  },
-  {
-    "kind": "func_complexity",
-    "path": "backend/internal/subject/subject.go",
-    "name": "Service.Update",
-    "allowed": 17,
-    "reason": "Subject service validates stored subject type and linked-user invariants before updates; preserve validation order while extracting domain checks.",
-    "owner": "backend-subject"
   },
   {
     "kind": "func_complexity",
@@ -309,30 +286,9 @@
   },
   {
     "kind": "long_lines",
-    "path": "backend/internal/subject/httpapi/subject.go",
-    "allowed": 3,
-    "reason": "Subject HTTP handlers translate create/list/update requests and domain validation; preserve public response and error contracts.",
-    "owner": "backend-subject"
-  },
-  {
-    "kind": "long_lines",
     "path": "backend/internal/subject/postgres/queries/subject.sql",
     "allowed": 1,
     "reason": "Subject SQL queries encode subject filtering and optional update patch semantics; preserve link/type invariants.",
-    "owner": "backend-subject"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/subject/postgres/subject.go",
-    "allowed": 11,
-    "reason": "PostgreSQL subject repository maps subject rows and applies optional-field dynamic update patches; separate patch construction while preserving link/type invariants.",
-    "owner": "backend-subject"
-  },
-  {
-    "kind": "long_lines",
-    "path": "backend/internal/subject/subject.go",
-    "allowed": 1,
-    "reason": "Subject service validates stored subject type and linked-user invariants before updates; preserve validation order while extracting domain checks.",
     "owner": "backend-subject"
   },
   {

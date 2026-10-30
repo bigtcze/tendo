@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/subject"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -83,4 +84,35 @@ func TestToSubjectCharacterization(t *testing.T) {
 	}
 }
 
+func TestConstraintErrorClassificationCharacterization(t *testing.T) {
+	for _, tc := range []struct {
+		name, code, constraint, validationCode string
+		createWant, updateWant                 error
+	}{
+		{"linked membership", "23503", "subjects_linked_membership_fk", "invalid_reference", nil, nil},
+		{"person only", "23514", "subjects_linked_user_person_only", "requires_person", nil, nil},
+		{"other foreign key", "23503", "other_constraint", "", subject.ErrNotFound, errPersistence},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mapped := classifyConstraintError(&pgconn.PgError{Code: tc.code, ConstraintName: tc.constraint})
+			if tc.validationCode != "" {
+				var validation *subject.ValidationError
+				if !errors.As(mapped, &validation) || validation.Field != "linkedUserId" || validation.Code != tc.validationCode {
+					t.Fatalf("mapped error=%v", mapped)
+				}
+				updateMapped := updateConstraintError(&pgconn.PgError{Code: tc.code, ConstraintName: tc.constraint})
+				if !errors.As(updateMapped, &validation) || validation.Field != "linkedUserId" || validation.Code != tc.validationCode {
+					t.Fatalf("update mapped error=%v", updateMapped)
+				}
+				return
+			}
+			if !errors.Is(mapped, tc.createWant) {
+				t.Fatalf("create mapping=%v want=%v", mapped, tc.createWant)
+			}
+			if got := updateConstraintError(&pgconn.PgError{Code: tc.code, ConstraintName: tc.constraint}); got != nil {
+				t.Fatalf("update mapping=%v, want fallback %v", got, tc.updateWant)
+			}
+		})
+	}
+}
 func ptrSubject(s string) *string { return &s }

@@ -805,6 +805,17 @@ func TestUpdateInvalidFieldsCheckTargetBeforeValidation(t *testing.T) {
 	}
 }
 
+func TestUpdateNewLinkedUserDefaultsValidationTypeToPerson(t *testing.T) {
+	candidate := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
+	membersCalls := 0
+	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Person", Version: 1}}}
+	svc := NewService(repo, allow, func(context.Context, string, string) error { membersCalls++; return nil })
+	updated, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != candidate || membersCalls != 1 {
+		t.Fatalf("updated=%+v err=%v member checks=%d", updated, err, membersCalls)
+	}
+}
+
 func TestUpdateEvaluationOrderAndStaleRequiresPerson(t *testing.T) {
 	linked := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
 	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypeHome, Name: "Flat", Version: 2}}}

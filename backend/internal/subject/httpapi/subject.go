@@ -14,8 +14,17 @@ import (
 const bodyLimit = 4096
 
 var (
-	createFields = map[string]httpx.Field{"name": {Kind: httpx.KindString, Required: true}, "type": {Kind: httpx.KindString, Required: true}, "linkedUserId": {Kind: httpx.KindNullableString}}
-	updateFields = map[string]httpx.Field{"name": {Kind: httpx.KindString}, "type": {Kind: httpx.KindString}, "archived": {Kind: httpx.KindBool}, "linkedUserId": {Kind: httpx.KindNullableString}}
+	createFields = map[string]httpx.Field{
+		"name":         {Kind: httpx.KindString, Required: true},
+		"type":         {Kind: httpx.KindString, Required: true},
+		"linkedUserId": {Kind: httpx.KindNullableString},
+	}
+	updateFields = map[string]httpx.Field{
+		"name":         {Kind: httpx.KindString},
+		"type":         {Kind: httpx.KindString},
+		"archived":     {Kind: httpx.KindBool},
+		"linkedUserId": {Kind: httpx.KindNullableString},
+	}
 )
 
 type service interface {
@@ -66,12 +75,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	householdID := chi.URLParam(r, "householdId")
-	var linkedUserID *string
-	if v, present := values["linkedUserId"]; present && v != nil {
-		s := v.(string)
-		linkedUserID = &s
-	}
-	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], values["name"].(string), subject.Type(values["type"].(string)), linkedUserID)
+	name, typ, linkedUserID := createRequest(values)
+	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], name, typ, linkedUserID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -91,19 +96,9 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var ids []string
-	if values, present := r.URL.Query()["id"]; present {
-		if len(values) == 0 || len(values) > 100 {
-			httpx.QueryProblemResponse(w, "id")
-			return
-		}
-		for _, value := range values {
-			if value == "" {
-				httpx.QueryProblemResponse(w, "id")
-				return
-			}
-		}
-		ids = values
+	ids, ok := readSubjectIDs(w, r)
+	if !ok {
+		return
 	}
 	query := subject.ListQuery{Archived: params.Archived, IDs: ids, Limit: params.Limit, Cursor: params.Cursor}
 	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), query)
@@ -147,26 +142,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var patch subject.Patch
-	if v, present := values["name"]; present {
-		s := v.(string)
-		patch.Name = &s
-	}
-	if v, present := values["type"]; present {
-		t := subject.Type(v.(string))
-		patch.Type = &t
-	}
-	if v, present := values["archived"]; present {
-		b := v.(bool)
-		patch.Archived = &b
-	}
-	if v, present := values["linkedUserId"]; present {
-		patch.LinkedUserIDSet = true
-		if v != nil {
-			s := v.(string)
-			patch.LinkedUserID = &s
-		}
-	}
+	patch := patchRequest(values)
 	updated, err := h.service.Update(r.Context(), userID, chi.URLParam(r, "householdId"), chi.URLParam(r, "subjectId"), expected, patch)
 	if err != nil {
 		writeServiceError(w, err)
@@ -210,7 +186,11 @@ func writeServiceError(w http.ResponseWriter, err error) {
 }
 
 func toJSON(s subject.Subject) Subject {
-	return Subject{Id: s.ID, Type: SubjectType(s.Type), Name: s.Name, LinkedUserId: s.LinkedUserID, Archived: s.Archived, CreatedAt: s.CreatedAt.UTC(), UpdatedAt: s.UpdatedAt.UTC()}
+	return Subject{
+		Id: s.ID, Type: SubjectType(s.Type), Name: s.Name,
+		LinkedUserId: s.LinkedUserID, Archived: s.Archived,
+		CreatedAt: s.CreatedAt.UTC(), UpdatedAt: s.UpdatedAt.UTC(),
+	}
 }
 
 // problem keeps the handler's call sites short.
