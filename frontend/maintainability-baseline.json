@@ -1,13 +1,5 @@
 [
   {
-    "file": "src/features/auth/OnboardingScreen.tsx",
-    "function": "OnboardingScreen",
-    "rule": "max-lines-per-function",
-    "allowed": 191,
-    "reason": "P2 candidate: initial setup state and form handling share a screen; extract flow sections preserving setup validation.",
-    "owner": "frontend-auth"
-  },
-  {
     "file": "src/features/items/itemsApi.ts",
     "function": "listAllItems",
     "rule": "complexity",
