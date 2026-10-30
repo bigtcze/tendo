@@ -805,6 +805,18 @@ func TestUpdateInvalidFieldsCheckTargetBeforeValidation(t *testing.T) {
 	}
 }
 
+func TestUpdateNameValidationPrecedesTypeValidation(t *testing.T) {
+	blank := " "
+	invalidType := Type("robot")
+	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Person", Version: 1}}}
+	svc := NewService(repo, allow, nil)
+	_, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{Name: &blank, Type: &invalidType})
+	var validation *ValidationError
+	if !errors.As(err, &validation) || validation.Field != "name" || validation.Code != "invalid_length" {
+		t.Fatalf("validation=%v, want name/invalid_length before invalid type", err)
+	}
+}
+
 func TestUpdateNewLinkedUserDefaultsValidationTypeToPerson(t *testing.T) {
 	candidate := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
 	membersCalls := 0
