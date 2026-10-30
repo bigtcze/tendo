@@ -107,8 +107,8 @@ For extraction/lookup diagnostics, use the official Renovate CLI with `--platfor
 
 - **LTS only**: 26.13.0 (2026-10-28) is the first Node 26 LTS release ("Lithium", supported through April 2029) and changes only release metadata from 26.12.1, which was Current. Renovate PR #286 first proposed 26.12.0/26.12.1 and left `toolchain.json` `node` on 24.22.2, so `scripts/test_toolchain_manifest.py` failed; all pins now move together to 26.13.0.
 - **Bundled tools**: npm 11.19.1 → 11.20.0 (same major, no breaking changes listed); V8 13.6 → 14.6; OpenSSL 3.5.9 unchanged; Undici 8; Temporal enabled by default.
-- **Removed or deprecated APIs** (Node 25/26): `http.Server.prototype.writeHeader()`, legacy `_stream_*` modules, `--experimental-transform-types`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` aliases and `SlowBuffer` removed; `module.register()` runtime-deprecated; Corepack no longer bundled. Repository scripts use none of these and Tendo does not use Corepack.
-- **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the `dev-exec.sh` provisioned binary all run it; the Docker web build and every deployment smoke pass.
+- **Removed or deprecated APIs** (Node 25/26): `http.ServerResponse.prototype.writeHeader()` (use `writeHead()`), legacy `_stream_*` modules, `--experimental-transform-types`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` aliases and `SlowBuffer` removed; `module.register()` runtime-deprecated; Corepack no longer bundled. Repository scripts use none of these and Tendo does not use Corepack.
+- **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the `dev-exec.sh` provisioned binary all run it; the Docker web build and every deployment smoke pass. Native Linux developer machines without it must install the distribution package (Debian/Ubuntu `libatomic1`).
 - Sources: [v26.0.0](https://nodejs.org/en/blog/release/v26.0.0), [v25.0.0](https://nodejs.org/en/blog/release/v25.0.0), [v26.13.0](https://nodejs.org/en/blog/release/v26.13.0).
 
 ## oapi-codegen v2.8.1 notes
