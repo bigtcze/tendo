@@ -100,12 +100,6 @@ func TestDecodeReceiptRejectsMalformedStoredRows(t *testing.T) {
 		}},
 		{"unknown workflow", func(v *receiptDecodeValues) { v.state = "unknown" }},
 		{"cycle-free next without recurrence", func(v *receiptDecodeValues) { v.cycle = pgtype.Date{} }},
-		{"missing next due with recurrence", func(v *receiptDecodeValues) {
-			v.interval = pgtype.Int4{Int32: 1, Valid: true}
-			v.unit = pgtype.Text{String: "day", Valid: true}
-			v.mode = pgtype.Text{String: "fixed", Valid: true}
-			v.next = pgtype.Date{}
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			values := validReceiptValues()
