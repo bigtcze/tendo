@@ -29,13 +29,8 @@ func (h *Handler) createCompletion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
-		httpx.ProblemResponse(w, 400, "idempotency_key_required")
-		return
-	}
-	if len(keys) != 1 || !item.ValidateIdempotencyKey(keys[0]) {
-		httpx.ProblemResponse(w, 400, "invalid_idempotency_key")
+	key, ok := idempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	values, ok := httpx.ReadObjectAllowEmpty(w, r, completionFields, completionBodyLimit)
@@ -47,7 +42,7 @@ func (h *Handler) createCompletion(w http.ResponseWriter, r *http.Request) {
 		s := v.(string)
 		req.CompletedOn = &s
 	}
-	result, _, err := h.service.Complete(r.Context(), uid, chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId"), expected, keys[0], req)
+	result, _, err := h.service.Complete(r.Context(), uid, chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId"), expected, key, req)
 	if err != nil {
 		writeCompletionError(w, err)
 		return
@@ -114,7 +109,15 @@ func (h *Handler) listCompletions(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, 200, out)
 }
 func completionJSON(c item.Completion) Completion {
-	out := Completion{Id: c.ID, ItemId: c.ItemID, CompletedByUserId: c.CompletedByUserID, CompletedOn: c.CompletedOn.String(), CreatedAt: c.CreatedAt.UTC(), Recurrence: recurrenceJSON(c.Recurrence), UndoneByUserId: c.UndoneByUserID}
+	out := Completion{
+		Id:                c.ID,
+		ItemId:            c.ItemID,
+		CompletedByUserId: c.CompletedByUserID,
+		CompletedOn:       c.CompletedOn.String(),
+		CreatedAt:         c.CreatedAt.UTC(),
+		Recurrence:        recurrenceJSON(c.Recurrence),
+		UndoneByUserId:    c.UndoneByUserID,
+	}
 	if c.UndoneAt != nil {
 		at := c.UndoneAt.UTC()
 		out.UndoneAt = &at

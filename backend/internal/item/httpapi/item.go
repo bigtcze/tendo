@@ -2,45 +2,12 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
-	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"github.com/go-chi/chi/v5"
-)
-
-const bodyLimit = 64 << 10
-
-var (
-	createFields = map[string]httpx.Field{
-		"title":                 {Kind: httpx.KindString, Required: true},
-		"subjectId":             {Kind: httpx.KindString, Required: true},
-		"responsibleUserId":     {Kind: httpx.KindNullableString},
-		"notes":                 {Kind: httpx.KindNullableString},
-		"attentionOn":           {Kind: httpx.KindNullableString},
-		"historicalCompletedOn": {Kind: httpx.KindString},
-		"recurrence":            {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
-	}
-
-	recurrenceFields = map[string]httpx.Field{
-		"intervalValue": {Kind: httpx.KindInteger, Required: true},
-		"intervalUnit":  {Kind: httpx.KindString, Required: true},
-		"mode":          {Kind: httpx.KindString, Required: true},
-	}
-	updateFields = map[string]httpx.Field{
-		"title":             {Kind: httpx.KindString},
-		"subjectId":         {Kind: httpx.KindString},
-		"responsibleUserId": {Kind: httpx.KindNullableString},
-		"notes":             {Kind: httpx.KindNullableString},
-		"attentionOn":       {Kind: httpx.KindNullableString},
-		"recurrence":        {Kind: httpx.KindNullableObject, Fields: recurrenceFields},
-		"workflowState":     {Kind: httpx.KindString},
-		"archived":          {Kind: httpx.KindBool},
-	}
 )
 
 type service interface {
@@ -49,7 +16,10 @@ type service interface {
 	List(ctx context.Context, userID, householdID string, q item.ListQuery) (item.Page, error)
 	Summary(ctx context.Context, userID, householdID string, q item.SummaryQuery) (item.Summary, error)
 	Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p item.Patch) (item.Item, error)
-	Complete(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, key string, request item.CompletionRequest) (item.Completion, bool, error)
+	Complete(
+		ctx context.Context, userID, householdID, itemID string, expectedVersion int64, key string,
+		request item.CompletionRequest,
+	) (item.Completion, bool, error)
 	UndoCompletion(ctx context.Context, userID, householdID, itemID, completionID string, expectedVersion int64) (item.Completion, error)
 	ListCompletions(ctx context.Context, userID, householdID, itemID string, limit int, cursor, order string) (item.CompletionPage, error)
 }
@@ -83,55 +53,49 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.ProblemResponse(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	keys := r.Header.Values("Idempotency-Key")
-	if len(keys) == 0 {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
-		return
-	}
-	if len(keys) != 1 || !item.ValidateIdempotencyKey(keys[0]) {
-		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
+	key, ok := idempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	values, ok := httpx.ReadObject(w, r, createFields, bodyLimit)
 	if !ok {
 		return
 	}
-	n := item.NewItem{SubjectID: values["subjectId"].(string), Title: values["title"].(string)}
-	if v, present := values["responsibleUserId"]; present && v != nil {
-		s := v.(string)
-		n.ResponsibleUserID = &s
-	}
-	if v, present := values["notes"]; present && v != nil {
-		s := v.(string)
-		n.Notes = &s
-	}
-	if v, present := values["attentionOn"]; present && v != nil {
-		s := v.(string)
-		n.AttentionOn = &s
-	}
-	if v, present := values["historicalCompletedOn"]; present {
-		s := v.(string)
-		n.HistoricalCompletedOn = &s
-	}
-	if v, present := values["recurrence"]; present && v != nil {
-		policy, err := recurrence(v)
-		if err != nil {
-			httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
-			return
-		}
-		n.Recurrence = policy
+	n, err := newItemFromBody(values)
+	if err != nil {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
+		return
 	}
 	householdID := chi.URLParam(r, "householdId")
-	created, err := h.service.Create(r.Context(), userID, householdID, keys[0], n)
+	created, err := h.service.Create(r.Context(), userID, householdID, key, n)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	w.Header().Set("Location", "/api/v1/households/"+strings.ToLower(householdID)+"/items/"+strings.ToLower(created.ID))
+	location := "/api/v1/households/" + strings.ToLower(householdID) + "/items/" + strings.ToLower(created.ID)
+	w.Header().Set("Location", location)
 	w.Header().Set("ETag", httpx.ETag(created.Version))
 	httpx.WriteJSON(w, http.StatusCreated, toJSON(created))
 }
 
+// idempotencyKey reads the single required Idempotency-Key header shared by
+// item create and completion create. On failure it writes the 400 problem.
+func idempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	keys := r.Header.Values("Idempotency-Key")
+	if len(keys) == 0 {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "idempotency_key_required")
+		return "", false
+	}
+	if len(keys) != 1 || !item.ValidateIdempotencyKey(keys[0]) {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_idempotency_key")
+		return "", false
+	}
+	return keys[0], true
+}
+
+// list validates transport structure in the documented order: shared list
+// parameters (limit, cursor, archived, done), then filters, sort,
+// attentionDate and q. Membership and semantic checks follow in the service.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.userID(r.Context())
 	if !ok {
@@ -142,129 +106,59 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	values := r.URL.Query()
-	readScalar := func(name string) (string, bool) { return readQueryScalar(w, values, name) }
-	subjectID, ok := readScalar("subjectId")
-	if !ok {
+	q := newQueryReader(r.URL.Query())
+	filters := q.collectionFilters()
+	sortBy := item.ListSort(q.scalar("sort"))
+	attentionDate := q.scalar("attentionDate")
+	search := q.scalar("q")
+	if q.invalid != "" {
+		httpx.QueryProblemResponse(w, q.invalid)
 		return
 	}
-	responsibleID, ok := readScalar("responsibleUserId")
-	if !ok {
-		return
-	}
-	workflow, ok := readScalar("workflowState")
-	if !ok {
-		return
-	}
-	attention, ok := readScalar("attention")
-	if !ok {
-		return
-	}
-	recurringText, ok := readScalar("recurring")
-	if !ok {
-		return
-	}
-	var recurring *bool
-	if recurringText != "" {
-		if recurringText != "true" && recurringText != "false" {
-			httpx.QueryProblemResponse(w, "recurring")
-			return
-		}
-		b := recurringText == "true"
-		recurring = &b
-	}
-	sortText, ok := readScalar("sort")
-	if !ok {
-		return
-	}
-	attentionDate, ok := readScalar("attentionDate")
-	if !ok {
-		return
-	}
-	search, ok := readScalar("q")
-	if !ok {
-		return
-	}
-	var sortBy item.ListSort
-	if sortText != "" {
-		sortBy = item.ListSort(sortText)
-	}
-	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{Sort: sortBy, AttentionDate: attentionDate, Archived: params.Archived, Done: params.Done, Limit: params.Limit, Cursor: params.Cursor, SubjectID: subjectID, ResponsibleUserID: responsibleID, WorkflowState: workflow, Attention: attention, Recurring: recurring, Q: search})
+	page, err := h.service.List(r.Context(), userID, chi.URLParam(r, "householdId"), item.ListQuery{
+		Sort:              sortBy,
+		AttentionDate:     attentionDate,
+		Archived:          params.Archived,
+		Done:              params.Done,
+		Limit:             params.Limit,
+		Cursor:            params.Cursor,
+		SubjectID:         filters.subjectID,
+		ResponsibleUserID: filters.responsibleUserID,
+		WorkflowState:     filters.workflowState,
+		Attention:         filters.attention,
+		Recurring:         filters.recurring,
+		Q:                 search,
+	})
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	items := make([]Item, 0, len(page.Items))
-	for _, found := range page.Items {
-		items = append(items, toJSON(found))
-	}
-	httpx.WriteJSON(w, http.StatusOK, ItemList{Items: items, NextCursor: page.NextCursor})
+	httpx.WriteJSON(w, http.StatusOK, listJSON(page))
 }
 
-func readQueryScalar(w http.ResponseWriter, values url.Values, name string) (string, bool) {
-	v, exists := values[name]
-	if !exists {
-		return "", true
-	}
-	if len(v) != 1 || v[0] == "" {
-		httpx.QueryProblemResponse(w, name)
-		return "", false
-	}
-	return v[0], true
-}
-
+// summary counts the whole filtered collection, so paging, lifecycle and sort
+// parameters are rejected before the shared filters are read.
 func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.userID(r.Context())
 	if !ok {
 		httpx.ProblemResponse(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
-	values := r.URL.Query()
-	for _, name := range []string{"limit", "cursor", "archived", "done", "sort"} {
-		if _, exists := values[name]; exists {
-			httpx.QueryProblemResponse(w, name)
-			return
-		}
-	}
-	readScalar := func(name string) (string, bool) { return readQueryScalar(w, values, name) }
-	var q item.SummaryQuery
-	var good bool
-	if q.SubjectID, good = readScalar("subjectId"); !good {
+	q := newQueryReader(r.URL.Query())
+	q.forbid("limit", "cursor", "archived", "done", "sort")
+	filters := q.collectionFilters()
+	attentionDate := q.scalar("attentionDate")
+	search := q.scalar("q")
+	if q.invalid != "" {
+		httpx.QueryProblemResponse(w, q.invalid)
 		return
 	}
-	if q.ResponsibleUserID, good = readScalar("responsibleUserId"); !good {
-		return
-	}
-	if q.WorkflowState, good = readScalar("workflowState"); !good {
-		return
-	}
-	if q.Attention, good = readScalar("attention"); !good {
-		return
-	}
-	recurring, good := readScalar("recurring")
-	if !good {
-		return
-	}
-	if recurring != "" {
-		if recurring != "true" && recurring != "false" {
-			httpx.QueryProblemResponse(w, "recurring")
-			return
-		}
-		b := recurring == "true"
-		q.Recurring = &b
-	}
-	if q.AttentionDate, good = readScalar("attentionDate"); !good {
-		return
-	}
-	if q.Q, good = readScalar("q"); !good {
-		return
-	}
-	result, err := h.service.Summary(r.Context(), userID, chi.URLParam(r, "householdId"), q)
+	result, err := h.service.Summary(r.Context(), userID, chi.URLParam(r, "householdId"), filters.summaryQuery(attentionDate, search))
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, ItemSummary{EvaluatedOn: result.EvaluatedOn.String(), Total: result.Total, NeedsAttention: result.NeedsAttention, InProgress: result.InProgress, Waiting: result.Waiting, Upcoming: result.Upcoming, Paused: result.Paused, Done: result.Done, Archived: result.Archived})
+	httpx.WriteJSON(w, http.StatusOK, summaryJSON(result))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -296,122 +190,17 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var patch item.Patch
-	if v, present := values["title"]; present {
-		s := v.(string)
-		patch.Title = &s
+	patch, err := patchFromBody(values)
+	if err != nil {
+		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
+		return
 	}
-	if v, present := values["subjectId"]; present {
-		s := v.(string)
-		patch.SubjectID = &s
-	}
-	if v, present := values["responsibleUserId"]; present {
-		patch.ResponsibleUserID = nullable(v)
-	}
-	if v, present := values["notes"]; present {
-		patch.Notes = nullable(v)
-	}
-	if v, present := values["attentionOn"]; present {
-		patch.AttentionOn = nullable(v)
-	}
-	if v, present := values["recurrence"]; present {
-		if v == nil {
-			patch.Recurrence = item.Null[schedule.Policy]()
-		} else {
-			policy, err := recurrence(v)
-			if err != nil {
-				httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
-				return
-			}
-			patch.Recurrence = item.Some(*policy)
-		}
-	}
-	if v, present := values["workflowState"]; present {
-		s := v.(string)
-		patch.WorkflowState = &s
-	}
-	if v, present := values["archived"]; present {
-		b := v.(bool)
-		patch.Archived = &b
-	}
-	updated, err := h.service.Update(r.Context(), userID, chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId"), expected, patch)
+	householdID, itemID := chi.URLParam(r, "householdId"), chi.URLParam(r, "itemId")
+	updated, err := h.service.Update(r.Context(), userID, householdID, itemID, expected, patch)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 	w.Header().Set("ETag", httpx.ETag(updated.Version))
 	httpx.WriteJSON(w, http.StatusOK, toJSON(updated))
-}
-
-// nullable converts a decoded string-or-null value.
-func nullable(v any) item.Nullable[string] {
-	if v == nil {
-		return item.Null[string]()
-	}
-	return item.Some(v.(string))
-}
-
-func recurrence(v any) (*schedule.Policy, error) {
-	fields := v.(map[string]any)
-	value, ok := fields["intervalValue"].(int64)
-	if !ok {
-		return nil, errors.New("invalid interval")
-	}
-	unit, ok := fields["intervalUnit"].(string)
-	if !ok {
-		return nil, errors.New("invalid unit")
-	}
-	mode, ok := fields["mode"].(string)
-	if !ok {
-		return nil, errors.New("invalid mode")
-	}
-	interval := 0
-	if value >= 1 && value <= 999 {
-		interval = int(value)
-	}
-	return &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: interval, Unit: schedule.Unit(unit)}, Mode: schedule.Mode(mode)}, nil
-}
-
-func writeServiceError(w http.ResponseWriter, err error) {
-	var validation *item.ValidationError
-	var query *item.InvalidQueryError
-	switch {
-	case errors.Is(err, item.ErrIdempotencyKeyReused):
-		httpx.ProblemResponse(w, http.StatusUnprocessableEntity, "idempotency_key_reused")
-	case errors.Is(err, item.ErrNotFound):
-		httpx.ProblemResponse(w, http.StatusNotFound, "not_found")
-	case errors.Is(err, item.ErrEmptyPatch):
-		httpx.ProblemResponse(w, http.StatusBadRequest, "invalid_request")
-	case errors.Is(err, item.ErrVersionMismatch):
-		httpx.ProblemResponse(w, http.StatusPreconditionFailed, "precondition_failed")
-	case errors.As(err, &validation):
-		httpx.ValidationProblemResponse(w, validation.Field, validation.Code)
-	case errors.As(err, &query):
-		httpx.QueryProblemResponse(w, query.Parameter)
-	default:
-		httpx.ProblemResponse(w, http.StatusServiceUnavailable, "unavailable")
-	}
-}
-
-func recurrenceJSON(policy *schedule.Policy) *ItemRecurrence {
-	if policy == nil {
-		return nil
-	}
-	return &ItemRecurrence{IntervalValue: policy.Interval.Value, IntervalUnit: RecurrenceIntervalUnit(policy.Interval.Unit), Mode: RecurrenceMode(policy.Mode)}
-}
-
-func toJSON(i item.Item) Item {
-	done := i.Done
-	out := Item{Id: i.ID, SubjectId: i.SubjectID, ResponsibleUserId: i.ResponsibleUserID, Title: i.Title, Notes: i.Notes, Recurrence: recurrenceJSON(i.Recurrence), WorkflowState: WorkflowState(i.WorkflowState), Attention: ItemAttention(i.Attention), Archived: i.Archived, Done: &done, CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC()}
-	if i.AttentionOn != nil {
-		s := i.AttentionOn.String()
-		out.AttentionOn = &s
-	}
-	var last *string
-	if i.LastCompletedOn != nil {
-		s := i.LastCompletedOn.String()
-		last = &s
-	}
-	out.LastCompletedOn = &last
-	return out
 }
