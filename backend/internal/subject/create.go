@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func (s *Service) Create(ctx context.Context, userID, householdID, key, name string, t Type, linkedUserID *string) (Subject, error) {
@@ -68,7 +70,7 @@ func (s *Service) validateLinkedUser(ctx context.Context, householdID string, t 
 		return nil, &ValidationError{"linkedUserId", "requires_person"}
 	}
 	id := strings.ToLower(*linked)
-	if !validUUID(id) || s.members == nil {
+	if !ids.IsCanonicalUUID(id) || s.members == nil {
 		return nil, &ValidationError{"linkedUserId", "invalid_reference"}
 	}
 	if err := s.members(ctx, id, householdID); err != nil {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 // ErrNotFound means the household does not exist, the identifier is malformed,
@@ -37,7 +39,7 @@ func NewService(repository Repository) *Service { return &Service{repository: re
 // Get returns the household only when userID is a member. householdID is
 // authorization context: malformed values are rejected before any persistence call.
 func (s *Service) Get(ctx context.Context, userID, householdID string) (Household, error) {
-	if !validUUID(householdID) || !validUUID(userID) {
+	if !ids.IsCanonicalUUID(householdID) || !ids.IsCanonicalUUID(userID) {
 		return Household{}, ErrNotFound
 	}
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
@@ -50,26 +52,4 @@ func (s *Service) Get(ctx context.Context, userID, householdID string) (Househol
 		return Household{}, errUnavailable
 	}
 	return found, nil
-}
-
-// validUUID accepts only the canonical 8-4-4-4-12 hexadecimal form (any hex
-// case); braces, URN prefixes, and unhyphenated forms are rejected.
-func validUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		switch i {
-		case 8, 13, 18, 23:
-			if s[i] != '-' {
-				return false
-			}
-		default:
-			c := s[i]
-			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-				return false
-			}
-		}
-	}
-	return true
 }
