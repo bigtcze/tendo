@@ -8,6 +8,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github/workflows/required.yml"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
+RELEASE_QUALIFICATION_WORKFLOW = ROOT / ".github/workflows/release-qualification.yml"
 
 REQUIRED_COMMANDS = (
     "gofmt -l",
@@ -275,6 +277,35 @@ class WorkflowStructureTests(unittest.TestCase):
         mutated = self.text.replace("length == 6 and all(.[]; .result == \"success\")", "length == 5 and all(.[]; .result == \"success\")", 1)
         errors = workflow_errors(mutated)
         self.assertTrue(any("aggregate jq expected count" in error for error in errors), errors)
+
+    def test_release_requires_exact_commit_qualification_before_publication(self):
+        release = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        qualification = RELEASE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
+        verify = job_section(release, "verify")
+        self.assertIn("needs: qualification", verify)
+        self.assertIn("uses: ./.github/workflows/release-qualification.yml", job_section(release, "qualification"))
+        self.assertIn("workflow_call:", qualification)
+        self.assertIn("ref: ${{ github.sha }}", qualification)
+        self.assertIn("needs: qualification", job_section(release, "verify"))
+        self.assertIn("needs: verify", job_section(release, "image"))
+        self.assertIn("needs: image", job_section(release, "release"))
+        self.assertTrue(
+            all(marker in qualification for marker in (
+                "TENDO_SR_AUDIT_DIR: ${{ runner.temp }}/tendo-sr-audit",
+                "bash scripts/e2e-smoke.sh",
+                "transcript.json",
+                "transcript.md",
+                "manifest.json",
+                "at-spi2-core",
+                "CREATE ROLE tendo NOLOGIN",
+                "path: |",
+                "${{ runner.temp }}/tendo-sr-audit/manifest.json",
+            ))
+        )
+        upload = job_section(qualification, "screen-reader").split("      - name: Upload sanitized", 1)[-1]
+        self.assertNotIn("orca-debug.out", upload)
+        self.assertNotIn("runtime/", upload)
+        self.assertIn("branches: [ci/v2-1-release-qualification]", qualification)
 
 
 if __name__ == "__main__":

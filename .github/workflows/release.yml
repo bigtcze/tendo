@@ -18,13 +18,21 @@ env:
   IMAGE: ghcr.io/bigtcze/tendo
 
 jobs:
+  qualification:
+    name: release qualification
+    uses: ./.github/workflows/release-qualification.yml
+    permissions:
+      contents: read
+
   verify:
     name: verify
+    needs: qualification
     timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       contents: read
       checks: read
+      actions: read
     steps:
       - uses: actions/checkout@v7.0.1
         with:
