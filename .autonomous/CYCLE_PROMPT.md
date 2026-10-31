@@ -35,9 +35,9 @@ an existing external Issue. All new V3 Issues must be created with milestone,
 label and `status:idle` at creation. Claim per V3_ISSUES_WORKFLOW (claim
 comment, idle -> in-progress, wait 3-5 s, re-read, earliest active claim wins),
 recheck milestone+label before every mutation, close only after merged green
-main and evidence. Reconcile owned claims, open PRs, branch and CI every cycle. One focused branch+PR at a time,
-protected main only, required CI pass, safe merge, verify green
-main. Follow FLOW and existing OpenCode/systemd controller; never change
+main and evidence. Reconcile owned claims, open PRs, branch and CI every
+cycle. One focused branch+PR at a time, protected main only, required CI pass,
+safe merge, verify green main. Follow FLOW and existing OpenCode/systemd controller; never change
 external controller/provider config. Record evidence and design decisions in
 canonical docs; GitHub Issues hold work/progress (not another STATE file).
 
