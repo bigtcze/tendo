@@ -41,9 +41,12 @@ jobs:
           test -f .autonomous/DOCUMENTATION.md
           test -f .autonomous/DEFINITION_OF_DONE.md
           test -f .autonomous/FLOW.md
-          test -f .autonomous/STATE.md
           test -f .autonomous/LEARNINGS.md
           test -f .autonomous/CYCLE_PROMPT.md
+          test -f .autonomous/V3_ISSUES_WORKFLOW.md
+          test -f .autonomous/V3_ISSUES_READY
+          grep -qx 'managed_issue_label=tendo:v3-autonomous' .autonomous/V3_ISSUES_READY
+          test ! -e .autonomous/STATE.md
           bash -n scripts/autonomous-loop.sh
       - name: Check Go formatting
         shell: bash

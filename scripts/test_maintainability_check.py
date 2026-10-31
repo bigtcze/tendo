@@ -187,7 +187,7 @@ class ProductionInventoryTests(unittest.TestCase):
             ".github/workflows/required.yml": "authored",
             "docs/user/items.md": "documentation",
             "LICENSE": "documentation",
-            ".autonomous/STATE.md": "agent context",
+            ".autonomous/V3_ISSUES_READY": "agent context",
             "frontend/package-lock.json": "lockfile",
             "docs/images/v2-overview.png": "binary asset or placeholder",
         }

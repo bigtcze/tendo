@@ -9,10 +9,15 @@ parallel_PRs=avoid
 ## Start each cycle
 1. Read context in AGENTS order.
 2. Inspect git status/current branch, origin/main, open PRs, required CI, merge state.
-3. Reconcile STATE with reality; reality wins.
+3. Read locked V3_ISSUES_WORKFLOW. Query open managed Issues with BOTH the
+   exact V3 milestone AND label `tendo:v3-autonomous`, e.g.
+   `gh issue list --milestone "Tendo v3.0.0 - Everyday Elegance" --label tendo:v3-autonomous --state open`;
+   reconcile their claims, comments, dependencies, linked PRs and CI with
+   reality (reality wins). Never treat other Issues as work items.
 4. If active Tendo PR exists, finish/review/fix it before unrelated work.
 5. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
-6. Select the highest-value unmet V3 audit, concept, design-system, UI or UX-validation DoD slice; one focused PR.
+6. Select the highest-value ready managed `status:idle` Issue (prerequisites
+   closed), claim it per V3_ISSUES_WORKFLOW, then deliver one focused PR.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -93,10 +98,12 @@ Renovate PRs:
 - Install only what GUARDRAILS permits.
 - Verify version and rerun originally failing task.
 - Do not repeatedly reinstall tools across cycles; record durable requirement once.
-- Preserve primary failure in STATE if cleanup/reporting also fails.
+- Preserve primary failure evidence in the owned Issue if cleanup/reporting also fails.
 
 ## Context maintenance
-STATE=replace_stale_snapshot_concise_facts_only
+work_status=managed_V3_Issues_only_no_state_file
+issue_body=stable_acceptance_contract_update_when_scope_changes
+issue_comments=claims_decisions_evidence_blockers_PR_links_handoff
 LEARNINGS=durable_reusable_rules_only
 FLOW=may_improve_process_without_changing_locked_policy
 AGENTS=may_improve_navigation_without_changing_locked_policy
@@ -104,7 +111,8 @@ docs_ADR=durable_decisions_only
 
 ## Blockers
 - Do not spin on quota/outage/missing external dependency.
-- Record exact blocker/evidence in STATE.
+- Record exact blocker/evidence in a comment on the owned managed Issue and
+  set `status:blocked` (recheck milestone + ownership label first).
 - Choose safe independent V3 design/UX validation, UI work or regression repair if available.
 - Never claim unverified success.
 
@@ -136,9 +144,10 @@ Never add the completion marker directly to main.
   exact V3 milestone AND ownership label `tendo:v3-autonomous`. Ignore ALL
   other Issues, even if they are in the V3 milestone or have V3-like titles.
   Never auto-adopt an outside Issue by applying the ownership label.
-- Only agents creating NEW Issues may attach this label at creation time.
+- Only agents creating NEW Issues may attach this label at creation time:
+  `gh issue create --milestone "Tendo v3.0.0 - Everyday Elegance" --label tendo:v3-autonomous --label status:idle`.
   Reconcile owned comments, claims, dependencies, linked PRs and required CI.
-  Never re-create STATE.md.
+  Never re-create STATE.md or any substitute state/progress file.
 - Work only on a claimed managed Issue; comment claim with stable identity, change
   idle -> in-progress, WAIT 3–5 seconds and re-read full issue/comment history.
   First still-active server-ordered claim wins, otherwise RELEASE and pick
