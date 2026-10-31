@@ -75,6 +75,7 @@ export async function handleCompletionResult(
   { current, result }: ReadThenWrite<CompleteResult>,
 ) {
   const { userId, householdId, t, refresh, setNotice, onSignedOut } = tools;
+  const retry = { itemId, retryKey: attemptKey, retryKind: 'complete' as const, originGroup: originGroup ?? undefined };
   if (current.kind === 'unauthenticated') { onSignedOut(); return; }
   if (current.kind === 'notFound') {
     clearPendingCompletion(userId, householdId, itemId, attemptKey);
@@ -84,7 +85,7 @@ export async function handleCompletionResult(
   }
   if (current.kind !== 'ok' || !result) {
     await refresh();
-    setNotice({ text: t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action'), itemId, retryKey: attemptKey, retryKind: 'complete', originGroup: originGroup ?? undefined });
+    setNotice({ text: t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action'), ...retry });
     return;
   }
   if (result.kind === 'unauthenticated') { onSignedOut(); return; }
@@ -102,7 +103,7 @@ export async function handleCompletionResult(
     clearPendingCompletion(userId, householdId, itemId, attemptKey);
     setNotice({ text: t(completionInvalidNoticeKey(result.code)) });
   }
-  else setNotice({ text: t('items.notice.retry'), itemId, retryKey: attemptKey, retryKind: 'complete', originGroup: originGroup ?? undefined });
+  else setNotice({ text: t('items.notice.retry'), ...retry });
 }
 
 export async function handleUndoResult(
