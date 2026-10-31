@@ -1,7 +1,7 @@
 # V2.1 Hand-Written Production Code Inventory
 
 Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/maintainability_check.py --inventory-out docs/development/v2-1-production-inventory.md`.
-This is a snapshot at Git HEAD `01ba94b32378877d8721e02e555d15bd8ef0f271`; rerun the command after source changes.
+This is a snapshot at Git HEAD `ff6f8d4af46a0aef2e5bff14916d859a6ffad2d4`; rerun the command after source changes.
 The maintainability ratchet checks the live tree and guarantees ongoing threshold compliance between inventory snapshots.
 Go has function-level metrics; frontend TS rules are enforced by ESLint.
 Python, shell, and SQL are measured at file level only (size and long lines).
@@ -238,7 +238,7 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/features/subjects/SubjectsScreenContent.tsx` | frontend TS | 49 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/SubjectsStatus.tsx` | frontend TS | 17 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/SubjectsViewToggle.tsx` | frontend TS | 11 | 0 | — | within thresholds |
-| `frontend/src/features/subjects/pendingSubjectCreate.ts` | frontend TS | 59 | 0 | — | within thresholds |
+| `frontend/src/features/subjects/pendingSubjectCreate.ts` | frontend TS | 73 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/refreshAfterCreate.ts` | frontend TS | 39 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/settleTerminalCreate.ts` | frontend TS | 27 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/subjectFormModel.ts` | frontend TS | 40 | 0 | — | within thresholds |
