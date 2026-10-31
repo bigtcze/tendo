@@ -310,6 +310,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@postgres:5432/postgres", qualification)
         self.assertIn("pg_isready -h postgres -U postgres -d postgres", qualification)
         self.assertIn("Install pinned Node.js", qualification)
+        self.assertIn("jq", qualification)
         self.assertIn("d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997", qualification)
         self.assertNotIn("actions/setup-node@", qualification)
 
