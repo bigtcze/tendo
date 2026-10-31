@@ -10,6 +10,60 @@ afterEach(() => {
   clearPendingItemCreates();
 });
 
+describe('pending item create bulk sign-out cleanup', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.resetModules();
+  });
+
+  it('keeps a settled create absent after bulk cleanup fails', async () => {
+    const pending = await import('./pendingItemCreate');
+    pending.setPendingItemCreate('user-a', 'household-a', attempt);
+    pending.clearPendingItemCreate('user-a', 'household-a', attempt.key);
+    expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
+
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+    pending.clearPendingItemCreates();
+
+    expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
+  });
+
+  it('does not recover entries unknown to memory after bulk cleanup fails', async () => {
+    sessionStorage.setItem('tendo.pendingItemCreate.v1:user-a:household-a', JSON.stringify(attempt));
+    const pending = await import('./pendingItemCreate');
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+
+    pending.clearPendingItemCreates();
+
+    expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
+  });
+
+  it('resets fully after successful bulk cleanup and persists later creates', async () => {
+    const pending = await import('./pendingItemCreate');
+    pending.setPendingItemCreate('user-a', 'household-a', attempt);
+    pending.clearPendingItemCreates();
+    expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
+
+    const next = { ...attempt, key: 'cd'.repeat(16) };
+    pending.setPendingItemCreate('user-a', 'household-a', next);
+    vi.resetModules();
+    const recovered = await import('./pendingItemCreate');
+
+    expect(recovered.getPendingItemCreate('user-a', 'household-a')).toEqual(next);
+  });
+
+  it('does not recover stored creates when storage is unavailable during cleanup', async () => {
+    sessionStorage.setItem('tendo.pendingItemCreate.v1:user-a:household-a', JSON.stringify(attempt));
+    const pending = await import('./pendingItemCreate');
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new Error('blocked'); } });
+
+    pending.clearPendingItemCreates();
+    Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor!);
+
+    expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
+  });
+});
+
 describe('pending item create storage', () => {
   it('scopes records by user and household and rejects corrupt or invalid records', () => {
     setPendingItemCreate('user-a', 'household-a', attempt);
