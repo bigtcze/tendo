@@ -228,13 +228,7 @@ def check_metrics(metrics: dict[tuple[str, str, str], int], baseline: list[dict]
 
 
 def enumerate_files(root: Path) -> list[str]:
-    command = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
-    result = subprocess.run(
-        command, cwd=root, check=True, stdout=subprocess.PIPE
-    )
-    raw = result.stdout
-    paths = sorted({item.decode() for item in raw.split(b"\0") if item})
-    return [p for p in paths if PurePosixPath(p).suffix in SUFFIXES and not excluded(p)]
+    return [path for path in source_candidates(root) if not excluded(path)]
 
 
 def exclusion_reason(path: str) -> str | None:
@@ -263,77 +257,103 @@ def inventory_area(path: str) -> str:
     return "SQL" if suffix == ".sql" else "script"
 
 
-def inventory_markdown(
-    root: Path, metrics: dict[tuple[str, str, str], int], baseline: list[dict]
-) -> str:
-    excluded_groups: dict[str, list[str]] = {}
+def collect_exclusion_info(paths: list[str]) -> tuple[dict[str, list[str]], Counter]:
+    groups: dict[str, list[str]] = {}
     counts = Counter()
-    for path in source_candidates(root):
+    for path in paths:
         reason, category = exclusion_reason(path), test_classification(path)
         counts[category] += bool(category)
         if reason:
-            excluded_groups.setdefault(reason, []).append(path)
-    production = [p for p in enumerate_files(root) if test_classification(p) is None]
-    exceptions: dict[str, list[dict]] = {}
+            groups.setdefault(reason, []).append(path)
+    return groups, counts
+
+
+def index_metrics(metrics: dict[tuple[str, str, str], int]) -> dict[str, list[tuple[str, str, int]]]:
+    indexed: dict[str, list[tuple[str, str, int]]] = {}
+    for (kind, path, name), value in metrics.items():
+        indexed.setdefault(path, []).append((kind, name, value))
+    return indexed
+
+
+def index_exceptions(baseline: list[dict]) -> dict[str, list[dict]]:
+    indexed: dict[str, list[dict]] = {}
     for entry in baseline:
         if test_classification(entry["path"]) is None:
-            exceptions.setdefault(entry["path"], []).append(entry)
-    rows = []
-    area_counts = Counter()
-    for path in production:
-        area = inventory_area(path)
-        area_counts[area] += 1
-        values = {
-            kind: value for (kind, metric_path, _), value in metrics.items()
-            if metric_path == path
-        }
-        own_exceptions = sorted(exceptions.get(path, []), key=lambda e: (e["kind"], e.get("name", "")))
-        if own_exceptions:
-            disposition = "; ".join(
-                f"{entry['kind']} allowed={entry['allowed']} ({entry['owner']})"
-                for entry in own_exceptions
-            )
-            disposition = "baseline exception: " + disposition
-        else:
-            disposition = "within thresholds"
-        details = "—"
-        if area == "backend Go":
-            functions = {}
-            for (kind, metric_path, name), value in metrics.items():
-                if metric_path == path and kind.startswith("func_"):
-                    functions.setdefault(name, {})[kind] = value
-            maxima = []
-            for kind in ("func_lines", "func_complexity", "func_nesting"):
-                worst = max(functions.items(), key=lambda item: item[1].get(kind, 0), default=("—", {}))
-                maxima.append(f"{worst[1].get(kind, 0)} ({worst[0]})")
-            details = f"{len(functions)}; " + "; ".join(maxima)
-        rows.append(f"| `{path}` | {area} | {values.get('file_lines', 0)} | {values.get('long_lines', 0)} | {details} | {disposition} |")
-    frontend_baseline = json.loads((root / "frontend/maintainability-baseline.json").read_text(encoding="utf-8"))
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+            indexed.setdefault(entry["path"], []).append(entry)
+    return indexed
+
+
+def file_disposition(entries: list[dict]) -> str:
+    if not entries:
+        return "within thresholds"
+    details = "; ".join(
+        f"{entry['kind']} allowed={entry['allowed']} ({entry['owner']})"
+        for entry in sorted(entries, key=lambda item: (item["kind"], item.get("name", "")))
+    )
+    return "baseline exception: " + details
+
+
+def go_function_maxima(items: list[tuple[str, str, int]]) -> str:
+    functions: dict[str, dict[str, int]] = {}
+    for kind, name, value in items:
+        if kind.startswith("func_"):
+            functions.setdefault(name, {})[kind] = value
+    maxima = []
+    for kind in ("func_lines", "func_complexity", "func_nesting"):
+        name, value = max(((name, values.get(kind, 0)) for name, values in functions.items()), key=lambda row: row[1], default=("—", 0))
+        maxima.append(f"{value} ({name})")
+    return f"{len(functions)}; " + "; ".join(maxima)
+
+
+def render_inventory_row(path: str, indexed_metrics: dict[str, list[tuple[str, str, int]]], exceptions: dict[str, list[dict]]) -> str:
+    area = inventory_area(path)
+    values = {kind: value for kind, _, value in indexed_metrics.get(path, [])}
+    detail = go_function_maxima(indexed_metrics.get(path, [])) if area == "backend Go" else "—"
+    return f"| `{path}` | {area} | {values.get('file_lines', 0)} | {values.get('long_lines', 0)} | {detail} | {file_disposition(exceptions.get(path, []))} |"
+
+
+def render_inventory_header(root: Path, head: str, areas: Counter, total: int, counts: Counter) -> list[str]:
+    frontend = json.loads((root / "frontend/maintainability-baseline.json").read_text(encoding="utf-8"))
     lines = [
         "# V2.1 Hand-Written Production Code Inventory", "",
         "Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/maintainability_check.py --inventory-out docs/development/v2-1-production-inventory.md`.",
         f"This is a snapshot at Git HEAD `{head}`; rerun the command after source changes.",
         "The maintainability ratchet checks the live tree and guarantees ongoing threshold compliance between inventory snapshots.",
-        "", "## Summary", "",
-        "| Area | Production files |", "|---|---:|",
+        "Go has function-level metrics; frontend TS rules are enforced by ESLint.",
+        "Python, shell, and SQL are measured at file level only (size and long lines).",
+        "", "## Summary", "", "| Area | Production files |", "|---|---:|",
     ]
-    lines.extend(f"| {area} | {area_counts[area]} |" for area in ("backend Go", "frontend TS", "SQL", "script"))
+    lines.extend(f"| {area} | {areas[area]} |" for area in ("backend Go", "frontend TS", "SQL", "script"))
     lines.extend([
-        f"| **Total production** | **{len(production)}** |", "",
+        f"| **Total production** | **{total}** |", "",
         f"Test files: {counts['test']}; test-support files: {counts['test-support']}.",
-        f"Frontend function-level rules are enforced by ESLint with `frontend/maintainability-baseline.json` ({len(frontend_baseline)} entries).",
+        f"Frontend function-level rules are enforced by ESLint with `frontend/maintainability-baseline.json` ({len(frontend)} entries).",
+    ])
+    return lines
+
+
+def render_exclusion_section(groups: dict[str, list[str]]) -> list[str]:
+    lines = ["", "## Excluded source paths", ""]
+    for reason, paths in sorted(groups.items()):
+        lines.extend([f"### {reason}", "", *(f"- `{path}`" for path in sorted(paths)), ""])
+    return lines
+
+
+def inventory_markdown(root: Path, metrics: dict[tuple[str, str, str], int], baseline: list[dict]) -> str:
+    paths = enumerate_files(root)
+    production = [path for path in paths if test_classification(path) is None]
+    groups, counts = collect_exclusion_info(source_candidates(root))
+    indexed_metrics, exceptions = index_metrics(metrics), index_exceptions(baseline)
+    areas = Counter(inventory_area(path) for path in production)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+    lines = render_inventory_header(root, head, areas, len(production), counts)
+    lines.extend([
         "", "## Production files", "",
         "| Path | Area | Non-blank lines | Long lines | Go functions; max lines (function); complexity (function); nesting (function) | Disposition |",
         "|---|---|---:|---:|---|---|",
     ])
-    lines.extend(rows)
-    lines.extend(["", "## Excluded source paths", ""])
-    for reason in sorted(excluded_groups):
-        lines.append(f"### {reason}")
-        lines.append("")
-        lines.extend(f"- `{path}`" for path in sorted(excluded_groups[reason]))
-        lines.append("")
+    lines.extend(render_inventory_row(path, indexed_metrics, exceptions) for path in production)
+    lines.extend(render_exclusion_section(groups))
     return "\n".join(lines).rstrip() + "\n"
 
 

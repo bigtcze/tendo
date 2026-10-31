@@ -1,8 +1,10 @@
 # V2.1 Hand-Written Production Code Inventory
 
 Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/maintainability_check.py --inventory-out docs/development/v2-1-production-inventory.md`.
-This is a snapshot at Git HEAD `8c3008841f4a2f5381b46727870aafd82f87869d`; rerun the command after source changes.
+This is a snapshot at Git HEAD `01ba94b32378877d8721e02e555d15bd8ef0f271`; rerun the command after source changes.
 The maintainability ratchet checks the live tree and guarantees ongoing threshold compliance between inventory snapshots.
+Go has function-level metrics; frontend TS rules are enforced by ESLint.
+Python, shell, and SQL are measured at file level only (size and long lines).
 
 ## Summary
 
@@ -275,7 +277,7 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `scripts/e2e_native_diagnostics.py` | script | 371 | 0 | — | within thresholds |
 | `scripts/e2e_orca_session.py` | script | 51 | 0 | — | within thresholds |
 | `scripts/household-backup-smoke.sh` | script | 302 | 14 | — | baseline exception: long_lines allowed=14 (tooling-scripts) |
-| `scripts/maintainability_check.py` | script | 495 | 0 | — | within thresholds |
+| `scripts/maintainability_check.py` | script | 499 | 0 | — | within thresholds |
 | `scripts/oidc-smoke.sh` | script | 187 | 9 | — | baseline exception: long_lines allowed=9 (tooling-scripts) |
 | `scripts/postgres-test-service.py` | script | 309 | 7 | — | baseline exception: long_lines allowed=7 (tooling-scripts) |
 | `scripts/proxy-smoke.sh` | script | 451 | 26 | — | baseline exception: long_lines allowed=26 (tooling-scripts) |
