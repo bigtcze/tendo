@@ -31,10 +31,11 @@ export function useCompletionActions({
       return { current, result: await write(current.etag) };
     })());
   }
-  async function finish(itemId: string) {
+  async function finish(itemId: string, retryOriginGroup?: ItemGroup) {
     const origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focused = origin?.dataset.action === 'done' || origin?.dataset.action === 'completion-trigger';
-    const originGroup = itemGroup(itemId);
+    // A retry keeps the group captured by the first attempt: a refresh in between may already show the item in its next group.
+    const originGroup = retryOriginGroup ?? itemGroup(itemId);
     if (!lock.begin()) return;
     focusOriginRef.current = origin;
     const key = getPendingCompletion(userId, householdId, itemId) ?? idempotencyKey();
@@ -58,7 +59,7 @@ export function useCompletionActions({
   }
   async function retryNotice() {
     if (!notice) return;
-    if (notice.retryKind === 'complete' && notice.itemId) await finish(notice.itemId);
+    if (notice.retryKind === 'complete' && notice.itemId) await finish(notice.itemId, notice.originGroup);
     else if (notice.retryKind === 'undo') await undo();
   }
   function markRetryFocused() { retryHadFocusRef.current = true; }
