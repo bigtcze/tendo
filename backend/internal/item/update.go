@@ -2,8 +2,10 @@ package item
 
 import (
 	"context"
-	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
 // Patch is the unvalidated partial update input. Unset fields are unchanged.
@@ -39,7 +41,7 @@ type Change struct {
 }
 
 func (s *Service) Update(ctx context.Context, userID, householdID, itemID string, expectedVersion int64, p Patch) (Item, error) {
-	if !validUUID(itemID) {
+	if !ids.IsCanonicalUUID(itemID) {
 		return Item{}, ErrNotFound
 	}
 	itemID = strings.ToLower(itemID)

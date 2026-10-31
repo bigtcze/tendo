@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"time"
@@ -52,49 +53,85 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return errors.New("migration files unavailable")
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	if applied > currentVersion {
 		return errors.New("database schema is newer than this application")
 	}
+	if err := applyMigrations(migrations, entries, applied, func(step migrationStep) error {
+		return applyMigration(bounded, conn, step)
+	}); err != nil {
+		return err
+	}
+	return validateMetadata(bounded, conn)
+}
+
+type migrationStep struct {
+	version int64
+	up      string
+}
+
+func applyMigrations(source fs.FS, entries []fs.DirEntry, applied int64, apply func(migrationStep) error) error {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, entry := range entries {
-		var version int64
-		if _, err = fmt.Sscanf(entry.Name(), "%d_", &version); err != nil {
-			return errors.New("invalid migration filename")
+		version, err := migrationVersion(entry)
+		if err != nil {
+			return err
 		}
 		if version <= applied {
 			continue
 		}
-		raw, readErr := migrations.ReadFile(entry.Name())
-		if readErr != nil {
-			return errors.New("migration file unavailable")
+		step, err := migrationForEntry(source, entry, version)
+		if err != nil {
+			return err
 		}
-		up, _, ok := strings.Cut(string(raw), "-- +goose Down")
-		if !ok {
-			return errors.New("invalid migration")
+		if err := apply(step); err != nil {
+			return err
 		}
-		up = strings.ReplaceAll(up, "-- +goose Up", "")
-		tx, beginErr := conn.Begin(bounded)
-		if beginErr != nil {
-			return errors.New("migration transaction failed")
-		}
-		if _, beginErr = tx.Exec(bounded, `INSERT INTO tendo_schema_migrations(version,dirty) VALUES($1,true)`, version); beginErr == nil {
-			_, beginErr = tx.Exec(bounded, up)
-		}
-		if beginErr == nil {
-			_, beginErr = tx.Exec(bounded, `UPDATE tendo_schema_migrations SET dirty=false WHERE version=$1`, version)
-		}
-		if beginErr != nil {
-			cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = tx.Rollback(cleanup)
-			cancel()
-			return fmt.Errorf("migration failed: %w", beginErr)
-		}
-		if beginErr = tx.Commit(bounded); beginErr != nil {
-			return errors.New("migration commit failed")
-		}
-		applied = version
+		applied = step.version
 	}
-	return validateMetadata(bounded, conn)
+	return nil
+}
+
+func migrationVersion(entry fs.DirEntry) (int64, error) {
+	var version int64
+	if _, err := fmt.Sscanf(entry.Name(), "%d_", &version); err != nil {
+		return 0, errors.New("invalid migration filename")
+	}
+	return version, nil
+}
+
+func migrationForEntry(source fs.FS, entry fs.DirEntry, version int64) (migrationStep, error) {
+	raw, err := fs.ReadFile(source, entry.Name())
+	if err != nil {
+		return migrationStep{}, errors.New("migration file unavailable")
+	}
+	up, _, ok := strings.Cut(string(raw), "-- +goose Down")
+	if !ok {
+		return migrationStep{}, errors.New("invalid migration")
+	}
+	return migrationStep{version: version, up: strings.ReplaceAll(up, "-- +goose Up", "")}, nil
+}
+
+func applyMigration(ctx context.Context, conn *pgxpool.Conn, step migrationStep) error {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return errors.New("migration transaction failed")
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO tendo_schema_migrations(version,dirty) VALUES($1,true)`, step.version); err == nil {
+		_, err = tx.Exec(ctx, step.up)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, `UPDATE tendo_schema_migrations SET dirty=false WHERE version=$1`, step.version)
+	}
+	if err != nil {
+		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = tx.Rollback(cleanup)
+		cancel()
+		return fmt.Errorf("migration failed: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.New("migration commit failed")
+	}
+	return nil
 }
 
 func ValidateSchema(ctx context.Context, pool *pgxpool.Pool) error {
@@ -118,7 +155,9 @@ func ensureMetadata(ctx context.Context, conn migrationConn) error {
 func validateMetadata(ctx context.Context, conn migrationConn) error {
 	var maxVersion int64
 	var dirty bool
-	if err := conn.QueryRow(ctx, `SELECT COALESCE(max(version),0), COALESCE(bool_or(dirty),false) FROM tendo_schema_migrations`).Scan(&maxVersion, &dirty); err != nil {
+	if err := conn.QueryRow(ctx,
+		`SELECT COALESCE(max(version),0), COALESCE(bool_or(dirty),false) FROM tendo_schema_migrations`,
+	).Scan(&maxVersion, &dirty); err != nil {
 		return errors.New("schema metadata invalid")
 	}
 	if dirty {

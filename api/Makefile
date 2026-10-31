@@ -14,7 +14,7 @@ generate:
 
 validate:
 	REDOCLY_TELEMETRY=off npx --no-install redocly lint openapi.yaml --extends=recommended --skip-rule=info-license --skip-rule=info-license-strict
-	node --test check-health.test.mjs check-contract.test.mjs oidc-middleware.test.mjs
+	node --test check-health.test.mjs check-contract.test.mjs oidc-middleware.test.mjs dependency-overrides.test.mjs
 	node check-health.mjs
 	node check-generation.mjs
 

@@ -110,6 +110,30 @@ func TestParseIfMatch(t *testing.T) {
 	}
 }
 
+func TestParseListParamsFirstOffenderOrderAndFilterGating(t *testing.T) {
+	for _, pair := range [][2]string{{"limit=0", "cursor="}, {"limit=0", "archived=bad"}, {"limit=0", "done=bad"}, {"cursor=", "archived=bad"}, {"cursor=", "done=bad"}, {"archived=bad", "done=bad"}} {
+		query := pair[0] + "&" + pair[1]
+		w := httptest.NewRecorder()
+		_, ok := ParseListParamsFor(w, httptest.NewRequest("GET", "/?"+query, nil), 100, ListFilterArchivedDone)
+		var body struct{ Parameter string }
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if ok || body.Parameter != strings.Split(pair[0], "=")[0] {
+			t.Fatalf("%s: ok=%v parameter=%q", query, ok, body.Parameter)
+		}
+	}
+	for _, filter := range []ListFilter{ListFilterArchived, ListFilterDone, ListFilterArchivedDone} {
+		for _, query := range []string{"archived=bad", "done=bad"} {
+			w := httptest.NewRecorder()
+			_, ok := ParseListParamsFor(w, httptest.NewRequest("GET", "/?"+query, nil), 100, filter)
+			parameter := strings.Split(query, "=")[0]
+			wantReject := parameter == "archived" && filter != ListFilterDone || parameter == "done" && filter != ListFilterArchived
+			if ok == wantReject {
+				t.Fatalf("filter=%d query=%s ok=%v", filter, query, ok)
+			}
+		}
+	}
+}
+
 func TestParseListParams(t *testing.T) {
 	parse := func(query string) (ListParams, string) {
 		w := httptest.NewRecorder()
