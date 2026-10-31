@@ -336,6 +336,27 @@ func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T
 
 const itemIDFloor = "00000000-0000-0000-0000-000000000000"
 
+func installCompletionUpdateFailure(t *testing.T, ctx context.Context, admin *pgxpool.Pool, label string) {
+	t.Helper()
+	_, err := admin.Exec(ctx, `
+CREATE FUNCTION fail_completion_item_update() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'forced completion item update failure';
+END;
+$$;
+CREATE TRIGGER fail_completion_item_update
+BEFORE UPDATE ON items
+FOR EACH ROW EXECUTE FUNCTION fail_completion_item_update();`)
+	if err != nil {
+		t.Fatalf("install %s completion failure trigger: %v", label, err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), `DROP TRIGGER fail_completion_item_update ON items; DROP FUNCTION fail_completion_item_update()`); err != nil {
+			t.Errorf("remove %s completion failure trigger: %v", label, err)
+		}
+	})
+}
+
 func TestFilteredListAgainstPostgres(t *testing.T) {
 	appURL, adminURL := integrationURLs(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -1971,11 +1992,10 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitDay}, Mode: schedule.ModeFixed}
 		fingerprint := [32]byte{23}
 		receipt := &item.Completion{CompletedOn: completed, CompletedByUserID: completionUser, Recurrence: policy, PriorWorkflowState: item.StateOpen, NextAttentionOn: &next, ItemVersionBefore: 1, Fingerprint: fingerprint}
-		completeAfterInsertHook = func() error { return errors.New("forced rollback") }
-		i, err := createForTest(ctx, repo, hA, completionUser, item.Draft{SubjectID: sA.ID, Title: "rollback initialize", Recurrence: policy, AttentionOn: &next, InitializationReceipt: receipt})
-		completeAfterInsertHook = nil
-		if err == nil {
-			t.Fatalf("create succeeded unexpectedly: %+v", i)
+		installCompletionUpdateFailure(t, ctx, admin, "initialization")
+		_, err := createForTest(ctx, repo, hA, completionUser, item.Draft{SubjectID: sA.ID, Title: "rollback initialize", Recurrence: policy, AttentionOn: &next, InitializationReceipt: receipt})
+		if !errors.Is(err, errPersistence) {
+			t.Fatalf("database failure mapping err=%v", err)
 		}
 		var items, receipts int
 		if err = admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid AND title='rollback initialize'`, hA).Scan(&items); err != nil {
@@ -1989,20 +2009,19 @@ func TestItemsAgainstPostgres(t *testing.T) {
 		}
 	})
 
-	t.Run("completion rollback after insert hook", func(t *testing.T) {
+	t.Run("completion rollback after receipt insert", func(t *testing.T) {
 		anchor, _ := schedule.NewDate(2026, time.October, 7)
-		i := create(hA, sA.ID, "hook rollback", nil, &anchor)
-		completeAfterInsertHook = func() error { return item.ErrUnavailable }
-		_, _, err := repo.Complete(ctx, hA, i.ID, "hook-rollback", [32]byte{88}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
-			receipt := item.Completion{HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: anchor, PriorWorkflowState: cur.WorkflowState, ItemVersionBefore: cur.Version, IdempotencyKey: "hook-rollback"}
+		i := create(hA, sA.ID, "database rollback", nil, &anchor)
+		installCompletionUpdateFailure(t, ctx, admin, "completion")
+		_, _, err := repo.Complete(ctx, hA, i.ID, "database-rollback", [32]byte{88}, func(cur item.Item, _ *item.Completion) (item.CompletionPlan, error) {
+			receipt := item.Completion{HouseholdID: hA, ItemID: i.ID, CompletedByUserID: completionUser, CompletedOn: anchor, PriorWorkflowState: cur.WorkflowState, ItemVersionBefore: cur.Version, IdempotencyKey: "database-rollback"}
 			changed := cur
 			changed.Done = true
 			changed.Version++
 			return item.CompletionPlan{Receipt: receipt, Item: changed}, nil
 		})
-		completeAfterInsertHook = nil
-		if !errors.Is(err, item.ErrUnavailable) {
-			t.Fatalf("forced failure err=%v", err)
+		if !errors.Is(err, errPersistence) {
+			t.Fatalf("database failure mapping err=%v", err)
 		}
 		stored, err := repo.Get(ctx, hA, i.ID)
 		if err != nil || stored.Version != 1 || stored.Done {
