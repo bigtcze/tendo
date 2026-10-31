@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearPendingItemCreate, clearPendingItemCreates, getPendingItemCreate, setPendingItemCreate } from './pendingItemCreate';
 
 const attempt = { version: 1 as const, key: 'ab'.repeat(16), body: { title: 'Name', subjectId: 'subject-a', recurrence: null } };
@@ -19,10 +19,10 @@ describe('pending item create bulk sign-out cleanup', () => {
   it('keeps a settled create absent after bulk cleanup fails', async () => {
     const pending = await import('./pendingItemCreate');
     pending.setPendingItemCreate('user-a', 'household-a', attempt);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
     pending.clearPendingItemCreate('user-a', 'household-a', attempt.key);
     expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
 
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
     pending.clearPendingItemCreates();
 
     expect(pending.getPendingItemCreate('user-a', 'household-a')).toBeUndefined();
