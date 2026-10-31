@@ -6,12 +6,14 @@ import { parse } from 'yaml'
 
 // package.json overrides minimatch to 11.x under @redocly/openapi-core 1.x
 // (GHSA-g3hv-75wg-m249; openapi-core 1.x is archived and pins minimatch ^5).
-// openapi-core 1.x calls `require('minimatch')(url, pattern)` only in
-// readFileFromUrl when resolve.http.headers are configured; minimatch 11 is not
-// callable as a module. Headers can only come from a Redocly config file (or
-// Redocly login tokens, which are read only when such a file is loaded), and
-// URLs are fetched only for remote $refs. Keep both absent while the override
-// exists. See docs/development/dependencies.md.
+// openapi-core 1.x calls `require('minimatch')(url, pattern)` only in the
+// header-matching loop of readFileFromUrl, which iterates resolve.http.headers;
+// minimatch 11 is not callable as a module. The openapi-typescript 7.13.0 CLI
+// calls loadConfig (which adds Redocly login tokens as headers) only when
+// findConfig finds a redocly.yaml/.redocly.yaml in the working directory (api/);
+// otherwise createConfig yields no headers. Remote fetches ($ref, externalValue)
+// would then still be headerless. Keep both absent while the override exists.
+// See docs/development/dependencies.md.
 
 const root = new URL('.', import.meta.url)
 const require = createRequire(import.meta.url)
@@ -22,7 +24,7 @@ test('API tooling has no Redocly config that could configure HTTP resolve header
   assert.deepEqual(configs, [], 'a Redocly config reaches openapi-core readFileFromUrl header matching; revisit the minimatch override first')
 })
 
-test('OpenAPI contract uses only local references', async () => {
+test('OpenAPI contract uses only local references and no external values', async () => {
   const contract = parse(await readFile(new URL('./openapi.yaml', root), 'utf8'))
   const external = []
   const walk = (value, path) => {
@@ -30,11 +32,12 @@ test('OpenAPI contract uses only local references', async () => {
     if (!value || typeof value !== 'object') return
     for (const [key, child] of Object.entries(value)) {
       if (key === '$ref' && (typeof child !== 'string' || !child.startsWith('#/'))) external.push(`${path}: ${child}`)
+      if (key === 'externalValue') external.push(`${path}/externalValue: ${child}`)
       walk(child, `${path}/${key}`)
     }
   }
   walk(contract, '#')
-  assert.deepEqual(external, [], 'remote $refs reach openapi-core readFileFromUrl; revisit the minimatch override first')
+  assert.deepEqual(external, [], 'remote $refs or externalValue reach openapi-core readFileFromUrl; revisit the minimatch override first')
 })
 
 test('openapi-core resolves the overridden minimatch and fetches without configured headers', async () => {
