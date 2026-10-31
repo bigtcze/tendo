@@ -83,7 +83,7 @@ dbus-run-session -- bash -Eeuo pipefail -c '
     fi
     sleep .1
   done
-  [[ -e "$1/ready" ]] || { echo "Orca did not announce screen-reader readiness within 30 seconds" >&2; exit 1; }
+  [[ -e "$1/ready" ]] || { echo "Orca did not announce screen-reader readiness within $ready_timeout seconds" >&2; exit 1; }
   wait "$orca_pid"
 ' _ "$out" "$debug" "$runtime" &
 wait $!

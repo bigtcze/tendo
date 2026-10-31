@@ -22,13 +22,6 @@
   },
   {
     "kind": "file_lines",
-    "path": "scripts/e2e-native-runner.py",
-    "allowed": 511,
-    "reason": "Native E2E runner supervises server/browser processes, diagnostics, cancellation, and cleanup; separate lifecycle helpers while preserving fail-fast cleanup.",
-    "owner": "tooling-scripts"
-  },
-  {
-    "kind": "file_lines",
     "path": "scripts/proxy-smoke.sh",
     "allowed": 536,
     "reason": "Proxy smoke orchestrates TLS proxy variants and HTTP/OIDC contract probes; split service setup from assertions while preserving cleanup.",

@@ -277,9 +277,10 @@ class ChildProcessTests(unittest.TestCase):
                 (runtime / "display").write_text(":123"); (new_logs / "ready").touch(); (new_logs / "bus-address").write_text("unix:path=private")
                 return proc
             children.start.side_effect = start_session
-            with mock.patch.dict("os.environ", {"GITHUB_SHA": "workflow-sha"}, clear=False), mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.subprocess, "check_output", side_effect=AssertionError("git should not be queried in a container")), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
+            with mock.patch.dict("os.environ", {"GITHUB_SHA": "workflow-sha", "TENDO_SR_READY_TIMEOUT_SECONDS": "47"}, clear=False), mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.subprocess, "check_output", side_effect=["workflow-sha", ""]), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
                 runner.run_screen_reader(root, env, children, root / "artifacts", audit)
             children.start.assert_called_once_with([str(root / "scripts/sr-orca-session.sh"), str(runtime), str(debug), str(logs)], env, "private Orca session")
+            self.assertEqual(children.start.call_args.args[1]["TENDO_SR_READY_TIMEOUT_SECONDS"], "47")
             children.stop.assert_called_once_with(proc, grace=5)
             self.assertEqual(list(audit.glob("transcript.*")), [])
             self.assertFalse((audit / "manifest.json").exists())
@@ -295,6 +296,17 @@ class ChildProcessTests(unittest.TestCase):
             self.assertEqual(playwright.call_args.args[1]["XDG_RUNTIME_DIR"], str(runtime / "xdg-runtime"))
             self.assertEqual(playwright.call_args.args[1]["GIT_COMMIT"], "workflow-sha")
             self.assertEqual(playwright.call_args.args[1]["GIT_DIRTY"], "false")
+
+    def test_screen_reader_invalid_readiness_timeout_fails_before_session_start(self):
+        for value in ("0", "-1", "abc", ""):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp).resolve()
+                audit = root / "audit"
+                with mock.patch.dict("os.environ", {"TENDO_SR_READY_TIMEOUT_SECONDS": value}):
+                    children = mock.Mock()
+                    with self.assertRaisesRegex(ValueError, "positive integer"):
+                        runner.run_screen_reader(root, {}, children, root, audit)
+                children.start.assert_not_called()
 
     def test_screen_reader_argument_selects_opt_in_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
