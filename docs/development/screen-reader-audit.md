@@ -22,7 +22,10 @@ Markdown transcripts plus a run manifest. Only `transcript.json`, `transcript.md
 and `manifest.json` are sanitized.
 `orca-debug.out`, `runtime/` logs, and `runtime/logs/audio.raw` are unsanitized,
 owner-only local outputs that may contain sensitive data; do not upload or commit
-them. Keep the audit directory private and review sanitized artifacts before sharing.
+them. The only exception is release qualification, which on failure uploads the
+four allowlisted startup logs `xvfb.log`, `openbox.log`, `atspi.log` and `orca.log`
+as restricted unredacted diagnostics (see `release-qualification.md`); Orca debug
+output, audio and the D-Bus address are never uploaded. Keep the audit directory private and review sanitized artifacts before sharing.
 
 Host prerequisites on Linux: `orca`, `at-spi2-core`, `speech-dispatcher`,
 `espeak-ng`, `xdotool`, `openbox`, `dbus-x11`, `xvfb`, Chromium runtime
