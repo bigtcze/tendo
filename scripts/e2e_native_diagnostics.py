@@ -68,14 +68,24 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 STRUCTURAL_PATTERNS = (
     (re.compile(r"(?i)\b(set-cookie|cookie|authorization|proxy-authorization|x-csrf-token)(\s*[:=]\s*)[^\r\n]*"), r"\1\2[redacted]"),
     (re.compile(r"(?i)\b(tendo_session[A-Za-z0-9_-]*)=[^;\s'\"`,)]+"), r"\1=[redacted]"),
-    (re.compile(r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)[^&#\s'\"`)]+"), r"\1[redacted]"),
+    (re.compile(
+        r"(?i)([?&#](?:code|state|nonce|token|id_token|access_token|refresh_token|session_state|client_secret|password)=)"
+        r"[^&#\s'\"`)]+"
+    ), r"\1[redacted]"),
     (re.compile(r"(?i)(/invite#)[^\s'\"`)]+"), r"\1[redacted]"),
     (re.compile(r"(?i)\b((?:postgres(?:ql)?|https?)://[^:/@\s'\"`]+:)[^@\s'\"`]+@"), r"\1[redacted]@"),
     (re.compile(r'(?i)(["\'](?:password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
-    (re.compile(r'(?is)(["\']name["\']\s*:\s*["\'](?:tendo_session[^"\']*|[^"\']*cookie[^"\']*)["\'][^{}]*?["\']value["\']\s*:\s*)["\'][^"\']*["\']'), r'\1"[redacted]"'),
+    (re.compile(
+        r'(?is)(["\']name["\']\s*:\s*["\'](?:tendo_session[^"\']*|[^"\']*cookie[^"\']*)["\']'
+        r'[^{}]*?["\']value["\']\s*:\s*)["\'][^"\']*["\']'
+    ), r'\1"[redacted]"'),
     (re.compile(r'(?i)(["\']value["\']\s*:\s*)["\'][^"\']*["\'](?=\s*[,}])'), r'\1"[redacted]"'),
     (re.compile(r"(?i)(?<![A-Za-z0-9_-])#([A-Za-z0-9_-]{20,})"), r"#[redacted]"),
-    (re.compile(r"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_+/=-]{24,}(?![A-Za-z0-9_+/=-]))(?=[A-Za-z0-9_+/-]*[A-Z])(?=[A-Za-z0-9_+/-]*[a-z])(?=[A-Za-z0-9_+/-]*[0-9])[A-Za-z0-9_+/=-]{24,}"), "[redacted]"),
+    (re.compile(
+        r"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_+/=-]{24,}(?![A-Za-z0-9_+/=-]))"
+        r"(?=[A-Za-z0-9_+/-]*[A-Z])(?=[A-Za-z0-9_+/-]*[a-z])(?=[A-Za-z0-9_+/-]*[0-9])"
+        r"[A-Za-z0-9_+/=-]{24,}"
+    ), "[redacted]"),
     (re.compile(r"(?i)\b(password|passwd|secret|setup[_ -]?token|session[_ -]?token|sessionToken)(\s*[:=]\s*)['\"`]?[^\s'\"`,;)]+"), r"\1\2[redacted]"),
 )
 
@@ -323,7 +333,8 @@ def stage_ci_upload(destination: Path, source_dir: Path) -> bool:
                     payload = json.loads(path.read_text(encoding="utf-8"))
                     (temporary / path.name).write_text(json.dumps(sanitize_json_value(payload), ensure_ascii=False, indent=2), encoding="utf-8")
                 elif path.name == "error-context.md":
-                    (temporary / f"{path.parent.name}-error-context.md").write_text(redact(path.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+                    context = redact(path.read_text(encoding="utf-8", errors="replace"))
+                    (temporary / f"{path.parent.name}-error-context.md").write_text(context, encoding="utf-8")
         (temporary / "STAGED_OK").write_text("ok\n", encoding="utf-8")
     except BaseException as exc:
         print("E2E artifact sanitization failed; only safe artifacts will be staged.", file=sys.stderr)
