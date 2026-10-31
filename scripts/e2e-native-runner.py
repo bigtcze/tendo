@@ -283,6 +283,11 @@ def run_screen_reader(root: Path, env: dict[str, str], children: Children, artif
             startup = "\n".join(f"{path.name}: {path.read_text(encoding='utf-8', errors='replace')[-4000:]}" for path in sorted(logs.glob("*.log")) if path.is_file())
             raise RuntimeError(f"Orca session did not become ready within {ORCA_READINESS_TIMEOUT_SECONDS} seconds; startup logs:\\n{startup}")
         env.update({"HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"), "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"), "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"), "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(), "DBUS_SESSION_BUS_ADDRESS": (logs / "bus-address").read_text(encoding="utf-8").strip(), "E2E_SR_DEBUG_FILE": str(debug), "E2E_SR_AUDIT_DIR": str(audit_dir.resolve()), "E2E_SR_HEADFUL": "1", "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false"})
+        env["AT_SPI_BUS"] = (logs / "atspi-bus-address").read_text(encoding="utf-8").strip()
+        diagnostics = subprocess.run(["python3", str(root / "scripts/sr-atspi-diagnostics.py")], env=env, text=True, capture_output=True, check=False)
+        (logs / "browser-launch-atspi-diagnostics.log").write_text(diagnostics.stdout + diagnostics.stderr, encoding="utf-8")
+        if diagnostics.returncode:
+            raise RuntimeError(f"AT-SPI diagnostics failed before browser launch: {diagnostics.returncode}")
         # The helper owns the display choice and publishes it to its ready file for the browser process.
         display_file = runtime / "display"
         if display_file.exists():

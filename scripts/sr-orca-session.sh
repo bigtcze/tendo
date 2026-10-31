@@ -55,6 +55,19 @@ python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(.2)
 dbus-run-session -- bash -Eeuo pipefail -c '
   /usr/libexec/at-spi-bus-launcher --launch-immediately >"$1/atspi.log" 2>&1 &
   atspi=$!
+  # Ensure the registry is activated and its X-root bus advertisement exists before readiness.
+  for _ in $(seq 100); do
+    kill -0 "$atspi" 2>/dev/null || { echo "AT-SPI bus launcher exited during startup" >&2; exit 1; }
+    if dbus-send --session --print-reply --reply-timeout=200 --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress >"$1/atspi-address.out" 2>"$1/atspi-address.err"; then break; fi
+    sleep .1
+  done
+  if ! grep -q 'string' "$1/atspi-address.out"; then
+    echo "AT-SPI bus address was not published by the session bus" >&2
+    cat "$1/atspi-address.err" >&2
+    exit 1
+  fi
+  sed -n "s/.*string \\\"\\([^\\\"]*\\)\\\".*/\\1/p" "$1/atspi-address.out" >"$1/atspi-bus-address"
+  [[ -s "$1/atspi-bus-address" ]] || { echo "could not parse AT-SPI address response" >&2; exit 1; }
   openbox >"$1/openbox.log" 2>&1 &
   wm=$!
   orca_args=(--replace --debug-file "$2" -u "$3/home/orca")
