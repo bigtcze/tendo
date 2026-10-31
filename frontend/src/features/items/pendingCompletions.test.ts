@@ -118,7 +118,7 @@ describe('pending completion storage', () => {
     const current = { kind: 'ok', item: { recurrence: null, title: 'Thing' }, etag: 'etag' } as unknown as import('./itemsApi').ItemRead;
     const completion = { nextAttentionOn: null } as unknown as import('./itemsApi').Completion;
 
-    await outcomes.handleCompletionResult(tools, 'item-1', 'attempt-a', false, null, {
+    await outcomes.handleCompletionResult(tools, 'item-1', 'attempt-a', false, null, null, {
       current,
       result: { kind: 'ok', completion },
     });

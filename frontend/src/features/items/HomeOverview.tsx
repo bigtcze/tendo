@@ -16,6 +16,7 @@ export type Notice = {
   itemId?: string;
   retryKey?: string;
   retryKind?: 'complete' | 'undo';
+  originGroup?: ItemGroup;
   undoAvailable?: boolean;
 };
 function NoticeView({ notice, busy, onUndo, onRetry, onRetryFocus }: {

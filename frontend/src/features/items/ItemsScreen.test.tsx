@@ -1296,6 +1296,89 @@ describe('Home items', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Add item' })).toBeEnabled());
   });
 
+  it('focuses the restored group heading when undo restores an unloaded row', async () => {
+    const restored = item({ id: 'z-restored', title: 'Restored repeating item', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
+    const entries = [
+      ...Array.from({ length: 25 }, (_, index) => item({ id: `needs-${String(index).padStart(2, '0')}`, title: `Needs ${index}` })),
+      restored,
+      item({ id: 'upcoming-other', title: 'Other upcoming item', attentionOn: '2027-01-01' }),
+    ];
+    const source = [...entries];
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => source),
+      [subjectList]: subjects,
+      [`GET ${base}/items/z-restored`]: () => json(200, source.find((entry) => entry.id === restored.id)!, { ETag: source[0] === restored ? '"7"' : '"8"' }),
+      [`POST ${donePath.replace('/i-1', '/z-restored')}`]: () => {
+        source[source.findIndex((entry) => entry.id === restored.id)] = { ...restored, attentionOn: '2027-01-01' };
+        return json(201, { id: 'c-restored', itemId: restored.id, completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: restored.recurrence, nextAttentionOn: '2027-01-01', createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null });
+      },
+      [`PATCH ${base}/items/z-restored/completions/c-restored`]: () => {
+        source[source.findIndex((entry) => entry.id === restored.id)] = restored;
+        return json(200, { id: 'c-restored', itemId: restored.id, completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: restored.recurrence, nextAttentionOn: '2027-01-01', createdAt: '2026-01-01T00:00:00Z', undoneAt: '2026-01-02T00:00:00Z', undoneByUserId: 'u-1' });
+      },
+    });
+    app();
+    const needsHeading = await screen.findByRole('heading', { level: 2, name: /Needs attention/ });
+    const needs = needsHeading.closest('section')!;
+    await userEvent.click(within(needs).getByRole('button', { name: 'Show more (1 remaining)' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Restored repeating item' }));
+    await screen.findByRole('button', { name: 'Undo' });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    const restoredHeading = screen.getByRole('heading', { level: 2, name: /Needs attention/ });
+    const upcomingHeading = screen.getByRole('heading', { level: 2, name: /Coming up/ });
+    await waitFor(() => expect(document.activeElement).toBe(restoredHeading));
+    expect(upcomingHeading).not.toHaveFocus();
+    expect(screen.queryByRole('button', { name: 'Done: Restored repeating item' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'PATCH', `${base}/items/z-restored/completions/c-restored`)).toHaveLength(1);
+  });
+
+  it('keeps the original group for undo focus when a retried completion replays after a refresh', async () => {
+    const restored = item({ id: 'z-restored', title: 'Restored repeating item', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } });
+    const source = [
+      ...Array.from({ length: 25 }, (_, index) => item({ id: `needs-${String(index).padStart(2, '0')}`, title: `Needs ${index}` })),
+      restored,
+      item({ id: 'upcoming-other', title: 'Other upcoming item', attentionOn: '2027-01-01' }),
+    ];
+    const receipt = { id: 'c-restored', itemId: restored.id, completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: restored.recurrence, nextAttentionOn: '2027-01-01', createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null };
+    let reads = 0;
+    let committed = false;
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => source),
+      [subjectList]: subjects,
+      [`GET ${base}/items/z-restored`]: () => ++reads === 2 ? json(503) : json(200, source.find((entry) => entry.id === restored.id)!, { ETag: committed ? '"8"' : '"7"' }),
+      [`POST ${donePath.replace('/i-1', '/z-restored')}`]: () => {
+        if (!committed) {
+          committed = true;
+          source[source.findIndex((entry) => entry.id === restored.id)] = { ...restored, attentionOn: '2027-01-01' };
+          throw new Error('server committed; response lost');
+        }
+        return json(201, receipt);
+      },
+      [`PATCH ${base}/items/z-restored/completions/c-restored`]: () => {
+        source[source.findIndex((entry) => entry.id === restored.id)] = restored;
+        return json(200, { ...receipt, undoneAt: '2026-01-02T00:00:00Z', undoneByUserId: 'u-1' });
+      },
+    });
+    app();
+    const needs = (await screen.findByRole('heading', { level: 2, name: /Needs attention/ })).closest('section')!;
+    await userEvent.click(within(needs).getByRole('button', { name: 'Show more (1 remaining)' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Restored repeating item' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    // The failed read refreshed Home: the committed item now renders in Coming up.
+    const upcoming = (await screen.findByRole('heading', { level: 2, name: /Coming up/ })).closest('section')!;
+    await waitFor(() => expect(within(upcoming).getByRole('button', { name: 'Done: Restored repeating item' })).toBeInTheDocument());
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    const restoredHeading = screen.getByRole('heading', { level: 2, name: /Needs attention/ });
+    await waitFor(() => expect(document.activeElement).toBe(restoredHeading));
+    expect(screen.getByRole('heading', { level: 2, name: /Coming up/ })).not.toHaveFocus();
+    expect(screen.queryByRole('button', { name: 'Done: Restored repeating item' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'POST', `${base}/items/z-restored/completions`)).toHaveLength(2);
+    expect(requestsOf(fake.requests, 'PATCH', `${base}/items/z-restored/completions/c-restored`)).toHaveLength(1);
+  });
+
   it('restores the row and focuses its Done action after undo', async () => {
     const fake = installFakeServer({
       ...routes,
