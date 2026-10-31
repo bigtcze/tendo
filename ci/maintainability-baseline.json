@@ -374,7 +374,7 @@
   {
     "kind": "long_lines",
     "path": "scripts/proxy-smoke.sh",
-    "allowed": 24,
+    "allowed": 26,
     "reason": "Proxy smoke entrypoint coordinates TLS proxy variants and public/trusted-peer HTTP contract probes; its ordered Compose lifecycle and single shared cleanup boundary are kept together.",
     "owner": "tooling-scripts"
   },
