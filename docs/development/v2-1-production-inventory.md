@@ -1,10 +1,9 @@
-# V2.1 Hand-Written Production Code Inventory
+# V2.1 hand-written production code inventory
 
-Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/maintainability_check.py --inventory-out docs/development/v2-1-production-inventory.md`.
-This is a snapshot at Git HEAD `ff6f8d4af46a0aef2e5bff14916d859a6ffad2d4`; rerun the command after source changes.
-The maintainability ratchet checks the live tree and guarantees ongoing threshold compliance between inventory snapshots.
-Go has function-level metrics; frontend TS rules are enforced by ESLint.
-Python, shell, and SQL are measured at file level only (size and long lines).
+Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/production_inventory.py --out docs/development/v2-1-production-inventory.md`.
+Snapshot at Git HEAD `a59bd97a36f5c5a5b108b66645b275b631a48659`. The maintainability ratchet (`scripts/maintainability_check.py`) checks the live tree on every PR.
+Go files have function-level metrics. Frontend TypeScript function rules are enforced by ESLint with `frontend/maintainability-baseline.json` (0 entries). Python, shell and SQL are measured at file level only.
+Dispositions are derived from measured values against thresholds and named baseline exceptions; generation fails on any violation.
 
 ## Summary
 
@@ -13,20 +12,19 @@ Python, shell, and SQL are measured at file level only (size and long lines).
 | backend Go | 78 |
 | frontend TS | 148 |
 | SQL | 10 |
-| script | 33 |
-| **Total production** | **269** |
+| script/tooling | 34 |
+| **Total** | **270** |
 
-Test files: 148; test-support files: 12.
-Frontend function-level rules are enforced by ESLint with `frontend/maintainability-baseline.json` (0 entries).
+Measured test files: 149; test-support files: 12.
 
-## Production files
+## Measured production files
 
-| Path | Area | Non-blank lines | Long lines | Go functions; max lines (function); complexity (function); nesting (function) | Disposition |
+| Path | Area | Non-blank lines | Long lines | Go functions; max lines; max complexity; max nesting | Disposition |
 |---|---|---:|---:|---|---|
-| `api/check-generation.mjs` | script | 91 | 24 | — | baseline exception: long_lines allowed=24 (tooling-scripts) |
-| `api/check-health.mjs` | script | 331 | 0 | — | within thresholds |
+| `api/check-generation.mjs` | script/tooling | 91 | 24 | — | baseline exception long_lines measured=24 allowed=24 (tooling-scripts) |
+| `api/check-health.mjs` | script/tooling | 331 | 0 | — | within thresholds |
 | `backend/cmd/tendo/items.go` | backend Go | 56 | 0 | 6; 13 (itemHouseholds); 3 (itemHouseholds.func1); 1 (itemHouseholds.func1) | within thresholds |
-| `backend/cmd/tendo/main.go` | backend Go | 237 | 6 | 17; 51 (registerAPI); 9 (serve); 3 (serve) | baseline exception: long_lines allowed=6 (backend-platform) |
+| `backend/cmd/tendo/main.go` | backend Go | 237 | 6 | 17; 51 (registerAPI); 9 (serve); 3 (serve) | baseline exception long_lines measured=6 allowed=6 (backend-platform) |
 | `backend/cmd/tendo/subjects.go` | backend Go | 37 | 0 | 4; 13 (subjectMembers); 3 (subjectMembers.func1); 1 (subjectMembers.func1) | within thresholds |
 | `backend/internal/household/household.go` | backend Go | 45 | 0 | 2; 15 (Service.Get); 5 (Service.Get); 1 (Service.Get) | within thresholds |
 | `backend/internal/household/httpapi/household.go` | backend Go | 58 | 0 | 5; 18 (Handler.get); 4 (Handler.get); 1 (Handler.get) | within thresholds |
@@ -42,7 +40,7 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `backend/internal/identity/errors.go` | backend Go | 3 | 0 | 0; 0 (—); 0 (—); 0 (—) | within thresholds |
 | `backend/internal/identity/httpapi/invitations.go` | backend Go | 233 | 0 | 14; 33 (writeInvitationError); 12 (writeInvitationError); 3 (writeInvitationError) | within thresholds |
 | `backend/internal/identity/httpapi/limiter.go` | backend Go | 43 | 0 | 2; 27 (limiter.admitAttempt); 10 (limiter.admitAttempt); 3 (limiter.admitAttempt) | within thresholds |
-| `backend/internal/identity/httpapi/oidc.go` | backend Go | 178 | 2 | 13; 35 (OIDCHandler.start); 8 (OIDCHandler.start); 2 (OIDCHandler.callback) | baseline exception: long_lines allowed=2 (backend-identity) |
+| `backend/internal/identity/httpapi/oidc.go` | backend Go | 178 | 2 | 13; 35 (OIDCHandler.start); 8 (OIDCHandler.start); 2 (OIDCHandler.callback) | baseline exception long_lines measured=2 allowed=2 (backend-identity) |
 | `backend/internal/identity/httpapi/oidc_start.go` | backend Go | 79 | 0 | 3; 27 (OIDCHandler.resolveStartSession); 8 (readOIDCStartRequest); 3 (OIDCHandler.resolveStartSession) | within thresholds |
 | `backend/internal/identity/httpapi/session.go` | backend Go | 162 | 0 | 15; 32 (SessionHandler.create); 6 (SessionHandler.create); 2 (SessionHandler.delete) | within thresholds |
 | `backend/internal/identity/httpapi/setup.go` | backend Go | 148 | 0 | 9; 63 (Handler.put); 13 (Handler.put); 1 (Handler.get) | within thresholds |
@@ -54,16 +52,16 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `backend/internal/identity/oidc_stages.go` | backend Go | 209 | 0 | 12; 37 (OIDCService.prepareStartFlow); 11 (OIDCService.checkCallbackSession); 2 (OIDCService.checkCallbackSession) | within thresholds |
 | `backend/internal/identity/oidcprovider/provider.go` | backend Go | 266 | 0 | 16; 39 (Provider.discovery); 14 (Provider.validateClaims); 3 (Provider.discovery) | within thresholds |
 | `backend/internal/identity/postgres/invitations.go` | backend Go | 256 | 0 | 21; 32 (invitationTx.CreateInvitation); 7 (invitationTx.RevokeInvitation); 2 (invitationTx.ListInvitations) | within thresholds |
-| `backend/internal/identity/postgres/oidc.go` | backend Go | 187 | 7 | 11; 55 (Repository.LinkAndCreateSession); 15 (Repository.LinkAndCreateSession); 3 (Repository.LinkAndCreateSession) | baseline exception: long_lines allowed=7 (backend-identity) |
+| `backend/internal/identity/postgres/oidc.go` | backend Go | 187 | 7 | 11; 55 (Repository.LinkAndCreateSession); 15 (Repository.LinkAndCreateSession); 3 (Repository.LinkAndCreateSession) | baseline exception long_lines measured=7 allowed=7 (backend-identity) |
 | `backend/internal/identity/postgres/queries/invitations.sql` | SQL | 27 | 0 | — | within thresholds |
-| `backend/internal/identity/postgres/queries/oidc.sql` | SQL | 16 | 1 | — | baseline exception: long_lines allowed=1 (backend-identity) |
+| `backend/internal/identity/postgres/queries/oidc.sql` | SQL | 16 | 1 | — | baseline exception long_lines measured=1 allowed=1 (backend-identity) |
 | `backend/internal/identity/postgres/queries/session.sql` | SQL | 15 | 0 | — | within thresholds |
 | `backend/internal/identity/postgres/queries/setup.sql` | SQL | 10 | 0 | — | within thresholds |
-| `backend/internal/identity/postgres/session.go` | backend Go | 70 | 3 | 7; 19 (Repository.LoginsByUserIDs); 5 (Repository.LoginsByUserIDs); 2 (Repository.LoginsByUserIDs) | baseline exception: long_lines allowed=3 (backend-identity) |
+| `backend/internal/identity/postgres/session.go` | backend Go | 70 | 3 | 7; 19 (Repository.LoginsByUserIDs); 5 (Repository.LoginsByUserIDs); 2 (Repository.LoginsByUserIDs) | baseline exception long_lines measured=3 allowed=3 (backend-identity) |
 | `backend/internal/identity/postgres/setup.go` | backend Go | 75 | 0 | 9; 23 (Repository.WithSetupTransaction); 5 (Repository.WithSetupTransaction); 1 (Repository.WithSetupTransaction) | within thresholds |
 | `backend/internal/identity/session.go` | backend Go | 204 | 0 | 12; 36 (SessionService.Login); 13 (SessionService.Login); 2 (SessionService.Login) | within thresholds |
 | `backend/internal/identity/setup.go` | backend Go | 114 | 0 | 7; 57 (SetupService.CreateOwner); 8 (SetupService.CreateOwner); 2 (SetupService.CreateOwner) | within thresholds |
-| `backend/internal/item/completion.go` | backend Go | 206 | 1 | 11; 40 (Service.UndoCompletion); 9 (Service.UndoCompletion); 2 (ValidateIdempotencyKey) | baseline exception: long_lines allowed=1 (backend-item) |
+| `backend/internal/item/completion.go` | backend Go | 206 | 1 | 11; 40 (Service.UndoCompletion); 9 (Service.UndoCompletion); 2 (ValidateIdempotencyKey) | baseline exception long_lines measured=1 allowed=1 (backend-item) |
 | `backend/internal/item/completion_list.go` | backend Go | 33 | 0 | 1; 26 (parseCompletionListQuery); 10 (parseCompletionListQuery); 2 (parseCompletionListQuery) | within thresholds |
 | `backend/internal/item/completion_plan.go` | backend Go | 85 | 0 | 5; 38 (completionDecider); 9 (completionDecider.func1); 2 (completionDecider.func1) | within thresholds |
 | `backend/internal/item/create.go` | backend Go | 214 | 0 | 10; 42 (creationFingerprint); 9 (Service.validateDraft); 2 (Service.validateDraft) | within thresholds |
@@ -83,9 +81,9 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `backend/internal/item/postgres/item_list.go` | backend Go | 117 | 0 | 6; 43 (listParams); 11 (listParams); 2 (Repository.executeList) | within thresholds |
 | `backend/internal/item/postgres/item_rows.go` | backend Go | 112 | 0 | 7; 26 (recurrenceFromRow); 8 (recurrenceFromRow); 2 (recurrenceFromRow) | within thresholds |
 | `backend/internal/item/postgres/item_update.go` | backend Go | 98 | 0 | 6; 24 (mapUpdateFields); 7 (mapUpdateFields); 2 (mapUpdateFields) | within thresholds |
-| `backend/internal/item/postgres/queries/completion.sql` | SQL | 24 | 9 | — | baseline exception: long_lines allowed=9 (backend-item) |
-| `backend/internal/item/postgres/queries/item.sql` | SQL | 104 | 13 | — | baseline exception: long_lines allowed=13 (backend-item) |
-| `backend/internal/item/postgres/summary.go` | backend Go | 50 | 2 | 1; 43 (Repository.Summary); 11 (Repository.Summary); 2 (Repository.Summary) | baseline exception: long_lines allowed=2 (backend-item) |
+| `backend/internal/item/postgres/queries/completion.sql` | SQL | 24 | 9 | — | baseline exception long_lines measured=9 allowed=9 (backend-item) |
+| `backend/internal/item/postgres/queries/item.sql` | SQL | 104 | 13 | — | baseline exception long_lines measured=13 allowed=13 (backend-item) |
+| `backend/internal/item/postgres/summary.go` | backend Go | 50 | 2 | 1; 43 (Repository.Summary); 11 (Repository.Summary); 2 (Repository.Summary) | baseline exception long_lines measured=2 allowed=2 (backend-item) |
 | `backend/internal/item/summary.go` | backend Go | 72 | 0 | 2; 36 (validateCollectionFilters); 10 (validateCollectionFilters); 2 (Service.Summary) | within thresholds |
 | `backend/internal/item/update.go` | backend Go | 131 | 0 | 5; 47 (Service.buildScalarChanges); 13 (Service.buildScalarChanges); 3 (Service.buildScalarChanges) | within thresholds |
 | `backend/internal/item/validate.go` | backend Go | 178 | 0 | 13; 27 (ParseDateForField); 9 (ValidateNotes); 2 (ParseDateForField.func1) | within thresholds |
@@ -96,33 +94,33 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `backend/internal/platform/httporigin/origin.go` | backend Go | 161 | 0 | 15; 21 (ParseAuthority); 11 (invalidParsedOrigin); 2 (ParseAuthority) | within thresholds |
 | `backend/internal/platform/httpx/jsonapi.go` | backend Go | 326 | 0 | 22; 34 (decodeObject); 11 (decodeObject); 2 (checkPresence) | within thresholds |
 | `backend/internal/platform/httpx/origin.go` | backend Go | 342 | 0 | 29; 29 (trustedForwardedMetadata); 14 (validateXForwarded); 3 (trustedForwardedMetadata) | within thresholds |
-| `backend/internal/platform/httpx/server.go` | backend Go | 185 | 5 | 25; 44 (newRouterWithLogger); 5 (Health.ready); 2 (requestMiddleware.func1) | baseline exception: long_lines allowed=5 (backend-platform) |
+| `backend/internal/platform/httpx/server.go` | backend Go | 185 | 5 | 25; 44 (newRouterWithLogger); 5 (Health.ready); 2 (requestMiddleware.func1) | baseline exception long_lines measured=5 allowed=5 (backend-platform) |
 | `backend/internal/platform/ids/uuid.go` | backend Go | 23 | 0 | 1; 19 (IsCanonicalUUID); 11 (IsCanonicalUUID); 3 (IsCanonicalUUID) | within thresholds |
 | `backend/internal/platform/security/password.go` | backend Go | 105 | 0 | 7; 22 (parsePasswordParameters); 8 (parsePasswordParameters); 2 (parsePasswordParameters) | within thresholds |
 | `backend/internal/platform/security/password_gate.go` | backend Go | 39 | 0 | 7; 9 (PasswordGate.Acquire); 2 (NewPasswordGate); 1 (NewPasswordGate) | within thresholds |
-| `backend/internal/platform/webui/webui.go` | backend Go | 101 | 1 | 6; 35 (handler.ServeHTTP); 14 (handler.ServeHTTP); 2 (handler.ServeHTTP) | baseline exception: long_lines allowed=1 (backend-platform) |
+| `backend/internal/platform/webui/webui.go` | backend Go | 101 | 1 | 6; 35 (handler.ServeHTTP); 14 (handler.ServeHTTP); 2 (handler.ServeHTTP) | baseline exception long_lines measured=1 allowed=1 (backend-platform) |
 | `backend/internal/schedule/schedule.go` | backend Go | 226 | 0 | 15; 40 (Date.AddInterval); 12 (Date.AddInterval); 3 (Date.AddInterval) | within thresholds |
 | `backend/internal/subject/create.go` | backend Go | 93 | 0 | 4; 43 (Service.Create); 11 (Service.Create); 2 (Service.validateLinkedUser) | within thresholds |
 | `backend/internal/subject/httpapi/subject.go` | backend Go | 181 | 0 | 10; 30 (Handler.create); 7 (Handler.create); 2 (validCreationKey) | within thresholds |
 | `backend/internal/subject/httpapi/subject_mapping.go` | backend Go | 54 | 0 | 3; 23 (patchRequest); 6 (patchRequest); 2 (patchRequest) | within thresholds |
 | `backend/internal/subject/list.go` | backend Go | 131 | 0 | 8; 53 (Service.List); 14 (Service.List); 2 (CanonicalIDs) | within thresholds |
-| `backend/internal/subject/postgres/queries/subject.sql` | SQL | 35 | 1 | — | baseline exception: long_lines allowed=1 (backend-subject) |
+| `backend/internal/subject/postgres/queries/subject.sql` | SQL | 35 | 1 | — | baseline exception long_lines measured=1 allowed=1 (backend-subject) |
 | `backend/internal/subject/postgres/subject.go` | backend Go | 205 | 0 | 12; 33 (Repository.CreateIdempotent); 7 (Repository.CreateIdempotent); 2 (Repository.ListByIDs) | within thresholds |
 | `backend/internal/subject/postgres/subject_update.go` | backend Go | 59 | 0 | 2; 27 (Repository.Update); 9 (Repository.Update); 2 (updateParams) | within thresholds |
 | `backend/internal/subject/subject.go` | backend Go | 151 | 0 | 6; 17 (Service.Get); 4 (Service.Get); 1 (Service.Get) | within thresholds |
 | `backend/internal/subject/update.go` | backend Go | 118 | 0 | 7; 39 (Service.Update); 14 (Service.Update); 2 (Service.Update) | within thresholds |
 | `backend/internal/subject/validate.go` | backend Go | 32 | 0 | 2; 17 (ValidateName); 9 (ValidateName); 2 (ValidateName) | within thresholds |
 | `backend/tools/funcmetrics/main.go` | backend Go | 321 | 0 | 27; 36 (collect); 11 (collect.func1); 3 (valueLiterals) | within thresholds |
-| `frontend/eslint.config.js` | script | 28 | 0 | — | within thresholds |
+| `frontend/eslint.config.js` | script/tooling | 28 | 0 | — | within thresholds |
 | `frontend/playwright.config.ts` | frontend TS | 39 | 0 | — | within thresholds |
-| `frontend/scripts/lint-ratchet-core.mjs` | script | 172 | 0 | — | within thresholds |
-| `frontend/scripts/lint-ratchet-identity.mjs` | script | 160 | 0 | — | within thresholds |
-| `frontend/scripts/lint-ratchet.mjs` | script | 76 | 0 | — | within thresholds |
+| `frontend/scripts/lint-ratchet-core.mjs` | script/tooling | 172 | 0 | — | within thresholds |
+| `frontend/scripts/lint-ratchet-identity.mjs` | script/tooling | 160 | 0 | — | within thresholds |
+| `frontend/scripts/lint-ratchet.mjs` | script/tooling | 76 | 0 | — | within thresholds |
 | `frontend/src/app/AccountActions.tsx` | frontend TS | 38 | 0 | — | within thresholds |
 | `frontend/src/app/App.tsx` | frontend TS | 68 | 0 | — | within thresholds |
 | `frontend/src/app/Heading.tsx` | frontend TS | 27 | 0 | — | within thresholds |
-| `frontend/src/app/HouseholdNavigation.tsx` | frontend TS | 31 | 1 | — | baseline exception: long_lines allowed=1 (frontend-app) |
-| `frontend/src/app/Layout.tsx` | frontend TS | 52 | 1 | — | baseline exception: long_lines allowed=1 (frontend-app) |
+| `frontend/src/app/HouseholdNavigation.tsx` | frontend TS | 31 | 1 | — | baseline exception long_lines measured=1 allowed=1 (frontend-app) |
+| `frontend/src/app/Layout.tsx` | frontend TS | 52 | 1 | — | baseline exception long_lines measured=1 allowed=1 (frontend-app) |
 | `frontend/src/app/NavLink.tsx` | frontend TS | 26 | 0 | — | within thresholds |
 | `frontend/src/app/SignOutContext.ts` | frontend TS | 2 | 0 | — | within thresholds |
 | `frontend/src/app/SignedInApp.tsx` | frontend TS | 125 | 0 | — | within thresholds |
@@ -134,8 +132,8 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/app/useAppSession.ts` | frontend TS | 129 | 0 | — | within thresholds |
 | `frontend/src/app/useInviteVisit.ts` | frontend TS | 60 | 0 | — | within thresholds |
 | `frontend/src/app/useOidcOutcome.ts` | frontend TS | 18 | 0 | — | within thresholds |
-| `frontend/src/components/ui/button.tsx` | frontend TS | 27 | 1 | — | baseline exception: long_lines allowed=1 (frontend-design-system) |
-| `frontend/src/components/ui/input.tsx` | frontend TS | 14 | 1 | — | baseline exception: long_lines allowed=1 (frontend-design-system) |
+| `frontend/src/components/ui/button.tsx` | frontend TS | 27 | 1 | — | baseline exception long_lines measured=1 allowed=1 (frontend-design-system) |
+| `frontend/src/components/ui/input.tsx` | frontend TS | 14 | 1 | — | baseline exception long_lines measured=1 allowed=1 (frontend-design-system) |
 | `frontend/src/components/ui/label.tsx` | frontend TS | 6 | 0 | — | within thresholds |
 | `frontend/src/features/auth/AccountOidcLinkForm.tsx` | frontend TS | 52 | 0 | — | within thresholds |
 | `frontend/src/features/auth/AccountOidcSectionView.tsx` | frontend TS | 42 | 0 | — | within thresholds |
@@ -144,7 +142,7 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/features/auth/LoginProviderOptions.tsx` | frontend TS | 67 | 0 | — | within thresholds |
 | `frontend/src/features/auth/LoginScreen.tsx` | frontend TS | 100 | 0 | — | within thresholds |
 | `frontend/src/features/auth/OnboardingScreen.tsx` | frontend TS | 189 | 0 | — | within thresholds |
-| `frontend/src/features/auth/oidcApi.ts` | frontend TS | 82 | 1 | — | baseline exception: long_lines allowed=1 (frontend-auth) |
+| `frontend/src/features/auth/oidcApi.ts` | frontend TS | 82 | 1 | — | baseline exception long_lines measured=1 allowed=1 (frontend-auth) |
 | `frontend/src/features/auth/onboardingModel.ts` | frontend TS | 63 | 0 | — | within thresholds |
 | `frontend/src/features/auth/sessionApi.ts` | frontend TS | 105 | 0 | — | within thresholds |
 | `frontend/src/features/auth/useAccountOidcSection.ts` | frontend TS | 62 | 0 | — | within thresholds |
@@ -152,7 +150,7 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/features/auth/useOidcLinkStart.ts` | frontend TS | 40 | 0 | — | within thresholds |
 | `frontend/src/features/auth/useOidcProviderStatus.ts` | frontend TS | 41 | 0 | — | within thresholds |
 | `frontend/src/features/auth/useOnboardingForm.ts` | frontend TS | 87 | 0 | — | within thresholds |
-| `frontend/src/features/home/HomeScreen.tsx` | frontend TS | 84 | 1 | — | baseline exception: long_lines allowed=1 (frontend-home) |
+| `frontend/src/features/home/HomeScreen.tsx` | frontend TS | 84 | 1 | — | baseline exception long_lines measured=1 allowed=1 (frontend-home) |
 | `frontend/src/features/items/AddItemPanel.tsx` | frontend TS | 84 | 0 | — | within thresholds |
 | `frontend/src/features/items/AllItemsControls.tsx` | frontend TS | 75 | 0 | — | within thresholds |
 | `frontend/src/features/items/AllItemsResults.tsx` | frontend TS | 104 | 0 | — | within thresholds |
@@ -217,7 +215,7 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/features/members/MembersPager.tsx` | frontend TS | 24 | 0 | — | within thresholds |
 | `frontend/src/features/members/MembersScreen.tsx` | frontend TS | 52 | 0 | — | within thresholds |
 | `frontend/src/features/members/inviteAcceptModel.ts` | frontend TS | 60 | 0 | — | within thresholds |
-| `frontend/src/features/members/membersApi.ts` | frontend TS | 86 | 7 | — | baseline exception: long_lines allowed=7 (frontend-members) |
+| `frontend/src/features/members/membersApi.ts` | frontend TS | 86 | 7 | — | baseline exception long_lines measured=7 allowed=7 (frontend-members) |
 | `frontend/src/features/members/membersModel.ts` | frontend TS | 14 | 0 | — | within thresholds |
 | `frontend/src/features/members/useInvitationList.ts` | frontend TS | 88 | 0 | — | within thresholds |
 | `frontend/src/features/members/useInviteAccept.ts` | frontend TS | 95 | 0 | — | within thresholds |
@@ -256,8 +254,8 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/features/subjects/useSubjectPaging.ts` | frontend TS | 39 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/useSubjectSave.ts` | frontend TS | 66 | 0 | — | within thresholds |
 | `frontend/src/features/subjects/useSubjectsFocus.ts` | frontend TS | 39 | 0 | — | within thresholds |
-| `frontend/src/i18n/cs.ts` | frontend TS | 418 | 1 | — | baseline exception: file_lines allowed=418 (frontend-localization); long_lines allowed=1 (frontend-localization) |
-| `frontend/src/i18n/en.ts` | frontend TS | 417 | 0 | — | baseline exception: file_lines allowed=417 (frontend-localization) |
+| `frontend/src/i18n/cs.ts` | frontend TS | 418 | 1 | — | baseline exception file_lines measured=418 allowed=418 (frontend-localization); baseline exception long_lines measured=1 allowed=1 (frontend-localization) |
+| `frontend/src/i18n/en.ts` | frontend TS | 417 | 0 | — | baseline exception file_lines measured=417 allowed=417 (frontend-localization) |
 | `frontend/src/i18n/index.tsx` | frontend TS | 53 | 0 | — | within thresholds |
 | `frontend/src/lib/api.ts` | frontend TS | 8 | 0 | — | within thresholds |
 | `frontend/src/lib/cn.ts` | frontend TS | 5 | 0 | — | within thresholds |
@@ -265,187 +263,111 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 | `frontend/src/lib/textLength.ts` | frontend TS | 8 | 0 | — | within thresholds |
 | `frontend/src/main.tsx` | frontend TS | 12 | 0 | — | within thresholds |
 | `frontend/vite.config.ts` | frontend TS | 48 | 0 | — | within thresholds |
-| `scripts/autonomous-loop.sh` | script | 88 | 1 | — | baseline exception: long_lines allowed=1 (tooling-scripts) |
-| `scripts/backup-restore-smoke.sh` | script | 136 | 8 | — | baseline exception: long_lines allowed=8 (tooling-scripts) |
-| `scripts/check-api-generation.sh` | script | 31 | 0 | — | within thresholds |
-| `scripts/check-sqlc.sh` | script | 39 | 1 | — | baseline exception: long_lines allowed=1 (tooling-scripts) |
-| `scripts/dev-exec.sh` | script | 7 | 0 | — | within thresholds |
-| `scripts/dev_toolchain.py` | script | 503 | 0 | — | baseline exception: file_lines allowed=503 (tooling-scripts) |
-| `scripts/e2e-native-runner.py` | script | 497 | 3 | — | baseline exception: long_lines allowed=3 (tooling-scripts) |
-| `scripts/e2e-smoke.sh` | script | 101 | 1 | — | baseline exception: long_lines allowed=1 (tooling-scripts) |
-| `scripts/e2e_db_fixtures.py` | script | 326 | 0 | — | within thresholds |
-| `scripts/e2e_native_diagnostics.py` | script | 371 | 0 | — | within thresholds |
-| `scripts/e2e_orca_session.py` | script | 51 | 0 | — | within thresholds |
-| `scripts/household-backup-smoke.sh` | script | 302 | 14 | — | baseline exception: long_lines allowed=14 (tooling-scripts) |
-| `scripts/maintainability_check.py` | script | 499 | 0 | — | within thresholds |
-| `scripts/oidc-smoke.sh` | script | 187 | 9 | — | baseline exception: long_lines allowed=9 (tooling-scripts) |
-| `scripts/postgres-test-service.py` | script | 309 | 7 | — | baseline exception: long_lines allowed=7 (tooling-scripts) |
-| `scripts/proxy-smoke.sh` | script | 451 | 26 | — | baseline exception: long_lines allowed=26 (tooling-scripts) |
-| `scripts/proxy_smoke_oidc.py` | script | 130 | 0 | — | within thresholds |
-| `scripts/quickstart-smoke.sh` | script | 209 | 8 | — | baseline exception: long_lines allowed=8 (tooling-scripts) |
-| `scripts/quickstart_docs.py` | script | 141 | 0 | — | within thresholds |
-| `scripts/release-assets.sh` | script | 9 | 0 | — | within thresholds |
-| `scripts/runtime-smoke.sh` | script | 142 | 1 | — | baseline exception: long_lines allowed=1 (tooling-scripts) |
-| `scripts/setup-integration.sh` | script | 5 | 1 | — | baseline exception: long_lines allowed=1 (tooling-scripts) |
-| `scripts/setup-smoke.sh` | script | 627 | 142 | — | baseline exception: file_lines allowed=627 (tooling-scripts); long_lines allowed=142 (tooling-scripts) |
-| `scripts/setup_smoke_api_capture.py` | script | 156 | 0 | — | within thresholds |
-| `scripts/sr-orca-session.sh` | script | 89 | 4 | — | baseline exception: long_lines allowed=4 (tooling-scripts) |
-| `scripts/upgrade-smoke.sh` | script | 241 | 20 | — | baseline exception: long_lines allowed=20 (tooling-scripts) |
-| `scripts/verify-local.sh` | script | 63 | 4 | — | baseline exception: long_lines allowed=4 (tooling-scripts) |
+| `scripts/autonomous-loop.sh` | script/tooling | 88 | 1 | — | baseline exception long_lines measured=1 allowed=1 (tooling-scripts) |
+| `scripts/backup-restore-smoke.sh` | script/tooling | 136 | 8 | — | baseline exception long_lines measured=8 allowed=8 (tooling-scripts) |
+| `scripts/check-api-generation.sh` | script/tooling | 31 | 0 | — | within thresholds |
+| `scripts/check-sqlc.sh` | script/tooling | 39 | 1 | — | baseline exception long_lines measured=1 allowed=1 (tooling-scripts) |
+| `scripts/dev-exec.sh` | script/tooling | 7 | 0 | — | within thresholds |
+| `scripts/dev_toolchain.py` | script/tooling | 503 | 0 | — | baseline exception file_lines measured=503 allowed=503 (tooling-scripts) |
+| `scripts/e2e-native-runner.py` | script/tooling | 497 | 3 | — | baseline exception long_lines measured=3 allowed=3 (tooling-scripts) |
+| `scripts/e2e-smoke.sh` | script/tooling | 101 | 1 | — | baseline exception long_lines measured=1 allowed=1 (tooling-scripts) |
+| `scripts/e2e_db_fixtures.py` | script/tooling | 326 | 0 | — | within thresholds |
+| `scripts/e2e_native_diagnostics.py` | script/tooling | 371 | 0 | — | within thresholds |
+| `scripts/e2e_orca_session.py` | script/tooling | 51 | 0 | — | within thresholds |
+| `scripts/household-backup-smoke.sh` | script/tooling | 302 | 14 | — | baseline exception long_lines measured=14 allowed=14 (tooling-scripts) |
+| `scripts/maintainability_check.py` | script/tooling | 378 | 0 | — | within thresholds |
+| `scripts/oidc-smoke.sh` | script/tooling | 187 | 9 | — | baseline exception long_lines measured=9 allowed=9 (tooling-scripts) |
+| `scripts/postgres-test-service.py` | script/tooling | 309 | 7 | — | baseline exception long_lines measured=7 allowed=7 (tooling-scripts) |
+| `scripts/production_inventory.py` | script/tooling | 180 | 0 | — | within thresholds |
+| `scripts/proxy-smoke.sh` | script/tooling | 451 | 26 | — | baseline exception long_lines measured=26 allowed=26 (tooling-scripts) |
+| `scripts/proxy_smoke_oidc.py` | script/tooling | 130 | 0 | — | within thresholds |
+| `scripts/quickstart-smoke.sh` | script/tooling | 209 | 8 | — | baseline exception long_lines measured=8 allowed=8 (tooling-scripts) |
+| `scripts/quickstart_docs.py` | script/tooling | 141 | 0 | — | within thresholds |
+| `scripts/release-assets.sh` | script/tooling | 9 | 0 | — | within thresholds |
+| `scripts/runtime-smoke.sh` | script/tooling | 142 | 1 | — | baseline exception long_lines measured=1 allowed=1 (tooling-scripts) |
+| `scripts/setup-integration.sh` | script/tooling | 5 | 1 | — | baseline exception long_lines measured=1 allowed=1 (tooling-scripts) |
+| `scripts/setup-smoke.sh` | script/tooling | 627 | 142 | — | baseline exception file_lines measured=627 allowed=627 (tooling-scripts); baseline exception long_lines measured=142 allowed=142 (tooling-scripts) |
+| `scripts/setup_smoke_api_capture.py` | script/tooling | 156 | 0 | — | within thresholds |
+| `scripts/sr-orca-session.sh` | script/tooling | 89 | 4 | — | baseline exception long_lines measured=4 allowed=4 (tooling-scripts) |
+| `scripts/upgrade-smoke.sh` | script/tooling | 241 | 20 | — | baseline exception long_lines measured=20 allowed=20 (tooling-scripts) |
+| `scripts/verify-local.sh` | script/tooling | 63 | 4 | — | baseline exception long_lines measured=4 allowed=4 (tooling-scripts) |
 
-## Excluded source paths
+## Authored files in unmeasured formats
+
+Configuration, deployment, markup, style and data files have no calibrated metric; each was reviewed for scope.
+
+| Path | Non-blank lines | Test-only | Disposition |
+|---|---:|---|---|
+| `.dockerignore` | 13 | no | reviewed; unmeasured format |
+| `.env.example` | 19 | no | reviewed; unmeasured format |
+| `.github/workflows/release-qualification.yml` | 167 | no | reviewed; unmeasured format |
+| `.github/workflows/release.yml` | 120 | no | reviewed; unmeasured format |
+| `.github/workflows/required.yml` | 368 | no | reviewed; unmeasured format |
+| `.gitignore` | 16 | no | reviewed; unmeasured format |
+| `Dockerfile` | 26 | no | reviewed; unmeasured format |
+| `api/Makefile` | 19 | no | reviewed; unmeasured format |
+| `api/oapi-codegen.yaml` | 8 | no | reviewed; unmeasured format |
+| `api/openapi.yaml` | 1876 | no | reviewed; unmeasured format |
+| `api/package.json` | 20 | no | reviewed; unmeasured format |
+| `backend/go.mod` | 18 | no | reviewed; unmeasured format |
+| `backend/sqlc.yaml` | 42 | no | reviewed; unmeasured format |
+| `backend/test/oidc-provider/Dockerfile` | 9 | yes | reviewed; unmeasured format |
+| `ci/maintainability-baseline.json` | 423 | no | reviewed; unmeasured format |
+| `compose.yaml` | 77 | no | reviewed; unmeasured format |
+| `deploy/compose.build.yaml` | 11 | no | reviewed; unmeasured format |
+| `deploy/compose.e2e.yaml` | 6 | yes | reviewed; unmeasured format |
+| `deploy/compose.oidc-test.yaml` | 30 | yes | reviewed; unmeasured format |
+| `deploy/reverse-proxy/Caddyfile` | 17 | no | reviewed; unmeasured format |
+| `deploy/reverse-proxy/nginx.conf` | 32 | no | reviewed; unmeasured format |
+| `deploy/reverse-proxy/traefik-dynamic.yml` | 27 | no | reviewed; unmeasured format |
+| `deploy/reverse-proxy/traefik.yml` | 7 | no | reviewed; unmeasured format |
+| `frontend/.gitignore` | 1 | no | reviewed; unmeasured format |
+| `frontend/index.html` | 13 | no | reviewed; unmeasured format |
+| `frontend/maintainability-baseline.json` | 1 | no | reviewed; unmeasured format |
+| `frontend/package.json` | 51 | no | reviewed; unmeasured format |
+| `frontend/src/index.css` | 51 | no | reviewed; unmeasured format |
+| `frontend/tsconfig.json` | 22 | no | reviewed; unmeasured format |
+| `renovate.json` | 265 | no | reviewed; unmeasured format |
+| `toolchain.json` | 36 | no | reviewed; unmeasured format |
+
+Not production source (counts):
+
+- agent context: 21
+- binary asset or placeholder: 3
+- documentation: 39
+- lockfile: 3
+
+## Measured-format paths excluded from the ratchet
 
 ### *.test.*: Test suites are excluded; policy does not require splitting them.
 
-- `api/check-contract.test.mjs`
-- `api/check-health.test.mjs`
-- `api/dependency-overrides.test.mjs`
-- `api/oidc-middleware.test.mjs`
-- `frontend/scripts/lint-ratchet-core.test.mjs`
-- `frontend/src/app/App.routing.test.tsx`
-- `frontend/src/app/App.test.tsx`
-- `frontend/src/app/Heading.test.tsx`
-- `frontend/src/app/routes.test.ts`
-- `frontend/src/app/useAppSession.test.ts`
-- `frontend/src/contrast.test.ts`
-- `frontend/src/features/auth/Oidc.test.tsx`
-- `frontend/src/features/auth/OnboardingScreen.test.tsx`
-- `frontend/src/features/auth/onboardingModel.test.ts`
-- `frontend/src/features/auth/useOnboardingForm.test.ts`
-- `frontend/src/features/items/AllItemsScreen.test.tsx`
-- `frontend/src/features/items/ItemDetailScreen.test.tsx`
-- `frontend/src/features/items/ItemForm.test.tsx`
-- `frontend/src/features/items/ItemsScreen.test.tsx`
-- `frontend/src/features/items/itemsApi.test.ts`
-- `frontend/src/features/items/pendingCompletions.test.ts`
-- `frontend/src/features/items/pendingItemCreate.test.ts`
-- `frontend/src/features/items/useAllItems.test.ts`
-- `frontend/src/features/items/useAllItemsFacets.test.ts`
-- `frontend/src/features/items/usePendingCreate.test.ts`
-- `frontend/src/features/items/useSubjectLabels.test.tsx`
-- `frontend/src/features/members/InviteScreen.test.tsx`
-- `frontend/src/features/members/MembersScreen.focus.test.tsx`
-- `frontend/src/features/members/MembersScreen.test.tsx`
-- `frontend/src/features/members/inviteAcceptModel.test.ts`
-- `frontend/src/features/subjects/SubjectForm.test.tsx`
-- `frontend/src/features/subjects/SubjectsScreen.test.tsx`
-- `frontend/src/features/subjects/pendingSubjectCreate.test.ts`
-- `frontend/src/features/subjects/refreshAfterCreate.test.ts`
-- `frontend/src/features/subjects/subjectCreateSettlement.test.ts`
-- `frontend/src/features/subjects/subjectFormModel.test.ts`
-- `frontend/src/i18n/i18n.test.ts`
-- `frontend/src/lib/textLength.test.ts`
-- `frontend/src/motion.test.ts`
+39 file(s).
 
 ### *_test.go: Go tests are excluded; policy does not require splitting a test suite.
 
-- `backend/cmd/tendo/items_test.go`
-- `backend/cmd/tendo/runtime_test.go`
-- `backend/cmd/tendo/security_contract_test.go`
-- `backend/cmd/tendo/subjects_test.go`
-- `backend/internal/household/household_test.go`
-- `backend/internal/household/httpapi/household_test.go`
-- `backend/internal/household/httpapi/members_test.go`
-- `backend/internal/household/membership_test.go`
-- `backend/internal/household/postgres/household_test.go`
-- `backend/internal/household/postgres/keyset_property_test.go`
-- `backend/internal/household/postgres/membership_test.go`
-- `backend/internal/identity/httpapi/invitation_service_test.go`
-- `backend/internal/identity/httpapi/invitations_test.go`
-- `backend/internal/identity/httpapi/oidc_start_characterization_test.go`
-- `backend/internal/identity/httpapi/oidc_test.go`
-- `backend/internal/identity/httpapi/password_gate_test.go`
-- `backend/internal/identity/httpapi/session_test.go`
-- `backend/internal/identity/httpapi/setup_strict_body_test.go`
-- `backend/internal/identity/httpapi/setup_test.go`
-- `backend/internal/identity/invitations_order_test.go`
-- `backend/internal/identity/invitations_test.go`
-- `backend/internal/identity/oidc_characterization_test.go`
-- `backend/internal/identity/oidc_error_mapping_characterization_test.go`
-- `backend/internal/identity/oidc_start_characterization_test.go`
-- `backend/internal/identity/oidc_test.go`
-- `backend/internal/identity/oidcprovider/exchange_order_test.go`
-- `backend/internal/identity/oidcprovider/provider_test.go`
-- `backend/internal/identity/postgres/invitation_keyset_property_test.go`
-- `backend/internal/identity/postgres/invitations_concurrency_test.go`
-- `backend/internal/identity/postgres/invitations_expiry_test.go`
-- `backend/internal/identity/postgres/invitations_round3_test.go`
-- `backend/internal/identity/postgres/invitations_test.go`
-- `backend/internal/identity/postgres/oidc_admission_test.go`
-- `backend/internal/identity/postgres/oidc_test.go`
-- `backend/internal/identity/postgres/session_test.go`
-- `backend/internal/identity/postgres/setup_test.go`
-- `backend/internal/identity/session_test.go`
-- `backend/internal/identity/setup_test.go`
-- `backend/internal/item/completion_order_test.go`
-- `backend/internal/item/completion_test.go`
-- `backend/internal/item/export_test.go`
-- `backend/internal/item/helpers_test.go`
-- `backend/internal/item/httpapi/completion_test.go`
-- `backend/internal/item/httpapi/generated_contract_test.go`
-- `backend/internal/item/httpapi/item_test.go`
-- `backend/internal/item/httpapi/request_mapping_test.go`
-- `backend/internal/item/httpapi/responsible_test.go`
-- `backend/internal/item/item_test.go`
-- `backend/internal/item/order_test.go`
-- `backend/internal/item/postgres/attention_sort_test.go`
-- `backend/internal/item/postgres/completion_characterization_test.go`
-- `backend/internal/item/postgres/completion_decode_test.go`
-- `backend/internal/item/postgres/completion_history_property_test.go`
-- `backend/internal/item/postgres/completion_order_test.go`
-- `backend/internal/item/postgres/concurrency_test.go`
-- `backend/internal/item/postgres/item_mapping_test.go`
-- `backend/internal/item/postgres/item_repository_characterization_test.go`
-- `backend/internal/item/postgres/item_test.go`
-- `backend/internal/item/postgres/keyset_property_test.go`
-- `backend/internal/item/postgres/search_explain_test.go`
-- `backend/internal/item/postgres/search_test.go`
-- `backend/internal/item/postgres/search_validation_test.go`
-- `backend/internal/item/postgres/summary_test.go`
-- `backend/internal/item/responsible_test.go`
-- `backend/internal/item/summary_test.go`
-- `backend/internal/platform/config/config_test.go`
-- `backend/internal/platform/config/oidc_test.go`
-- `backend/internal/platform/config/order_test.go`
-- `backend/internal/platform/database/migrate_discovery_test.go`
-- `backend/internal/platform/httporigin/origin_test.go`
-- `backend/internal/platform/httpx/decode_characterization_test.go`
-- `backend/internal/platform/httpx/jsonapi_test.go`
-- `backend/internal/platform/httpx/origin_characterization_test.go`
-- `backend/internal/platform/httpx/origin_contract_test.go`
-- `backend/internal/platform/httpx/origin_test.go`
-- `backend/internal/platform/httpx/server_test.go`
-- `backend/internal/platform/ids/uuid_test.go`
-- `backend/internal/platform/security/password_test.go`
-- `backend/internal/platform/webui/webui_test.go`
-- `backend/internal/schedule/schedule_property_test.go`
-- `backend/internal/schedule/schedule_test.go`
-- `backend/internal/subject/helpers_test.go`
-- `backend/internal/subject/httpapi/generated_contract_test.go`
-- `backend/internal/subject/httpapi/linked_user_test.go`
-- `backend/internal/subject/httpapi/request_mapping_test.go`
-- `backend/internal/subject/httpapi/subject_test.go`
-- `backend/internal/subject/postgres/keyset_property_test.go`
-- `backend/internal/subject/postgres/subject_repository_characterization_test.go`
-- `backend/internal/subject/postgres/subject_test.go`
-- `backend/internal/subject/subject_test.go`
-- `backend/internal/testoidc/provider_test.go`
-- `backend/internal/testpostgres/fixture_test.go`
-- `backend/tools/funcmetrics/main_test.go`
+93 file(s).
 
 ### api/generated/api.d.ts: openapi-typescript API declaration; generation tests detect drift.
+
+1 file(s).
 
 - `api/generated/api.d.ts`
 
 ### api/generated/health.d.ts: openapi-typescript health declaration; generation tests detect drift.
 
+1 file(s).
+
 - `api/generated/health.d.ts`
 
 ### backend/internal/household/httpapi/household.gen.go: oapi-codegen household types; API generation checks detect drift.
 
+1 file(s).
+
 - `backend/internal/household/httpapi/household.gen.go`
 
 ### backend/internal/household/postgres/dbgen/: sqlc generated household code; scripts/check-sqlc.sh checks drift.
+
+6 file(s).
 
 - `backend/internal/household/postgres/dbgen/db.go`
 - `backend/internal/household/postgres/dbgen/household.sql.go`
@@ -456,9 +378,13 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 
 ### backend/internal/identity/httpapi/setup.gen.go: oapi-codegen setup types; API generation checks detect drift.
 
+1 file(s).
+
 - `backend/internal/identity/httpapi/setup.gen.go`
 
 ### backend/internal/identity/postgres/dbgen/: sqlc generated identity code; scripts/check-sqlc.sh checks drift.
+
+7 file(s).
 
 - `backend/internal/identity/postgres/dbgen/db.go`
 - `backend/internal/identity/postgres/dbgen/invitations.sql.go`
@@ -470,9 +396,13 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 
 ### backend/internal/item/httpapi/item.gen.go: oapi-codegen item types; API generation checks detect drift.
 
+1 file(s).
+
 - `backend/internal/item/httpapi/item.gen.go`
 
 ### backend/internal/item/postgres/dbgen/: sqlc generated item code; scripts/check-sqlc.sh checks drift.
+
+5 file(s).
 
 - `backend/internal/item/postgres/dbgen/completion.sql.go`
 - `backend/internal/item/postgres/dbgen/db.go`
@@ -481,6 +411,8 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 - `backend/internal/item/postgres/dbgen/querier.go`
 
 ### backend/internal/platform/database/NNN_*.sql: Embedded numbered migration history is immutable.
+
+16 file(s).
 
 - `backend/internal/platform/database/001_setup.sql`
 - `backend/internal/platform/database/002_sessions.sql`
@@ -501,13 +433,19 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 
 ### backend/internal/platform/httpx/health.gen.go: oapi-codegen health types; API generation checks detect drift.
 
+1 file(s).
+
 - `backend/internal/platform/httpx/health.gen.go`
 
 ### backend/internal/subject/httpapi/subject.gen.go: oapi-codegen subject types; API generation checks detect drift.
 
+1 file(s).
+
 - `backend/internal/subject/httpapi/subject.gen.go`
 
 ### backend/internal/subject/postgres/dbgen/: sqlc generated subject code; scripts/check-sqlc.sh checks drift.
+
+4 file(s).
 
 - `backend/internal/subject/postgres/dbgen/db.go`
 - `backend/internal/subject/postgres/dbgen/models.go`
@@ -516,22 +454,8 @@ Frontend function-level rules are enforced by ESLint with `frontend/maintainabil
 
 ### frontend/e2e/*.spec.ts: Browser E2E specs are test suites.
 
-- `frontend/e2e/attention-clock.spec.ts`
-- `frontend/e2e/journey.spec.ts`
-- `frontend/e2e/readme-screenshot.spec.ts`
-- `frontend/e2e/screen-reader.spec.ts`
-- `frontend/e2e/ux-audit.spec.ts`
+5 file(s).
 
 ### scripts/test_*.py: Python harness suites are test code.
 
-- `scripts/test_ci_workflow.py`
-- `scripts/test_dev_toolchain.py`
-- `scripts/test_e2e_interrupt.py`
-- `scripts/test_e2e_native_runner.py`
-- `scripts/test_generation_drift.py`
-- `scripts/test_maintainability_check.py`
-- `scripts/test_postgres_live.py`
-- `scripts/test_postgres_test_service.py`
-- `scripts/test_quickstart_docs.py`
-- `scripts/test_toolchain_manifest.py`
-- `scripts/test_verify_local.py`
+12 file(s).

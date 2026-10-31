@@ -149,49 +149,104 @@ class MaintainabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             check.write_baseline({("file_lines", "backend/a.go", ""): 520}, [entry])
 
-    def test_test_classification_uses_repository_conventions(self):
+
+
+INVENTORY_PATH = Path(__file__).with_name("production_inventory.py")
+inventory_spec = importlib.util.spec_from_file_location("production_inventory", INVENTORY_PATH)
+inventory = importlib.util.module_from_spec(inventory_spec)
+inventory_spec.loader.exec_module(inventory)
+
+
+class ProductionInventoryTests(unittest.TestCase):
+    def test_classifies_tests_test_support_and_production(self):
         cases = {
-            "backend/item_test.go": "test",
-            "frontend/src/app.test.tsx": "test",
-            "scripts/test_ci.py": "test",
-            "frontend/e2e/home.spec.ts": "test",
-            "frontend/e2e/helper.ts": "test-support",
+            "backend/internal/item/item_test.go": "test",
+            "frontend/src/app/App.test.tsx": "test",
+            "scripts/test_ci_workflow.py": "test",
+            "frontend/e2e/journey.spec.ts": "test",
+            "frontend/e2e/a11y.ts": "test-support",
+            "frontend/src/test/fakeServer.ts": "test-support",
+            "backend/test/oidc-provider/main.go": "test-support",
             "backend/internal/item/itemtest/repo.go": "test-support",
             "backend/internal/testpostgres/fixture.go": "test-support",
-            "backend/internal/item/service.go": None,
+            "backend/internal/item/create.go": None,
+            "frontend/src/features/items/itemsApi.ts": None,
+            "frontend/src/features/test-results/view.ts": None,
+            "scripts/verify-local.sh": None,
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
-                self.assertEqual(check.test_classification(path), expected)
+                self.assertEqual(inventory.test_classification(path), expected)
 
-    def test_inventory_rendering_is_sorted_and_shows_dispositions(self):
+    def test_classifies_unmeasured_formats(self):
+        cases = {
+            "frontend/index.html": "authored",
+            "frontend/src/index.css": "authored",
+            "Dockerfile": "authored",
+            "deploy/reverse-proxy/Caddyfile": "authored",
+            ".github/workflows/required.yml": "authored",
+            "docs/user/items.md": "documentation",
+            "LICENSE": "documentation",
+            ".autonomous/STATE.md": "agent context",
+            "frontend/package-lock.json": "lockfile",
+            "docs/images/v2-overview.png": "binary asset or placeholder",
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(inventory.unmeasured_classification(path), expected)
+
+    def test_unbaselined_metric_over_threshold_is_a_violation(self):
+        items = [("file_lines", "", 351), ("long_lines", "", 0)]
+        self.assertEqual(
+            inventory.file_disposition("frontend/src/a.ts", items, {}),
+            "VIOLATION file_lines measured=351 threshold=350",
+        )
+
+    def test_metric_over_baseline_allowance_is_a_violation(self):
+        entry = {"kind": "file_lines", "path": "scripts/a.sh", "allowed": 600, "owner": "tooling"}
+        exceptions = {("file_lines", "scripts/a.sh", ""): entry}
+        self.assertEqual(
+            inventory.file_disposition("scripts/a.sh", [("file_lines", "", 601)], exceptions),
+            "VIOLATION file_lines measured=601 allowed=600",
+        )
+        self.assertEqual(
+            inventory.file_disposition("scripts/a.sh", [("file_lines", "", 600)], exceptions),
+            "baseline exception file_lines measured=600 allowed=600 (tooling)",
+        )
+
+    def test_go_function_maxima_name_the_worst_function(self):
+        items = [
+            ("func_lines", "A", 10), ("func_complexity", "A", 9), ("func_nesting", "A", 1),
+            ("func_lines", "B", 20), ("func_complexity", "B", 3), ("func_nesting", "B", 2),
+        ]
+        self.assertEqual(inventory.go_function_maxima(items), "2; 20 (B); 9 (A); 2 (B)")
+
+    def test_render_lists_every_tracked_file_in_one_section(self):
+        files = {
+            "backend/a.go": "package backend\n\nfunc Run() {}\n",
+            "backend/a_test.go": "package backend\n",
+            "frontend/maintainability-baseline.json": "[]\n",
+            "frontend/index.html": "<html></html>\n",
+            "README.md": "# Readme\n",
+        }
+        metrics = {
+            ("file_lines", "backend/a.go", ""): 2, ("long_lines", "backend/a.go", ""): 0,
+            ("func_lines", "backend/a.go", "Run"): 1, ("func_complexity", "backend/a.go", "Run"): 1,
+            ("func_nesting", "backend/a.go", "Run"): 0,
+        }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "frontend").mkdir()
-            (root / "frontend/maintainability-baseline.json").write_text("[]", encoding="utf-8")
-            (root / "backend").mkdir()
-            (root / "backend/a.go").write_text("package backend\\n\\nfunc Run() {}\\n", encoding="utf-8")
-            (root / "frontend/app.ts").write_text("export const app = true;\\n", encoding="utf-8")
-            paths = ["backend/a.go", "frontend/app.ts"]
-            metrics = {
-                ("file_lines", "backend/a.go", ""): 3,
-                ("long_lines", "backend/a.go", ""): 0,
-                ("func_lines", "backend/a.go", "Run"): 1,
-                ("func_complexity", "backend/a.go", "Run"): 1,
-                ("func_nesting", "backend/a.go", "Run"): 0,
-                ("file_lines", "frontend/app.ts", ""): 1,
-                ("long_lines", "frontend/app.ts", ""): 0,
-            }
-            with (
-                patch.object(check, "source_candidates", return_value=paths),
-                patch.object(check, "enumerate_files", return_value=paths),
-                patch.object(check.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="abc123\n")),
-            ):
-                rendered = check.inventory_markdown(root, metrics, [])
-            self.assertIn("Git HEAD `abc123`", rendered)
-            self.assertIn("| `backend/a.go` | backend Go | 3 | 0 | 1; 1 (Run); 1 (Run); 0 (Run) | within thresholds |", rendered)
-            self.assertLess(rendered.index("backend/a.go"), rendered.index("frontend/app.ts"))
-            self.assertIn("Frontend function-level rules are enforced by ESLint", rendered)
+            for path, text in files.items():
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text(text, encoding="utf-8")
+            with patch.object(inventory, "tracked_files", return_value=sorted(files)):
+                rendered = inventory.render(root, metrics, [], "abc123")
+        self.assertIn("Snapshot at Git HEAD `abc123`", rendered)
+        self.assertIn("| `backend/a.go` | backend Go | 2 | 0 | 1; 1 (Run); 1 (Run); 0 (Run) | within thresholds |", rendered)
+        self.assertIn("| `frontend/index.html` | 1 | no | reviewed; unmeasured format |", rendered)
+        self.assertIn("- documentation: 1", rendered)
+        self.assertIn("Measured test files: 1; test-support files: 0.", rendered)
+        self.assertNotIn("| `backend/a_test.go` |", rendered)
 
 
 if __name__ == "__main__":
