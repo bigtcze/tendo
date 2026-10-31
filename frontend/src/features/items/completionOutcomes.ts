@@ -36,6 +36,7 @@ async function completionSuccess(
   current: Extract<ItemRead, { kind: 'ok' }>,
   completion: Completion,
   attemptKey: string,
+  originGroup: ItemGroup | null,
 ) {
   const { userId, householdId, t, locale, refresh, setNotice, focusedRowRef, noticeRef } = tools;
   if (completion.undoneAt) {
@@ -59,6 +60,7 @@ async function completionSuccess(
       : t('items.notice.done', { title: current.item.title }),
     completion,
     itemId,
+    originGroup: originGroup ?? undefined,
     undoAvailable: true,
   });
 }
@@ -69,6 +71,7 @@ export async function handleCompletionResult(
   attemptKey: string,
   focused: boolean,
   focusedControl: HTMLElement | null,
+  originGroup: ItemGroup | null,
   { current, result }: ReadThenWrite<CompleteResult>,
 ) {
   const { userId, householdId, t, refresh, setNotice, onSignedOut } = tools;
@@ -85,7 +88,7 @@ export async function handleCompletionResult(
     return;
   }
   if (result.kind === 'unauthenticated') { onSignedOut(); return; }
-  if (result.kind === 'ok') return completionSuccess(tools, itemId, focused, focusedControl, current, result.completion, attemptKey);
+  if (result.kind === 'ok') return completionSuccess(tools, itemId, focused, focusedControl, current, result.completion, attemptKey, originGroup);
   if (result.kind === 'notFound') {
     clearPendingCompletion(userId, householdId, itemId, attemptKey);
     await refresh();
