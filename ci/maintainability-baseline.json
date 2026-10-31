@@ -37,7 +37,7 @@
   {
     "kind": "file_lines",
     "path": "scripts/setup-smoke.sh",
-    "allowed": 660,
+    "allowed": 627,
     "reason": "Setup smoke provisions the app and verifies first-owner setup, auth and household/item flows; split lifecycle phases while retaining cleanup and assertions.",
     "owner": "tooling-scripts"
   },
@@ -409,7 +409,7 @@
   {
     "kind": "long_lines",
     "path": "scripts/setup-smoke.sh",
-    "allowed": 145,
+    "allowed": 142,
     "reason": "Operational script coordinates setup-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
     "owner": "tooling-scripts"
   },
