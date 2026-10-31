@@ -3,8 +3,6 @@ name: Release qualification
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [ci/v2-1-release-qualification]
 
 permissions:
   contents: read
