@@ -62,8 +62,9 @@ jobs:
           install -d /opt/node
           tar -xJf "$node_archive" --strip-components=1 -C /opt/node
           echo /opt/node/bin >> "$GITHUB_PATH"
-          /opt/node/bin/node --version | grep -Fx 'v26.13.0'
-          /opt/node/bin/npm --version
+          export PATH="/opt/node/bin:$PATH"
+          node --version | grep -Fx 'v26.13.0'
+          npm --version
       - name: Install pinned Playwright browser and project dependencies
         working-directory: frontend
         run: |
