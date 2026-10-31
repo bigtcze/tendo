@@ -1,7 +1,7 @@
 # V2.1 hand-written production code inventory
 
 Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/production_inventory.py --out docs/development/v2-1-production-inventory.md`.
-Snapshot at Git HEAD `a59bd97a36f5c5a5b108b66645b275b631a48659`. The maintainability ratchet (`scripts/maintainability_check.py`) checks the live tree on every PR.
+Snapshot at Git HEAD `c82f572d81812c06ed9024549f2d562a36d1656b`. The maintainability ratchet (`scripts/maintainability_check.py`) checks the live tree on every PR.
 Go files have function-level metrics. Frontend TypeScript function rules are enforced by ESLint with `frontend/maintainability-baseline.json` (0 entries). Python, shell and SQL are measured at file level only.
 Dispositions are derived from measured values against thresholds and named baseline exceptions; generation fails on any violation.
 
@@ -15,7 +15,7 @@ Dispositions are derived from measured values against thresholds and named basel
 | script/tooling | 34 |
 | **Total** | **270** |
 
-Measured test files: 149; test-support files: 12.
+Measured test files: 148; test-support files: 12.
 
 ## Measured production files
 
@@ -458,4 +458,4 @@ Not production source (counts):
 
 ### scripts/test_*.py: Python harness suites are test code.
 
-12 file(s).
+11 file(s).
