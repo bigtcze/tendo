@@ -21,12 +21,14 @@ type fakeService struct {
 	required bool
 	err      error
 	calls    int
+	input    identity.SetupInput
 	hasher   func(string) (string, error)
 }
 
 func (f *fakeService) Required(context.Context) (bool, error) { return f.required, nil }
 func (f *fakeService) CreateOwner(_ context.Context, input identity.SetupInput) error {
 	f.calls++
+	f.input = input
 	if f.hasher != nil {
 		if _, err := f.hasher(input.Password); err != nil {
 			return err
@@ -129,6 +131,23 @@ func assertSetupProblem(t *testing.T, w *httptest.ResponseRecorder, status int, 
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil || problem.Status != status || problem.Type != "about:blank" || problem.Code != code {
 		t.Fatalf("problem=%+v err=%v", problem, err)
+	}
+}
+
+func TestSetupPreservesUntrimmedRequestStrings(t *testing.T) {
+	f := &fakeService{}
+	h := New(f, "a-secret-of-at-least-thirty-two-bytes")
+	mux := chi.NewRouter()
+	h.Register(mux)
+	body := `{"login":" owner ","password":" password ","householdName":" Home ","timezone":" UTC "}`
+	r := httptest.NewRequest(http.MethodPut, "/api/v1/auth/setup", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Tendo-Setup-Token", "a-secret-of-at-least-thirty-two-bytes")
+	r.RemoteAddr = "192.0.2.1:1234"
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusCreated || f.input != (identity.SetupInput{Login: " owner ", Password: " password ", HouseholdName: " Home ", Timezone: " UTC "}) {
+		t.Fatalf("status=%d input=%+v", w.Code, f.input)
 	}
 }
 

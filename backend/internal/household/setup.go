@@ -40,6 +40,12 @@ func (s *BootstrapService) CreateOwnerHousehold(ctx context.Context, input Boots
 	}
 	return id, nil
 }
+func invalidTimezoneName(timezone string) bool {
+	return len(timezone) == 0 || len(timezone) > 128 || timezone == "Local" ||
+		strings.Contains(timezone, "..") || strings.HasPrefix(timezone, "/") ||
+		strings.HasPrefix(timezone, "+") || strings.HasPrefix(timezone, "-")
+}
+
 func Validate(name, timezone string) (string, error) {
 	if !utf8.ValidString(name) {
 		return "", &ValidationError{"householdName", "invalid_characters"}
@@ -53,7 +59,7 @@ func Validate(name, timezone string) (string, error) {
 			return "", &ValidationError{"householdName", "invalid_characters"}
 		}
 	}
-	if len(timezone) == 0 || len(timezone) > 128 || timezone == "Local" || strings.Contains(timezone, "..") || strings.HasPrefix(timezone, "/") || strings.HasPrefix(timezone, "+") || strings.HasPrefix(timezone, "-") {
+	if invalidTimezoneName(timezone) {
 		return "", &ValidationError{"timezone", "invalid_iana_timezone"}
 	}
 	if _, err := time.LoadLocation(timezone); err != nil {
