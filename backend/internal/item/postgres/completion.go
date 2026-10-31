@@ -13,8 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-var completeAfterInsertHook func() error
-
 func dbDate(d *schedule.Date) pgtype.Date {
 	if d == nil {
 		return pgtype.Date{}

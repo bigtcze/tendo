@@ -1,6 +1,7 @@
 package security
 
 import (
+	"encoding/base64"
 	"strings"
 	"sync"
 	"testing"
@@ -143,6 +144,57 @@ func TestVerifyPasswordRejectsMalformedOrUnsupportedHashes(t *testing.T) {
 	tampered := strings.Replace(valid, parts[5], altered, 1)
 	if ok, err := VerifyPassword(tampered, "password"); ok || err != nil {
 		t.Fatalf("tampered key should be a mismatch, got %v, %v", ok, err)
+	}
+}
+
+func noncanonicalRawBase64(encoded string) string {
+	alphabet := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	last := strings.IndexByte(alphabet, encoded[len(encoded)-1])
+	return encoded[:len(encoded)-1] + string(alphabet[(last&0x30)|((last+1)&0x0f)])
+}
+
+func TestParsePasswordHashRejectionStages(t *testing.T) {
+	valid, err := HashPassword("characterization password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(valid, "$")
+	bad := []struct {
+		name  string
+		value string
+	}{
+		{"wrong part count", valid + "$extra"},
+		{"nonempty prefix", "x" + valid},
+		{"algorithm", strings.Replace(valid, "argon2id", "argon2i", 1)},
+		{"version", strings.Replace(valid, "v=19", "v=18", 1)},
+		{"parameter count", strings.Replace(valid, ",p=1", "", 1)},
+		{"missing equals", strings.Replace(valid, "m=65536", "m65536", 1)},
+		{"empty key", strings.Replace(valid, "m=65536", "=65536", 1)},
+		{"empty value", strings.Replace(valid, "m=65536", "m=", 1)},
+		{"duplicate key", strings.Replace(valid, ",t=3", ",m=65536", 1)},
+		{"non numeric", strings.Replace(valid, "m=65536", "m=x", 1)},
+		{"over uint32", strings.Replace(valid, "m=65536", "m=4294967296", 1)},
+		{"wrong memory", strings.Replace(valid, "m=65536", "m=65535", 1)},
+		{"wrong iterations", strings.Replace(valid, "t=3", "t=2", 1)},
+		{"wrong parallelism", strings.Replace(valid, "p=1", "p=2", 1)},
+		{"unknown parameter", strings.Replace(valid, "p=1", "x=1", 1)},
+		{"invalid salt", strings.Replace(valid, parts[4], "%%", 1)},
+		{"invalid key", strings.Replace(valid, parts[5], "%%", 1)},
+		{"noncanonical salt", strings.Replace(valid, parts[4], noncanonicalRawBase64(parts[4]), 1)},
+		{"noncanonical key", strings.Replace(valid, parts[5], noncanonicalRawBase64(parts[5]), 1)},
+		{"wrong salt length", strings.Replace(valid, parts[4], "AA", 1)},
+		{"wrong key length", strings.Replace(valid, parts[5], "AA", 1)},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := parsePasswordHash(tc.value); err != ErrInvalidPasswordHash {
+				t.Fatalf("error=%v, want ErrInvalidPasswordHash", err)
+			}
+		})
+	}
+	gotSalt, gotKey, err := parsePasswordHash(valid)
+	if err != nil || base64.RawStdEncoding.EncodeToString(gotSalt) != parts[4] || base64.RawStdEncoding.EncodeToString(gotKey) != parts[5] {
+		t.Fatalf("parsed salt/key do not match PHC: err=%v", err)
 	}
 }
 

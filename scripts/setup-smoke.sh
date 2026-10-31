@@ -63,22 +63,27 @@ item_fixtures=[]
 class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,*a,**k): return None
 opener=urllib.request.build_opener(NoRedirect)
-def req(method,body=None,headers=None,record=True):
- h={**(headers or {})}
+def call(method,url,*,template=None,body=None,headers=None,sink=None,ensure_ascii=True):
+ request_headers={**(headers or {})}
  data=None
  if body is not None:
-  h['Content-Type']='application/json'
-  data=json.dumps(body).encode()
- r=urllib.request.Request(origin+'/api/v1/session',data=data,headers=h,method=method)
+  request_headers['Content-Type']='application/json'
+  data=json.dumps(body,ensure_ascii=ensure_ascii).encode()
+ request=urllib.request.Request(origin+url,data=data,headers=request_headers,method=method)
  try:
-  with opener.open(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
- except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
+  with opener.open(request,timeout=8) as response:
+   status,response_headers,raw=response.status,response.headers,response.read()
+ except urllib.error.HTTPError as error:
+  with error:
+   status,response_headers,raw=error.code,error.headers,error.read()
  result=json.loads(raw) if raw else None
- if record:
-  fixture={'path':'/api/v1/session','method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()}}
+ if sink is not None:
+  fixture={'path':template or url,'method':method.lower(),'status':status,'headers':{k:response_headers.get_all(k)[0] for k in response_headers.keys()}}
   if raw: fixture['body']=result
-  fixtures.append(fixture)
- return status,hs,result,raw
+  sink.append(fixture)
+ return status,response_headers,result,raw
+def req(method,body=None,headers=None,record=True):
+ return call(method,'/api/v1/session',template='/api/v1/session',body=body,headers=headers,sink=fixtures if record else None)
 def psql(sql):
  return subprocess.run(shlex.split(os.environ['SETUP_SMOKE_PSQL'])+['-c',sql],check=True,capture_output=True,text=True).stdout.strip()
 login={'login':'owner_smoke','password':'correct horse battery'}
@@ -110,13 +115,7 @@ assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{diges
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{raw_hex}','hex') OR token_hash=convert_to('{token}','UTF8')")=='0','raw token stored'
 cookie_header={'Cookie':f'tendo_session={token}'}
 def hreq(hid,headers=None,record=True):
- r=urllib.request.Request(origin+'/api/v1/households/'+hid,headers=headers or {},method='GET')
- try:
-  with opener.open(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
- except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
- result=json.loads(raw) if raw else None
- if record: fixtures.append({'path':'/api/v1/households/{householdId}','method':'GET','status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
- return status,hs,result
+ return call('GET','/api/v1/households/'+hid,template='/api/v1/households/{householdId}',headers=headers,sink=fixtures if record else None)[:3]
 status,h,hb=hreq(household,cookie_header)
 assert status==200 and set(hb)=={'id','name','timezone','createdAt'} and hb['id']==household and hb['name']=='Veselí 家族' and hb['timezone']=='Europe/Prague' and hb['createdAt'].endswith('Z'),('get household',status,hb)
 assert h['ETag']=='"1"' and h['Cache-Control']=='no-store' and h['Content-Type'].startswith('application/json'),dict(h)
@@ -132,18 +131,7 @@ status,h,b_other=hreq(other_id,cookie_header);assert status==404 and b_other==b_
 COLL='/api/v1/households/{householdId}/subjects'
 ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
 def sreq(method,url,template,body=None,headers=None,record=True):
- h={**(headers or {})}
- data=None
- if body is not None:
-  h['Content-Type']='application/json'
-  data=json.dumps(body,ensure_ascii=False).encode()
- r=urllib.request.Request(origin+url,data=data,headers=h,method=method)
- try:
-  with opener.open(r,timeout=8) as x: status,hs,raw=x.status,x.headers,x.read()
- except urllib.error.HTTPError as e: status,hs,raw=e.code,e.headers,e.read()
- result=json.loads(raw) if raw else None
- if record: fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
- return status,hs,result
+ return call(method,url,template=template,body=body,headers=headers,sink=fixtures if record else None,ensure_ascii=False)[:3]
 sbase=f'/api/v1/households/{household}/subjects'
 mut={**cookie_header,'Origin':origin}
 subject_key='setup-subject-person'
@@ -224,15 +212,7 @@ ICOLL='/api/v1/households/{householdId}/items'
 IITEM='/api/v1/households/{householdId}/items/{itemId}'
 CITEM='/api/v1/households/{householdId}/items/{itemId}/completions'
 def ireq(method,url,template,body=None,headers=None,record=True):
- h={**(headers or {})};data=None
- if body is not None:h['Content-Type']='application/json';data=json.dumps(body,ensure_ascii=False).encode()
- r=urllib.request.Request(origin+url,data=data,headers=h,method=method)
- try:
-  with opener.open(r,timeout=8) as x:status,hs,raw=x.status,x.headers,x.read()
- except urllib.error.HTTPError as e:status,hs,raw=e.code,e.headers,e.read()
- result=json.loads(raw) if raw else None
- if record:item_fixtures.append({'path':template,'method':method,'status':status,'headers':{k:hs.get_all(k)[0] for k in hs.keys()},'body':result})
- return status,hs,result
+ return call(method,url,template=template,body=body,headers=headers,sink=item_fixtures if record else None,ensure_ascii=False)[:3]
 ibase=f'/api/v1/households/{household}/items'
 status,h,immediate=ireq('POST',ibase,ICOLL,{'title':'  Připomenout pojištění 🚗  ','subjectId':person['id'],'notes':'Poznámka 家族'},{**mut,'Idempotency-Key':'setup-item-immediate'})
 assert status==201 and immediate['title']=='Připomenout pojištění 🚗' and immediate['attention']=='needs_attention' and h['ETag']=='"1"',('create immediate item',status,immediate)
@@ -464,23 +444,9 @@ ACCEPT_NEW='/api/v1/auth/invitations/accept'
 ACCEPT_EXISTING='/api/v1/invitations/accept'
 MEMBERS='/api/v1/households/{householdId}/members'
 def xreq(method,url,template,body=None,headers=None,record=True):
- hs={**(headers or {})};data=None
- if body is not None: hs['Content-Type']='application/json';data=json.dumps(body,ensure_ascii=False).encode()
- request=urllib.request.Request(origin+url,data=data,headers=hs,method=method)
- try:
-  with opener.open(request,timeout=8) as response: code,rh,raw=response.status,response.headers,response.read()
- except urllib.error.HTTPError as error: code,rh,raw=error.code,error.headers,error.read()
- result=json.loads(raw) if raw else None
- if record: fixtures.append({'path':template,'method':method,'status':code,'headers':{k:rh.get_all(k)[0] for k in rh.keys()},**({'body':result} if raw else {})})
- return code,rh,result,raw
-
+ return call(method,url,template=template,body=body,headers=headers,sink=fixtures if record else None,ensure_ascii=False)
 def record_wrong_host():
- request=urllib.request.Request(origin+'/api/v1/households/'+household+'/invitations',headers={**cookie_header,'Host':'attacker.invalid'},method='GET')
- try:
-  with opener.open(request,timeout=8) as response: code,rh,raw=response.status,response.headers,response.read()
- except urllib.error.HTTPError as error: code,rh,raw=error.code,error.headers,error.read()
- result=json.loads(raw) if raw else None
- fixtures.append({'path':INV,'method':'get','status':code,'headers':{k:rh.get_all(k)[0] for k in rh.keys()},'body':result})
+ code,_,result,_=call('GET','/api/v1/households/'+household+'/invitations',template=INV,headers={**cookie_header,'Host':'attacker.invalid'},sink=fixtures)
  assert code==421,('invitation wrong authority',code,result)
 owner_mut={**cookie_header,'Origin':origin}
 owner_cookie=cookie_header
@@ -633,9 +599,9 @@ assert st==401 and stale_summary['code']=='unauthenticated'
 assert 'Set-Cookie' in stale_summary_headers,('stale session summary 401',st,stale_summary,dict(stale_summary_headers))
 stale_summary_cookie=[p.strip().lower() for p in stale_summary_headers['Set-Cookie'].split(';')]
 assert stale_summary_cookie[0]=='tendo_session=' and 'max-age=0' in stale_summary_cookie,stale_summary_cookie
-login_headers={'Origin':origin,'Content-Type':'application/json'}
-login_req=urllib.request.Request(origin+'/api/v1/session',data=json.dumps({'login':'owner_smoke','password':'correct horse battery'}).encode(),headers=login_headers,method='POST')
-with opener.open(login_req,timeout=8) as login_resp: login_cookie=login_resp.headers.get_all('Set-Cookie')[0].split(';',1)[0]
+status,login_response_headers,_,_=call('POST','/api/v1/session',body={'login':'owner_smoke','password':'correct horse battery'},headers={'Origin':origin})
+assert status==201,('owner re-login',status)
+login_cookie=login_response_headers.get_all('Set-Cookie')[0].split(';',1)[0]
 new_token=login_cookie.split('=',1)[1]
 replay_version=psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")
 status,_,undone_retry=ireq('POST',cpath(fixed_late['id']),CITEM,{'completedOn':'2026-10-06'},{'Origin':origin,'Cookie':login_cookie,'If-Match':'"3"','Idempotency-Key':'fixed-late'});assert status==201 and undone_retry['id']==receipt['id'] and undone_retry['undoneAt']==undone['undoneAt'] and undone_retry['undoneByUserId']==undone['undoneByUserId'] and psql(f"SELECT version::text FROM items WHERE id='{fixed_late['id']}'")== replay_version,('undone completion-key replay',status,undone_retry)

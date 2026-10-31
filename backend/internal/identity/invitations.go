@@ -86,25 +86,6 @@ func NewInvitationService(repository InvitationRepository, clock func() time.Tim
 	}, nil
 }
 
-func validUUID(value string) bool {
-	if len(value) != 36 {
-		return false
-	}
-	for index := range value {
-		if index == 8 || index == 13 || index == 18 || index == 23 {
-			if value[index] != '-' {
-				return false
-			}
-			continue
-		}
-		character := value[index]
-		if !(character >= '0' && character <= '9' || character >= 'a' && character <= 'f' || character >= 'A' && character <= 'F') {
-			return false
-		}
-	}
-	return true
-}
-
 func invitationNow(clock func() time.Time) time.Time {
 	return clock().UTC().Truncate(time.Second)
 }

@@ -62,7 +62,7 @@ The app logs `database schema validation failed` when it cannot use the database
 
 | What you see | Fix |
 | --- | --- |
-| "Login or password is incorrect." | Check the login (lowercase). Tendo has no password reset in this version; another household member cannot reset it either. Keep your password in a password manager. |
+| "Login or password is incorrect." | Check the login (lowercase). Tendo has no password reset in this version; another household member cannot reset it either. Keep your password in a password manager. If the correct password is always refused, check `docker compose logs app` for an error-level `http request` line with `fault=password_hash_integrity_fault`: the stored password record is damaged. Restore your latest backup; see [back up and restore](backup-restore.md). |
 | "Too many attempts." | Sign-in allows 10 attempts per minute from one address. Wait one minute. |
 | You are signed out after some weeks | Sessions last 30 days and then end. Sign in again. |
 | Sign-in works on `http://localhost` but not through your domain | `TENDO_PUBLIC_URL` must be the HTTPS address of your domain. With an `https://` address the session cookie is marked `Secure` and is sent only over HTTPS. |
