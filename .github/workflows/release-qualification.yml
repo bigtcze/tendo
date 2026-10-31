@@ -143,9 +143,11 @@ jobs:
           set -euo pipefail
           evidence="$RUNNER_TEMP/orca-startup-failure"
           mkdir -p "$evidence"
-          shopt -s nullglob
-          logs=("$TENDO_SR_AUDIT_DIR"/runtime/logs/*.log)
-          if ((${#logs[@]})); then cp -- "${logs[@]}" "$evidence/"; fi
+          # Explicit allowlist of startup process logs; Orca debug output, audio and bus addresses stay private.
+          for name in xvfb.log openbox.log atspi.log orca.log; do
+            log="$TENDO_SR_AUDIT_DIR/runtime/logs/$name"
+            if [[ -f "$log" && ! -L "$log" ]]; then cp -- "$log" "$evidence/$name"; fi
+          done
           printf 'run_id=%s\ncommit=%s\nresult=failure\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$evidence/summary.txt"
       - name: Upload Orca startup failure logs
         if: failure()

@@ -101,6 +101,47 @@ class OrcaTransportTests(unittest.TestCase):
             playwright.assert_not_called()
 
 
+class OrcaReadinessTests(unittest.TestCase):
+    """wait_until_ready under a controlled monotonic clock; no real sleeps."""
+
+    def wait(self, timeout, ready_at=None, exit_at=None):
+        clock = {"now": 0.0}
+        ready = mock.Mock()
+        ready.exists.side_effect = lambda: ready_at is not None and clock["now"] >= ready_at
+        proc = mock.Mock()
+        proc.poll.side_effect = lambda: 1 if exit_at is not None and clock["now"] >= exit_at else None
+        def sleep(seconds):
+            clock["now"] += seconds
+        with mock.patch.object(runner.orca_session.time, "monotonic", side_effect=lambda: clock["now"]), \
+             mock.patch.object(runner.orca_session.time, "sleep", side_effect=sleep):
+            runner.orca_session.wait_until_ready(proc, ready, timeout)
+        return clock["now"]
+
+    def test_ready_after_fifteen_seconds_within_configured_budget_succeeds(self):
+        self.assertGreaterEqual(self.wait(45, ready_at=20.0), 20.0)
+
+    def test_session_exit_before_ready_fails_fast(self):
+        with self.assertRaisesRegex(RuntimeError, "exited before startup"):
+            self.wait(45, exit_at=3.0)
+
+    def test_deadline_expiry_fails_with_configured_budget(self):
+        with self.assertRaisesRegex(RuntimeError, "within 45 seconds"):
+            self.wait(45, ready_at=46.0)
+
+    def test_runner_waits_for_helper_budget_plus_margin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve(); audit = root / "audit"; audit.mkdir()
+            children = mock.Mock()
+            with mock.patch.dict("os.environ", {"TENDO_SR_READY_TIMEOUT_SECONDS": "47"}), \
+                 mock.patch.object(runner.orca_session, "wait_until_ready", side_effect=RuntimeError("stop after wait")) as wait:
+                with self.assertRaisesRegex(RuntimeError, "stop after wait"):
+                    runner.run_screen_reader(root, {}, children, root, audit)
+            # The parent must outlast the helper's own 47-second readiness budget, never a fixed 15 seconds.
+            self.assertEqual(wait.call_args.args[2], 62)
+            self.assertEqual(children.start.call_args.args[1]["TENDO_SR_READY_TIMEOUT_SECONDS"], "47")
+            children.stop.assert_called_once()
+
+
 class ChildProcessTests(unittest.TestCase):
     def test_default_playwright_discovery_excludes_screen_reader_spec_without_sr_env(self):
         root = pathlib.Path(__file__).resolve().parents[1]
