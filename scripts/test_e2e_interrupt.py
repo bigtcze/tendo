@@ -61,7 +61,7 @@ class E2EWrapperInterruptTests(unittest.TestCase):
    (repo/"frontend/dist").mkdir(parents=True); (repo/"frontend/dist/.gitkeep").write_text(""); (repo/"frontend/dist/old.txt").write_text("old frontend")
    embedded=repo/"backend/internal/platform/webui/dist"; (embedded/"assets").mkdir(parents=True)
    (embedded/"index.html").write_text("old embedded index"); (embedded/"assets/old.js").write_text("old embedded asset")
-   for name in ("e2e-smoke.sh","e2e-native-runner.py","e2e_db_fixtures.py","postgres-test-service.py"):
+   for name in ("e2e-smoke.sh","e2e-native-runner.py","e2e_native_diagnostics.py","e2e_db_fixtures.py","postgres-test-service.py"):
     import shutil; shutil.copy2(ROOT/"scripts"/name,repo/"scripts"/name)
    pkg=repo/"frontend/node_modules/@playwright/test/package.json"; pkg.parent.mkdir(parents=True); import json; pkg.write_text(json.dumps({"version": json.loads((ROOT/"toolchain.json").read_text())["playwright"]}))
    pw=repo/"frontend/node_modules/.bin/playwright"; pw.write_text("#!/usr/bin/env bash\nexit 0\n"); pw.chmod(0o755)

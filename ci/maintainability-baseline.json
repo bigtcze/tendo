@@ -23,7 +23,7 @@
   {
     "kind": "file_lines",
     "path": "scripts/e2e-native-runner.py",
-    "allowed": 857,
+    "allowed": 511,
     "reason": "Native E2E runner supervises server/browser processes, diagnostics, cancellation, and cleanup; separate lifecycle helpers while preserving fail-fast cleanup.",
     "owner": "tooling-scripts"
   },
@@ -346,7 +346,7 @@
   {
     "kind": "long_lines",
     "path": "scripts/e2e-native-runner.py",
-    "allowed": 7,
+    "allowed": 3,
     "reason": "Operational script coordinates e2e-native-runner.py process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
     "owner": "tooling-scripts"
   },
