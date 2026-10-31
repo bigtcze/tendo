@@ -291,7 +291,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("needs: image", job_section(release, "release"))
         self.assertTrue(
             all(marker in qualification for marker in (
-                "TENDO_SR_AUDIT_DIR: ${{ runner.temp }}/tendo-sr-audit",
+                'echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"',
                 "bash scripts/e2e-smoke.sh",
                 "transcript.json",
                 "transcript.md",
@@ -299,7 +299,9 @@ class WorkflowStructureTests(unittest.TestCase):
                 "at-spi2-core",
                 "CREATE ROLE tendo NOLOGIN",
                 "path: |",
-                "${{ runner.temp }}/tendo-sr-audit/manifest.json",
+                '"$TENDO_SR_AUDIT_DIR/manifest.json"',
+                'echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"',
+                "${{ env.TENDO_SR_AUDIT_DIR }}/manifest.json",
             ))
         )
         upload = job_section(qualification, "screen-reader").split("      - name: Upload sanitized", 1)[-1]
