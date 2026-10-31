@@ -14,8 +14,10 @@ jobs:
     name: screen-reader (Orca)
     timeout-minutes: 45
     runs-on: ubuntu-latest
+    container:
+      image: debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
     env:
-      TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:5432/postgres?sslmode=disable
+      TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@postgres:5432/postgres?sslmode=disable
     services:
       postgres:
         image: postgres:18.6-bookworm
@@ -46,15 +48,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends at-spi2-core dbus-x11 espeak-ng orca openbox speech-dispatcher xvfb xdotool
-          sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg
-          sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /etc/apt/keyrings/postgresql.gpg
+          apt-get update
+          apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus-x11 espeak-ng git gnupg nodejs orca openbox speech-dispatcher xvfb xdotool
+          install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor --yes -o /etc/apt/keyrings/postgresql.gpg
           . /etc/os-release
-          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-18
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+          apt-get update
+          apt-get install -y postgresql-client-18
           psql --version | grep -E 'PostgreSQL\) 18([.]|$)'
       - name: Install pinned Playwright browser and project dependencies
         working-directory: frontend

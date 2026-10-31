@@ -73,7 +73,9 @@ dbus-run-session -- bash -Eeuo pipefail -c '
   printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" > "$1/bus-address"
   # Orca being alive for a fixed interval is not readiness: it can still be
   # initializing, or can exit after failing to connect to the display/bus.
-  for _ in $(seq 300); do
+  ready_timeout=${TENDO_SR_READY_TIMEOUT_SECONDS:-30}
+  [[ "$ready_timeout" =~ ^[1-9][0-9]*$ ]] || { echo "TENDO_SR_READY_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
+  for _ in $(seq "$((ready_timeout * 10))"); do
     kill -0 "$orca_pid" 2>/dev/null || { echo "Orca exited during startup" >&2; exit 1; }
     if [[ "${TENDO_SR_ORCA_NO_START:-0}" != 1 ]] && grep -q "SPEECH OUTPUT:.*Screen reader on" "$2"; then
       touch "$1/ready"

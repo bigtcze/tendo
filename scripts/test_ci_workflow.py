@@ -306,6 +306,8 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertNotIn("orca-debug.out", upload)
         self.assertNotIn("runtime/", upload)
         self.assertIn("branches: [ci/v2-1-release-qualification]", qualification)
+        self.assertIn("image: debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1", qualification)
+        self.assertIn("TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@postgres:5432/postgres", qualification)
 
 
 if __name__ == "__main__":
