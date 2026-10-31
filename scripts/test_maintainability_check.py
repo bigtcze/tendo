@@ -150,5 +150,104 @@ class MaintainabilityTests(unittest.TestCase):
             check.write_baseline({("file_lines", "backend/a.go", ""): 520}, [entry])
 
 
+
+INVENTORY_PATH = Path(__file__).with_name("production_inventory.py")
+inventory_spec = importlib.util.spec_from_file_location("production_inventory", INVENTORY_PATH)
+inventory = importlib.util.module_from_spec(inventory_spec)
+inventory_spec.loader.exec_module(inventory)
+
+
+class ProductionInventoryTests(unittest.TestCase):
+    def test_classifies_tests_test_support_and_production(self):
+        cases = {
+            "backend/internal/item/item_test.go": "test",
+            "frontend/src/app/App.test.tsx": "test",
+            "scripts/test_ci_workflow.py": "test",
+            "frontend/e2e/journey.spec.ts": "test",
+            "frontend/e2e/a11y.ts": "test-support",
+            "frontend/src/test/fakeServer.ts": "test-support",
+            "backend/test/oidc-provider/main.go": "test-support",
+            "backend/internal/item/itemtest/repo.go": "test-support",
+            "backend/internal/testpostgres/fixture.go": "test-support",
+            "backend/internal/item/create.go": None,
+            "frontend/src/features/items/itemsApi.ts": None,
+            "frontend/src/features/test-results/view.ts": None,
+            "scripts/verify-local.sh": None,
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(inventory.test_classification(path), expected)
+
+    def test_classifies_unmeasured_formats(self):
+        cases = {
+            "frontend/index.html": "authored",
+            "frontend/src/index.css": "authored",
+            "Dockerfile": "authored",
+            "deploy/reverse-proxy/Caddyfile": "authored",
+            ".github/workflows/required.yml": "authored",
+            "docs/user/items.md": "documentation",
+            "LICENSE": "documentation",
+            ".autonomous/STATE.md": "agent context",
+            "frontend/package-lock.json": "lockfile",
+            "docs/images/v2-overview.png": "binary asset or placeholder",
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(inventory.unmeasured_classification(path), expected)
+
+    def test_unbaselined_metric_over_threshold_is_a_violation(self):
+        items = [("file_lines", "", 351), ("long_lines", "", 0)]
+        self.assertEqual(
+            inventory.file_disposition("frontend/src/a.ts", items, {}),
+            "VIOLATION file_lines measured=351 threshold=350",
+        )
+
+    def test_metric_over_baseline_allowance_is_a_violation(self):
+        entry = {"kind": "file_lines", "path": "scripts/a.sh", "allowed": 600, "owner": "tooling"}
+        exceptions = {("file_lines", "scripts/a.sh", ""): entry}
+        self.assertEqual(
+            inventory.file_disposition("scripts/a.sh", [("file_lines", "", 601)], exceptions),
+            "VIOLATION file_lines measured=601 allowed=600",
+        )
+        self.assertEqual(
+            inventory.file_disposition("scripts/a.sh", [("file_lines", "", 600)], exceptions),
+            "baseline exception file_lines measured=600 allowed=600 (tooling)",
+        )
+
+    def test_go_function_maxima_name_the_worst_function(self):
+        items = [
+            ("func_lines", "A", 10), ("func_complexity", "A", 9), ("func_nesting", "A", 1),
+            ("func_lines", "B", 20), ("func_complexity", "B", 3), ("func_nesting", "B", 2),
+        ]
+        self.assertEqual(inventory.go_function_maxima(items), "2; 20 (B); 9 (A); 2 (B)")
+
+    def test_render_lists_every_tracked_file_in_one_section(self):
+        files = {
+            "backend/a.go": "package backend\n\nfunc Run() {}\n",
+            "backend/a_test.go": "package backend\n",
+            "frontend/maintainability-baseline.json": "[]\n",
+            "frontend/index.html": "<html></html>\n",
+            "README.md": "# Readme\n",
+        }
+        metrics = {
+            ("file_lines", "backend/a.go", ""): 2, ("long_lines", "backend/a.go", ""): 0,
+            ("func_lines", "backend/a.go", "Run"): 1, ("func_complexity", "backend/a.go", "Run"): 1,
+            ("func_nesting", "backend/a.go", "Run"): 0,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path, text in files.items():
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text(text, encoding="utf-8")
+            with patch.object(inventory, "tracked_files", return_value=sorted(files)):
+                rendered = inventory.render(root, metrics, [], "abc123")
+        self.assertIn("Snapshot at Git HEAD `abc123`", rendered)
+        self.assertIn("| `backend/a.go` | backend Go | 2 | 0 | 1; 1 (Run); 1 (Run); 0 (Run) | within thresholds |", rendered)
+        self.assertIn("| `frontend/index.html` | 1 | no | reviewed; unmeasured format |", rendered)
+        self.assertIn("- documentation: 1", rendered)
+        self.assertIn("Measured test files: 1; test-support files: 0.", rendered)
+        self.assertNotIn("| `backend/a_test.go` |", rendered)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
