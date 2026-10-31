@@ -149,6 +149,50 @@ class MaintainabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             check.write_baseline({("file_lines", "backend/a.go", ""): 520}, [entry])
 
+    def test_test_classification_uses_repository_conventions(self):
+        cases = {
+            "backend/item_test.go": "test",
+            "frontend/src/app.test.tsx": "test",
+            "scripts/test_ci.py": "test",
+            "frontend/e2e/home.spec.ts": "test",
+            "frontend/e2e/helper.ts": "test-support",
+            "backend/internal/item/itemtest/repo.go": "test-support",
+            "backend/internal/testpostgres/fixture.go": "test-support",
+            "backend/internal/item/service.go": None,
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(check.test_classification(path), expected)
+
+    def test_inventory_rendering_is_sorted_and_shows_dispositions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "frontend").mkdir()
+            (root / "frontend/maintainability-baseline.json").write_text("[]", encoding="utf-8")
+            (root / "backend").mkdir()
+            (root / "backend/a.go").write_text("package backend\\n\\nfunc Run() {}\\n", encoding="utf-8")
+            (root / "frontend/app.ts").write_text("export const app = true;\\n", encoding="utf-8")
+            paths = ["backend/a.go", "frontend/app.ts"]
+            metrics = {
+                ("file_lines", "backend/a.go", ""): 3,
+                ("long_lines", "backend/a.go", ""): 0,
+                ("func_lines", "backend/a.go", "Run"): 1,
+                ("func_complexity", "backend/a.go", "Run"): 1,
+                ("func_nesting", "backend/a.go", "Run"): 0,
+                ("file_lines", "frontend/app.ts", ""): 1,
+                ("long_lines", "frontend/app.ts", ""): 0,
+            }
+            with (
+                patch.object(check, "source_candidates", return_value=paths),
+                patch.object(check, "enumerate_files", return_value=paths),
+                patch.object(check.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="abc123\n")),
+            ):
+                rendered = check.inventory_markdown(root, metrics, [])
+            self.assertIn("Git HEAD `abc123`", rendered)
+            self.assertIn("| `backend/a.go` | backend Go | 3 | 0 | 1; 1 (Run); 1 (Run); 0 (Run) | within thresholds |", rendered)
+            self.assertLess(rendered.index("backend/a.go"), rendered.index("frontend/app.ts"))
+            self.assertIn("Frontend function-level rules are enforced by ESLint", rendered)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -143,6 +143,21 @@ def excluded(path: str) -> bool:
     return any(predicate(parts, parts[-1]) for _, predicate, _ in EXCLUSIONS)
 
 
+def test_classification(path: str) -> str | None:
+    """Return the test/test-support category for a non-production source path."""
+    parts = PurePosixPath(path).parts
+    name = parts[-1]
+    if name.endswith("_test.go") or ".test." in name:
+        return "test"
+    if ((parts[0] == "scripts" and name.startswith("test_") and name.endswith(".py"))
+            or (parts[:2] == ("frontend", "e2e") and name.endswith(".spec.ts"))):
+        return "test"
+    support_dirs = {"itemtest", "subjecttest", "testoidc", "testpostgres", "test", "e2e"}
+    if "e2e" in parts[:2] or "test" in parts[:3] or any(part in support_dirs for part in parts):
+        return "test-support"
+    return None
+
+
 def file_metrics(text: str) -> dict[str, int]:
     lines = text.splitlines()
     nonblank = sum(bool(line.strip()) for line in lines)
@@ -220,6 +235,106 @@ def enumerate_files(root: Path) -> list[str]:
     raw = result.stdout
     paths = sorted({item.decode() for item in raw.split(b"\0") if item})
     return [p for p in paths if PurePosixPath(p).suffix in SUFFIXES and not excluded(p)]
+
+
+def exclusion_reason(path: str) -> str | None:
+    parts = PurePosixPath(path).parts
+    for pattern, predicate, reason in EXCLUSIONS:
+        if predicate(parts, parts[-1]):
+            return f"{pattern}: {reason}"
+    return None
+
+
+def source_candidates(root: Path) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root, check=True, stdout=subprocess.PIPE,
+    )
+    paths = sorted({item.decode() for item in result.stdout.split(b"\0") if item})
+    return [path for path in paths if PurePosixPath(path).suffix in SUFFIXES]
+
+
+def inventory_area(path: str) -> str:
+    suffix = PurePosixPath(path).suffix
+    if suffix == ".go":
+        return "backend Go"
+    if suffix in {".ts", ".tsx"} and path.startswith("frontend/"):
+        return "frontend TS"
+    return "SQL" if suffix == ".sql" else "script"
+
+
+def inventory_markdown(
+    root: Path, metrics: dict[tuple[str, str, str], int], baseline: list[dict]
+) -> str:
+    excluded_groups: dict[str, list[str]] = {}
+    counts = Counter()
+    for path in source_candidates(root):
+        reason, category = exclusion_reason(path), test_classification(path)
+        counts[category] += bool(category)
+        if reason:
+            excluded_groups.setdefault(reason, []).append(path)
+    production = [p for p in enumerate_files(root) if test_classification(p) is None]
+    exceptions: dict[str, list[dict]] = {}
+    for entry in baseline:
+        if test_classification(entry["path"]) is None:
+            exceptions.setdefault(entry["path"], []).append(entry)
+    rows = []
+    area_counts = Counter()
+    for path in production:
+        area = inventory_area(path)
+        area_counts[area] += 1
+        values = {
+            kind: value for (kind, metric_path, _), value in metrics.items()
+            if metric_path == path
+        }
+        own_exceptions = sorted(exceptions.get(path, []), key=lambda e: (e["kind"], e.get("name", "")))
+        if own_exceptions:
+            disposition = "; ".join(
+                f"{entry['kind']} allowed={entry['allowed']} ({entry['owner']})"
+                for entry in own_exceptions
+            )
+            disposition = "baseline exception: " + disposition
+        else:
+            disposition = "within thresholds"
+        details = "—"
+        if area == "backend Go":
+            functions = {}
+            for (kind, metric_path, name), value in metrics.items():
+                if metric_path == path and kind.startswith("func_"):
+                    functions.setdefault(name, {})[kind] = value
+            maxima = []
+            for kind in ("func_lines", "func_complexity", "func_nesting"):
+                worst = max(functions.items(), key=lambda item: item[1].get(kind, 0), default=("—", {}))
+                maxima.append(f"{worst[1].get(kind, 0)} ({worst[0]})")
+            details = f"{len(functions)}; " + "; ".join(maxima)
+        rows.append(f"| `{path}` | {area} | {values.get('file_lines', 0)} | {values.get('long_lines', 0)} | {details} | {disposition} |")
+    frontend_baseline = json.loads((root / "frontend/maintainability-baseline.json").read_text(encoding="utf-8"))
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+    lines = [
+        "# V2.1 Hand-Written Production Code Inventory", "",
+        "Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/maintainability_check.py --inventory-out docs/development/v2-1-production-inventory.md`.",
+        f"This is a snapshot at Git HEAD `{head}`; rerun the command after source changes.",
+        "The maintainability ratchet checks the live tree and guarantees ongoing threshold compliance between inventory snapshots.",
+        "", "## Summary", "",
+        "| Area | Production files |", "|---|---:|",
+    ]
+    lines.extend(f"| {area} | {area_counts[area]} |" for area in ("backend Go", "frontend TS", "SQL", "script"))
+    lines.extend([
+        f"| **Total production** | **{len(production)}** |", "",
+        f"Test files: {counts['test']}; test-support files: {counts['test-support']}.",
+        f"Frontend function-level rules are enforced by ESLint with `frontend/maintainability-baseline.json` ({len(frontend_baseline)} entries).",
+        "", "## Production files", "",
+        "| Path | Area | Non-blank lines | Long lines | Go functions; max lines (function); complexity (function); nesting (function) | Disposition |",
+        "|---|---|---:|---:|---|---|",
+    ])
+    lines.extend(rows)
+    lines.extend(["", "## Excluded source paths", ""])
+    for reason in sorted(excluded_groups):
+        lines.append(f"### {reason}")
+        lines.append("")
+        lines.extend(f"- `{path}`" for path in sorted(excluded_groups[reason]))
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def baseline_errors_against_base(current: list[dict], base: list[dict]) -> list[str]:
@@ -375,6 +490,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write-baseline", action="store_true")
     parser.add_argument("--list-exclusions", action="store_true")
+    parser.add_argument("--inventory", action="store_true")
+    parser.add_argument("--inventory-out", metavar="PATH")
     parser.add_argument("--base-ref", default=None)
     args = parser.parse_args()
     if args.list_exclusions:
@@ -388,6 +505,16 @@ def main() -> int:
     try:
         metrics = gather(ROOT)
         existing = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else []
+        if args.inventory or args.inventory_out:
+            rendered = inventory_markdown(ROOT, metrics, existing)
+            if args.inventory_out:
+                output = Path(args.inventory_out)
+                if not output.is_absolute():
+                    output = ROOT / output
+                output.write_text(rendered, encoding="utf-8")
+            else:
+                print(rendered, end="")
+            return 0
         base = load_base_baseline(args.base_ref or os.environ.get("MAINTAINABILITY_BASE_REF"))
         if args.write_baseline:
             updated = write_baseline(metrics, existing)
