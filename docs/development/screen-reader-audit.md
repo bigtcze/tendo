@@ -8,7 +8,10 @@ TENDO_SR_AUDIT_DIR=/tmp/opencode/tendo-orca-audit bash scripts/dev-exec.sh -- ba
 ```
 
 The mode is mutually exclusive with `TENDO_README_SCREENSHOT` and
-`TENDO_UX_AUDIT_DIR`. It is not selected in required CI or default E2E runs.
+`TENDO_UX_AUDIT_DIR`. It is not selected in required PR CI or default E2E runs;
+it is a required release-qualification gate (see `release-qualification.md`).
+Run only one Orca session per host user at a time: `orca --replace` kills every
+same-user Orca process regardless of display.
 It starts the production-built app against the isolated PostgreSQL test service,
 then starts a private Xvfb/D-Bus/AT-SPI/Orca session and headful Chromium with
 renderer accessibility enabled. The harness makes a real xdotool click in web
