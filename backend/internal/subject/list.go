@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 func (s *Service) List(ctx context.Context, userID, householdID string, q ListQuery) (Page, error) {
@@ -76,7 +78,7 @@ func DecodeCursor(cursor string) (string, error) {
 		return "", errors.New("malformed cursor")
 	}
 	id, ok := strings.CutPrefix(string(raw), cursorPrefix)
-	if !ok || !validUUID(id) {
+	if !ok || !ids.IsCanonicalUUID(id) {
 		return "", errors.New("malformed cursor")
 	}
 	return strings.ToLower(id), nil
@@ -91,19 +93,19 @@ func CanonicalIDs(input []string) ([]string, error) {
 		return nil, errors.New("too many ids")
 	}
 	seen := make(map[string]struct{}, len(input))
-	ids := make([]string, 0, len(input))
+	canonicalIDs := make([]string, 0, len(input))
 	for _, id := range input {
-		if !validUUID(id) {
+		if !ids.IsCanonicalUUID(id) {
 			return nil, errors.New("invalid id")
 		}
 		id = strings.ToLower(id)
 		if _, ok := seen[id]; !ok {
 			seen[id] = struct{}{}
-			ids = append(ids, id)
+			canonicalIDs = append(canonicalIDs, id)
 		}
 	}
-	sort.Strings(ids)
-	return ids, nil
+	sort.Strings(canonicalIDs)
+	return canonicalIDs, nil
 }
 
 func filteredFingerprint(householdID string, archived bool, ids []string) string {
@@ -118,12 +120,12 @@ func encodeFilteredCursor(householdID string, archived bool, ids []string, lastI
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-func validFilteredCursorParts(parts []string, householdID string, archived bool, ids []string) bool {
+func validFilteredCursorParts(parts []string, householdID string, archived bool, canonicalIDs []string) bool {
 	if len(parts) != 3 || parts[0] != "s2" {
 		return false
 	}
-	return parts[1] == filteredFingerprint(householdID, archived, ids) &&
-		validUUID(parts[2]) && parts[2] == strings.ToLower(parts[2])
+	return parts[1] == filteredFingerprint(householdID, archived, canonicalIDs) &&
+		ids.IsCanonicalUUID(parts[2]) && parts[2] == strings.ToLower(parts[2])
 }
 
 func decodeFilteredCursor(cursor, householdID string, archived bool, ids []string) (string, error) {
