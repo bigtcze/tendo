@@ -57,6 +57,41 @@ describe('pending subject create bulk sign-out cleanup', () => {
     expect(recovered.getPendingSubjectCreate(user, household)).toEqual(next);
   });
 
+  it('drops an active in-memory create when bulk removal fails', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    pending.setPendingSubjectCreate(user, household, attempt);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+
+    pending.clearPendingSubjectCreates();
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
+
+  it('drops an active in-memory create when storage is unavailable during cleanup', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    pending.setPendingSubjectCreate(user, household, attempt);
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new Error('blocked'); } });
+
+    pending.clearPendingSubjectCreates();
+    Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor!);
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
+
+  it('trusts storage again after a later successful bulk cleanup', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    const removal = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+    sessionStorage.setItem(storedKey, JSON.stringify(attempt));
+    pending.clearPendingSubjectCreates();
+    removal.mockRestore();
+    pending.clearPendingSubjectCreates();
+
+    const next = { ...attempt, key: 'cd'.repeat(16) };
+    sessionStorage.setItem(storedKey, JSON.stringify(next));
+
+    expect(pending.getPendingSubjectCreate(user, household)).toEqual(next);
+  });
+
   it('does not recover stored creates when storage is unavailable during cleanup', async () => {
     sessionStorage.setItem(storedKey, JSON.stringify(attempt));
     const pending = await import('./pendingSubjectCreate');
