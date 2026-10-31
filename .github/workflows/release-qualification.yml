@@ -57,11 +57,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node_archive=node-v26.13.0-linux-x64.tar.xz
-          curl -fsSLO "https://nodejs.org/dist/v26.13.0/$node_archive"
-          echo 'd28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997  node-v26.13.0-linux-x64.tar.xz' | sha256sum --check
+          # Download outside the checkout so the qualified tree stays clean.
+          node_archive="$RUNNER_TEMP/node-v26.13.0-linux-x64.tar.xz"
+          curl -fsSL -o "$node_archive" "https://nodejs.org/dist/v26.13.0/node-v26.13.0-linux-x64.tar.xz"
+          echo "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997  $node_archive" | sha256sum --check
           install -d /opt/node
           tar -xJf "$node_archive" --strip-components=1 -C /opt/node
+          rm -f "$node_archive"
           echo /opt/node/bin >> "$GITHUB_PATH"
           export PATH="/opt/node/bin:$PATH"
           node --version | grep -Fx 'v26.13.0'
@@ -132,6 +134,8 @@ jobs:
           test -s "$TENDO_SR_AUDIT_DIR/transcript.json"
           test -s "$TENDO_SR_AUDIT_DIR/transcript.md"
           test -s "$TENDO_SR_AUDIT_DIR/manifest.json"
+          # Qualification evidence must describe the exact, unmodified tagged tree.
+          jq -e --arg sha "$GITHUB_SHA" '.commit == $sha and .dirty == false' "$TENDO_SR_AUDIT_DIR/manifest.json"
       - name: Stage Orca startup logs for failure diagnosis
         if: failure()
         shell: bash

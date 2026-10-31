@@ -328,6 +328,8 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("jq", qualification)
         self.assertIn("d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997", qualification)
         self.assertNotIn("actions/setup-node@", qualification)
+        self.assertIn(".commit == $sha and .dirty == false", qualification)
+        self.assertNotIn("curl -fsSLO", qualification)
 
 
 if __name__ == "__main__":
