@@ -3,7 +3,7 @@
   "scripts": {
     "generate": "make generate",
     "check": "make check",
-    "test": "node --test check-health.test.mjs check-contract.test.mjs"
+    "test": "node --test check-health.test.mjs check-contract.test.mjs dependency-overrides.test.mjs"
   },
   "devDependencies": {
     "@redocly/cli": "2.71.2",
@@ -11,5 +11,10 @@
     "ajv-formats": "3.0.1",
     "openapi-typescript": "7.13.0",
     "yaml": "2.9.1"
+  },
+  "overrides": {
+    "@redocly/openapi-core": {
+      "minimatch": "11.0.3"
+    }
   }
 }
