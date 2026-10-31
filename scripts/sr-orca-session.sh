@@ -4,6 +4,9 @@ umask 077
 runtime=$1
 debug=$2
 out=$3
+readiness_timeout=${TENDO_SR_READINESS_TIMEOUT_SECONDS:-30}
+if [[ ! "$readiness_timeout" =~ ^[1-9][0-9]*$ ]]; then echo "TENDO_SR_READINESS_TIMEOUT_SECONDS must be a positive integer" >&2; exit 2; fi
+export TENDO_SR_READINESS_TIMEOUT_SECONDS="$readiness_timeout"
 mkdir -p "$runtime/home/.config/speech-dispatcher" "$runtime/home/orca" "$runtime/xdg-runtime" "$runtime/xdg-config/speech-dispatcher" "$runtime/xdg-data" "$out" "$(dirname "$debug")"
 chmod 700 "$runtime" "$runtime/home" "$runtime/xdg-runtime" "$out" "$(dirname "$debug")"
 : > "$debug"
@@ -73,7 +76,7 @@ dbus-run-session -- bash -Eeuo pipefail -c '
   printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" > "$1/bus-address"
   # Orca being alive for a fixed interval is not readiness: it can still be
   # initializing, or can exit after failing to connect to the display/bus.
-  for _ in $(seq 300); do
+  for _ in $(seq "$(( TENDO_SR_READINESS_TIMEOUT_SECONDS * 10 ))"); do
     kill -0 "$orca_pid" 2>/dev/null || { echo "Orca exited during startup" >&2; exit 1; }
     if [[ "${TENDO_SR_ORCA_NO_START:-0}" != 1 ]] && grep -q "SPEECH OUTPUT:.*Screen reader on" "$2"; then
       touch "$1/ready"
@@ -81,7 +84,7 @@ dbus-run-session -- bash -Eeuo pipefail -c '
     fi
     sleep .1
   done
-  [[ -e "$1/ready" ]] || { echo "Orca did not announce screen-reader readiness within 30 seconds" >&2; exit 1; }
+  [[ -e "$1/ready" ]] || { echo "Orca did not announce screen-reader readiness within ${TENDO_SR_READINESS_TIMEOUT_SECONDS} seconds" >&2; exit 1; }
   wait "$orca_pid"
 ' _ "$out" "$debug" "$runtime" &
 wait $!

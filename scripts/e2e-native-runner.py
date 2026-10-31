@@ -26,6 +26,10 @@ import e2e_db_fixtures as db_fixtures
 
 import e2e_native_diagnostics as diagnostics
 
+ORCA_READINESS_TIMEOUT_SECONDS = int(os.environ.get("TENDO_SR_READINESS_TIMEOUT_SECONDS", "30"))
+if ORCA_READINESS_TIMEOUT_SECONDS < 1:
+    raise ValueError("TENDO_SR_READINESS_TIMEOUT_SECONDS must be a positive integer")
+
 # Keep one shared sensitive-value registry and preserve runner call sites for
 # fixture setup; diagnostics owns all redaction and artifact staging behavior.
 SENSITIVE_VALUES = diagnostics.SENSITIVE_VALUES
@@ -258,6 +262,7 @@ def run_screen_reader(root: Path, env: dict[str, str], children: Children, artif
         shutil.rmtree(runtime)
     runtime.mkdir(mode=0o700)
     os.chmod(runtime, 0o700)
+    env["TENDO_SR_READINESS_TIMEOUT_SECONDS"] = str(ORCA_READINESS_TIMEOUT_SECONDS)
     env["E2E_SR_RUN_DIR"] = str(runtime)
     env["E2E_SR_DEBUG_FILE"] = str(debug)
     with debug.open("w", encoding="utf-8"):
@@ -268,13 +273,15 @@ def run_screen_reader(root: Path, env: dict[str, str], children: Children, artif
     proc = children.start([str(session), str(runtime), str(debug), str(logs)], env, "private Orca session")
     try:
         ready = logs / "ready"
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + ORCA_READINESS_TIMEOUT_SECONDS
         while time.monotonic() < deadline and not ready.exists():
             if proc.poll() is not None:
-                raise RuntimeError("Orca session exited before startup (check host prerequisites)")
+                startup = "\n".join(f"{path.name}: {path.read_text(encoding='utf-8', errors='replace')[-4000:]}" for path in sorted(logs.glob("*.log")) if path.is_file())
+                raise RuntimeError(f"Orca session exited before startup (check host prerequisites); startup logs:\\n{startup}")
             time.sleep(.1)
         if not ready.exists():
-            raise RuntimeError("Orca session did not become ready within 15 seconds")
+            startup = "\n".join(f"{path.name}: {path.read_text(encoding='utf-8', errors='replace')[-4000:]}" for path in sorted(logs.glob("*.log")) if path.is_file())
+            raise RuntimeError(f"Orca session did not become ready within {ORCA_READINESS_TIMEOUT_SECONDS} seconds; startup logs:\\n{startup}")
         env.update({"HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"), "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"), "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"), "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(), "DBUS_SESSION_BUS_ADDRESS": (logs / "bus-address").read_text(encoding="utf-8").strip(), "E2E_SR_DEBUG_FILE": str(debug), "E2E_SR_AUDIT_DIR": str(audit_dir.resolve()), "E2E_SR_HEADFUL": "1", "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false"})
         # The helper owns the display choice and publishes it to its ready file for the browser process.
         display_file = runtime / "display"

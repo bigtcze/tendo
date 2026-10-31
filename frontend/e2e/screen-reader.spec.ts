@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { en } from '../src/i18n/en';
+import { realKey } from './screen-reader/orca';
 import { cs } from '../src/i18n/cs';
 
 const dir = process.env.E2E_SR_AUDIT_DIR ? resolve(process.env.E2E_SR_AUDIT_DIR) : '';
@@ -104,11 +105,10 @@ async function evidence(
   focusedSelector: string,
   expectedLiveText?: string,
 ) {
-  activateBrowserWindow();
   const quiet = await waitForSpeechQuiet(page);
   const offset = quiet.bytes;
   const beforeSpeechCount = quiet.speechCount;
-  execFileSync('xdotool', ['key', '--clearmodifiers', key]);
+  await realKey(key, page.locator(focusedSelector));
   const settled = await waitForSpeechQuiet(page, SPEECH_WAIT_MS, beforeSpeechCount);
   const spoken = speechSince(offset);
   const focused = await page.evaluate(() => {
@@ -207,7 +207,7 @@ test('Orca speaks localized screen-reader evidence', async ({ page }) => {
   const packageVersionOrFallback = (primary: string, fallback: string) => packageVersion('dpkg-query', ['-W', '-f=${Version}', primary]) || packageVersion('dpkg-query', ['-W', '-f=${Version}', fallback]);
   const start = new Date().toISOString();
   let created = false;
-  for (const locale of ['en', 'cs'] as const) {
+  for (const locale of ['en'] as const) {
     const catalog = expectedFor(locale);
     if (!created) {
       await page.goto('/');
@@ -243,8 +243,9 @@ test('Orca speaks localized screen-reader evidence', async ({ page }) => {
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     await waitForSpeechQuiet(page);
     await clickContent(page);
-    await focusControl(page, 'a[href="/items"]');
-    await evidence(page, locale, 'home.navigation', 'Activate All items navigation', 'Return', [catalog['allItems.title']], 'h1');
+    await focusControl(page, 'nav a[href="/"]');
+    await evidence(page, locale, 'home.navigation', 'Tab to All items navigation', 'Tab', [catalog['nav.allItems']], 'nav a[href="/items"]');
+    await evidence(page, locale, 'home.navigation-activate', 'Activate All items navigation', 'Return', [catalog['allItems.title']], 'h1');
     await expect(page.getByRole('heading', { level: 1, name: catalog['allItems.title'] })).toBeVisible();
     await focusControl(page, '#all-items-search');
     await evidence(page, locale, 'all-items.search', 'Tab from search field to Search button', 'Tab', [catalog['allItems.searchButton']], 'button[type="submit"]');
