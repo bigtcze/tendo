@@ -175,6 +175,43 @@ func TestMiddlewareRequestIDAndSafeLogging(t *testing.T) {
 	}
 }
 
+func TestRecordFaultRaisesAccessLogToErrorWithFixedClass(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	h := NewAppWithLogger(nil, time.Second, nil, OriginPolicy{PublicURL: "http://example.test"}, func(r chi.Router) {
+		r.Get("/health/fault", func(w http.ResponseWriter, r *http.Request) {
+			RecordFault(r, "test_fault")
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+		r.Get("/health/clean", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	}, logger)
+	for _, path := range []string{"/health/fault", "/health/clean"} {
+		r := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		r.Header.Set("X-Request-ID", "req"+strings.ReplaceAll(path, "/", "-"))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	var entries []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries=%v", entries)
+	}
+	fault, clean := entries[0], entries[1]
+	if fault["level"] != "ERROR" || fault["fault"] != "test_fault" || fault["request_id"] != "req-health-fault" || fault["status"] != float64(401) {
+		t.Fatalf("fault entry=%v", fault)
+	}
+	if _, present := clean["fault"]; present || clean["level"] != "INFO" {
+		t.Fatalf("clean entry=%v", clean)
+	}
+	// Outside the middleware there is no access log entry to annotate.
+	RecordFault(httptest.NewRequest(http.MethodGet, "/", nil), "ignored")
+}
+
 func TestUnknownAndMethodErrorsUseProblem(t *testing.T) {
 	h := NewHealth(&testPinger{}, time.Second, make(chan struct{}))
 	for _, r := range []*http.Request{httptest.NewRequest(http.MethodGet, "/missing", nil), httptest.NewRequest(http.MethodPost, "/health/ready", nil)} {

@@ -19,6 +19,18 @@ var safeID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // routeLabelKey carries a *string that handlers set to a fixed log route label.
 type routeLabelKey struct{}
 
+// faultKey carries a *string that handlers set to a fixed operational fault class.
+type faultKey struct{}
+
+// RecordFault attaches a fixed, non-sensitive fault class to the request's
+// access log entry, which is then written at error level. The class must be a
+// constant: never a credential, hash, identifier or raw error text.
+func RecordFault(r *http.Request, class string) {
+	if fault, ok := r.Context().Value(faultKey{}).(*string); ok {
+		*fault = class
+	}
+}
+
 type Pinger interface{ Ping(context.Context) error }
 
 type Health struct {
@@ -161,13 +173,19 @@ func requestMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 		w.Header().Set("X-Request-ID", id)
 		rw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
-		label := ""
-		next.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), routeLabelKey{}, &label)))
+		label, fault := "", ""
+		ctx := context.WithValue(r.Context(), routeLabelKey{}, &label)
+		next.ServeHTTP(rw, r.WithContext(context.WithValue(ctx, faultKey{}, &fault)))
 		route := label
 		if route == "" {
 			route = routePattern(r)
 		}
-		logger.Info("http request", "request_id", id, "method", r.Method, "route", route, "status", rw.status, "duration", time.Since(start))
+		attrs := []any{"request_id", id, "method", r.Method, "route", route, "status", rw.status, "duration", time.Since(start)}
+		if fault != "" {
+			logger.Error("http request", append(attrs, "fault", fault)...)
+			return
+		}
+		logger.Info("http request", attrs...)
 	})
 }
 

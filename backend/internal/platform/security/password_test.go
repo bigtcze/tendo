@@ -187,8 +187,8 @@ func TestParsePasswordHashRejectionStages(t *testing.T) {
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := parsePasswordHash(tc.value); err != errInvalidPasswordHash {
-				t.Fatalf("error=%v, want errInvalidPasswordHash", err)
+			if _, _, err := parsePasswordHash(tc.value); err != ErrInvalidPasswordHash {
+				t.Fatalf("error=%v, want ErrInvalidPasswordHash", err)
 			}
 		})
 	}

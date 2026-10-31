@@ -21,7 +21,9 @@ const (
 	argonKeyBytes    = 32
 )
 
-var errInvalidPasswordHash = errors.New("invalid password hash")
+// ErrInvalidPasswordHash reports a stored hash that is not a valid PHC string
+// for the fixed parameters: a credential integrity fault, not a mismatch.
+var ErrInvalidPasswordHash = errors.New("invalid password hash")
 var ErrPasswordWorkLimit = errors.New("password work limit reached")
 
 // HashPassword creates a versioned Argon2id PHC string using the fixed parameters
@@ -48,7 +50,7 @@ func VerifyPassword(encoded, password string) (bool, error) {
 	}
 	salt, expected, err := parsePasswordHash(encoded)
 	if err != nil {
-		return false, errInvalidPasswordHash
+		return false, ErrInvalidPasswordHash
 	}
 	actual := argon2.IDKey([]byte(password), salt, argonIterations, argonMemory, argonParallelism, argonKeyBytes)
 	return subtle.ConstantTimeCompare(actual, expected) == 1, nil
@@ -57,19 +59,19 @@ func VerifyPassword(encoded, password string) (bool, error) {
 func parsePasswordHash(encoded string) ([]byte, []byte, error) {
 	parts, ok := passwordHashEnvelope(encoded)
 	if !ok {
-		return nil, nil, errInvalidPasswordHash
+		return nil, nil, ErrInvalidPasswordHash
 	}
 	params, ok := parsePasswordParameters(parts[3])
 	if !ok || !fixedPasswordParameters(params) {
-		return nil, nil, errInvalidPasswordHash
+		return nil, nil, ErrInvalidPasswordHash
 	}
 	salt, ok := decodeCanonicalHashPart(parts[4], argonSaltBytes)
 	if !ok {
-		return nil, nil, errInvalidPasswordHash
+		return nil, nil, ErrInvalidPasswordHash
 	}
 	key, ok := decodeCanonicalHashPart(parts[5], argonKeyBytes)
 	if !ok {
-		return nil, nil, errInvalidPasswordHash
+		return nil, nil, ErrInvalidPasswordHash
 	}
 	return salt, key, nil
 }

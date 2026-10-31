@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -251,6 +254,49 @@ func TestLoginCredentialFailuresShareOneBody(t *testing.T) {
 	assertProblem(t, w, 503, "unavailable")
 	if strings.Contains(w.Body.String(), "secret detail") {
 		t.Fatal("internal error leaked")
+	}
+}
+
+func TestLoginCorruptPasswordHashIsUnauthorizedAndDiagnosed(t *testing.T) {
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
+	service, _, mux := sessionFixture("http://localhost")
+	service.loginErr = fmt.Errorf("%w: %w", identity.ErrInvalidCredentials, security.ErrInvalidPasswordHash)
+	request := sameOriginLogin(loginRequest(validLogin))
+	request.Header.Set("X-Request-ID", "request-corrupt-1")
+	wrapped := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: "http://localhost"}, func(r chi.Router) {
+		r.Mount("/", mux)
+	}, logger)
+	response := serve(wrapped, request)
+	assertProblem(t, response, http.StatusUnauthorized, "invalid_credentials")
+	if !strings.Contains(logs.String(), "password_hash_integrity_fault") || !strings.Contains(logs.String(), "request-corrupt-1") {
+		t.Fatalf("diagnostic missing event or request id: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), "correct horse battery") || strings.Contains(logs.String(), "owner_1") || !strings.Contains(logs.String(), `"level":"ERROR"`) {
+		t.Fatalf("diagnostic leaked credential material or was not error level: %s", logs.String())
+	}
+}
+
+// sameOriginLogin addresses the request to the http://localhost public origin
+// enforced by the full application middleware.
+func sameOriginLogin(r *http.Request) *http.Request {
+	r.Host = "localhost"
+	r.Header.Set("Origin", "http://localhost")
+	return r
+}
+
+func TestLoginMismatchDoesNotEmitIntegrityDiagnostic(t *testing.T) {
+	logs := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
+	svc, _, mux := sessionFixture("http://localhost")
+	svc.loginErr = identity.ErrInvalidCredentials
+	wrapped := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: "http://localhost"}, func(r chi.Router) {
+		r.Mount("/", mux)
+	}, logger)
+	response := serve(wrapped, sameOriginLogin(loginRequest(validLogin)))
+	assertProblem(t, response, http.StatusUnauthorized, "invalid_credentials")
+	if strings.Contains(logs.String(), "password_hash_integrity_fault") {
+		t.Fatalf("ordinary mismatch emitted integrity diagnostic: %s", logs.String())
 	}
 }
 
