@@ -109,11 +109,17 @@ jobs:
             done
           } > "$RUNNER_TEMP/host-versions.txt"
           cat "$RUNNER_TEMP/host-versions.txt"
+      - name: Resolve container-visible screen-reader audit directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          # $GITHUB_ENV values apply to later steps only; resolve the directory before the E2E step.
+          echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"
       - name: Run production E2E with real Orca screen-reader audit
         shell: bash
         run: |
           set -euo pipefail
-          echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"
+          test -n "${TENDO_SR_AUDIT_DIR:-}"
           bash scripts/e2e-smoke.sh
       - name: Add CI host versions to sanitized manifest
         if: success()

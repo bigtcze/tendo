@@ -304,6 +304,13 @@ class WorkflowStructureTests(unittest.TestCase):
                 "${{ env.TENDO_SR_AUDIT_DIR }}/manifest.json",
             ))
         )
+        # $GITHUB_ENV only affects later steps, so the audit directory must be exported by an
+        # earlier step than the one that runs the E2E suite.
+        steps = job_section(qualification, "screen-reader").split("\n      - ")
+        export_step = next(i for i, step in enumerate(steps) if 'TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit' in step)
+        e2e_step = next(i for i, step in enumerate(steps) if "bash scripts/e2e-smoke.sh" in step)
+        self.assertLess(export_step, e2e_step)
+        self.assertNotIn("GITHUB_ENV", steps[e2e_step])
         upload = job_section(qualification, "screen-reader").split("      - name: Upload sanitized", 1)[-1]
         self.assertNotIn("orca-debug.out", upload)
         self.assertNotIn("runtime/", upload)
