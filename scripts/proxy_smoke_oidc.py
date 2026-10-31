@@ -50,15 +50,23 @@ def named_cookie(headers, name):
     for pair in pairs:
         if '=' in pair:
             record_secret(pair.split('=',1)[1])
-    assert len(found) == 1, f"expected one {name} cookie, got {[v.split(';',1)[0].split('=',1)[0] for v in cookies(headers)]}"
+    assert len(found) == 1, f"expected one {name} cookie, got {cookie_names(headers)}"
     return pairs[0]
 def cookie_attrs(cookie):
     return [x.strip().lower() for x in cookie.split(';')[1:]]
+def cookie_names(headers):
+    return [v.split(';',1)[0].split('=',1)[0] for v in cookies(headers)]
+def assert_host_cookie_attrs(attrs, label):
+    required = {'secure', 'httponly', 'path=/', 'samesite=lax'}
+    names = [x.split('=',1)[0] for x in attrs]
+    assert required <= set(attrs) and not any(x.startswith('domain=') for x in attrs), f"unexpected {label} cookie attribute names: {names}"
+def location_path(headers):
+    return urllib.parse.urlsplit(headers.get('Location','')).path
 def secure_session(headers):
     value = named_cookie(headers, '__Host-tendo_session')
     cookie = next(v for v in cookies(headers) if v.startswith(value+';'))
     attrs = cookie_attrs(cookie)
-    assert 'secure' in attrs and 'httponly' in attrs and 'path=/' in attrs and 'samesite=lax' in attrs and not any(x.startswith('domain=') for x in attrs), f"unexpected session cookie attribute names: {[x.split('=',1)[0] for x in attrs]}"
+    assert_host_cookie_attrs(attrs, 'session')
     return value
 
 def start(purpose, session=None, password=None, forged=False):
@@ -76,7 +84,7 @@ def start(purpose, session=None, password=None, forged=False):
     flow = named_cookie(h, '__Host-tendo_oidc')
     fc = next(v for v in cookies(h) if v.startswith(flow+';'))
     attrs = cookie_attrs(fc)
-    assert 'secure' in attrs and 'httponly' in attrs and 'path=/' in attrs and 'samesite=lax' in attrs and not any(x.startswith('domain=') for x in attrs), f"unexpected flow cookie attribute names: {[x.split('=',1)[0] for x in attrs]}"
+    assert_host_cookie_attrs(attrs, 'flow')
     record_secret(flow.split('=',1)[1])
     return query, flow
 
@@ -86,7 +94,9 @@ def authorize(query, sub='owner-subject'):
     status,h,_ = request('oidc.test',os.environ['OIDC_PROVIDER_PORT'],'GET',path)
     location = h.get('Location','')
     parsed = urllib.parse.urlsplit(location)
-    assert status == 302 and parsed.scheme == 'https' and parsed.netloc == 'tendo.test' and parsed.path == '/api/v1/auth/oidc/callback', f"provider authorize returned HTTP {status} with callback target {parsed.scheme}://{parsed.netloc}{parsed.path}"
+    target = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    message = f"provider authorize returned HTTP {status} with callback target {target}"
+    assert status == 302 and target == 'https://tendo.test/api/v1/auth/oidc/callback', message
     return parsed
 
 def callback(parsed, flow, session=None, flow_cookie_name='__Host-tendo_oidc'):
@@ -103,9 +113,10 @@ old = os.environ['OIDC_SESSION_COOKIE']
 q,flow = start('link',old,'correct horse battery',True)
 parsed = authorize(q)
 s,h,b = callback(parsed,flow,old)
-assert s == 303 and h.get('Location') == '/account#oidc=connected' and h.get('Cache-Control') == 'no-store', f"link callback returned HTTP {s} with Location {urllib.parse.urlsplit(h.get('Location','')).path}"
+assert s == 303 and h.get('Location') == '/account#oidc=connected', f"link callback returned HTTP {s} with Location {location_path(h)}"
+assert h.get('Cache-Control') == 'no-store', "link callback was cacheable"
 cleared = [v for v in cookies(h) if v.split(';',1)[0].startswith('__Host-tendo_oidc=') and 'Max-Age=0' in v]
-assert len(cleared) == 1, f"expected one cleared __Host-tendo_oidc cookie, got {[v.split(';',1)[0].split('=',1)[0] for v in cookies(h)]}"
+assert len(cleared) == 1, f"expected one cleared __Host-tendo_oidc cookie, got {cookie_names(h)}"
 new = secure_session(h)
 s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':old})
 assert s == 401, f"old session returned HTTP {s}"
@@ -116,11 +127,13 @@ assert s == 200 and b == {'linked':True},f"OIDC identity check returned HTTP {s}
 s,_,_ = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'DELETE','/api/v1/session',{'Origin':'https://tendo.test','Cookie':new})
 assert s == 204, f"logout returned HTTP {s}"
 q,flow = start('login'); parsed = authorize(q); s,h,b = callback(parsed,flow)
-assert s == 303 and h.get('Location') == '/', f"login callback returned HTTP {s} with Location {urllib.parse.urlsplit(h.get('Location','')).path}"
+assert s == 303 and h.get('Location') == '/', f"login callback returned HTTP {s} with Location {location_path(h)}"
 login_cookie = secure_session(h)
 s,_,b = request('tendo.test',os.environ['OIDC_PROXY_PORT'],'GET','/api/v1/session',{'Cookie':login_cookie})
 assert s == 200 and b['login']=='proxy_owner',f"session check returned HTTP {s}"
 q,flow = start('login'); parsed = authorize(q); s,h,b = callback(parsed,flow,flow_cookie_name='tendo_oidc')
-assert s == 303 and h.get('Location') == '/login#oidcError=invalid_flow', f"invalid cookie callback returned HTTP {s} with Location {urllib.parse.urlsplit(h.get('Location','')).path}"
-assert not any(v.split(';',1)[0].startswith('__Host-tendo_session=') for v in cookies(h)), f"unexpected session cookie names: {[v.split(';',1)[0].split('=',1)[0] for v in cookies(h)]}"
+invalid_location = h.get('Location')
+invalid_message = f"invalid cookie callback returned HTTP {s} with Location {location_path(h)}"
+assert s == 303 and invalid_location == '/login#oidcError=invalid_flow', invalid_message
+assert '__Host-tendo_session' not in cookie_names(h), f"unexpected session cookie names: {cookie_names(h)}"
 print('HTTPS proxy OIDC link/login/cookie checks passed')
