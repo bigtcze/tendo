@@ -30,7 +30,8 @@ def request(origin, method, url, body=None, headers=None):
         with urllib.request.urlopen(request, timeout=8) as response:
             status, response_headers, raw = response.status, response.headers, response.read()
     except urllib.error.HTTPError as error:
-        status, response_headers, raw = error.code, error.headers, error.read()
+        with error:
+            status, response_headers, raw = error.code, error.headers, error.read()
     result = json.loads(raw) if raw else None
     return status, response_headers, result
 
@@ -134,8 +135,8 @@ def assert_duplicate_setup(origin, token):
         method='PUT',
     )
     try:
-        urllib.request.urlopen(request, timeout=8)
-        raise AssertionError('duplicate setup unexpectedly succeeded')
+        with urllib.request.urlopen(request, timeout=8):
+            raise AssertionError('duplicate setup unexpectedly succeeded')
     except urllib.error.HTTPError as error:
         assert error.code == 409, ('duplicate setup after restart', error.code)
 

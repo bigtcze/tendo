@@ -21,7 +21,9 @@ const (
 	argonKeyBytes    = 32
 )
 
-var errInvalidPasswordHash = errors.New("invalid password hash")
+// ErrInvalidPasswordHash reports a stored hash that is not a valid PHC string
+// for the fixed parameters: a credential integrity fault, not a mismatch.
+var ErrInvalidPasswordHash = errors.New("invalid password hash")
 var ErrPasswordWorkLimit = errors.New("password work limit reached")
 
 // HashPassword creates a versioned Argon2id PHC string using the fixed parameters
@@ -48,46 +50,68 @@ func VerifyPassword(encoded, password string) (bool, error) {
 	}
 	salt, expected, err := parsePasswordHash(encoded)
 	if err != nil {
-		return false, errInvalidPasswordHash
+		return false, ErrInvalidPasswordHash
 	}
 	actual := argon2.IDKey([]byte(password), salt, argonIterations, argonMemory, argonParallelism, argonKeyBytes)
 	return subtle.ConstantTimeCompare(actual, expected) == 1, nil
 }
 
 func parsePasswordHash(encoded string) ([]byte, []byte, error) {
+	parts, ok := passwordHashEnvelope(encoded)
+	if !ok {
+		return nil, nil, ErrInvalidPasswordHash
+	}
+	params, ok := parsePasswordParameters(parts[3])
+	if !ok || !fixedPasswordParameters(params) {
+		return nil, nil, ErrInvalidPasswordHash
+	}
+	salt, ok := decodeCanonicalHashPart(parts[4], argonSaltBytes)
+	if !ok {
+		return nil, nil, ErrInvalidPasswordHash
+	}
+	key, ok := decodeCanonicalHashPart(parts[5], argonKeyBytes)
+	if !ok {
+		return nil, nil, ErrInvalidPasswordHash
+	}
+	return salt, key, nil
+}
+
+func passwordHashEnvelope(encoded string) ([]string, bool) {
 	parts := strings.Split(encoded, "$")
-	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" {
-		return nil, nil, errInvalidPasswordHash
-	}
-	params := strings.Split(parts[3], ",")
+	return parts, len(parts) == 6 && parts[0] == "" && parts[1] == "argon2id" && parts[2] == "v=19"
+}
+
+func parsePasswordParameters(encoded string) (map[string]uint64, bool) {
+	params := strings.Split(encoded, ",")
 	if len(params) != 3 {
-		return nil, nil, errInvalidPasswordHash
+		return nil, false
 	}
-	values := make(map[string]uint64, 3)
+	values := make(map[string]uint64, len(params))
 	for _, param := range params {
 		key, value, ok := strings.Cut(param, "=")
 		if !ok || key == "" || value == "" {
-			return nil, nil, errInvalidPasswordHash
+			return nil, false
 		}
 		if _, exists := values[key]; exists {
-			return nil, nil, errInvalidPasswordHash
+			return nil, false
 		}
 		n, err := strconv.ParseUint(value, 10, 32)
 		if err != nil {
-			return nil, nil, errInvalidPasswordHash
+			return nil, false
 		}
 		values[key] = n
 	}
-	if len(values) != 3 || values["m"] != argonMemory || values["t"] != argonIterations || values["p"] != argonParallelism {
-		return nil, nil, errInvalidPasswordHash
+	return values, true
+}
+
+func fixedPasswordParameters(values map[string]uint64) bool {
+	return len(values) == 3 && values["m"] == argonMemory && values["t"] == argonIterations && values["p"] == argonParallelism
+}
+
+func decodeCanonicalHashPart(encoded string, length int) ([]byte, bool) {
+	decoded, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) != length || base64.RawStdEncoding.EncodeToString(decoded) != encoded {
+		return nil, false
 	}
-	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil || len(salt) != argonSaltBytes || base64.RawStdEncoding.EncodeToString(salt) != parts[4] {
-		return nil, nil, errInvalidPasswordHash
-	}
-	key, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || len(key) != argonKeyBytes || base64.RawStdEncoding.EncodeToString(key) != parts[5] {
-		return nil, nil, errInvalidPasswordHash
-	}
-	return salt, key, nil
+	return decoded, true
 }

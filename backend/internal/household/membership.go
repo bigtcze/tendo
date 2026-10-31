@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"time"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 )
 
 const membershipRepositoryBudget = 5 * time.Second
@@ -52,13 +54,13 @@ func DecodeMemberCursor(cursor string) (string, error) {
 		return "", &ValidationError{"cursor", "invalid_format"}
 	}
 	b, e := base64.RawURLEncoding.Strict().DecodeString(cursor[2:])
-	if e != nil || len(b) != 36 || !validUUID(string(b)) {
+	if e != nil || len(b) != 36 || !ids.IsCanonicalUUID(string(b)) {
 		return "", &ValidationError{"cursor", "invalid_format"}
 	}
 	return string(b), nil
 }
 func (s *MembershipService) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
-	if !validUUID(userID) || !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(userID) || !ids.IsCanonicalUUID(householdID) {
 		return "", ErrNotFound
 	}
 	role, e := s.repository.GetMembership(ctx, userID, householdID)
@@ -74,13 +76,13 @@ func (s *MembershipService) GetMembership(ctx context.Context, userID, household
 	return role, nil
 }
 func (s *MembershipService) HasMembershipElsewhere(ctx context.Context, userID, householdID string) (bool, error) {
-	if !validUUID(userID) || !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(userID) || !ids.IsCanonicalUUID(householdID) {
 		return false, ErrNotFound
 	}
 	return s.repository.HasMembershipElsewhere(ctx, userID, householdID)
 }
 func (s *MembershipService) AddInvitedMember(ctx context.Context, userID, householdID string) error {
-	if !validUUID(userID) || !validUUID(householdID) {
+	if !ids.IsCanonicalUUID(userID) || !ids.IsCanonicalUUID(householdID) {
 		return ErrNotFound
 	}
 	return s.repository.AddInvitedMember(ctx, userID, householdID)

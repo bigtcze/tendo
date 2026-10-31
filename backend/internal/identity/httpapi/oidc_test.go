@@ -153,6 +153,30 @@ func oidcRouter(service oidcService, publicURL string, sessionService sessionSer
 	NewOIDC(service, session, publicURL).Register(r)
 	return r
 }
+
+type oidcPasswordVerifierRepo struct{}
+
+func (oidcPasswordVerifierRepo) FindLogin(context.Context, string) (identity.LoginRecord, error) {
+	return identity.LoginRecord{}, identity.ErrNotFound
+}
+func (oidcPasswordVerifierRepo) PruneExpired(context.Context, string, time.Time) error { return nil }
+func (oidcPasswordVerifierRepo) CreateSession(context.Context, identity.NewSession) (string, error) {
+	return "", identity.ErrNotFound
+}
+func (oidcPasswordVerifierRepo) FindActive(context.Context, []byte, time.Time) (identity.SessionInfo, error) {
+	return identity.SessionInfo{}, identity.ErrNotFound
+}
+func (oidcPasswordVerifierRepo) DeleteByTokenHash(context.Context, []byte) error { return nil }
+
+func newOIDCPasswordVerifier(t *testing.T) *identity.SessionService {
+	t.Helper()
+	service, err := identity.NewSessionService(oidcPasswordVerifierRepo{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
 func TestOIDCStatusShapes(t *testing.T) {
 	for _, tc := range []struct {
 		service oidcService
@@ -165,6 +189,39 @@ func TestOIDCStatusShapes(t *testing.T) {
 		}
 	}
 }
+func TestOIDCLinkCorruptPasswordHashIsUnauthorizedAndDiagnosed(t *testing.T) {
+	logs := &bytes.Buffer{}
+	repo, _, service, sessions, _ := newRealOIDCHTTP(t, "")
+	const corruptHash = "stored-corrupt-hash-secret"
+	repo.credentials["user-1"] = corruptHash
+	handler := NewOIDC(service, NewSession(sessions, oidcTestPublicURL), oidcTestPublicURL)
+	app := httpx.NewAppWithLogger(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: oidcTestPublicURL}, handler.Register, slog.New(slog.NewJSONHandler(logs, nil)))
+	const password = "submitted-password-secret"
+	r := newOIDCStartHTTPRequest(`{"purpose":"link","currentPassword":"`+password+`"}`, oidcTestPublicURL)
+	r.Host = "tendo.test"
+	r.AddCookie(&http.Cookie{Name: "tendo_session", Value: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"})
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized || oidcStartProblemCode(t, w) != "invalid_credentials:" {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	cookies := oidcFlowCookies(w)
+	if len(cookies) != 0 || strings.Contains(w.Body.String(), "authorizationUrl") {
+		t.Fatalf("flow issued after rejected password: cookies=%v body=%s", cookies, w.Body)
+	}
+	if len(repo.flows) != 0 {
+		t.Fatalf("OIDC flow persisted after rejected password: %d flows", len(repo.flows))
+	}
+	log := logs.String()
+	if strings.Count(log, "password_hash_integrity_fault") != 1 || strings.Count(log, `"level":"ERROR"`) != 1 {
+		t.Fatalf("expected exactly one error-level integrity diagnostic: %s", log)
+	}
+	if strings.Contains(log, corruptHash) || strings.Contains(log, password) {
+		t.Fatalf("diagnostic leaked credential material: %s", log)
+	}
+}
+
 func TestOIDCIdentitySessionAndDisabled(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -454,16 +511,8 @@ func newRealOIDCHTTP(t *testing.T, subject string) (*oidcMemRepo, *testoidc.Prov
 	oldHash := sha256.Sum256([]byte(oldToken))
 	repo.sessions[string(oldHash[:])] = identity.SessionInfo{ID: "old-session", Principal: identity.Principal{UserID: "user-1", Login: "owner"}, ExpiresAt: time.Now().Add(time.Hour)}
 	providerAdapter := oidcprovider.New(provider.Issuer(), provider.ClientID, provider.ClientSecret, nil, time.Now, true)
-	service, err := identity.NewOIDCService(repo, providerAdapter, provider.Issuer(), provider.ClientID, "Test IdP", publicURL, time.Now, nil, func(hash, password string) error {
-		ok, e := security.VerifyPassword(hash, password)
-		if e != nil {
-			return e
-		}
-		if !ok {
-			return identity.ErrInvalidCredentials
-		}
-		return nil
-	})
+	passwordVerifier := newOIDCPasswordVerifier(t)
+	service, err := identity.NewOIDCService(repo, providerAdapter, provider.Issuer(), provider.ClientID, "Test IdP", publicURL, time.Now, nil, passwordVerifier.VerifyCurrentPassword)
 	if err != nil {
 		t.Fatal(err)
 	}

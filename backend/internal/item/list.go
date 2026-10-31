@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"strconv"
 	"strings"
+
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
+	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
 type ListSort string
@@ -266,7 +268,7 @@ func decodeBoundCursor(
 	}
 	parts := strings.Split(string(raw), ":")
 	invalid := len(parts) != 6 || parts[0] != "i2" || parts[1] != household ||
-		parts[2] != listFingerprint(f, sortBy, guardText) || !validUUID(parts[5]) ||
+		parts[2] != listFingerprint(f, sortBy, guardText) || !ids.IsCanonicalUUID(parts[5]) ||
 		parts[5] != strings.ToLower(parts[5])
 	if invalid {
 		return "", nil, errors.New("invalid bound cursor")
@@ -305,29 +307,8 @@ func DecodeCursor(cursor string) (string, error) {
 		return "", errors.New("malformed cursor")
 	}
 	id, ok := strings.CutPrefix(string(raw), cursorPrefix)
-	if !ok || !validUUID(id) {
+	if !ok || !ids.IsCanonicalUUID(id) {
 		return "", errors.New("malformed cursor")
 	}
 	return strings.ToLower(id), nil
-}
-
-// validUUID accepts only the canonical 8-4-4-4-12 hexadecimal form.
-func validUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		switch i {
-		case 8, 13, 18, 23:
-			if s[i] != '-' {
-				return false
-			}
-		default:
-			c := s[i]
-			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-				return false
-			}
-		}
-	}
-	return true
 }
