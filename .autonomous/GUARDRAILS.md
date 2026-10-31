@@ -16,21 +16,29 @@ agent_must_not_edit=this_file
 - After merge, verify resulting `main`; command success alone is not proof.
 
 ## Scope safety
-- V1 and V2 are complete and released; V2.1 is authorized for comprehensive
-  testing, evidence-driven defect FIXES, maintainability debt remediation and
-  regression prevention of existing supported behavior under V2_1_SCOPE.md,
-  V2_1_DEFINITION_OF_DONE.md and CODE_QUALITY.md.
-- Preserve V1/V2 security, domain, API, persistence and user experience invariants.
-- No unrequested V2.2/V3 features or speculative rewrites. ROADMAP grants no
-  implementation permission. Root-cause bug fixes AND behavior-preserving
-  maintainability refactoring of legacy hotspots ARE explicitly authorized.
-- CODE_QUALITY.md is a locked permanent policy for V2.1 and later changes;
-  remediate existing code debt as specified, not just for new code.
-- Every discovered defect must be investigated, reproduced, repaired and
-  covered by meaningful regressions; external blockers must be evidenced.
-- Risky oversized code with intertwined concerns must be actively decomposed
-  into coherent modules under tested, incremental, reviewed PRs; no cosmetic
-  line-count gaming or behavior-breaking cleanup.
+- V1, V2 and V2.1 are completed and released; V3 is expressly authorized
+  for professional household UI/UX redesign under V3_SCOPE.md,
+  V3_DESIGN_BRIEF.md and V3_DEFINITION_OF_DONE.md.
+- Preserve all V1/V2/V2.1 functional, security, recurrence, data integrity,
+  API, backup, regression and access-control invariants.
+- UX.md, PRODUCT.md, CODE_QUALITY.md and all prior locked agreements remain
+  mandatory. V3_DESIGN_BRIEF refines styling and UX specifically for V3;
+  it does not permit changing existing business or authorization semantics.
+- No unrelated features, AI, native apps, calendar/email integrations,
+  arbitrary schema/API rewrites, or enterprise dashboard redesign.
+- Only intentional, focused UI changes and necessary verified bug fixes.
+  Verify app usability and browser visuals, not just that tests pass.
+- During the one-shot migration, replace STATE.md with GitHub V3 Issues
+  bearing BOTH the exact V3 milestone and dedicated ownership label
+  `tendo:v3-autonomous`; these are the sole mutable V3 progress/claim truth.
+- Externally created or unlabelled Issues are NEVER autonomous assignments,
+  even if they share milestone or naming. Never silently adopt them by
+  applying the ownership label. No new coordinator, shadow state or bots.
+- Managed Issues use status:idle, status:in-progress, status:blocked; Done
+  means closed after verified PR/CI or verified release deliverable.
+- All new/refactored UI follows CODE_QUALITY; never create giant tangled
+  components to obtain a superficial redesign.
+
 ## Controller boundary
 - Do not upgrade/reconfigure OpenCode, Oh My OpenAgent Slim, provider auth, global OpenCode config, this systemd unit, or `scripts/autonomous-loop.sh`.
 - If controller tooling is broken, record exact evidence in STATE and use a safe alternative when possible.
