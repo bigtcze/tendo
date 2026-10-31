@@ -28,6 +28,10 @@ dependency_or_renovate_PR=FLOW "Dependency maintenance"
 - One canonical location per durable fact.
 - Work status, claims, handoff, blockers and progress live ONLY in managed V3
   GitHub Issues (V3_ISSUES_WORKFLOW). No STATE.md or substitute state file.
+- Legacy locked references to recording evidence/blockers "in STATE" (e.g.
+  GUARDRAILS controller-tooling rule) now mean a comment on the owned managed
+  Issue (milestone + `tendo:v3-autonomous` rechecked first). Every other
+  part of those rules, including the controller configuration ban, still applies.
 - LEARNINGS=durable rules only; no session narrative.
 - Do not duplicate locked specifications into Issues; reference them.
 - Clarity > compression. Never invent cryptic shorthand.
