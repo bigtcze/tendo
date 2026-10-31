@@ -5,8 +5,10 @@ Tendo is published as the container image `ghcr.io/bigtcze/tendo`. `TENDO_VERSIO
 | `TENDO_VERSION` | What you get |
 | --- | --- |
 | `latest` (default) | The newest release, including a future major version. |
-| `v1` | The newest 1.x release. A future 2.0 is never installed until you change this value. |
-| `v1.0.0` | Exactly that release. Change the value to update. |
+| `v2` | The newest 2.x release. A future 3.0 is never installed until you change this value. |
+| `v2.1` | The newest 2.1.x release. |
+| `v1` | The newest 1.x release. 2.0 and later are never installed until you change this value. |
+| `v2.1.0` | Exactly that release. Change the value to update. |
 
 Every release is listed with its changes on the [releases page](https://github.com/bigtcze/tendo/releases). Read the notes before you update.
 
