@@ -37,11 +37,13 @@ export async function realClick(page: Page, target: Locator) {
   } : null);
 }
 
-export async function realKey(key: string, focusedTarget: Locator) {
+// Precondition only: the X-active window is the Playwright browser and its document holds focus on a
+// real control. The caller asserts the post-key destination; checking it here would invert the contract.
+export async function realKey(page: Page, key: string) {
   activateBrowserWindow();
-  if (!await focusedTarget.evaluate((node) => node === document.activeElement)) {
-    throw new Error(`Refusing real-X ${key}: expected target is not the active DOM element`);
-  }
+  const source = await page.evaluate(() => document.hasFocus() && document.activeElement instanceof HTMLElement
+    && document.activeElement !== document.body ? document.activeElement.tagName.toLowerCase() : null);
+  if (!source) throw new Error(`Refusing real-X ${key}: browser document has no focused control`);
   execFileSync('xdotool', ['key', '--clearmodifiers', key]);
 }
 

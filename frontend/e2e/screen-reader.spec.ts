@@ -108,7 +108,7 @@ async function evidence(
   const quiet = await waitForSpeechQuiet(page);
   const offset = quiet.bytes;
   const beforeSpeechCount = quiet.speechCount;
-  await realKey(key, page.locator(focusedSelector));
+  await realKey(page, key);
   const settled = await waitForSpeechQuiet(page, SPEECH_WAIT_MS, beforeSpeechCount);
   const spoken = speechSince(offset);
   const focused = await page.evaluate(() => {
