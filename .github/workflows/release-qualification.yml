@@ -39,17 +39,12 @@ jobs:
           go-version: '1.27.3'
           cache: true
           cache-dependency-path: backend/go.sum
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '26.13.0'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: Install Orca, AT-SPI, audio, and virtual display prerequisites
         shell: bash
         run: |
           set -euo pipefail
           apt-get update
-          apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus-x11 espeak-ng git gnupg libatomic1 libstdc++6 orca openbox speech-dispatcher xvfb xdotool
+          apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus-x11 espeak-ng git gnupg libatomic1 libstdc++6 orca openbox speech-dispatcher xz-utils xvfb xdotool
           install -d -m 0755 /etc/apt/keyrings
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor --yes -o /etc/apt/keyrings/postgresql.gpg
           . /etc/os-release
@@ -57,6 +52,18 @@ jobs:
           apt-get update
           apt-get install -y postgresql-client-18
           psql --version | grep -E 'PostgreSQL\) 18([.]|$)'
+      - name: Install pinned Node.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_archive=node-v26.13.0-linux-x64.tar.xz
+          curl -fsSLO "https://nodejs.org/dist/v26.13.0/$node_archive"
+          echo 'd28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997  node-v26.13.0-linux-x64.tar.xz' | sha256sum --check
+          install -d /opt/node
+          tar -xJf "$node_archive" --strip-components=1 -C /opt/node
+          echo /opt/node/bin >> "$GITHUB_PATH"
+          /opt/node/bin/node --version | grep -Fx 'v26.13.0'
+          /opt/node/bin/npm --version
       - name: Install pinned Playwright browser and project dependencies
         working-directory: frontend
         run: |
