@@ -3,13 +3,14 @@ import type { SubjectType } from './subjectsApi';
 export type PendingSubjectCreate = { version: 1; key: string; body: { name: string; type: SubjectType; linkedUserId?: string } };
 const memory = new Map<string, PendingSubjectCreate>();
 const memoryAuthoritative = new Set<string>();
+let storageUntrusted = false;
 const prefix = 'tendo.pendingSubjectCreate.v1:';
 function storage() { try { return globalThis.sessionStorage; } catch { return undefined; } }
 function scope(userId: string, householdId: string) { return `${userId}:${householdId}`; }
 
 export function getPendingSubjectCreate(userId: string, householdId: string): PendingSubjectCreate | undefined {
   const id = scope(userId, householdId);
-  if (memoryAuthoritative.has(id)) return memory.get(id);
+  if (memoryAuthoritative.has(id) || storageUntrusted) return memory.get(id);
   try {
     const raw = storage()?.getItem(`${prefix}${id}`);
     if (raw) {
@@ -43,16 +44,29 @@ export function clearPendingSubjectCreate(userId: string, householdId: string, k
 }
 
 export function clearPendingSubjectCreates(): void {
-  memory.clear();
-  memoryAuthoritative.clear();
+  for (const id of new Set([...memory.keys(), ...memoryAuthoritative])) {
+    memory.delete(id);
+    memoryAuthoritative.add(id);
+  }
+  storageUntrusted = true;
   try {
     const store = storage();
-    if (!store) return;
+    if (!store) {
+      memory.clear();
+      memoryAuthoritative.clear();
+      return;
+    }
     for (let index = store.length - 1; index >= 0; index--) {
       const key = store.key(index);
       if (key?.startsWith(prefix)) store.removeItem(key);
     }
-  } catch { /* ignore unavailable storage */ }
+    memory.clear();
+    memoryAuthoritative.clear();
+    storageUntrusted = false;
+  } catch {
+    // Retain known authoritative state and distrust storage for unknown scopes.
+    storageUntrusted = true;
+  }
 }
 
 function isPending(value: unknown): value is PendingSubjectCreate {

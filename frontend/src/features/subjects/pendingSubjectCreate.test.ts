@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearPendingSubjectCreate, clearPendingSubjectCreates, getPendingSubjectCreate, setPendingSubjectCreate } from './pendingSubjectCreate';
 
 const user = 'user-a';
@@ -10,6 +10,98 @@ afterEach(() => {
   vi.restoreAllMocks();
   Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor!);
   clearPendingSubjectCreates();
+});
+
+describe('pending subject create bulk sign-out cleanup', () => {
+  const storedKey = 'tendo.pendingSubjectCreate.v1:user-a:household-a';
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.resetModules();
+  });
+
+  it('keeps a settled create absent after bulk cleanup fails', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    pending.setPendingSubjectCreate(user, household, attempt);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+    pending.clearPendingSubjectCreate(user, household, attempt.key);
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+
+    pending.clearPendingSubjectCreates();
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
+
+  it('does not recover entries unknown to memory after bulk cleanup fails', async () => {
+    sessionStorage.setItem(storedKey, JSON.stringify(attempt));
+    const pending = await import('./pendingSubjectCreate');
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+
+    pending.clearPendingSubjectCreates();
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
+
+  it('resets fully after successful bulk cleanup and persists later creates', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    pending.setPendingSubjectCreate(user, household, attempt);
+    pending.clearPendingSubjectCreates();
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+    expect(sessionStorage.getItem(storedKey)).toBeNull();
+
+    const next = { ...attempt, key: 'cd'.repeat(16) };
+    pending.setPendingSubjectCreate(user, household, next);
+    vi.resetModules();
+    const recovered = await import('./pendingSubjectCreate');
+
+    expect(recovered.getPendingSubjectCreate(user, household)).toEqual(next);
+  });
+
+  it('drops an active in-memory create when bulk removal fails', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    pending.setPendingSubjectCreate(user, household, attempt);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+
+    pending.clearPendingSubjectCreates();
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
+
+  it('drops an active in-memory create when storage is unavailable during cleanup', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    pending.setPendingSubjectCreate(user, household, attempt);
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new Error('blocked'); } });
+
+    pending.clearPendingSubjectCreates();
+    Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor!);
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
+
+  it('trusts storage again after a later successful bulk cleanup', async () => {
+    const pending = await import('./pendingSubjectCreate');
+    const removal = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('blocked'); });
+    sessionStorage.setItem(storedKey, JSON.stringify(attempt));
+    pending.clearPendingSubjectCreates();
+    removal.mockRestore();
+    pending.clearPendingSubjectCreates();
+
+    const next = { ...attempt, key: 'cd'.repeat(16) };
+    sessionStorage.setItem(storedKey, JSON.stringify(next));
+
+    expect(pending.getPendingSubjectCreate(user, household)).toEqual(next);
+  });
+
+  it('does not recover stored creates when storage is unavailable during cleanup', async () => {
+    sessionStorage.setItem(storedKey, JSON.stringify(attempt));
+    const pending = await import('./pendingSubjectCreate');
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new Error('blocked'); } });
+
+    pending.clearPendingSubjectCreates();
+    Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor!);
+
+    expect(pending.getPendingSubjectCreate(user, household)).toBeUndefined();
+  });
 });
 
 describe('pending subject create storage', () => {
