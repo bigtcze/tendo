@@ -17,21 +17,14 @@
     "kind": "file_lines",
     "path": "scripts/dev_toolchain.py",
     "allowed": 503,
-    "reason": "Developer toolchain wrapper provisions and verifies pinned Go/Node tools and cache paths; split provisioning/check helpers while preserving fail-closed behavior.",
-    "owner": "tooling-scripts"
-  },
-  {
-    "kind": "file_lines",
-    "path": "scripts/proxy-smoke.sh",
-    "allowed": 536,
-    "reason": "Proxy smoke orchestrates TLS proxy variants and HTTP/OIDC contract probes; split service setup from assertions while preserving cleanup.",
+    "reason": "One private pinned-toolchain transaction owns pin validation, isolated cache provisioning, installer supervision, verified Go/Node/sqlc/Playwright installation and child environment construction; splitting the transaction would scatter shared security invariants and lock/signal lifecycle.",
     "owner": "tooling-scripts"
   },
   {
     "kind": "file_lines",
     "path": "scripts/setup-smoke.sh",
     "allowed": 627,
-    "reason": "Setup smoke provisions the app and verifies first-owner setup, auth and household/item flows; split lifecycle phases while retaining cleanup and assertions.",
+    "reason": "The script owns one end-to-end setup-smoke lifecycle: isolated deployment, HTTP fixture capture, owner/session setup, and dependent household/item/invitation contract checks under a shared cleanup boundary.",
     "owner": "tooling-scripts"
   },
   {
@@ -374,8 +367,8 @@
   {
     "kind": "long_lines",
     "path": "scripts/proxy-smoke.sh",
-    "allowed": 30,
-    "reason": "Operational script coordinates proxy-smoke.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
+    "allowed": 26,
+    "reason": "Proxy smoke entrypoint coordinates TLS proxy variants and public/trusted-peer HTTP contract probes; its ordered Compose lifecycle and single shared cleanup boundary are kept together.",
     "owner": "tooling-scripts"
   },
   {
