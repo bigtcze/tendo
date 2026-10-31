@@ -1,0 +1,170 @@
+name: Release qualification
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  screen-reader:
+    name: screen-reader (Orca)
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+    env:
+      TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@postgres:5432/postgres?sslmode=disable
+    services:
+      postgres:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Install Orca, AT-SPI, audio, and virtual display prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          # git must exist before checkout so the job has a real repository for commit/dirty metadata.
+          apt-get update
+          apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus-x11 espeak-ng git gnupg jq libatomic1 libstdc++6 orca openbox speech-dispatcher xz-utils xvfb xdotool
+          install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor --yes -o /etc/apt/keyrings/postgresql.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+          apt-get update
+          apt-get install -y postgresql-client-18
+          psql --version | grep -E 'PostgreSQL\) 18([.]|$)'
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - name: Trust containerized checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Install pinned Node.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Download outside the checkout so the qualified tree stays clean.
+          node_archive="$RUNNER_TEMP/node-v26.13.0-linux-x64.tar.xz"
+          curl -fsSL -o "$node_archive" "https://nodejs.org/dist/v26.13.0/node-v26.13.0-linux-x64.tar.xz"
+          echo "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997  $node_archive" | sha256sum --check
+          install -d /opt/node
+          tar -xJf "$node_archive" --strip-components=1 -C /opt/node
+          rm -f "$node_archive"
+          echo /opt/node/bin >> "$GITHUB_PATH"
+          export PATH="/opt/node/bin:$PATH"
+          node --version | grep -Fx 'v26.13.0'
+          npm --version
+      - name: Install pinned Playwright browser and project dependencies
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci
+          npx --no-install playwright install --with-deps chromium
+      - name: Bootstrap PostgreSQL 18 E2E service
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=0
+          for _ in $(seq 1 60); do
+            if pg_isready -h postgres -U postgres -d postgres; then ready=1; break; fi
+            sleep 1
+          done
+          if (( ready == 0 )); then echo 'PostgreSQL 18 service did not become ready' >&2; exit 1; fi
+          PGPASSWORD=ci-postgres-password psql "$TENDO_TEST_POSTGRES_ADMIN_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tendo') THEN
+              RAISE EXCEPTION 'unexpected pre-existing tendo role on new CI service';
+            END IF;
+            CREATE ROLE tendo NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          END $$;
+          SQL
+      - name: Record runner and accessibility stack versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'runner_os=%s\n' "$(. /etc/os-release; printf '%s %s' "$ID" "$VERSION_ID")"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'go=%s\n' "$(go version)"
+            printf 'node=%s\n' "$(node --version)"
+            printf 'playwright=%s\n' "$(node -p "require('./frontend/node_modules/@playwright/test/package.json').version")"
+            chromium_path=$(node -e "process.stdout.write(require('./frontend/node_modules/playwright').chromium.executablePath())")
+            chromium_version=$("$chromium_path" --version)
+            printf 'chromium=%s\n' "$chromium_version"
+            for package in orca at-spi2-core speech-dispatcher espeak-ng xvfb dbus-x11; do
+              package_version=$(dpkg-query -W -f='${Version}' "$package")
+              printf '%s=%s\n' "$package" "$package_version"
+            done
+          } > "$RUNNER_TEMP/host-versions.txt"
+          cat "$RUNNER_TEMP/host-versions.txt"
+      - name: Resolve container-visible screen-reader audit directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          # $GITHUB_ENV values apply to later steps only; resolve the directory before the E2E step.
+          echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"
+      - name: Run production E2E with real Orca screen-reader audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TENDO_SR_AUDIT_DIR:-}"
+          bash scripts/e2e-smoke.sh
+      - name: Add CI host versions to sanitized manifest
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq --rawfile host_versions "$RUNNER_TEMP/host-versions.txt" '. + {ci_host_versions: $host_versions}' \
+            "$TENDO_SR_AUDIT_DIR/manifest.json" > "$RUNNER_TEMP/manifest.json"
+          install -m 600 "$RUNNER_TEMP/manifest.json" "$TENDO_SR_AUDIT_DIR/manifest.json"
+          test -s "$TENDO_SR_AUDIT_DIR/transcript.json"
+          test -s "$TENDO_SR_AUDIT_DIR/transcript.md"
+          test -s "$TENDO_SR_AUDIT_DIR/manifest.json"
+          # Qualification evidence must describe the exact, unmodified tagged tree.
+          jq -e --arg sha "$GITHUB_SHA" '.commit == $sha and .dirty == false' "$TENDO_SR_AUDIT_DIR/manifest.json"
+      - name: Stage Orca startup logs for failure diagnosis
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/orca-startup-failure"
+          mkdir -p "$evidence"
+          # Explicit allowlist of startup process logs; Orca debug output, audio and bus addresses stay private.
+          for name in xvfb.log openbox.log atspi.log orca.log; do
+            log="$TENDO_SR_AUDIT_DIR/runtime/logs/$name"
+            if [[ -f "$log" && ! -L "$log" ]]; then cp -- "$log" "$evidence/$name"; fi
+          done
+          printf 'run_id=%s\ncommit=%s\nresult=failure\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$evidence/summary.txt"
+      - name: Upload Orca startup failure logs
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-qualification-orca-startup-failure-${{ github.sha }}
+          path: ${{ runner.temp }}/orca-startup-failure/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Upload sanitized Orca transcripts and manifest
+        if: success()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-qualification-orca-${{ github.sha }}
+          path: |
+            ${{ env.TENDO_SR_AUDIT_DIR }}/transcript.json
+            ${{ env.TENDO_SR_AUDIT_DIR }}/transcript.md
+            ${{ env.TENDO_SR_AUDIT_DIR }}/manifest.json
+          retention-days: 90
+          if-no-files-found: error

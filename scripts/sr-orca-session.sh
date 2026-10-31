@@ -23,13 +23,13 @@ PY
 # Xvfb owns display allocation and its lock; do not pre-create X lock files.
 export DISPLAY=""
 if [[ -z "$DISPLAY" ]]; then
-  Xvfb -displayfd 3 -screen 0 1280x900x24 -nolisten tcp 3>"$runtime/display-number" >"$out/xvfb.log" 2>&1 &
+  Xvfb -displayfd 3 -screen 0 1280x900x24 -nolisten tcp -noreset 3>"$runtime/display-number" >"$out/xvfb.log" 2>&1 &
   xvfb_pid=$!
   for _ in $(seq 100); do [[ -s "$runtime/display-number" ]] && break; kill -0 "$xvfb_pid" 2>/dev/null || { cat "$out/xvfb.log" >&2; exit 1; }; sleep .1; done
   [[ -s "$runtime/display-number" ]] || { echo 'Xvfb did not allocate a display' >&2; exit 1; }
   export DISPLAY=":$(cat "$runtime/display-number")"
 else
-  Xvfb "$DISPLAY" -screen 0 1280x900x24 -nolisten tcp >"$out/xvfb.log" 2>&1 &
+  Xvfb "$DISPLAY" -screen 0 1280x900x24 -nolisten tcp -noreset >"$out/xvfb.log" 2>&1 &
 fi
 printf '%s' "$DISPLAY" > "$runtime/display"
 cleanup_xvfb() { kill -TERM "$xvfb_pid" 2>/dev/null || true; wait "$xvfb_pid" 2>/dev/null || true; }
@@ -70,10 +70,12 @@ dbus-run-session -- bash -Eeuo pipefail -c '
   }
   trap cleanup EXIT INT TERM
   # Publish the private bus before readiness so Playwright inherits its address.
-  printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" > "$1/bus-address"
+  printf "%s\n" "$DBUS_SESSION_BUS_ADDRESS" > "$1/bus-address"
   # Orca being alive for a fixed interval is not readiness: it can still be
   # initializing, or can exit after failing to connect to the display/bus.
-  for _ in $(seq 300); do
+  ready_timeout=${TENDO_SR_READY_TIMEOUT_SECONDS:-30}
+  [[ "$ready_timeout" =~ ^[1-9][0-9]*$ ]] || { echo "TENDO_SR_READY_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
+  for _ in $(seq "$((ready_timeout * 10))"); do
     kill -0 "$orca_pid" 2>/dev/null || { echo "Orca exited during startup" >&2; exit 1; }
     if [[ "${TENDO_SR_ORCA_NO_START:-0}" != 1 ]] && grep -q "SPEECH OUTPUT:.*Screen reader on" "$2"; then
       touch "$1/ready"
@@ -81,7 +83,7 @@ dbus-run-session -- bash -Eeuo pipefail -c '
     fi
     sleep .1
   done
-  [[ -e "$1/ready" ]] || { echo "Orca did not announce screen-reader readiness within 30 seconds" >&2; exit 1; }
+  [[ -e "$1/ready" ]] || { echo "Orca did not announce screen-reader readiness within $ready_timeout seconds" >&2; exit 1; }
   wait "$orca_pid"
 ' _ "$out" "$debug" "$runtime" &
 wait $!

@@ -8,6 +8,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github/workflows/required.yml"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
+RELEASE_QUALIFICATION_WORKFLOW = ROOT / ".github/workflows/release-qualification.yml"
 
 REQUIRED_COMMANDS = (
     "gofmt -l",
@@ -154,6 +156,99 @@ def workflow_errors(text: str):
     return errors
 
 
+QUALIFICATION_COMMANDS = (
+    'echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"',
+    'test -n "${TENDO_SR_AUDIT_DIR:-}"',
+    "bash scripts/e2e-smoke.sh",
+    'test -s "$TENDO_SR_AUDIT_DIR/transcript.json"',
+    'test -s "$TENDO_SR_AUDIT_DIR/transcript.md"',
+    'test -s "$TENDO_SR_AUDIT_DIR/manifest.json"',
+    "jq -e --arg sha \"$GITHUB_SHA\" '.commit == $sha and .dirty == false' \"$TENDO_SR_AUDIT_DIR/manifest.json\"",
+)
+RELEASE_CHAIN = (("verify", "qualification"), ("image", "verify"), ("release", "image"))
+WEAKENERS = (r"continue-on-error", r"\|\|\s*true\b", r"\|\|\s*:", r"set\s+\+e\b", r"exit\s+0\b")
+
+
+def workflow_steps(section: str):
+    return section.split("\n      - ")[1:]
+
+
+def release_gate_errors(release: str, qualification: str):
+    """Fail closed if release publication can proceed without exact-commit qualification."""
+    errors = []
+    for name, text in (("release", release), ("qualification", qualification)):
+        for pattern in WEAKENERS:
+            if re.search(pattern, active_text(text)):
+                errors.append(f"{name} workflow contains failure-ignoring construct: {pattern}")
+    if "uses: ./.github/workflows/release-qualification.yml" not in active_text(job_section(release, "qualification")):
+        errors.append("release qualification job does not call the reusable qualification workflow")
+    needs = dict(jobs_and_needs(release))
+    for job, dependency in RELEASE_CHAIN:
+        if unquote_needs(needs.get(job)) != [dependency]:
+            errors.append(f"release job {job} must need exactly {dependency}")
+    for job in ("qualification", *(job for job, _ in RELEASE_CHAIN)):
+        if re.search(r"(?m)^    if:", job_section(release, job)):
+            errors.append(f"release job {job} must not be conditional")
+    active = active_text(qualification)
+    if "workflow_call:" not in active:
+        errors.append("qualification workflow is not reusable by the release workflow")
+    if "push:" in active or "inputs:" in active:
+        errors.append("qualification workflow must not accept push triggers or bypass inputs")
+    if "ref: ${{ github.sha }}" not in active:
+        errors.append("qualification must check out the exact triggering commit")
+    job = job_section(qualification, "screen-reader")
+    if re.search(r"(?m)^    if:", job):
+        errors.append("screen-reader qualification job must not be conditional")
+    steps = workflow_steps(job)
+    for command in QUALIFICATION_COMMANDS:
+        owner = next((step for step in steps if command in active_text(step)), None)
+        if owner is None:
+            errors.append(f"qualification command missing or inactive: {command}")
+        elif re.search(r"(?m)^        if:(?![ \t]*success\(\)[ \t]*$)", owner):
+            errors.append(f"qualification command is conditionally skipped: {command}")
+    return errors
+
+
+class ReleaseGateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.release = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        cls.qualification = RELEASE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_current_release_gate_is_fail_closed(self):
+        self.assertEqual(release_gate_errors(self.release, self.qualification), [])
+
+    def test_weakened_qualification_is_rejected(self):
+        e2e = "          bash scripts/e2e-smoke.sh"
+        manifest = "          jq -e --arg sha"
+        mutations = {
+            "continue-on-error": (e2e, "          bash scripts/e2e-smoke.sh\n        continue-on-error: true"),
+            "commented command": (e2e, "          true # bash scripts/e2e-smoke.sh"),
+            "ignored failure": (e2e, "          bash scripts/e2e-smoke.sh || true"),
+            "conditional E2E": ("      - name: Run production E2E with real Orca screen-reader audit\n", "      - name: Run production E2E with real Orca screen-reader audit\n        if: github.event_name == 'workflow_dispatch'\n"),
+            "dirty manifest accepted": (manifest, "          # jq -e --arg sha"),
+            "branch checkout": ("ref: ${{ github.sha }}", "ref: ${{ github.ref }}"),
+            "bypass input": ("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      skip:\n        type: boolean\n"),
+            "conditional job": ("    name: screen-reader (Orca)\n", "    name: screen-reader (Orca)\n    if: false\n"),
+        }
+        for label, (old, new) in mutations.items():
+            with self.subTest(label):
+                self.assertIn(old, self.qualification)
+                self.assertTrue(release_gate_errors(self.release, self.qualification.replace(old, new, 1)))
+
+    def test_weakened_release_chain_is_rejected(self):
+        mutations = {
+            "verify skips qualification": ("    needs: qualification\n", "    needs: []\n"),
+            "conditional qualification": ("    uses: ./.github/workflows/release-qualification.yml\n", "    if: false\n    uses: ./.github/workflows/release-qualification.yml\n"),
+            "image ignores verify": ("    needs: verify\n", "    needs: qualification\n"),
+            "always publish": ("    needs: image\n", "    needs: image\n    if: always()\n"),
+        }
+        for label, (old, new) in mutations.items():
+            with self.subTest(label):
+                self.assertIn(old, self.release)
+                self.assertTrue(release_gate_errors(self.release.replace(old, new, 1), self.qualification))
+
+
 class WorkflowStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -275,6 +370,60 @@ class WorkflowStructureTests(unittest.TestCase):
         mutated = self.text.replace("length == 6 and all(.[]; .result == \"success\")", "length == 5 and all(.[]; .result == \"success\")", 1)
         errors = workflow_errors(mutated)
         self.assertTrue(any("aggregate jq expected count" in error for error in errors), errors)
+
+    def test_release_requires_exact_commit_qualification_before_publication(self):
+        release = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        qualification = RELEASE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
+        verify = job_section(release, "verify")
+        self.assertIn("needs: qualification", verify)
+        self.assertIn("uses: ./.github/workflows/release-qualification.yml", job_section(release, "qualification"))
+        self.assertIn("workflow_call:", qualification)
+        self.assertIn("ref: ${{ github.sha }}", qualification)
+        self.assertIn("needs: qualification", job_section(release, "verify"))
+        self.assertIn("needs: verify", job_section(release, "image"))
+        self.assertIn("needs: image", job_section(release, "release"))
+        self.assertTrue(
+            all(marker in qualification for marker in (
+                'echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"',
+                "bash scripts/e2e-smoke.sh",
+                "transcript.json",
+                "transcript.md",
+                "manifest.json",
+                "at-spi2-core",
+                "CREATE ROLE tendo NOLOGIN",
+                "path: |",
+                '"$TENDO_SR_AUDIT_DIR/manifest.json"',
+                'echo "TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit" >> "$GITHUB_ENV"',
+                "${{ env.TENDO_SR_AUDIT_DIR }}/manifest.json",
+            ))
+        )
+        # $GITHUB_ENV only affects later steps, so the audit directory must be exported by an
+        # earlier step than the one that runs the E2E suite.
+        steps = job_section(qualification, "screen-reader").split("\n      - ")
+        export_step = next(i for i, step in enumerate(steps) if 'TENDO_SR_AUDIT_DIR=$RUNNER_TEMP/tendo-sr-audit' in step)
+        e2e_step = next(i for i, step in enumerate(steps) if "bash scripts/e2e-smoke.sh" in step)
+        self.assertLess(export_step, e2e_step)
+        self.assertNotIn("GITHUB_ENV", steps[e2e_step])
+        upload = job_section(qualification, "screen-reader").split("      - name: Upload sanitized", 1)[-1]
+        self.assertNotIn("orca-debug.out", upload)
+        self.assertNotIn("runtime/", upload)
+        failure_upload = job_section(qualification, "screen-reader").split("      - name: Upload Orca startup failure logs", 1)[-1].split("      - name: Upload sanitized", 1)[0]
+        self.assertIn("if: failure()", failure_upload)
+        self.assertIn("retention-days: 14", failure_upload)
+        self.assertIn("for name in xvfb.log openbox.log atspi.log orca.log; do", failure_staging := job_section(qualification, "screen-reader"))
+        self.assertNotIn("runtime/logs/*.log", failure_staging)
+        self.assertNotIn("orca-debug.out", failure_upload)
+        self.assertNotIn("audio.raw", failure_upload)
+        self.assertNotIn("push:", qualification)
+        self.assertIn("image: debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1", qualification)
+        self.assertIn("TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@postgres:5432/postgres", qualification)
+        self.assertIn("pg_isready -h postgres -U postgres -d postgres", qualification)
+        self.assertIn("Install pinned Node.js", qualification)
+        self.assertIn("jq", qualification)
+        self.assertIn("d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997", qualification)
+        self.assertNotIn("actions/setup-node@", qualification)
+        self.assertIn(".commit == $sha and .dirty == false", qualification)
+        self.assertNotIn("curl -fsSLO", qualification)
 
 
 if __name__ == "__main__":
