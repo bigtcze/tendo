@@ -7,6 +7,7 @@ import pathlib
 import signal
 import subprocess
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -53,6 +54,51 @@ class AdminPsqlTests(unittest.TestCase):
                 runner.db_fixtures.psql_admin(inherited, "SELECT 1")
         self.assertNotIn(password, str(raised.exception))
         self.assertNotIn(password, run.call_args.args[0])
+
+
+class OrcaTransportTests(unittest.TestCase):
+    def test_bus_address_validator_rejects_literal_trailing_n_and_accepts_valid(self):
+        valid = "unix:path=/tmp/dbus,guid=0123456789abcdef0123456789abcdef"
+        self.assertEqual(runner.orca_session.validate_bus_address(valid), valid)
+        for invalid in (valid + "n", valid + " junk", "unix:path=/tmp/dbus"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(RuntimeError, "address is invalid"):
+                runner.orca_session.validate_bus_address(invalid)
+
+    def test_outer_quoted_session_script_has_no_printf_single_quote(self):
+        source = (pathlib.Path(__file__).with_name("sr-orca-session.sh")).read_text()
+        outer = source.split("dbus-run-session -- bash -Eeuo pipefail -c '\n", 1)[1].split("\n' _", 1)[0]
+        self.assertNotIn("printf '", outer)
+
+    @unittest.skipUnless(shutil.which("dbus-run-session"), "dbus-run-session is unavailable")
+    def test_bus_address_printf_round_trip(self):
+        completed = subprocess.run(
+            ["dbus-run-session", "--", "bash", "-c", 'printf "%s\\n" "$DBUS_SESSION_BUS_ADDRESS"'],
+            check=True, capture_output=True, text=True, timeout=5,
+        )
+        self.assertTrue(runner.orca_session.validate_bus_address(completed.stdout.strip()))
+
+    def test_transport_probe_failure_prevents_playwright(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve(); audit = root / "audit"; audit.mkdir()
+            runtime = audit / "runtime"; logs = runtime / "logs"
+            logs.mkdir(parents=True); (runtime / "display").write_text(":123")
+            (logs / "ready").touch()
+            (logs / "bus-address").write_text("unix:path=/tmp/dbus,guid=0123456789abcdef0123456789abcdef")
+            children = mock.Mock(); proc = mock.Mock(); children.start.return_value = proc
+            def start_session(*args):
+                runtime.mkdir(mode=0o700, exist_ok=True)
+                new_logs = runtime / "logs"; new_logs.mkdir()
+                (runtime / "display").write_text(":123"); (new_logs / "ready").touch()
+                (new_logs / "bus-address").write_text("unix:path=/tmp/dbus,guid=0123456789abcdef0123456789abcdef")
+                return proc
+            children.start.side_effect = start_session
+            with mock.patch.object(runner.orca_session.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "dbus-send")), \
+                 mock.patch.object(runner, "run_playwright") as playwright, \
+                 mock.patch.object(runner.subprocess, "check_output", side_effect=["commit", ""]), \
+                 mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
+                with self.assertRaisesRegex(RuntimeError, "session D-Bus transport readiness probe failed"):
+                    runner.run_screen_reader(root, {}, children, root, audit)
+            playwright.assert_not_called()
 
 
 class ChildProcessTests(unittest.TestCase):
@@ -265,7 +311,7 @@ class ChildProcessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp).resolve(); audit = root / "audit"; audit.mkdir()
             runtime = audit / "runtime"; logs = runtime / "logs"
-            logs.mkdir(parents=True); (runtime / "display").write_text(":123"); (logs / "ready").touch(); (logs / "bus-address").write_text("unix:path=private")
+            logs.mkdir(parents=True); (runtime / "display").write_text(":123"); (logs / "ready").touch(); (logs / "bus-address").write_text("unix:path=/tmp/dbus,guid=0123456789abcdef0123456789abcdef")
             debug = audit / "orca-debug.out"; debug.write_text("stale debug")
             for name in ("transcript.json", "transcript.md", "manifest.json"):
                 (audit / name).write_text("stale result")
@@ -274,12 +320,13 @@ class ChildProcessTests(unittest.TestCase):
             def start_session(*args):
                 runtime.mkdir(mode=0o700, exist_ok=True)
                 new_logs = runtime / "logs"; new_logs.mkdir()
-                (runtime / "display").write_text(":123"); (new_logs / "ready").touch(); (new_logs / "bus-address").write_text("unix:path=private")
+                (runtime / "display").write_text(":123"); (new_logs / "ready").touch(); (new_logs / "bus-address").write_text("unix:path=/tmp/dbus,guid=0123456789abcdef0123456789abcdef")
                 return proc
             children.start.side_effect = start_session
-            with mock.patch.dict("os.environ", {"GITHUB_SHA": "workflow-sha", "TENDO_SR_READY_TIMEOUT_SECONDS": "47"}, clear=False), mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.subprocess, "check_output", side_effect=["workflow-sha", ""]), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
+            with mock.patch.dict("os.environ", {"GITHUB_SHA": "workflow-sha", "TENDO_SR_READY_TIMEOUT_SECONDS": "47"}, clear=False), mock.patch.object(runner, "run_playwright") as playwright, mock.patch.object(runner.orca_session, "verify_transport") as verify, mock.patch.object(runner.subprocess, "check_output", side_effect=["workflow-sha", ""]), mock.patch.object(pathlib.Path, "iterdir", return_value=[]):
                 runner.run_screen_reader(root, env, children, root / "artifacts", audit)
             children.start.assert_called_once_with([str(root / "scripts/sr-orca-session.sh"), str(runtime), str(debug), str(logs)], env, "private Orca session")
+            verify.assert_called_once_with(playwright.call_args.args[1])
             self.assertEqual(children.start.call_args.args[1]["TENDO_SR_READY_TIMEOUT_SECONDS"], "47")
             children.stop.assert_called_once_with(proc, grace=5)
             self.assertEqual(list(audit.glob("transcript.*")), [])
@@ -290,7 +337,7 @@ class ChildProcessTests(unittest.TestCase):
             self.assertEqual(debug.stat().st_mode & 0o777, 0o600)
             self.assertEqual(env["HOME"], str(runtime / "home"))
             self.assertEqual(env["DISPLAY"], ":123")
-            self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=private")
+            self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=/tmp/dbus,guid=0123456789abcdef0123456789abcdef")
             self.assertEqual(playwright.call_args.args[1]["E2E_SR_HEADFUL"], "1")
             self.assertEqual(playwright.call_args.args[1]["DISPLAY"], ":123")
             self.assertEqual(playwright.call_args.args[1]["XDG_RUNTIME_DIR"], str(runtime / "xdg-runtime"))

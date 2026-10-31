@@ -132,6 +132,25 @@ jobs:
           test -s "$TENDO_SR_AUDIT_DIR/transcript.json"
           test -s "$TENDO_SR_AUDIT_DIR/transcript.md"
           test -s "$TENDO_SR_AUDIT_DIR/manifest.json"
+      - name: Stage Orca startup logs for failure diagnosis
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/orca-startup-failure"
+          mkdir -p "$evidence"
+          shopt -s nullglob
+          logs=("$TENDO_SR_AUDIT_DIR"/runtime/logs/*.log)
+          if ((${#logs[@]})); then cp -- "${logs[@]}" "$evidence/"; fi
+          printf 'run_id=%s\ncommit=%s\nresult=failure\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$evidence/summary.txt"
+      - name: Upload Orca startup failure logs
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-qualification-orca-startup-failure-${{ github.sha }}
+          path: ${{ runner.temp }}/orca-startup-failure/
+          retention-days: 14
+          if-no-files-found: error
       - name: Upload sanitized Orca transcripts and manifest
         if: success()
         uses: actions/upload-artifact@v7.0.2

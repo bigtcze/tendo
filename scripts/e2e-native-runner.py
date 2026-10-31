@@ -272,12 +272,14 @@ def run_screen_reader(root: Path, env: dict[str, str], children: Children, artif
     try:
         ready = logs / "ready"
         orca_session.wait_until_ready(proc, ready, readiness_seconds + 15)
-        env.update({"HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"), "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"), "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"), "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(), "DBUS_SESSION_BUS_ADDRESS": (logs / "bus-address").read_text(encoding="utf-8").strip(), "E2E_SR_DEBUG_FILE": str(debug), "E2E_SR_AUDIT_DIR": str(audit_dir.resolve()), "E2E_SR_HEADFUL": "1", "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false"})
+        bus_address = orca_session.validate_bus_address((logs / "bus-address").read_text(encoding="utf-8").removesuffix("\n"))
+        env.update({"HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"), "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"), "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"), "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(), "DBUS_SESSION_BUS_ADDRESS": bus_address, "E2E_SR_DEBUG_FILE": str(debug), "E2E_SR_AUDIT_DIR": str(audit_dir.resolve()), "E2E_SR_HEADFUL": "1", "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false"})
         # The helper owns the display choice and publishes it to its ready file for the browser process.
         display_file = runtime / "display"
         if display_file.exists():
             env["DISPLAY"] = display_file.read_text(encoding="utf-8").strip()
         env["PLAYWRIGHT_OUTPUT_DIR"] = str(artifact_dir / "artifacts")
+        orca_session.verify_transport(env)
         run_playwright(root, env, children, "e2e/screen-reader.spec.ts", timeout=1800)
     finally:
         children.stop(proc, grace=5)

@@ -314,6 +314,12 @@ class WorkflowStructureTests(unittest.TestCase):
         upload = job_section(qualification, "screen-reader").split("      - name: Upload sanitized", 1)[-1]
         self.assertNotIn("orca-debug.out", upload)
         self.assertNotIn("runtime/", upload)
+        failure_upload = job_section(qualification, "screen-reader").split("      - name: Upload Orca startup failure logs", 1)[-1].split("      - name: Upload sanitized", 1)[0]
+        self.assertIn("if: failure()", failure_upload)
+        self.assertIn("retention-days: 14", failure_upload)
+        self.assertIn("runtime/logs/*.log", qualification)
+        self.assertNotIn("orca-debug.out", failure_upload)
+        self.assertNotIn("audio.raw", failure_upload)
         self.assertNotIn("push:", qualification)
         self.assertIn("image: debian:trixie@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1", qualification)
         self.assertIn("TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@postgres:5432/postgres", qualification)

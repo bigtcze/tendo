@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
+import subprocess
 import time
 from pathlib import Path
 
@@ -22,6 +24,25 @@ def wait_until_ready(proc, ready: Path, timeout: int) -> None:
         time.sleep(.1)
     if not ready.exists():
         raise RuntimeError(f"Orca session did not become ready within {timeout} seconds")
+
+
+def validate_bus_address(address: str) -> str:
+    if not re.fullmatch(r"unix:[^\s]*", address) or not re.search(r"(?:^|,)guid=[0-9a-fA-F]{32}$", address):
+        raise RuntimeError("private D-Bus session address is invalid")
+    return address
+
+
+def verify_transport(env: dict[str, str]) -> None:
+    dbus_send = ["dbus-send", "--session", "--print-reply", "--reply-timeout=2000"]
+    probes = (
+        ("session D-Bus", [*dbus_send, "--dest=org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus.GetId"]),
+        ("AT-SPI bus", [*dbus_send, "--dest=org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus.GetAddress"]),
+    )
+    for name, command in probes:
+        try:
+            subprocess.run(command, env=env, check=True, capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"{name} transport readiness probe failed") from exc
 
 
 def cleanup_private_runtime(runtime: Path) -> None:
