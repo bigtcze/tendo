@@ -4,13 +4,14 @@ import (
 	"context"
 	"strings"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
 func validateCollectionFilters(subjectID, responsibleID, workflow, attention string, recurring *bool) (CollectionFilters, error) {
 	f := CollectionFilters{}
 	if subjectID != "" {
-		if !validUUID(subjectID) {
+		if !ids.IsCanonicalUUID(subjectID) {
 			return f, &InvalidQueryError{"subjectId"}
 		}
 		f.SubjectID = strings.ToLower(subjectID)
@@ -19,7 +20,7 @@ func validateCollectionFilters(subjectID, responsibleID, workflow, attention str
 		if responsibleID == "unassigned" {
 			f.ResponsibleUserID = Null[string]()
 		} else {
-			if !validUUID(responsibleID) {
+			if !ids.IsCanonicalUUID(responsibleID) {
 				return f, &InvalidQueryError{"responsibleUserId"}
 			}
 			f.ResponsibleUserID = Some(strings.ToLower(responsibleID))

@@ -44,7 +44,10 @@ func (h *SessionHandler) cookieName() string {
 }
 
 func (h *SessionHandler) setCookie(w http.ResponseWriter, token string, maxAge int) {
-	http.SetCookie(w, &http.Cookie{Name: h.cookieName(), Value: token, Path: "/", HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
+	http.SetCookie(w, &http.Cookie{
+		Name: h.cookieName(), Value: token, Path: "/", HttpOnly: true,
+		Secure: h.secure, SameSite: http.SameSiteLaxMode, MaxAge: maxAge,
+	})
 }
 
 func (h *SessionHandler) clear(w http.ResponseWriter) { h.setCookie(w, "", -1) }
@@ -69,11 +72,14 @@ func (h *SessionHandler) create(w http.ResponseWriter, r *http.Request) {
 		problem(w, 429, "rate_limited")
 		return
 	}
-	values, ok := readStrictObject(w, r, 4096, "login", "password")
+	values, ok := httpx.ReadObject(w, r, map[string]httpx.Field{
+		"login":    {Kind: httpx.KindString, Required: true},
+		"password": {Kind: httpx.KindString, Required: true},
+	}, 4096)
 	if !ok {
 		return
 	}
-	session, err := h.service.Login(r.Context(), values["login"], values["password"])
+	session, err := h.service.Login(r.Context(), stringField(values, "login"), stringField(values, "password"))
 	if errors.Is(err, security.ErrPasswordWorkLimit) {
 		w.Header().Set("Retry-After", "60")
 		problem(w, 429, "rate_limited")

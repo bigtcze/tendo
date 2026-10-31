@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
@@ -76,7 +77,7 @@ func (s *Service) Complete(ctx context.Context, userID, householdID, itemID stri
 	if !ValidateIdempotencyKey(key) {
 		return Completion{}, false, &ValidationError{"", "invalid_idempotency_key"}
 	}
-	if !validUUID(itemID) {
+	if !ids.IsCanonicalUUID(itemID) {
 		return Completion{}, false, ErrNotFound
 	}
 	householdID, today, err := s.check(ctx, userID, householdID)
@@ -97,7 +98,7 @@ func (s *Service) Complete(ctx context.Context, userID, householdID, itemID stri
 }
 
 func (s *Service) UndoCompletion(ctx context.Context, userID, householdID, itemID, completionID string, expectedVersion int64) (Completion, error) {
-	if !validUUID(itemID) || !validUUID(completionID) {
+	if !ids.IsCanonicalUUID(itemID) || !ids.IsCanonicalUUID(completionID) {
 		return Completion{}, ErrNotFound
 	}
 	householdID, _, err := s.check(ctx, userID, householdID)
@@ -175,7 +176,7 @@ func DecodeCompletionCursorForOrder(cursor, order string) (string, error) {
 		prefix = completionNewestCursorPrefix
 	}
 	id, ok := strings.CutPrefix(string(raw), prefix)
-	if !ok || !validUUID(id) {
+	if !ok || !ids.IsCanonicalUUID(id) {
 		return "", errors.New("invalid completion cursor")
 	}
 	return strings.ToLower(id), nil
@@ -195,7 +196,7 @@ func (s *Service) ListCompletions(ctx context.Context, userID, householdID, item
 	if err != nil {
 		return CompletionPage{}, err
 	}
-	if !validUUID(itemID) {
+	if !ids.IsCanonicalUUID(itemID) {
 		return CompletionPage{}, ErrNotFound
 	}
 	query, err := parseCompletionListQuery(limit, cursor, order)

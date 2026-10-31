@@ -104,32 +104,45 @@ func parseListParams(w http.ResponseWriter, r *http.Request, maxLimit int, filte
 		}
 		p.Limit = n
 	}
-	if v, present := values["cursor"]; present {
-		if len(v) != 1 || v[0] == "" {
-			QueryProblemResponse(w, "cursor")
-			return p, false
-		}
-		p.Cursor = v[0]
+	cursor, ok := parseCursor(values["cursor"], values.Has("cursor"))
+	if !ok {
+		QueryProblemResponse(w, "cursor")
+		return p, false
 	}
+	p.Cursor = cursor
 	if filter == ListFilterArchived || filter == ListFilterArchivedDone {
-		if v, present := values["archived"]; present {
-			if len(v) != 1 || (v[0] != "true" && v[0] != "false") {
-				QueryProblemResponse(w, "archived")
-				return p, false
-			}
-			p.Archived = v[0] == "true"
+		if p.Archived, ok = parseQueryBool(values["archived"], values.Has("archived")); !ok {
+			QueryProblemResponse(w, "archived")
+			return p, false
 		}
 	}
 	if filter == ListFilterDone || filter == ListFilterArchivedDone {
-		if v, present := values["done"]; present {
-			if len(v) != 1 || (v[0] != "true" && v[0] != "false") {
-				QueryProblemResponse(w, "done")
-				return p, false
-			}
-			p.Done = v[0] == "true"
+		if p.Done, ok = parseQueryBool(values["done"], values.Has("done")); !ok {
+			QueryProblemResponse(w, "done")
+			return p, false
 		}
 	}
 	return p, true
+}
+
+func parseCursor(values []string, present bool) (string, bool) {
+	if !present {
+		return "", true
+	}
+	if len(values) != 1 || values[0] == "" {
+		return "", false
+	}
+	return values[0], true
+}
+
+func parseQueryBool(values []string, present bool) (bool, bool) {
+	if !present {
+		return false, true
+	}
+	if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+		return false, false
+	}
+	return values[0] == "true", true
 }
 
 func parseLimit(values []string, maxLimit int) (int, bool) {
@@ -161,7 +174,8 @@ func ReadObjectAllowEmpty(w http.ResponseWriter, r *http.Request, fields map[str
 func readObject(w http.ResponseWriter, r *http.Request, fields map[string]Field, bodyLimit int64, allowEmpty bool) (map[string]any, bool) {
 	media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	charset, hasCharset := params["charset"]
-	if err != nil || !strings.EqualFold(media, "application/json") || len(params) > 1 || (len(params) == 1 && (!hasCharset || !strings.EqualFold(charset, "utf-8"))) {
+	if err != nil || !strings.EqualFold(media, "application/json") || len(params) > 1 ||
+		(len(params) == 1 && (!hasCharset || !strings.EqualFold(charset, "utf-8"))) {
 		ProblemResponse(w, http.StatusUnsupportedMediaType, "unsupported_media_type")
 		return nil, false
 	}
@@ -326,10 +340,16 @@ func ProblemResponse(w http.ResponseWriter, status int, code string) {
 
 // QueryProblemResponse writes the 400 invalid_query problem naming the parameter.
 func QueryProblemResponse(w http.ResponseWriter, parameter string) {
-	writeProblemBody(w, http.StatusBadRequest, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusBadRequest), "status": http.StatusBadRequest, "code": "invalid_query", "parameter": parameter})
+	writeProblemBody(w, http.StatusBadRequest, map[string]any{
+		"type": "about:blank", "title": http.StatusText(http.StatusBadRequest),
+		"status": http.StatusBadRequest, "code": "invalid_query", "parameter": parameter,
+	})
 }
 
 // ValidationProblemResponse writes the 422 problem naming the field and code.
 func ValidationProblemResponse(w http.ResponseWriter, field, code string) {
-	writeProblemBody(w, http.StatusUnprocessableEntity, map[string]any{"type": "about:blank", "title": "Validation Failed", "status": 422, "code": code, "field": field})
+	writeProblemBody(w, http.StatusUnprocessableEntity, map[string]any{
+		"type": "about:blank", "title": "Validation Failed", "status": 422,
+		"code": code, "field": field,
+	})
 }

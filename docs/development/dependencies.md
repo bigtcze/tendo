@@ -38,7 +38,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 
 ## Node packages
 
-`npm outdated` is clean for `api/` and `frontend/` except `typescript` (see below). `npm audit` reports zero vulnerabilities for both.
+`npm outdated` is clean for `api/` and `frontend/` except `typescript` (see below). `npm audit` reports zero vulnerabilities for both, with the minimatch security override below.
 
 | Package | Pinned | Notes |
 | --- | --- | --- |
@@ -98,6 +98,13 @@ bash scripts/dev-exec.sh -- npm exec --yes --package=renovate -- renovate-config
 ```
 
 For extraction/lookup diagnostics, use the official Renovate CLI with `--platform=local --dry-run=extract` or `--dry-run=lookup` in the checkout. Provide `GITHUB_COM_TOKEN` privately for GitHub datasources; local-platform `RENOVATE_TOKEN` alone does not authenticate those lookups. Never print or commit tokens or raw authenticated logs. A local dry run does not prove the hosted app has run; inspect its Dashboard and first actual PR after onboarding.
+
+## Security overrides
+
+- **minimatch 11.0.3** ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249), published 2026-10-30, moderate: `**/..` glob-part amplification at `optimizationLevel >= 2`, fixed only in 11.0.1+; no 10.x/5.x backport). Both manifests carry an npm `overrides` entry until upstream depends on minimatch 11 (tracked in eslint/eslint#21463; openapi-typescript 7.13.0 still requires the archived `@redocly/openapi-core` 1.x, which pins minimatch ^5). Tendo never passes untrusted glob patterns. All three are build-time dev tools, so the shipped bundle and server are unaffected.
+  - `frontend`: global override. `eslint`, `@eslint/config-array` and `@typescript-eslint/typescript-estree` only use `new Minimatch(pattern, { dot, flipNegate })`, `.match(path, partial)` and the named `minimatch()` export, all of which 11.x keeps. ESLint's per-file results (files, rule IDs, lines) are byte-identical before and after. 616 option/path/partial combinations of the config patterns match identically on 10.2.6 and 11.0.3.
+  - `api`: override scoped to `@redocly/openapi-core` 1.x. Its only minimatch use is `require('minimatch')(url, pattern)` in the header-matching loop of `readFileFromUrl`. minimatch 11 is not callable as a module, so that loop would throw once any `resolve.http.headers` are configured. The openapi-typescript 7.13.0 CLI calls `loadConfig`, which also turns Redocly login tokens into headers, only when `findConfig` finds `redocly.yaml` or `.redocly.yaml` in its working directory (`api/`, no parent search). Otherwise it calls `createConfig`, which configures no headers. `@redocly/cli` 2.71.2 bundles its own openapi-core 2.x and is unaffected. `api/dependency-overrides.test.mjs` fails if a Redocly config, a remote `$ref` or an `externalValue` appears, or if openapi-core resolves a minimatch older than 11. Generated `api/generated/*` output is byte-identical.
+  - Remove the overrides once upstream releases depend on minimatch ≥ 11.0.1, then confirm `npm audit` is still clean.
 
 ## Held upgrades
 
