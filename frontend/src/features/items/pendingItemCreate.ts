@@ -4,13 +4,14 @@ type CreateItemRequest = components['schemas']['CreateItemRequest'];
 export type PendingItemCreate = { version: 1; key: string; body: CreateItemRequest };
 const memory = new Map<string, PendingItemCreate>();
 const memoryAuthoritative = new Set<string>();
+let storageUntrusted = false;
 const prefix = 'tendo.pendingItemCreate.v1:';
 function storage() { try { return globalThis.sessionStorage; } catch { return undefined; } }
 function scope(userId: string, householdId: string) { return `${userId}:${householdId}`; }
 
 export function getPendingItemCreate(userId: string, householdId: string): PendingItemCreate | undefined {
   const id = scope(userId, householdId);
-  if (memoryAuthoritative.has(id)) return memory.get(id);
+  if (memoryAuthoritative.has(id) || storageUntrusted) return memory.get(id);
   try {
     const raw = storage()?.getItem(`${prefix}${id}`);
     if (raw) {
@@ -44,16 +45,29 @@ export function clearPendingItemCreate(userId: string, householdId: string, key:
 }
 
 export function clearPendingItemCreates(): void {
-  memory.clear();
-  memoryAuthoritative.clear();
+  for (const id of new Set([...memory.keys(), ...memoryAuthoritative])) {
+    memory.delete(id);
+    memoryAuthoritative.add(id);
+  }
+  storageUntrusted = true;
   try {
     const store = storage();
-    if (!store) return;
+    if (!store) {
+      memory.clear();
+      memoryAuthoritative.clear();
+      return;
+    }
     for (let index = store.length - 1; index >= 0; index--) {
       const key = store.key(index);
       if (key?.startsWith(prefix)) store.removeItem(key);
     }
-  } catch { /* ignore unavailable storage */ }
+    memory.clear();
+    memoryAuthoritative.clear();
+    storageUntrusted = false;
+  } catch {
+    // Retain known authoritative state and distrust storage for unknown scopes.
+    storageUntrusted = true;
+  }
 }
 
 const allowedBodyKeys = ['title', 'subjectId', 'attentionOn', 'notes', 'responsibleUserId', 'historicalCompletedOn', 'recurrence'];
