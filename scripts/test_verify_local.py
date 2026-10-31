@@ -14,8 +14,10 @@ CONTEXT_FILES = (
     "AGENTS.md", ".autonomous/GUARDRAILS.md", ".autonomous/CHARTER.md", ".autonomous/PRODUCT.md",
     ".autonomous/ROADMAP.md", ".autonomous/UX.md", ".autonomous/ARCHITECTURE.md", ".autonomous/API.md",
     ".autonomous/TESTING.md", ".autonomous/DOCUMENTATION.md", ".autonomous/DEFINITION_OF_DONE.md",
-    ".autonomous/FLOW.md", ".autonomous/STATE.md", ".autonomous/LEARNINGS.md", ".autonomous/CYCLE_PROMPT.md",
+    ".autonomous/FLOW.md", ".autonomous/LEARNINGS.md", ".autonomous/CYCLE_PROMPT.md",
+    ".autonomous/V3_ISSUES_WORKFLOW.md", ".autonomous/V3_ISSUES_READY",
 )
+READY_MARKER = "managed_issue_label=tendo:v3-autonomous\nmilestone_number=1\n"
 HARNESS = (
     "scripts/test_postgres_test_service.py",
     "scripts/test_e2e_native_runner.py",
@@ -35,6 +37,7 @@ class VerifyLocalFailurePropagation(unittest.TestCase):
         (self.root / ".autonomous").mkdir()
         for filename in CONTEXT_FILES:
             (self.root / filename).write_text("control fixture\n")
+        (self.root / ".autonomous/V3_ISSUES_READY").write_text(READY_MARKER)
         (self.root / "scripts/autonomous-loop.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
         shutil.copy2(ROOT / "scripts/verify-local.sh", self.root / "scripts/verify-local.sh")
         for filename in ("setup-integration.sh", "check-sqlc.sh", "e2e-smoke.sh"):
@@ -150,6 +153,48 @@ exit 0
             "downstream stages: NOT RUN (fail-fast at bootstrap)",
             result.stdout,
         )
+
+    def assert_bootstrap_failure(self, message):
+        result = self.run_gate("")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("bootstrap:FAIL:", result.stdout)
+        self.assertIn(message, result.stdout)
+        self.assertIn("downstream stages: NOT RUN (fail-fast at bootstrap)", result.stdout)
+        self.assertFalse(self.log.exists(), "no downstream tool may run after a bootstrap failure")
+
+    def test_bootstrap_requires_v3_issue_workflow_and_ready_marker(self):
+        for filename in (".autonomous/V3_ISSUES_WORKFLOW.md", ".autonomous/V3_ISSUES_READY"):
+            with self.subTest(filename=filename):
+                path = self.root / filename
+                original = path.read_text()
+                path.unlink()
+                try:
+                    self.assert_bootstrap_failure(f"required repository context missing: {filename}")
+                finally:
+                    path.write_text(original)
+
+    def test_bootstrap_requires_exact_managed_issue_label_in_ready_marker(self):
+        marker = self.root / ".autonomous/V3_ISSUES_READY"
+        for content in (
+            "milestone_number=1\n",
+            "managed_issue_label=tendo:v3\n",
+            "managed_issue_label=tendo:v3-autonomous-extra\n",
+            "# managed_issue_label=tendo:v3-autonomous\n",
+        ):
+            with self.subTest(content=content):
+                marker.write_text(content)
+                self.assert_bootstrap_failure(
+                    "V3_ISSUES_READY must declare managed_issue_label=tendo:v3-autonomous"
+                )
+
+    def test_bootstrap_rejects_recreated_state_file(self):
+        (self.root / ".autonomous/STATE.md").write_text("phase=v3_active\n")
+        self.assert_bootstrap_failure("STATE.md was retired by the V3 Issues migration")
+
+    def test_bootstrap_passes_with_ready_marker_and_no_state_file(self):
+        result = self.run_gate("go-vet")
+        self.assertIn("bootstrap:PASS:", result.stdout)
+        self.assertIn("go-vet:FAIL:", result.stdout)
 
     def test_go_list_vet_test_failures_propagate(self):
         self.assertNotIn("script:setup-integration", self.assert_failed_stage("go-list", "go-unit-race"))

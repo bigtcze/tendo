@@ -52,7 +52,7 @@ run_stage() {
   fi
 }
 
-run_stage bootstrap 'for f in AGENTS.md .autonomous/GUARDRAILS.md .autonomous/CHARTER.md .autonomous/PRODUCT.md .autonomous/ROADMAP.md .autonomous/UX.md .autonomous/ARCHITECTURE.md .autonomous/API.md .autonomous/TESTING.md .autonomous/DOCUMENTATION.md .autonomous/DEFINITION_OF_DONE.md .autonomous/FLOW.md .autonomous/STATE.md .autonomous/LEARNINGS.md .autonomous/CYCLE_PROMPT.md; do [[ -f "$f" ]] || { printf "required repository context missing: %s\\n" "$f" >&2; exit 1; }; done' 'bash -n scripts/autonomous-loop.sh'
+run_stage bootstrap 'for f in AGENTS.md .autonomous/GUARDRAILS.md .autonomous/CHARTER.md .autonomous/PRODUCT.md .autonomous/ROADMAP.md .autonomous/UX.md .autonomous/ARCHITECTURE.md .autonomous/API.md .autonomous/TESTING.md .autonomous/DOCUMENTATION.md .autonomous/DEFINITION_OF_DONE.md .autonomous/FLOW.md .autonomous/LEARNINGS.md .autonomous/CYCLE_PROMPT.md .autonomous/V3_ISSUES_WORKFLOW.md .autonomous/V3_ISSUES_READY; do [[ -f "$f" ]] || { printf "required repository context missing: %s\\n" "$f" >&2; exit 1; }; done' 'grep -qx "managed_issue_label=tendo:v3-autonomous" .autonomous/V3_ISSUES_READY || { printf "V3_ISSUES_READY must declare managed_issue_label=tendo:v3-autonomous\\n" >&2; exit 1; }' '[[ ! -e .autonomous/STATE.md ]] || { printf "STATE.md was retired by the V3 Issues migration; track work in managed GitHub Issues\\n" >&2; exit 1; }' 'bash -n scripts/autonomous-loop.sh'
 run_stage go-format 'files=$(gofmt -l $(find backend -name "*.go" -type f))' 'if [[ -n "$files" ]]; then printf "Go files need formatting:\\n%s\\n" "$files" >&2; exit 1; fi'
 run_stage go-vet 'cd backend' 'go vet ./...'
 run_stage maintainability 'python3 scripts/maintainability_check.py'
