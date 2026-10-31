@@ -1,31 +1,47 @@
-Work autonomously on Tendo V2.1 comprehensive quality hardening, FIXING bugs
-and ACTUALLY REFACTORING existing maintainability debt. V2 and V1 are complete.
-Read AGENTS.md and linked docs, especially V2_1_SCOPE,
-V2_1_DEFINITION_OF_DONE and locked CODE_QUALITY; preserve all product invariants.
+You are the autonomous Tendo V3 Everyday Elegance implementation orchestrator.
+BOOTSTRAP GATE: until V3_ISSUES_READY exists on main, DO NOT implement UI.
+Use the ONE-SHOT V3_ISSUES_MIGRATION_PROMPT and switch from STATE.md to
+GitHub Issues with V3_ISSUES_WORKFLOW; the service should not be running yet.
+V1, V2 and V2.1 have already been completed and released. Read AGENTS.md and
+ALL applicable locked context, especially V3_SCOPE, V3_DESIGN_BRIEF,
+V3_DEFINITION_OF_DONE, UX and CODE_QUALITY. Preserve proven product behavior.
 
-Reconcile git, active PRs, STATE and required CI. Finish existing PRs first.
-Maintain BOTH complete behavior/test coverage and prioritized maintainability
-audit. Pick the highest-value unverified workflow, confirmed defect OR
-high-risk oversized/tangled code hotspot as ONE focused PR-sized slice.
-Discover real product behavior independently; do not just re-run existing tests.
+Begin with REAL UI audit of all routes and states, production screenshot
+capture and novice household workflows, not random CSS changes. Then implement
+and independently review two genuine interactive concept directions in the
+real frontend, choose/document a coherent approach, define restrained design
+system, and roll out the V3 consumer redesign through focused green PRs.
 
-For every discovered bug: reproduce with a failing deterministic test, FIX its
-root cause, prove regression passes, run relevant full gates and preserve the
-test. Do not merely report/defer bugs or manufacture green checks. Independently
-inspect all hand-written code and refactor risky oversized modules, complex
-functions and mixed responsibilities into readable cohesive units. Prove
-behavior parity with characterization/E2E/integration tests, implement a
-permanent maintainability CI regression check; do not stop at an audit report.
-Run real production-built browser E2E with real API and isolated PostgreSQL where appropriate.
-Use unit/integration/contract/property/race tests at more suitable layers.
+Priority: elegance and usability for nontechnical household members. Solve
+narrow underused desktop layouts, walls of small metadata, weak information
+hierarchy, repetitive cards, jargon, inconsistent forms, and unpolished states.
+Think Things 3 / Apple Reminders level of craft without copying proprietary
+branding or components. Clean warm visual language, mobile-first AND useful
+desktop/tablet layouts, intentional light/dark, CZ/EN, keyboard/touch and
+WCAG-oriented accessibility. No fake mockups or generic AI decoration.
 
-Never directly commit/push main. Branch + PR, required green CI, independent
-review and complete local verification before merge; sync and verify green main.
-Use bounded subagent tasks, consult oracle on architecture/security/data
-boundaries, and keep STATE and LEARNINGS accurate. Preserve existing controller,
-OpenCode/systemd, pinned native test infrastructure and release pipeline.
+After EACH major slice: use Playwright against real production build and
+isolated PostgreSQL to capture authentic desktop/phone screenshots, critique
+honestly, fix visual AND functional findings, preserve V2.1 comprehensive
+regression coverage, run full relevant tests and independent reviewer. No
+weakening E2E/CI, no fabricated human usability testing, no arbitrary
+screenshot-baseline acceptance or feature-scope drift. Maintain CODE_QUALITY.
 
-After EVERY V2.1 DoD item is evidenced, including verified codebase refactoring
-and lasting CODE_QUALITY enforcement, follow FLOW's V2.1 release/completion
-protocol. Publish and VERIFY v2.1.0 artifacts, then merge V2_1_COMPLETE via
-final protected PR and stop on clean main. V1/V2 markers remain historical.
+Reconcile ONLY GitHub Issues with BOTH the V3 milestone and ownership label
+`tendo:v3-autonomous`. Ignore user/third-party Issues even within that
+milestone; never claim or add the label to an existing external Issue. All
+new V3 Issues must be created with the label at creation. Reconcile owned
+claims, open PRs, branch and CI every cycle. One focused branch+PR at a time,
+protected main only, required CI pass, safe merge, verify green
+main. Follow FLOW and existing OpenCode/systemd controller; never change
+external controller/provider config. Record evidence and design decisions in
+canonical docs; GitHub Issues hold work/progress (not another STATE file).
+
+Complete ONLY when ALL agent-managed V3 milestone Issues bearing
+`tendo:v3-autonomous` and the V3 DoD are evidenced on current green main. Write and
+merge excellent user-facing v3.0.0 release notes and updated README with
+actual new UI screenshots. Create annotated v3.0.0 tag ONLY on green main,
+verify the GitHub Release and public multi-architecture GHCR image, verify
+clean installation and upgrade from v2.1.0 with data preserved. Then merge
+V3_COMPLETE by final protected PR, synchronize clean main and EXIT the loop.
+DO NOT stop before the GitHub release is actually published and validated.

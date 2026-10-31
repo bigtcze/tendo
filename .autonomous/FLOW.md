@@ -1,7 +1,7 @@
 # Autonomous Flow
 
 cycle=fresh_opencode_session
-goal=verify_fix_and_refactor_highest_risk_V2_1_debt
+goal=ship_highest_value_unproven_V3_design_DoD
 work_unit=small_reviewable_PR
 main=protected
 parallel_PRs=avoid
@@ -12,7 +12,7 @@ parallel_PRs=avoid
 3. Reconcile STATE with reality; reality wins.
 4. If active Tendo PR exists, finish/review/fix it before unrelated work.
 5. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
-6. Select the highest-risk V2.1 defect, unverified workflow or maintainability hotspot; one focused PR slice.
+6. Select the highest-value unmet V3 audit, concept, design-system, UI or UX-validation DoD slice; one focused PR.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -105,7 +105,7 @@ docs_ADR=durable_decisions_only
 ## Blockers
 - Do not spin on quota/outage/missing external dependency.
 - Record exact blocker/evidence in STATE.
-- Choose safe independent V2.1 verification, defect repair or hotspot refactoring if available.
+- Choose safe independent V3 design/UX validation, UI work or regression repair if available.
 - Never claim unverified success.
 
 ## V2.1 release and completion protocol
@@ -130,3 +130,70 @@ Only after every V2_1_DEFINITION_OF_DONE item is proven against current main:
 8. Sync clean local main, verify tracked V2_1_COMPLETE and exit successfully.
 Preserve both historical completion markers PROJECT_COMPLETE and V2_COMPLETE.
 Never add the completion marker directly to main.
+
+## V3 GitHub issue execution (permanent)
+- Every cycle read V3_ISSUES_WORKFLOW. Query ONLY Issues that have BOTH the
+  exact V3 milestone AND ownership label `tendo:v3-autonomous`. Ignore ALL
+  other Issues, even if they are in the V3 milestone or have V3-like titles.
+  Never auto-adopt an outside Issue by applying the ownership label.
+- Only agents creating NEW Issues may attach this label at creation time.
+  Reconcile owned comments, claims, dependencies, linked PRs and required CI.
+  Never re-create STATE.md.
+- Work only on a claimed managed Issue; comment claim with stable identity, change
+  idle -> in-progress, WAIT 3–5 seconds and re-read full issue/comment history.
+  First still-active server-ordered claim wins, otherwise RELEASE and pick
+  another ready issue. One focused PR at a time, no separate coordinator.
+- Record tests/screenshots/decisions/blocked reasons only in owned Issue
+  comments and linked PRs. Before every mutation recheck BOTH ownership
+  label and milestone; close only after green merged main and proof.
+- For release/finish, close V3-18 only after confirmed published public
+  v3.0.0 and both GHCR platforms; then V3-19 covers V3_COMPLETE final PR.
+
+## V3 design and visual validation discipline
+- Before changing visuals, capture evidence of the real current UI on actual
+  product routes with real build and representative synthetic household data.
+- Explore two coherent implemented design concepts; independent critique,
+  comparison and documented choice BEFORE large-scale redesign rollout.
+- For each UI PR, assess authentic before/after browser screenshots for phone
+  and desktop, Czech/English, dark/light, empty/populated/error states and
+  accessibility. Fix design problems before merge; do not just "approve" CSS.
+- Evaluate daily-user journeys: few understandable actions, no technical
+  jargon, readable type, clear hierarchy and forgiving interactions.
+- Commit stable deterministic visual regression baselines for relevant routes,
+  viewports and themes; independently review legitimate screenshot updates.
+- Apply CODE_QUALITY to every frontend slice. Preserve backend, auth, API,
+  recurrence and V2.1 regression checks without weakening coverage.
+
+## V3 release and completion protocol
+Only after all agent-managed milestone Issues with `tendo:v3-autonomous`
+and V3_DEFINITION_OF_DONE are fully and truthfully proven on green main:
+1. Independently review the real implementation against V3_DESIGN_BRIEF,
+   route/state inventory, mobile/tablet/desktop, actual screenshots,
+   localization, contrast, keyboard and beginner household journeys.
+2. Run complete pinned local verification, required CI, production-built
+   Playwright E2E, visual regression and deployment/upgrade checks. Fix all
+   release-blocking issues. Never skip or weaken existing V2.1 gates.
+3. Update README with authentic committed v3.0.0 Playwright screenshot(s),
+   user/docs version references and quality release-facing documentation.
+4. Merge professionally written docs/releases/v3.0.0.md via protected PR.
+   Notes must explain what visually changed, why users benefit, install/
+   upgrade path, backwards compatibility, limitations and tested artifacts.
+5. Only when main has green `required`, create annotated v3.0.0 tag pointing
+   to that EXACT verified main commit, push once, trigger existing Release
+   workflow. NEVER move a tag or bypass the normal publishing pipeline.
+6. Verify GitHub Release v3.0.0 exists publicly with proper notes and exact
+   compose.yaml/example.env; verify public ghcr.io/bigtcze/tendo:v3.0.0
+   image manifest includes linux/amd64 and linux/arm64 and floating tags
+   match release; verify released clean install AND upgrade from v2.1.0
+   retaining existing household data.
+7. If release workflow, GitHub visibility, artifact or upgrade fails, diagnose
+   and FIX before completion. Record genuine external blockers and STOP
+   claiming completion; do not fake a release.
+8. From fresh main, create separate FINAL completion branch, add
+   .autonomous/V3_COMPLETE documenting release and evidence; open PR, run
+   required checks, merge under protection.
+9. Sync clean local main and verify V3_COMPLETE tracked and true; exit.
+Keep PROJECT_COMPLETE, V2_COMPLETE and V2_1_COMPLETE as historical markers.
+Use ONLY V3 milestone Issues carrying `tendo:v3-autonomous`, not STATE.md,
+for V3 progress, blockers and claims. Ignore unlabelled/external Issues.
+Never directly write completion to main.

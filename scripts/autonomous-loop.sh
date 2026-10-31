@@ -3,7 +3,7 @@ set -u -o pipefail
 
 ROOT="/home/tomas/repositories/tendo"
 PROMPT_FILE="${ROOT}/.autonomous/CYCLE_PROMPT.md"
-COMPLETE_FILE=".autonomous/V2_1_COMPLETE"
+COMPLETE_FILE=".autonomous/V3_COMPLETE"
 
 OPENCODE_BIN="${OPENCODE_BIN:-/home/tomas/.opencode/bin/opencode}"
 SUCCESS_SLEEP="${SUCCESS_SLEEP:-45}"
@@ -50,7 +50,7 @@ is_complete_on_main() {
 }
 
 if is_complete_on_main; then
-  echo "[tendo] V2_1_COMPLETE is tracked on clean main; exiting successfully."
+  echo "[tendo] V3_COMPLETE is tracked on clean main; exiting successfully."
   exit 0
 fi
 
@@ -59,7 +59,7 @@ failure_sleep="${FAIL_SLEEP_BASE}"
 
 while true; do
   if is_complete_on_main; then
-    echo "[tendo] V2.1 complete on protected main; exiting successfully."
+    echo "[tendo] V3 complete on protected main; exiting successfully."
     exit 0
   fi
 
@@ -80,7 +80,7 @@ while true; do
   fi
 
   if is_complete_on_main; then
-    echo "[tendo] V2.1 completion merged and verified on main; exiting successfully."
+    echo "[tendo] V3 completion merged and verified on main; exiting successfully."
     exit 0
   fi
 
