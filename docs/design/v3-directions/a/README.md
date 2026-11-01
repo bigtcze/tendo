@@ -1,7 +1,7 @@
 # Direction A — Calm list, adaptive detail
 
 branch=`proto/v3-direction-a`
-head_sha=to_be_filled_by_orchestrator
+head_sha=see Issue #324 (prototype branch is not merged)
 
 ## Intent
 A direct, low-noise daily list that gets wider as the screen allows. The item itself stays the main object: check it off from the list or open its stable `/items/:id` route for facts, actions and history. This direction differs from the editorial, grouped-person board concept of direction B.
@@ -24,17 +24,24 @@ A direct, low-noise daily list that gets wider as the screen allows. The item it
 - The title, household object and a clear done affordance aim to make a routine check understandable without project-management terminology.
 
 ## Visual review / known weaknesses
-- Final captures are still pending after these larger layout changes. The prior captures document the earlier inline-add/single-route state and are not current evidence for the completed concept.
-- The add sheet now traps keyboard focus and has Escape, backdrop, and Cancel close paths. Confirm visual polish and screen-reader announcement in the next capture/review round.
-- More opens a visible Members/Account menu, as shown in `navigation-more-390-en.png`; it has not been tested with real phone users.
-- Repeat and navigation marks now use inline SVG. Repeat cadence stays available to assistive technology in the list; list metadata intentionally shows a short relative date. Validate low-vision contrast and keyboard ordering against fresh captures.
-- Only focused screens have this direction’s styling. Dark theme, other routes/states, very large backlogs, zoom and actual human testing are not proven. No human household participants were involved.
+Orchestrator review of the final production-build captures (2026-11-01):
+- Desktop with the persistent detail pane (`home-selected-pane-1440-en.png`, `detail-*-1440-*.png`): the left column narrows and the primary navigation wraps to a second line (Members drops below, and the phone-only More entry shows). The rail layout seen on Home at 1440 does not carry over to the split view.
+- Desktop Home (`home-populated-1440-en.png`): Add item is pushed to the far right edge, away from the list it belongs to; the list keeps a ~500px measure, leaving a wide empty right half when no item is selected.
+- Rows: the title and subject sit on separate lines with a large gap, so rows read as loose pairs rather than one item; repeat glyphs are small and low-contrast.
+- Phone (`home-populated-390-en.png`): attention chips wrap their counts onto a second line; the bottom bar wraps "People & things" onto two lines.
+- Detail: the facts card repeats state ("Done", "For: Dům") as unlabelled lines; Archive sits directly under the completion notice with little separation.
+- The add sheet traps focus with Escape/backdrop/Cancel close paths; screen-reader announcement is not separately audited.
+- More (phone) opens a visible Members/Account menu (`navigation-more-390-en.png`); not tested with real users.
+- Only focused screens carry this direction. Dark theme, other routes/states, very large backlogs, zoom and human testing are not proven. No human household participants were involved.
+
+These are inputs for the V3-05 comparison; they are not fixed in the prototype.
 
 ## Test status
-- `npm run lint`, `npm run typecheck`, `npm run build`: latest combined run is pending after the dialog and All items row refinements.
-- Vitest full suite: passed 785/785 before the most recent accessibility expectation edits. Targeted item suites are being rerun.
-- Direction capture: passed 1/1 and refreshed the screenshot matrix, including `home-selected-pane-1440-en.png`. A small subsequent edit changes the Done/Undo capture viewport sequence; rerun capture for final evidence.
-- Required default PostgreSQL E2E: capture mode still leaked into a default run; journey case `a` failed onboarding, 50 did not run. Native runner selection isolation remains unresolved; do not claim a clean default pass.
+Branch head and results are recorded on Issue #324 and the docs PR.
+- `npm run lint`, `npm run typecheck`, `npm run build`: pass.
+- Vitest full suite: 786/786 pass.
+- Direction capture (opt-in `TENDO_DIRECTION_CAPTURE=1` with `TENDO_UX_AUDIT_DIR`): pass; all 25 screenshots in this folder come from that run. Done/Undo captures wait for the Undo round-trip so each starts from an open item.
+- Required default PostgreSQL E2E: see Issue #324 for the latest result on the branch head.
 
 ## Screenshot index
 All links are relative to this README. Captures are production-build screenshots from the opt-in authenticated synthetic-household run.

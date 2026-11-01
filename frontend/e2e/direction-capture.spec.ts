@@ -125,16 +125,19 @@ test('capture Direction A with real synthetic households', async ({ page, browse
   await wideEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
   await page.goto(`/items/${detailId}`); await capture(page, 'detail-1440-en.png', 1440);
   await page.setViewportSize({ width: 1440, height: 844 }); await page.goto(`/items/${detailId}`);
-  await page.getByRole('button', { name: en['items.done'], exact: true }).click();
+  await page.locator('.detail-done').click();
   await expect(page.getByRole('status').filter({ hasText: items[2]!.title })).toBeVisible();
   await expect(page.getByRole('button', { name: en['items.undo'], exact: true })).toBeVisible();
   await capture(page, 'detail-done-undo-1440-en.png', 1440);
   await page.getByRole('button', { name: en['items.undo'], exact: true }).click();
+  // Wait for the undo round-trip so the next capture starts from an open item.
+  await expect(page.locator('.detail-done')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/items/${detailId}`);
-  await page.getByRole('button', { name: en['items.done'], exact: true }).click();
+  await page.locator('.detail-done').click();
   await expect(page.getByRole('button', { name: en['items.undo'], exact: true })).toBeVisible();
   await capture(page, 'detail-done-undo-390-en.png', 390);
   await page.getByRole('button', { name: en['items.undo'], exact: true }).click();
+  await expect(page.locator('.detail-done')).toBeVisible();
   const csContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await csContext.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   await csContext.addCookies(await page.context().cookies());
