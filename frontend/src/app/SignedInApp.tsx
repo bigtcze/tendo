@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { AccountScreen } from '../features/auth/AccountScreen';
 import type { OidcOutcome } from '../features/auth/oidcApi';
 import type { useAppNavigation } from './useAppNavigation';
@@ -81,13 +81,17 @@ function DesktopItemPane({ props, itemId, householdId, navRoute, actions, deskto
 }) {
   const { session, navigation, sessionActions } = props;
   const [homeRevision, setHomeRevision] = useState(0);
+  const listTransition = useRef(false);
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdNavigationContext value={{ route: navRoute, actions, household: true }}>
       <ScreenTransitionContext value={props.transitioned}>
         <div className={desktop ? 'desktop-item-shell' : undefined}>
           {desktop ? <div className="desktop-item-list">
             <div className="desktop-item-brand">Tendo</div>
-            <HomeScreen key={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
+            {/* The selected item owns screen-change focus; a refreshed list must never pull focus out of the pane. */}
+            <ScreenTransitionContext value={listTransition}>
+              <HomeScreen key={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
+            </ScreenTransitionContext>
           </div> : null}
           <ItemDetailScreen key={`${householdId}:${itemId}`} embedded={desktop} householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
         </div>
