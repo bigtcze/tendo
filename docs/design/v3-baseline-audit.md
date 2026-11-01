@@ -215,14 +215,14 @@ Journey counts and wall time are collected by scripted Playwright actions with t
 
 | Journey | Viewport | Steps | Interactions | Keystrokes | Wall ms | Obstacles |
 |---|---:|---:|---:|---:|---:|---|
-| J1 add one-off from Home | 390×844 + 1440×844 | 2 | 4 | 26 | 322 / 375 | none |
-| J2 fixed + after-completion recurrence | 390×844 | 3 | 15 | 49 | 800 | Repeat reveals cadence fields |
-| J3 find Needs attention by keyboard | 390×844 | 2 | 14 | 0 | 576 | 14 Tab stops to first row |
-| J4 mark done + undo | 390×844 + 1440×844 | 2 | 2 | 0 | 384 / 403 | none |
-| J5 search old done item | 390×844 + 1440×844 | 2 | 4 | 15 | 234 / 247 | none |
-| J6 edit/archive/restore | 390×844 | 2 | 5 | 30 | 459 | detail has no Done action |
-| J7 invite member and copy | 390×844 | 2 | 2 | 0 | 146 | one-time invite link |
-| J8 sign in | 390×844 | 2 | 3 | 43 | 339 | none |
-| J9 first-run setup | 390×844 | 2 | 6 | 102 | 163 | setup code required |
+| J1 add one-off from Home | 390×844 + 1440×844 | 2 | 4 | 26 | 381 / 319 | none |
+| J2 fixed + after-completion recurrence | 390×844 | 3 | 15 | 49 | 698 | Repeat reveals cadence fields |
+| J3 find Needs attention by keyboard | 390×844 | 2 | 14 | 0 | 507 | 14 Tab stops to first row |
+| J4 mark done + undo | 390×844 + 1440×844 | 2 | 2 | 0 | 425 / 364 | none |
+| J5 search old done item | 390×844 + 1440×844 | 2 | 4 | 15 | 215 / 214 | none |
+| J6 edit/archive/restore | 390×844 | 2 | 5 | 30 | 463 | detail has no Done action |
+| J7 invite member and copy | 390×844 | 2 | 2 | 0 | 186 | one-time invite link |
+| J8 sign in | 390×844 | 2 | 3 | 43 | 345 | none |
+| J9 first-run setup | 390×844 | 2 | 6 | 102 | 160 | setup code required |
 
 The capture run completed with all 12 journey records in `metrics.json`; counts and timings above are from that file. J1/J4/J5 include 390×844 and 1440×844 measurements (wall ms listed in that order).
