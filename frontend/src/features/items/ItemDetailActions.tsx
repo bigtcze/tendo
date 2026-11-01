@@ -12,12 +12,12 @@ type Props = {
 function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
   const startable = item.workflowState === 'open' || item.workflowState === 'waiting';
   const start = startable
-    ? <Button type="button" disabled={busy} onClick={() => onWorkflow('in_progress')}>
+    ? <Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('in_progress')}>
       {t(item.workflowState === 'waiting' ? 'itemDetail.resumeWork' : 'itemDetail.start')}
     </Button>
     : null;
   if (item.workflowState === 'paused') {
-    return <>{start}<Button type="button" disabled={busy} onClick={() => onWorkflow('open')}>{t('itemDetail.resume')}</Button></>;
+    return <>{start}<Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('open')}>{t('itemDetail.resume')}</Button></>;
   }
   return <>
     {start}

@@ -68,7 +68,7 @@ test('capture Direction B with real synthetic households', async ({ page, browse
   const main = page.getByRole('main');
   const rowsVisible = async (p: Page = page) => expect(p.locator('main li[data-item-id]').first()).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/'); await rowsVisible();
-  for (const width of [360, 390, 768, 1024, 1440]) await capture(page, `home-populated-${width}-en.png`, width);
+  for (const width of [360, 390, 768, 1024, 1280, 1440]) await capture(page, `home-populated-${width}-en.png`, width);
   await capture(page, 'home-populated-1440-en-full.png', 1440, true);
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
@@ -94,14 +94,19 @@ test('capture Direction B with real synthetic households', async ({ page, browse
     await openAdd(width);
     await capture(page, `add-oneoff-${width}-en.png`, width);
     await page.getByRole('switch', { name: en['items.repeat'] }).check();
+    // Fixed schedule is the Repeat default; keep its explanation in the captured viewport.
+    await page.getByText(en['items.fluid.example.off'], { exact: true }).scrollIntoViewIfNeeded();
+    await capture(page, `add-repeat-fixed-${width}-en.png`, width);
     await page.getByRole('switch', { name: en['items.fluid'] }).check();
-    await expect(page.getByText(en['items.fluid.example.on'], { exact: true })).toBeVisible();
+    await page.getByText(en['items.fluid.example.on'], { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByText(en['items.fluid.example.on'], { exact: true })).toBeInViewport();
     await capture(page, `add-repeat-${width}-en.png`, width);
     await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
   }
   await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await page.reload(); await rowsVisible();
   await main.getByRole('button', { name: cs['items.add'], exact: true }).click();
   await page.getByRole('switch', { name: cs['items.repeat'] }).check(); await page.getByRole('switch', { name: cs['items.fluid'] }).check();
+  await page.getByText(cs['items.fluid.example.on'], { exact: true }).scrollIntoViewIfNeeded();
   await capture(page, 'add-repeat-390-cs.png', 390);
   await page.getByRole('button', { name: cs['items.cancel'], exact: true }).click();
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en')); await page.reload();
