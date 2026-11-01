@@ -21,7 +21,7 @@
     "oidcProviderBuild": "golang:1.27.3",
     "nodeBuild": "node:26.13.0-bookworm-slim",
     "runtime": "gcr.io/distroless/base-debian13:nonroot@sha256:9039a88709bcc2bacf5a2faac331d65dd6840f763f225ad9594cc0c67bcd0fba",
-    "oidcProviderRuntime": "gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99",
+    "oidcProviderRuntime": "gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329",
     "postgres": "postgres:18.6-bookworm",
     "caddy": "caddy:2.11.7-alpine",
     "nginx": "nginx:1.30.6-alpine",
