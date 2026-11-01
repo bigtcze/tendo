@@ -33,8 +33,8 @@ No direction B screenshots have been captured yet. The required production-build
 - `npm run lint`: passed.
 - `npm run typecheck`: passed.
 - `npm run build`: passed.
-- Vitest full suite: not green on prototype iteration. Most recent focused result: ItemsScreen + ItemDetailScreen, 172 passed and 13 failed. Failures include changed subject-row container structure used in label tests, list-item counts affected by new subject headings, and existing expectation of recurrence copy (“Keeps the planned dates…”); assertions were not weakened. Full frontend suite earlier had 770 passed / 15 failed. Fix and rerun before treating this prototype as deliverable.
-- Required default PostgreSQL E2E: not run yet.
+- Vitest full suite: 784 passed / 1 failed (33 files passed, 1 failed). The remaining failure is `src/features/items/ItemsScreen.test.tsx > Home items > groups by server states and formats date-only values without timezone shifting`; it queries rows using the former `ul.divide-y > li` selector, while this prototype removes that card-list styling. Assertions were not weakened. A prior focused run during iteration had 172 passed / 13 failed; the latest full run supersedes it.
+- Required default PostgreSQL E2E: 30 passed, 1 failed, 20 did not run. Failure: `e2e/journey.spec.ts` n13, “home batch-loads labels only for rendered subjects, including archived references”; the expected archived subject name was not visible in Home. Treat as a prototype regression to investigate.
 
 ## Test status (continued)
 
