@@ -15,7 +15,7 @@ export function HouseholdNavigation() {
     { route: 'home', href: '/', label: t('nav.home'), action: navigation.actions.home },
     ...(navigation.household ? [
       { route: 'allItems' as const, href: '/items', label: t('nav.allItems'), accessibleName: t('home.allItems'), action: navigation.actions.allItems },
-      { route: 'people' as const, href: '/people', label: t('nav.peopleShort'), accessibleName: t('nav.people'), action: navigation.actions.people },
+      { route: 'people' as const, href: '/people', label: t('nav.people'), action: navigation.actions.people },
       { route: 'members' as const, href: '/members', label: t('nav.members'), accessibleName: t('home.members'), action: navigation.actions.members, secondary: true },
     ] : []),
     { route: 'account', href: '/account', label: t('nav.account'), accessibleName: t('home.account'), action: navigation.actions.account, secondary: true },
