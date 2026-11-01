@@ -14,6 +14,7 @@ import { ItemDetailReadView } from './ItemDetailReadView';
 import { ItemEditSection } from './ItemEditSection';
 import { useItemDetail } from './useItemDetail';
 import { useItemDetailActions } from './useItemDetailActions';
+import { useDetailCompletion } from './useDetailCompletion';
 import { useItemDetailBusy } from './useItemDetailBusy';
 import { useItemDetailEdit } from './useItemDetailEdit';
 import { useItemDetailHistory } from './useItemDetailHistory';
@@ -49,9 +50,10 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const returnEditFocusRef = useRef(false);
   const edit = useItemDetailEdit({ householdId, itemId, onSignedOut, t, detail, busy, loads, returnEditFocusRef });
   const actions = useItemDetailActions({ householdId, itemId, onSignedOut, detail, busy, loads });
+  const { state, item, notice, editing, editLoading, focusAfterMutationRef } = detail;
+  const completion = useDetailCompletion(householdId, itemId, item?.title ?? '', t, onSignedOut, () => { void detail.retry(); });
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
-  const { state, item, notice, editing, editLoading, focusAfterMutationRef } = detail;
 
   // Declaration order matters: a mutation notice, then the save notice, then the return to Edit.
   useEffect(() => {
@@ -62,7 +64,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
     if (!editing && !editLoading && !busy.busy && returnEditFocusRef.current) { editButtonRef.current?.focus(); returnEditFocusRef.current = false; }
   }, [editing, editLoading, busy.busy]);
 
-  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
+  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle item-detail" data-item-detail>
     <BackToAllItems onBack={onBack} t={t} />
     <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} />
     {state === 'ready' && item ? <>
@@ -76,8 +78,11 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
           onSubmit={edit.saveEdit} onCancel={edit.cancelEdit} />
         : <>
           <ItemDetailReadView item={item} t={t} locale={locale} />
-          <ItemDetailActions item={item} busy={busy.busy} editLoading={editLoading} editRef={editButtonRef} t={t}
-            onEdit={() => void edit.beginEdit()} onWorkflow={actions.setWorkflow} onArchive={actions.archive} onRestore={actions.restore} />
+          <div className="item-detail-actions">
+            <ItemDetailActions item={item} busy={busy.busy || completion.busy} editLoading={editLoading} editRef={editButtonRef} t={t}
+              onEdit={() => void edit.beginEdit()} onWorkflow={actions.setWorkflow} onArchive={actions.archive} onRestore={actions.restore}
+              onDone={() => void completion.onDone()} onUndo={() => void completion.onUndo()} completionNotice={completion.notice} />
+          </div>
           <ItemDetailHistory history={history} sectionRef={historySectionRef} headingRef={historyHeadingRef} t={t} locale={locale} />
         </>}
     </> : null}

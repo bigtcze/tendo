@@ -39,7 +39,7 @@ export function ItemForm(props: ItemFormProps) {
   const pendingOrLocked = state.pending || locked;
   return <form
     aria-label={t(mode === 'edit' ? 'itemDetail.edit.formLabel' : 'items.add.formLabel')} noValidate onSubmit={state.submit}
-    className="space-y-5 rounded-2xl border border-line bg-white/70 p-4 sm:p-6"
+    className={`item-form item-form-${mode} space-y-5 rounded-2xl border border-line bg-white/70 p-4 sm:p-6`}
   >
     <ItemFormFields
       id={id} errorId={errorId} state={state} mode={mode} subjects={subjects} members={members}

@@ -1,5 +1,6 @@
 import type { Ref } from 'react';
 import { Button } from '../../components/ui/button';
+import { DetailCompletionActions } from './DetailCompletionActions';
 import type { Translate } from '../../i18n';
 import type { Item } from './itemsApi';
 import type { WorkflowState } from './useItemDetailActions';
@@ -7,6 +8,7 @@ import type { WorkflowState } from './useItemDetailActions';
 type Props = {
   item: Item; busy: boolean; editLoading: boolean; editRef: Ref<HTMLButtonElement>; t: Translate;
   onEdit: () => void; onWorkflow: (state: WorkflowState) => void; onArchive: () => void; onRestore: () => void;
+  onDone: () => void; onUndo: () => void; completionNotice: string | null;
 };
 
 function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
@@ -28,16 +30,20 @@ function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
 
 /** Read-mode actions: Edit and workflow while the item is live, then archive or restore. */
 export function ItemDetailActions(props: Props) {
-  const { item, busy, editLoading, editRef, t, onEdit, onArchive, onRestore } = props;
+  const { item, busy, editLoading, editRef, t, onEdit, onArchive, onRestore, onDone, onUndo, completionNotice } = props;
   const live = !item.done && !item.archived;
   return <>
+    <DetailCompletionActions className="item-detail-actions" done={item.done} busy={busy} notice={completionNotice} completion={Boolean(completionNotice)} t={t} onDone={onDone} onUndo={onUndo} />
     {live ? <>
       {editLoading ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.edit.loading')}</p> : null}
-      <Button ref={editRef} type="button" variant="quiet" className="mt-5" disabled={busy || editLoading} onClick={onEdit}>
+      <Button ref={editRef} type="button" variant="quiet" className="mt-0" disabled={busy || editLoading} onClick={onEdit}>
         {t('itemDetail.edit.button')}
       </Button>
     </> : null}
-    {live ? <div className="mt-5 flex flex-wrap gap-2"><WorkflowButtons {...props} /></div> : null}
+    {live ? <details className="item-secondary-actions mt-4">
+      <summary className="inline-flex min-h-11 cursor-pointer items-center px-3 text-muted underline decoration-line underline-offset-4">{t('itemDetail.otherActions')}</summary>
+      <div className="mt-3 flex flex-wrap gap-2"><WorkflowButtons {...props} /></div>
+    </details> : null}
     {!item.archived
       ? <div className="mt-5 border-t border-line pt-4">
         <Button type="button" variant="quiet" disabled={busy} onClick={onArchive}>{t('subjects.archive')}</Button>

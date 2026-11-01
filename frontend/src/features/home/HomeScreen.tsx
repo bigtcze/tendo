@@ -27,7 +27,7 @@ export function HomeScreen({
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: import('../items/itemsApi').ItemGroup) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const householdId = session.defaultHouseholdId;
   const [household, setHousehold] = useState<HouseholdState>(
     householdId ? { kind: 'loading' } : { kind: 'none' },
@@ -78,9 +78,10 @@ export function HomeScreen({
       ) : null}
       {household.kind === 'ready' ? (
         <section className="settle">
-          <Heading className="font-display text-display leading-tight">{household.name}</Heading>
-          <div className="mt-5">
-            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} />
+          <div className="home-heading"><p className="text-base font-medium text-accent">{new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}</p><Heading className="mt-1 font-display text-display leading-tight">{household.name}</Heading></div>
+          <p className="home-today-label text-base font-medium text-accent">{t('items.group.needs')}</p>
+          <div className="mt-3">
+            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} locale={locale} />
           </div>
         </section>
       ) : null}

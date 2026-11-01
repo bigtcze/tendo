@@ -25,7 +25,7 @@ export function AccountActions({ login, onSignedOut }: { login: string; onSigned
 
   return (
     <div className="flex max-w-full flex-col items-end">
-      <div className="flex items-center gap-1 text-sm text-muted">
+      <div className="account-action-row flex items-center gap-1 text-sm text-muted">
         <span className="max-w-[10rem] truncate sm:max-w-xs">{t('header.signedInAs', { login })}</span>
         <Button type="button" variant="quiet" size="small" onClick={signOut} disabled={signingOut}>
           {signingOut ? t('header.signingOut') : t('header.signOut')}

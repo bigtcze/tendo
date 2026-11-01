@@ -47,7 +47,7 @@ function HistoryBody({ history, t, locale }: { history: ItemDetailHistoryState; 
 export function ItemDetailHistory({ history, sectionRef, headingRef, t, locale }: {
   history: ItemDetailHistoryState; sectionRef: Ref<HTMLElement>; headingRef: Ref<HTMLHeadingElement>; t: Translate; locale: string;
 }) {
-  return <section ref={sectionRef} className="mt-8 border-t border-line pt-6">
+  return <section ref={sectionRef} className="item-history mt-8 border-t border-line pt-6">
     <h2 ref={headingRef} tabIndex={-1} className="font-display text-2xl outline-none">{t('itemDetail.history')}</h2>
     <HistoryBody history={history} t={t} locale={locale} />
   </section>;

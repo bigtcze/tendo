@@ -27,6 +27,7 @@ type ItemsScreenProps = {
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: ItemGroup) => void;
   onSignedOut: () => void;
+  locale?: string;
 };
 
 /** Wires home data, subject labels, add-item and completion flows for the household home. */
@@ -91,7 +92,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
-  return <div className="space-y-6">
+  return <div className="home-content space-y-6">
     <ItemsNoticeArea
       noticeRef={noticeRef}
       createNotice={createNotice}

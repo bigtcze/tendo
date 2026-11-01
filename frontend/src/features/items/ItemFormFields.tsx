@@ -66,12 +66,15 @@ function DateField({ id, errorId, state, disabled }: FieldProps) {
 }
 
 function Switch({ checked, disabled, onChange, label }: { checked: boolean; disabled: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <label className="flex min-h-11 items-center gap-3">
-    <input
-      disabled={disabled} type="checkbox" role="switch" checked={checked}
-      onChange={(event) => onChange(event.target.checked)} className="size-6 accent-accent"
-    />
-    {label}
+  return <label className="switch-row flex min-h-12 items-center justify-between gap-4">
+    <span className="text-base font-medium">{label}</span>
+    <span className="switch-control">
+      <input
+        disabled={disabled} type="checkbox" role="switch" checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span aria-hidden="true" />
+    </span>
   </label>;
 }
 
@@ -110,7 +113,7 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
   return <div className="space-y-4 rounded-xl bg-sand/70 p-4">
     <IntervalFieldset {...props} />
     <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })} label={t('items.fluid')} />
-    <p className="text-sm text-muted">{t(state.draft.fluid ? 'items.fluid.on' : 'items.fluid.off')}</p>
+    <p className="text-base text-muted"><span>{t(state.draft.fluid ? 'items.fluid.on' : 'items.fluid.off')}</span><span className="example-copy"> {t(state.draft.fluid ? 'items.fluid.exampleOn' : 'items.fluid.exampleOff')}</span></p>
     {withHistory ? <HistoricalCompletion {...props} /> : null}
   </div>;
 }
