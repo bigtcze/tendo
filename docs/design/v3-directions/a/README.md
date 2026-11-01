@@ -15,23 +15,26 @@ A direct, low-noise daily list that gets wider as the screen allows. The item it
 ## Type and color
 - Body: existing system-rounded sans stack at 16px; row title 18px; section headings 24px; display heading 36px; bottom-nav labels 13px. Existing serif is reserved for brand and large headings.
 - Paper `#faf7f2` page; sand `#efe9df` selected/quiet surfaces; ink `#25302b` main text; muted `#5b655f` supporting text; line `#d8d0c3` dividers; accent `#2f6b57` primary action/date; strong accent `#234f41` existing deeper action token.
-- WCAG contrast, calculated from sRGB relative luminance: ink on paper 12.6:1; muted on paper 5.6:1; white on accent 6.0:1; accent on paper 5.6:1. Each exceeds 4.5:1 for normal text. No new font, icon or UI package added.
+- WCAG contrast, calculated from sRGB relative luminance of these hex values: ink on paper 12.79:1; muted on paper 5.66:1; white on accent 6.25:1; white on strong accent 9.27:1; accent on paper 5.85:1. These token pairs pass 4.5:1; not every rendered pair (for example muted text on sand) was measured. No new font, icon or UI package added.
 
 ## Density, interaction and household fit
 - In the populated 390×844 capture, six row starts are visible; on 1440×844, eight are visible. These are screenshot observations, not user-study measurements.
 - Create uses the existing API-backed form and one-off default. Phone uses a full-screen sheet; desktop/tablet uses a centered dialog. Escape and Cancel close it, keyboard Tab is trapped inside, and focus returns to Add. Repeat is a real switch with a 54×32 track inside a larger touch row. Fixed vs after-completion explanatory copy gives a short household example in English and Czech. Edit reuses the same form.
-- Home uses the existing idempotent completion/Undo flow. Detail completion calls the existing `completeItem` and `undoCompletion` APIs, with ETag reads, result messaging and reload. Workflow, edit and archive stay secondary. Detail facts and history are distinct.
+- Home uses the existing idempotent completion/Undo flow. Detail completion calls the existing `completeItem` and `undoCompletion` APIs, with ETag reads, result messaging and reload. Done is the only filled detail action; Start/Resume is outlined and Waiting, Pause, Edit and Archive are quiet. Detail facts and history are distinct.
+- In the desktop split view the selected item owns the page's single h1, document title and screen-change focus; the list beside it uses an h2 and refreshes in place after any change made in the pane (done/undo, edit, workflow, archive).
 - The title, household object and a clear done affordance aim to make a routine check understandable without project-management terminology.
 
 ## Visual review / known weaknesses
 Orchestrator review of the final production-build captures (2026-11-01):
-- Desktop with the persistent detail pane (`home-selected-pane-1440-en.png`, `detail-*-1440-*.png`): the left column narrows and the primary navigation wraps to a second line (Members drops below, and the phone-only More entry shows). The rail layout seen on Home at 1440 does not carry over to the split view.
+- Desktop with the persistent detail pane (`home-selected-pane-1440-en.png`, `detail-*-1440-*.png`): the left column narrows and the primary navigation wraps to a second line (Members drops below, and the phone-only More entry shows). The rail layout seen on Home at 1440 does not carry over to the split view. The nav highlights All items while the list shown is Home, because the route is `/items/:id`.
 - Desktop Home (`home-populated-1440-en.png`): Add item is pushed to the far right edge, away from the list it belongs to; the list keeps a ~500px measure, leaving a wide empty right half when no item is selected.
 - Rows: the title and subject sit on separate lines with a large gap, so rows read as loose pairs rather than one item; repeat glyphs are small and low-contrast.
 - Phone (`home-populated-390-en.png`): attention chips wrap their counts onto a second line; the bottom bar wraps "People & things" onto two lines.
 - Detail: the facts card repeats state ("Done", "For: Dům") as unlabelled lines; Archive sits directly under the completion notice with little separation.
 - The add sheet traps focus with Escape/backdrop/Cancel close paths; screen-reader announcement is not separately audited.
 - More (phone) opens a visible Members/Account menu (`navigation-more-390-en.png`); not tested with real users.
+- Repeat interval unit initially reads "years" (existing form default), which may surprise households adding a monthly task.
+- Capture coverage gaps: no 360px or 1280px captures of Add, Edit or Detail; no phone All items capture; Czech captures cover Home, Repeat and Detail only (no Czech one-off Add, Edit, Done/Undo or open More menu).
 - Only focused screens carry this direction. Dark theme, other routes/states, very large backlogs, zoom and human testing are not proven. No human household participants were involved.
 
 These are inputs for the V3-05 comparison; they are not fixed in the prototype.
@@ -39,9 +42,9 @@ These are inputs for the V3-05 comparison; they are not fixed in the prototype.
 ## Test status
 Branch head and results are recorded on Issue #324 and the docs PR.
 - `npm run lint`, `npm run typecheck`, `npm run build`: pass.
-- Vitest full suite: 786/786 pass.
-- Direction capture (opt-in `TENDO_DIRECTION_CAPTURE=1` with `TENDO_UX_AUDIT_DIR`): pass; all 25 screenshots in this folder come from that run. Done/Undo captures wait for the Undo round-trip so each starts from an open item.
-- Required default PostgreSQL E2E: see Issue #324 for the latest result on the branch head.
+- Vitest full suite: 787/787 pass.
+- Required default PostgreSQL E2E (`scripts/e2e-smoke.sh`): pass on the branch head (50/50 journeys). Default E2E selection is unchanged; the capture spec is opt-in only.
+- Direction capture (opt-in `TENDO_DIRECTION_CAPTURE=1` with `TENDO_UX_AUDIT_DIR`): pass; all 28 screenshots in this folder come from that run, using the production build, real PostgreSQL and authenticated synthetic households. Done/Undo captures wait for the Undo round-trip so each starts from an open item.
 
 ## Screenshot index
 All links are relative to this README. Captures are production-build screenshots from the opt-in authenticated synthetic-household run.
@@ -55,13 +58,15 @@ All links are relative to this README. Captures are production-build screenshots
 | [home-populated-390-cs.png](home-populated-390-cs.png) | Populated Home | 390 | cs |
 | [home-populated-768-en.png](home-populated-768-en.png) | Populated Home | 768 | en |
 | [home-populated-1024-en.png](home-populated-1024-en.png) | Populated Home | 1024 | en |
+| [home-populated-1280-en.png](home-populated-1280-en.png) | Populated Home | 1280 | en |
 | [home-populated-1440-en.png](home-populated-1440-en.png) | Populated Home | 1440 | en |
 | [home-selected-pane-1440-en.png](home-selected-pane-1440-en.png) | Home with selected item open in persistent pane | 1440 | en |
 | [home-populated-1440-cs.png](home-populated-1440-cs.png) | Populated Home | 1440 | cs |
 | [navigation-more-390-en.png](navigation-more-390-en.png) | More menu open | 390 | en |
 | [all-items-1440-en.png](all-items-1440-en.png) | All items | 1440 | en |
 | [add-oneoff-390-en.png](add-oneoff-390-en.png), [add-oneoff-1440-en.png](add-oneoff-1440-en.png) | One-off add | 390/1440 | en |
-| [add-repeat-390-en.png](add-repeat-390-en.png), [add-repeat-1440-en.png](add-repeat-1440-en.png), [add-repeat-390-cs.png](add-repeat-390-cs.png) | Repeat on | 390/1440 | en; 390 cs |
+| [add-repeat-fixed-390-en.png](add-repeat-fixed-390-en.png), [add-repeat-fixed-1440-en.png](add-repeat-fixed-1440-en.png) | Repeat on, fixed schedule explanation | 390/1440 | en |
+| [add-repeat-390-en.png](add-repeat-390-en.png), [add-repeat-1440-en.png](add-repeat-1440-en.png), [add-repeat-390-cs.png](add-repeat-390-cs.png) | Repeat on, after-completion explanation | 390/1440 | en; 390 cs |
 | [edit-390-en.png](edit-390-en.png), [edit-1440-en.png](edit-1440-en.png) | Edit | 390/1440 | en |
 | [detail-390-en.png](detail-390-en.png), [detail-1440-en.png](detail-1440-en.png), [detail-390-cs.png](detail-390-cs.png), [detail-1440-cs.png](detail-1440-cs.png) | Detail/history | 390/1440 | en/cs |
 | [detail-done-undo-390-en.png](detail-done-undo-390-en.png), [detail-done-undo-1440-en.png](detail-done-undo-1440-en.png) | Detail after Done with Undo | 390/1440 | en |
