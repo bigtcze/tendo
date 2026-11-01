@@ -67,7 +67,7 @@ test('capture Direction A with real synthetic households', async ({ page, browse
     }
   }
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/'); await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
-  for (const width of [360, 390, 768, 1024, 1440]) await capture(page, `home-populated-${width}-en.png`, width);
+  for (const width of [360, 390, 768, 1024, 1280, 1440]) await capture(page, `home-populated-${width}-en.png`, width);
   await page.setViewportSize({ width: 1440, height: 844 }); await page.goto(`/items/${items[2]!.id}`); await expect(page.getByRole('heading', { level: 1, name: items[2]!.title })).toBeVisible(); await expect(page.locator('.desktop-item-shell main li[data-item-id]').first()).toBeVisible(); await capture(page, 'home-selected-pane-1440-en.png', 1440); await page.goBack(); await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
@@ -95,18 +95,30 @@ test('capture Direction A with real synthetic households', async ({ page, browse
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/');
   await page.getByRole('button', { name: en['items.add'], exact: true }).click();
   await page.getByRole('switch', { name: en['items.repeat'] }).check();
+  // Fixed schedule is the Repeat default; keep its explanation in the captured viewport.
+  await page.getByText(en['items.fluid.off'], { exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText(en['items.fluid.off'], { exact: true })).toBeInViewport();
+  await capture(page, 'add-repeat-fixed-390-en.png', 390);
   await page.getByRole('switch', { name: en['items.fluid'] }).check();
-  await expect(page.getByText(en['items.fluid.on'], { exact: true })).toBeVisible();
+  await page.getByText(en['items.fluid.on'], { exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText(en['items.fluid.on'], { exact: true })).toBeInViewport();
   await capture(page, 'add-repeat-390-en.png', 390);
   await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 844 }); await page.goto('/');
   await page.getByRole('button', { name: en['items.add'], exact: true }).click();
-  await page.getByRole('switch', { name: en['items.repeat'] }).check(); await page.getByRole('switch', { name: en['items.fluid'] }).check();
+  await page.getByRole('switch', { name: en['items.repeat'] }).check();
+  await page.getByText(en['items.fluid.off'], { exact: true }).scrollIntoViewIfNeeded();
+  await capture(page, 'add-repeat-fixed-1440-en.png', 1440);
+  await page.getByRole('switch', { name: en['items.fluid'] }).check();
+  await page.getByText(en['items.fluid.on'], { exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText(en['items.fluid.on'], { exact: true })).toBeInViewport();
   await capture(page, 'add-repeat-1440-en.png', 1440);
   await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await page.reload();
   await page.getByRole('button', { name: cs['items.add'], exact: true }).click();
   await page.getByRole('switch', { name: cs['items.repeat'] }).check(); await page.getByRole('switch', { name: cs['items.fluid'] }).check();
+  await page.getByText(cs['items.fluid.on'], { exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText(cs['items.fluid.on'], { exact: true })).toBeInViewport();
   await capture(page, 'add-repeat-390-cs.png', 390);
   await page.getByRole('button', { name: cs['items.cancel'], exact: true }).click();
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en')); await page.reload();
