@@ -25,10 +25,15 @@ type Props = { householdId: string; itemId: string; login: string; onBack: () =>
 const BACK_LINK_CLASS = '-ml-3 inline-flex min-h-11 max-w-full whitespace-normal break-words text-left items-center rounded-xl px-3 text-muted '
   + 'hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
-/** Detail opened from All items keeps an exact "Back to all items" link to the filtered page it came from. */
+function openedFromAllItems() {
+  const returnTo = window.history.state?.returnTo;
+  return typeof returnTo === 'string' && returnTo.startsWith('/items');
+}
+
+/** Detail opened from All items keeps an exact "Back to all items" link to the filtered page it came from, also in the desktop pane. */
 function BackToAllItems({ onBack, t }: { onBack: () => void; t: Translate }) {
   const returnTo = window.history.state?.returnTo;
-  if (typeof returnTo !== 'string' || !returnTo.startsWith('/items')) return null;
+  if (!openedFromAllItems()) return null;
   return <NavLink href={returnTo} onNavigate={onBack} className={BACK_LINK_CLASS}>{t('itemDetail.backAllItems')}</NavLink>;
 }
 
@@ -89,7 +94,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
 
   return <Layout embedded={embedded} actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle item-detail" data-item-detail>
     {embedded ? <h2 className="item-pane-heading font-display text-2xl">{t('itemDetail.selectedItem')}</h2> : null}
-    {embedded ? <button type="button" className="item-pane-close" aria-label={t('itemDetail.closePane')} onClick={onBack}>× <span>{t('itemDetail.closePane')}</span></button> : <BackToAllItems onBack={onBack} t={t} />}
+    {embedded && !openedFromAllItems() ? <button type="button" className="item-pane-close" aria-label={t('itemDetail.closePane')} onClick={onBack}>× <span>{t('itemDetail.closePane')}</span></button> : <BackToAllItems onBack={onBack} t={t} />}
     <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} />
     {state === 'ready' && item ? <>
       <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>
