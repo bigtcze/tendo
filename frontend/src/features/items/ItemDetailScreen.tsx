@@ -1,4 +1,3 @@
-import { createPortal } from 'react-dom';
 import { useEffect, useRef } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
@@ -43,14 +42,14 @@ function DetailEditDialog({ editing, subjects, members, busy, locale, t, onSubmi
   busy: boolean; locale: string; t: Translate;
   onSubmit: Parameters<typeof ItemEditSection>[0]['onSubmit']; onCancel: () => void;
 }) {
-  return createPortal(<div className="item-detail-edit-modal" role="dialog" aria-modal="true" aria-label={t('itemDetail.edit.formLabel')} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }} onKeyDown={(event) => {
+  return <div className="item-detail-edit-modal" role="dialog" aria-modal="true" aria-label={t('itemDetail.edit.formLabel')} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }} onKeyDown={(event) => {
     if (event.key === 'Escape') { event.preventDefault(); onCancel(); return; }
     if (event.key !== 'Tab') return;
     const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')];
     const index = controls.indexOf(document.activeElement as HTMLElement);
     if (event.shiftKey && index <= 0) { event.preventDefault(); controls.at(-1)?.focus(); }
     else if (!event.shiftKey && index === controls.length - 1) { event.preventDefault(); controls[0]?.focus(); }
-  }}><div className="item-detail-edit-dialog"><ItemEditSection editing={editing} subjects={subjects} members={members} busy={busy} locale={locale} t={t} onSubmit={onSubmit} onCancel={onCancel} /></div></div>, document.body);
+  }}><div className="item-detail-edit-dialog"><ItemEditSection editing={editing} subjects={subjects} members={members} busy={busy} locale={locale} t={t} onSubmit={onSubmit} onCancel={onCancel} /></div></div>;
 }
 
 function responsibleLine(item: Item, members: Member[], t: Translate) {

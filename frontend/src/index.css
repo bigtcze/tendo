@@ -131,8 +131,9 @@ body {
   }
 }
 
+/* backwards, not both: a forwards fill would keep a stacking context on every screen and trap fixed dialogs under the fixed phone nav. */
 .settle {
-  animation: settle 400ms ease-out both;
+  animation: settle 400ms ease-out backwards;
 }
 
 .home-content { position: relative; }
