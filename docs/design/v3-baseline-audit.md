@@ -2,7 +2,7 @@
 
 status=V3-02_baseline_evidence_complete
 source_commit=9fe718e (main after v2.1.0 + V3 Issues migration; no UI change since v2.1.0)
-evidence=opt-in production-build capture `TENDO_UX_AUDIT_DIR=/tmp/opencode/v3-02/ux-audit-review-final bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh`; real PostgreSQL 18, fixed business date 2026-05-14 Europe/Prague, Chromium with reduced motion; successful run on 2026-11-01, 273 PNG + `metrics.json`, all 12 journey records, zero horizontal overflow
+evidence=opt-in production-build capture `TENDO_UX_AUDIT_DIR=/tmp/opencode/v3-02/ux-audit bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh`; real PostgreSQL 18, fixed business date 2026-05-14 Europe/Prague, Chromium with reduced motion; successful run on 2026-11-01, 273 PNG + `metrics.json`, all 12 journey records, zero horizontal overflow
 dataset=public-API seeding only: owner + member, 15 people/things with Czech diacritics (some archived), stages 0/1/30/500/1200 items; final counts 883 open, 76 in progress, 57 waiting, 56 paused, 68 done, 60 archived (1072 active)
 limits=automated captures plus agent review only; no real household participants; no aesthetic approval is claimed
 capture_summary=273 PNG in working output; 98 curated PNG + `metrics.json` in docs/design/v3-baseline/ (17 MiB); 12 journey records including 390×844 and 1440×844 J1/J4/J5 variants
@@ -103,6 +103,7 @@ owning managed V3 Issue.
 | B25 | P2 | `/` · 390 · en · item summary 503 | The service-error view still displays the household heading and a full-width Add item action while the task list is unavailable. | A household member may mistake the partial screen for a usable empty home and start adding a duplicate instead of retrying. | [audit-home-server-error-en-390.png](v3-baseline/audit-home-server-error-en-390.png) | V3-08 |
 | B26 | P2 | `/members` · 390/1440 · en · non-owner | The non-owner screen shows the invite restriction as low-emphasis muted text separated below the members list, without saying who in the household can help. | A member who needs to invite someone has no clear next step or contact target. | [audit-members-non-owner-en-390.png](v3-baseline/audit-members-non-owner-en-390.png), [audit-members-non-owner-en-1440.png](v3-baseline/audit-members-non-owner-en-1440.png) | V3-12 |
 | B27 | P2 | `/` Home · 320/390 · en · keyboard | The first Home result link takes 14 Tab stops from page start, including skip link, shared navigation and overview links. | Keyboard users traverse substantial chrome before reaching the first task needing attention during a daily check-in. | [home-30-en-390-fold.png](v3-baseline/home-30-en-390-fold.png); `metrics.json` `tabStopsToFirstResult=14` | V3-07, V3-08 |
+| B28 | P3 | `/` add/edit form · all · en/cs · Repeat | The Repeat and "count from completion" switches are native checkboxes drawn at about 18×24 px beside their text; the 44 px label row is clickable, but the visible control is tiny and reads as a checkbox styled as a toggle. Home group overview links are 24 px tall text links. | Touch users aim at the visible control; tiny or text-sized targets look fiddly and inconsistent with the 44 px buttons. | [audit-add-form-en-390.png](v3-baseline/audit-add-form-en-390.png), [home-30-en-390-fold.png](v3-baseline/home-30-en-390-fold.png); `metrics.json` `targetOffenders` | V3-06, V3-10, V3-15 |
 
 Confirmed strengths to keep: calm warm palette and serif display identity; no overflow at 320–1440 px on any
 captured route (metrics `overflow=false` for all captured Home stages and route captures); 44 px targets on
@@ -182,15 +183,20 @@ The committed baseline is a curated set of authentic production-build browser ca
 
 Metric records are keyed by screenshot filename in `metrics.json`; values are measured at capture viewport. Overflow means document horizontal scroll exceeds the viewport.
 
-| Route/state group | Smallest font | Targets <44 px | Tab stops | DOM size | Overflow |
+| Route/state capture | Smallest font | Targets <44 px (of which <24 px) | Tab stops to first result | DOM size | Overflow |
 |---|---:|---:|---:|---:|---|
-| Home empty, en 320 | 14 px | 1 (1 below 24 px) | n/a (no result) | 44 | false |
-| Home populated 30, en 320 | 14 px | 6 (1 below 24 px) | 14 | 271 | false |
-| All items active, en 390 | 14 px | 2 (1 below 24 px) | 14 | 216 | false |
+| Home empty, en 320 fold | 14 px | 0 | n/a (no result) | 44 | false |
+| Home populated 30, en 320/390 fold | 14 px | 5 (0): group overview links, 24 px tall | 14 | 271 | false |
+| All items active, en 390 | 14 px | 0 | 14 | 216 | false |
+| Add form with Repeat on, en 390 | 14 px | 2 (1): Repeat switch input 18×24 px (its label row is 44 px) | n/a | 1128 | false |
 | Item detail, en 390 | 14 px | 0 | n/a | 66 | false |
-| People, en 390 | 14 px | 0 | n/a | 140 | false |
+| People and things, en 390 | 14 px | 0 | n/a | 140 | false |
 | Members, en 390 | 14 px | 0 | n/a | 73 | false |
 | Account, en 390 | 14 px | 0 | n/a | 42 | false |
+
+Tab stops are counted from a pointer click on an inert page corner (resets Chromium's sequential focus start), then
+Tab until the first result link is focused. Targets count each visible interactive element's own box; a control
+wrapped in a larger clickable label (the Repeat switch) is reported by its input box.
 
 All values are per-capture metrics from `metrics.json` (`routes` is keyed by PNG filename); the full matrix covers each capture width/locale/state.
 
@@ -202,14 +208,14 @@ Journey counts and wall time are collected by scripted Playwright actions with t
 
 | Journey | Viewport | Steps | Interactions | Keystrokes | Wall ms | Obstacles |
 |---|---:|---:|---:|---:|---:|---|
-| J1 add one-off from Home | 390×844 + 1440×844 | 2 | 4 | 26 | 435 / 404 | none |
-| J2 fixed + after-completion recurrence | 390×844 | 3 | 15 | 49 | 923 | Repeat reveals cadence fields |
-| J3 find Needs attention by keyboard | 390×844 | 2 | 14 | 0 | 603 | 14 Tab stops to first row |
-| J4 mark done + undo | 390×844 + 1440×844 | 2 | 2 | 0 | 415 / 459 | none |
-| J5 search old done item | 390×844 + 1440×844 | 2 | 4 | 15 | 293 / 259 | none |
-| J6 edit/archive/restore | 390×844 | 2 | 5 | 30 | 476 | detail has no Done action |
-| J7 invite member and copy | 390×844 | 2 | 2 | 0 | 180 | one-time invite link |
-| J8 sign in | 390×844 | 2 | 3 | 43 | 383 | none |
-| J9 first-run setup | 390×844 | 2 | 6 | 102 | 176 | setup code required |
+| J1 add one-off from Home | 390×844 + 1440×844 | 2 | 4 | 26 | 322 / 375 | none |
+| J2 fixed + after-completion recurrence | 390×844 | 3 | 15 | 49 | 800 | Repeat reveals cadence fields |
+| J3 find Needs attention by keyboard | 390×844 | 2 | 14 | 0 | 576 | 14 Tab stops to first row |
+| J4 mark done + undo | 390×844 + 1440×844 | 2 | 2 | 0 | 384 / 403 | none |
+| J5 search old done item | 390×844 + 1440×844 | 2 | 4 | 15 | 234 / 247 | none |
+| J6 edit/archive/restore | 390×844 | 2 | 5 | 30 | 459 | detail has no Done action |
+| J7 invite member and copy | 390×844 | 2 | 2 | 0 | 146 | one-time invite link |
+| J8 sign in | 390×844 | 2 | 3 | 43 | 339 | none |
+| J9 first-run setup | 390×844 | 2 | 6 | 102 | 163 | setup code required |
 
 The capture run completed with all 12 journey records in `metrics.json`; counts and timings above are from that file. J1/J4/J5 include 390×844 and 1440×844 measurements (wall ms listed in that order).

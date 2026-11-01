@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 export interface CaptureMetrics {
   smallestVisibleFontPx: number | null;
@@ -47,7 +47,11 @@ export async function measureCapture(page: Page, firstResultSelector?: string): 
   });
   let tabStopsToFirstResult: number | null = null;
   if (firstResultSelector) {
+    // blur() keeps Chromium's sequential focus starting point at the last focused element; clicking an inert
+    // top-left point of the page resets it so every capture counts Tab stops from the document start.
     await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); window.scrollTo(0, 0); });
+    expect(await page.evaluate(() => document.elementFromPoint(1, 1)?.closest('a,button,input,select,textarea,label,[tabindex]'))).toBeNull();
+    await page.mouse.click(1, 1);
     for (let stop = 1; stop <= 100; stop++) {
       await page.keyboard.press('Tab');
       if (await page.locator(firstResultSelector).evaluateAll((els) => els.some(element => element === document.activeElement))) {
