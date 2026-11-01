@@ -59,6 +59,8 @@ html {
   .desktop-item-list > .app-frame footer { display: none; }
   .desktop-item-shell > .app-frame.app-embedded { grid-column: 2; min-width: 0; border-left: 1px solid var(--color-line); padding: 18px clamp(24px, 3vw, 44px) 48px; }
   .desktop-item-shell > .app-frame.app-embedded .app-main { padding: 0; }
+  /* The tint bleeds 40px right of main; the pane's right padding (3vw) is narrower below ~1333px, so keep it inside the pane. */
+  .desktop-item-shell > .app-frame.app-embedded .app-main::after { right: 0; }
   .app-frame {
     display: grid;
     grid-template-columns: 190px minmax(420px, 1fr);
