@@ -7,7 +7,13 @@ import { formatDate } from './formatDate';
 import type { Item, ItemGroup } from './itemsApi';
 import { HOME_GROUP_ROW_CAP, groups, type GroupData } from './homeGroups';
 
-export function ItemRow({ item, group, subjectName, locale, userId, members, membersLoaded, busy, onDone, onOpenItem, rowRef }: {
+function getAttentionLine(item: Item, group: ItemGroup, locale: string, t: ReturnType<typeof useI18n>['t']) {
+  if (!item.attentionOn) return null;
+  const key = group === 'upcoming' ? 'items.attentionOn' : group === 'needs' ? 'items.needsSince' : 'items.rowAttentionDate';
+  return t(key, { date: formatDate(item.attentionOn, locale) });
+}
+
+export function ItemRow({ item, group, subjectName, locale, userId, members, membersLoaded, busy, onDone, onOpenItem, rowRef, subjectHeading }: {
   item: Item;
   group: ItemGroup;
   subjectName: string;
@@ -19,19 +25,11 @@ export function ItemRow({ item, group, subjectName, locale, userId, members, mem
   onDone: () => void;
   onOpenItem: (itemId: string) => void;
   rowRef?: (node: HTMLLIElement | null) => void;
+  subjectHeading?: string;
 }) {
   const { t } = useI18n();
   const responsible = item.responsibleUserId ? members.find((member) => member.userId === item.responsibleUserId) : undefined;
-  const attentionLine = item.attentionOn
-    ? t(
-        group === 'upcoming'
-          ? 'items.attentionOn'
-          : group === 'needs'
-            ? 'items.needsSince'
-            : 'items.rowAttentionDate',
-        { date: formatDate(item.attentionOn, locale) },
-      )
-    : null;
+  const attentionLine = getAttentionLine(item, group, locale, t);
   const historyLine = [
     item.lastCompletedOn
       ? t('itemDetail.lastDone', {
@@ -50,7 +48,8 @@ export function ItemRow({ item, group, subjectName, locale, userId, members, mem
     .filter(Boolean)
     .join(' · ');
   return (
-    <li ref={rowRef} data-item-id={item.id} className='flex flex-wrap items-center justify-between gap-3 p-4'>
+    <li ref={rowRef} data-item-id={item.id} className='home-item-row group flex flex-wrap items-center justify-between gap-3 border-b border-line py-3 last:border-0'>
+      {subjectHeading ? <h3 className="home-subject-heading mb-2 w-full font-display text-lg">{subjectHeading}</h3> : null}
       <div className='min-w-0 flex-1 basis-48'>
         <NavLink
           href={`/items/${encodeURIComponent(item.id)}`}
@@ -64,12 +63,12 @@ export function ItemRow({ item, group, subjectName, locale, userId, members, mem
           <span aria-hidden='true'>{item.title}</span>
           <span className='sr-only'>{t('itemDetail.open', { title: item.title })}</span>
         </NavLink>
-        <p className='mt-1 break-words text-sm text-muted'>
-          {subjectName}
-          {attentionLine ? ` · ${attentionLine}` : ''}
+        <p className='mt-1 break-words text-base text-muted'>
+          {group === 'needs' ? null : subjectName}
+          {attentionLine ? `${group === 'needs' ? '' : ' · '}${attentionLine}` : ''}
+          {historyLine ? ` · ${historyLine}` : ''}
         </p>
-        {historyLine ? <p className='mt-1 break-words text-sm text-muted'>{historyLine}</p> : null}
-        {item.recurrence ? <p className='mt-1 break-words text-sm text-muted'>{repeatSummary(t, item.recurrence, locale)}</p> : null}
+        {item.recurrence ? <p className='mt-1 hidden break-words text-sm text-muted group-hover:block group-focus-within:block'>{repeatSummary(t, item.recurrence, locale)}</p> : null}
       </div>
       <Button type='button' variant='secondary' data-action='done' aria-label={t('items.done.label', { title: item.title })} disabled={busy} onClick={onDone}>
         {t('items.done')}
@@ -92,11 +91,11 @@ export function HomeGroupSection({ group, summary, state, countLabel, children, 
   const { t } = useI18n();
   if (!state.items.length) return null;
   return (
-    <section id={`group-${group.id}`} className={group.quiet ? 'border-t border-line pt-5' : ''}>
+    <section id={`group-${group.id}`} className={`home-group-section ${group.quiet ? 'border-t border-line pt-5' : ''}`}>
       <h2 ref={headingRef} data-group-heading={group.id} tabIndex={-1} className={`font-display ${group.quiet ? 'text-xl text-muted' : 'text-2xl'}`}>
         {t(group.key)} <span className='text-base font-normal text-muted'>{countLabel}</span>
       </h2>
-      <ul className='mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70'>{children}</ul>
+      <ul className='mt-3'>{children}</ul>
       {state.cursor && state.items.length < HOME_GROUP_ROW_CAP ? (
         <Button ref={moreRef} type='button' data-group-more={group.id} aria-disabled={state.loadingMore} variant='quiet' onClick={onShowMore}>
           {state.loadingMore

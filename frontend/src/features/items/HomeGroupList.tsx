@@ -26,9 +26,12 @@ type HomeGroupListProps = {
 export function HomeGroupList(props: HomeGroupListProps) {
   const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, userId, members, membersLoaded, busy } = props;
   const { t, locale } = useI18n();
-  return <>{groups.map((group) => {
+  return <div className="home-groups-grid">{groups.map((group) => {
     const state = groupData[group.id];
-    return <HomeGroupSection
+    const items = group.id === 'needs'
+      ? [...state.items].sort((a, b) => subjectName(a.subjectId).localeCompare(subjectName(b.subjectId), locale))
+      : state.items;
+    return <div key={group.id} className={`home-group-slot home-group-${group.id}`}><HomeGroupSection
       key={group.id}
       group={group}
       summary={summary[group.count]}
@@ -41,19 +44,20 @@ export function HomeGroupList(props: HomeGroupListProps) {
       onShowMore={() => { if (!state.loadingMore) props.onShowMore(group.id); }}
       onOpenAll={() => props.onOpenAllItems(group.id)}
     >
-      {state.items.map((item) => <ItemRow
-        key={item.id}
-        item={item}
-        group={group.id}
-        subjectName={subjectName(item.subjectId)}
-        locale={locale}
-        userId={userId}
-        members={members}
-        membersLoaded={membersLoaded}
-        busy={busy}
-        onDone={() => props.onDone(item.id)}
-        onOpenItem={props.onOpenItem}
-      />)}
-    </HomeGroupSection>;
-  })}</>;
+      {items.map((item, index) => <ItemRow
+          key={item.id}
+        subjectHeading={group.id === 'needs' && (index === 0 || subjectName(items[index - 1]!.subjectId) !== subjectName(item.subjectId)) ? subjectName(item.subjectId) : undefined}
+          item={item}
+          group={group.id}
+          subjectName={subjectName(item.subjectId)}
+          locale={locale}
+          userId={userId}
+          members={members}
+          membersLoaded={membersLoaded}
+          busy={busy}
+          onDone={() => props.onDone(item.id)}
+          onOpenItem={props.onOpenItem}
+        />)}
+    </HomeGroupSection></div>;
+  })}</div>;
 }

@@ -27,7 +27,7 @@ export function HomeScreen({
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: import('../items/itemsApi').ItemGroup) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const householdId = session.defaultHouseholdId;
   const [household, setHousehold] = useState<HouseholdState>(
     householdId ? { kind: 'loading' } : { kind: 'none' },
@@ -78,7 +78,11 @@ export function HomeScreen({
       ) : null}
       {household.kind === 'ready' ? (
         <section className="settle">
-          <Heading className="font-display text-display leading-tight">{household.name}</Heading>
+          <div className="home-intro mb-8 flex flex-col justify-between gap-2 border-b border-line pb-6 sm:flex-row sm:items-end">
+            <div><p className="text-base text-muted">{new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</p>
+              <Heading className="mt-1 font-display text-display leading-tight">{household.name}</Heading></div>
+            <p className="font-display text-xl text-accent-strong">A little care makes a home.</p>
+          </div>
           <div className="mt-5">
             <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} />
           </div>

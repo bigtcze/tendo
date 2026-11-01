@@ -91,7 +91,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
-  return <div className="space-y-6">
+  return <div className="home-layout">
     <ItemsNoticeArea
       noticeRef={noticeRef}
       createNotice={createNotice}
@@ -120,13 +120,13 @@ export function ItemsScreen(props: ItemsScreenProps) {
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
     {emptyHome ? <EmptyHome /> : null}
-    {!loading && summary && !adding
-      ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
-      : null}
     {home.itemsRequestComplete && !adding
-      ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="w-full sm:w-auto">
+      ? <div className="quick-add-area"><label htmlFor="quick-add-trigger" className="mb-2 block font-display text-xl">Add something to remember</label><Button ref={addRef} id="quick-add-trigger" data-action="completion-trigger" type="button" aria-label={t('items.add')} onClick={add.openAddForm} className="w-full justify-start bg-white/70 text-left font-normal text-muted sm:max-w-xl">
         {t('items.add')}
-      </Button>
+      </Button></div>
+      : null}
+    {!loading && summary && !adding
+      ? <div className="home-overview-nav"><HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} /></div>
       : null}
     <AddItemPanel
       adding={adding}

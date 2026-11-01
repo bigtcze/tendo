@@ -1,5 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { completeItem, getItem, undoCompletion, type Completion } from './itemsApi';
+import { idempotencyKey } from '../../lib/idempotencyKey';
 import { AccountActions } from '../../app/AccountActions';
+import { Button } from '../../components/ui/button';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { NavLink } from '../../app/NavLink';
@@ -46,12 +49,40 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   });
   const detail = useItemDetail({ householdId, itemId, onSignedOut, loads, history });
   const busy = useItemDetailBusy();
+  const [completion, setCompletion] = useState<Completion | null>(null);
+  const [completionKey, setCompletionKey] = useState<string | null>(null);
+  const [completionBusy, setCompletionBusy] = useState(false);
+  const [completionError, setCompletionError] = useState(false);
   const returnEditFocusRef = useRef(false);
   const edit = useItemDetailEdit({ householdId, itemId, onSignedOut, t, detail, busy, loads, returnEditFocusRef });
   const actions = useItemDetailActions({ householdId, itemId, onSignedOut, detail, busy, loads });
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const { state, item, notice, editing, editLoading, focusAfterMutationRef } = detail;
+  async function markDone() {
+    if (!item || completionBusy) return;
+    setCompletionBusy(true); setCompletionError(false);
+    try {
+      const current = await getItem(householdId, itemId);
+      if (current.kind !== 'ok') { setCompletionError(true); return; }
+      const key = completionKey ?? idempotencyKey();
+      setCompletionKey(key);
+      const result = await completeItem(householdId, itemId, current.etag, key);
+      if (result.kind === 'ok') { setCompletion(result.completion); setCompletionKey(null); await detail.load(++loads.generationRef.current); }
+      else setCompletionError(true);
+    } finally { setCompletionBusy(false); }
+  }
+  async function undoDone() {
+    if (!item || !completion || completionBusy) return;
+    setCompletionBusy(true); setCompletionError(false);
+    try {
+      const current = await getItem(householdId, itemId);
+      if (current.kind !== 'ok') { setCompletionError(true); return; }
+      const result = await undoCompletion(householdId, itemId, completion.id, current.etag);
+      if (result.kind === 'ok') { setCompletion(null); await detail.load(++loads.generationRef.current); }
+      else setCompletionError(true);
+    } finally { setCompletionBusy(false); }
+  }
 
   // Declaration order matters: a mutation notice, then the save notice, then the return to Edit.
   useEffect(() => {
@@ -75,6 +106,9 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         ? <ItemEditSection editing={editing} subjects={edit.subjects} members={edit.members} busy={busy.busy} locale={locale} t={t}
           onSubmit={edit.saveEdit} onCancel={edit.cancelEdit} />
         : <>
+          {completionError ? <p role="alert" className="mt-4 text-danger">{t('itemDetail.actionFailed')}</p> : null}
+          {completion ? <Button type="button" variant="quiet" disabled={completionBusy} onClick={() => void undoDone()}>{t('items.undo')}</Button>
+            : !item.done && !item.archived ? <Button type="button" className="mt-5" disabled={completionBusy} onClick={() => void markDone()}>{completionBusy ? t('items.add.submitting') : 'Mark done'}</Button> : null}
           <ItemDetailReadView item={item} t={t} locale={locale} />
           <ItemDetailActions item={item} busy={busy.busy} editLoading={editLoading} editRef={editButtonRef} t={t}
             onEdit={() => void edit.beginEdit()} onWorkflow={actions.setWorkflow} onArchive={actions.archive} onRestore={actions.restore} />
