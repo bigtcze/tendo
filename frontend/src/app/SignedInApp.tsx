@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { AccountScreen } from '../features/auth/AccountScreen';
 import type { OidcOutcome } from '../features/auth/oidcApi';
 import type { useAppNavigation } from './useAppNavigation';
@@ -79,15 +79,16 @@ function DesktopItemPane({ props, itemId, householdId, navRoute, actions }: {
   props: Props; itemId: string; householdId: string; navRoute: ReturnType<typeof householdNavRoute>; actions: NavigationActions;
 }) {
   const { session, navigation, sessionActions } = props;
+  const [homeRevision, setHomeRevision] = useState(0);
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdNavigationContext value={{ route: navRoute, actions, household: true }}>
       <ScreenTransitionContext value={props.transitioned}>
         <div className="desktop-item-shell">
           <div className="desktop-item-list">
             <div className="desktop-item-brand">Tendo</div>
-            <HomeScreen session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
+            <HomeScreen key={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
           </div>
-          <ItemDetailScreen key={`${householdId}:${itemId}`} embedded householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} />
+          <ItemDetailScreen key={`${householdId}:${itemId}`} embedded householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
         </div>
       </ScreenTransitionContext>
     </HouseholdNavigationContext>

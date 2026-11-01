@@ -11,7 +11,7 @@ import type { ItemDetailState } from './useItemDetail';
 import type { LoadGeneration } from './useLoadGeneration';
 
 type Options = {
-  householdId: string; itemId: string; onSignedOut: () => void; t: Translate;
+  householdId: string; itemId: string; onSignedOut: () => void; onChanged?: () => void; t: Translate;
   detail: ItemDetailState; busy: ItemDetailBusy; loads: LoadGeneration; returnEditFocusRef: MutableRefObject<boolean>;
 };
 
@@ -19,7 +19,7 @@ type Options = {
  * Conflict-aware item editing. Opening reads a fresh ETag plus the subject/member choices; saving
  * PATCHes only changed fields with that ETag, and a 412 rebases the draft onto the latest item.
  */
-export function useItemDetailEdit({ householdId, itemId, onSignedOut, t, detail, busy, loads, returnEditFocusRef }: Options) {
+export function useItemDetailEdit({ householdId, itemId, onSignedOut, onChanged, t, detail, busy, loads, returnEditFocusRef }: Options) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const { current } = loads;
@@ -29,7 +29,7 @@ export function useItemDetailEdit({ householdId, itemId, onSignedOut, t, detail,
     detail.showSubject(subjects.find((subject) => subject.id === subjectId)?.name ?? t('items.subject.unknown'));
   }
 
-  const submitEdit = editSaveFlow({ householdId, itemId, onSignedOut, detail, current, showKnownSubject, setSubjects });
+  const submitEdit = editSaveFlow({ householdId, itemId, onSignedOut, onChanged, detail, current, showKnownSubject, setSubjects });
 
   async function openEdit(token: number) {
     const result = await getItem(householdId, itemId);

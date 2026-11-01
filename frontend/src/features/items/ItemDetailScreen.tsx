@@ -21,7 +21,7 @@ import { useItemDetailEdit } from './useItemDetailEdit';
 import { useItemDetailHistory } from './useItemDetailHistory';
 import { useLoadGeneration } from './useLoadGeneration';
 
-type Props = { householdId: string; itemId: string; login: string; onBack: () => void; onSignedOut: () => void; embedded?: boolean };
+type Props = { householdId: string; itemId: string; login: string; onBack: () => void; onSignedOut: () => void; onChanged?: () => void; embedded?: boolean };
 const BACK_LINK_CLASS = '-ml-3 inline-flex min-h-11 max-w-full whitespace-normal break-words text-left items-center rounded-xl px-3 text-muted '
   + 'hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
@@ -54,7 +54,7 @@ function responsibleLine(item: Item, members: Member[], t: Translate) {
   return <p className="text-sm text-muted">{t('items.responsible.read', { name })}</p>;
 }
 
-export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedOut, embedded = false }: Props) {
+export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedOut, onChanged, embedded = false }: Props) {
   const { t, locale } = useI18n();
   const loads = useLoadGeneration();
   const historySectionRef = useRef<HTMLElement>(null);
@@ -65,10 +65,10 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const detail = useItemDetail({ householdId, itemId, onSignedOut, loads, history });
   const busy = useItemDetailBusy();
   const returnEditFocusRef = useRef(false);
-  const edit = useItemDetailEdit({ householdId, itemId, onSignedOut, t, detail, busy, loads, returnEditFocusRef });
-  const actions = useItemDetailActions({ householdId, itemId, onSignedOut, detail, busy, loads });
+  const edit = useItemDetailEdit({ householdId, itemId, onSignedOut, onChanged, t, detail, busy, loads, returnEditFocusRef });
+  const actions = useItemDetailActions({ householdId, itemId, onSignedOut, onChanged, detail, busy, loads });
   const { state, item, notice, editing, editLoading, focusAfterMutationRef } = detail;
-  const completion = useDetailCompletion(householdId, itemId, item?.title ?? '', t, onSignedOut, () => { void detail.retry(); });
+  const completion = useDetailCompletion(householdId, itemId, item?.title ?? '', t, onSignedOut, () => { onChanged?.(); void detail.retry(); });
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
 

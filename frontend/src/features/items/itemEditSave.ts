@@ -9,13 +9,13 @@ export type SaveOutcome = { kind: 'handled' | 'done' | 'failed' } | { kind: 'inv
 export const HANDLED = { kind: 'handled' } as const;
 
 type Context = {
-  householdId: string; itemId: string; onSignedOut: () => void; detail: ItemDetailState;
+  householdId: string; itemId: string; onSignedOut: () => void; onChanged?: () => void; detail: ItemDetailState;
   current: (token: number) => boolean; showKnownSubject: (subjectId: string) => void;
   setSubjects: Dispatch<SetStateAction<Subject[]>>;
 };
 
 /** PATCH flow for a conflict-aware edit: a 412 rebases the draft onto the latest item and keeps editing. */
-export function editSaveFlow({ householdId, itemId, onSignedOut, detail, current, showKnownSubject, setSubjects }: Context) {
+export function editSaveFlow({ householdId, itemId, onSignedOut, onChanged, detail, current, showKnownSubject, setSubjects }: Context) {
   async function rebaseAfterConflict(token: number, values: ItemFormValues, original: Item): Promise<SaveOutcome> {
     const latest = await getItem(householdId, itemId);
     if (!current(token)) return HANDLED;
@@ -40,6 +40,7 @@ export function editSaveFlow({ householdId, itemId, onSignedOut, detail, current
   async function finishSaved(token: number, saved: Item): Promise<SaveOutcome> {
     showKnownSubject(saved.subjectId);
     detail.setItem(saved); detail.setEditing(null); detail.announce('itemDetail.updated');
+    onChanged?.();
     const savedSubject = await getSubject(householdId, saved.subjectId);
     if (!current(token)) return HANDLED;
     if (savedSubject.kind === 'unauthenticated') { onSignedOut(); return HANDLED; }

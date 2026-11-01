@@ -6,10 +6,10 @@ import type { LoadGeneration } from './useLoadGeneration';
 export type WorkflowState = 'open' | 'in_progress' | 'waiting' | 'paused';
 type DetailChange = { workflowState: WorkflowState } | { archived: boolean };
 
-type Options = { householdId: string; itemId: string; onSignedOut: () => void; detail: ItemDetailState; busy: ItemDetailBusy; loads: LoadGeneration };
+type Options = { householdId: string; itemId: string; onSignedOut: () => void; onChanged?: () => void; detail: ItemDetailState; busy: ItemDetailBusy; loads: LoadGeneration };
 
 /** Workflow (start/wait/pause/resume) and archive/restore/Undo actions; each reads a fresh ETag, then PATCHes. */
-export function useItemDetailActions({ householdId, itemId, onSignedOut, detail, busy, loads }: Options) {
+export function useItemDetailActions({ householdId, itemId, onSignedOut, onChanged, detail, busy, loads }: Options) {
   const { current, generationRef } = loads;
 
   /** Applies every outcome except 412, which needs a reload. */
@@ -18,6 +18,7 @@ export function useItemDetailActions({ householdId, itemId, onSignedOut, detail,
     if (result.kind === 'notFound') { detail.setState('gone'); return; }
     if (result.kind !== 'ok') { detail.announce(result.kind === 'invalid' ? 'itemDetail.invalid' : 'itemDetail.actionFailed'); return; }
     detail.setItem(result.item);
+    onChanged?.();
     if (!('archived' in change)) { detail.announce('itemDetail.updated'); return; }
     detail.announce(change.archived ? 'itemDetail.archivedNotice' : 'itemDetail.restored');
     detail.setUndoArchive(change.archived);
