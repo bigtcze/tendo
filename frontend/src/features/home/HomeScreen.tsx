@@ -20,12 +20,14 @@ export function HomeScreen({
   onOpenPeople,
   onOpenItem,
   onOpenAllItems,
+  refreshSignal,
 }: {
   session: Session;
   onSignedOut: () => void;
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: import('../items/itemsApi').ItemGroup) => void;
+  refreshSignal?: number;
 }) {
   const { t, locale } = useI18n();
   const householdId = session.defaultHouseholdId;
@@ -80,7 +82,7 @@ export function HomeScreen({
         <section className="settle">
           <div className="home-heading"><p className="text-base font-medium text-accent">{new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}</p><Heading className="mt-1 font-display text-display leading-tight">{household.name}</Heading></div>
           <div className="mt-3">
-            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} locale={locale} />
+            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} locale={locale} refreshSignal={refreshSignal} />
           </div>
         </section>
       ) : null}

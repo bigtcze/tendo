@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
@@ -28,6 +28,8 @@ type ItemsScreenProps = {
   onOpenAllItems: (status: ItemGroup) => void;
   onSignedOut: () => void;
   locale?: string;
+  /** Changes when an item was mutated elsewhere on the page (desktop detail pane); the list refreshes in place. */
+  refreshSignal?: number;
 };
 
 /** Wires home data, subject labels, add-item and completion flows for the household home. */
@@ -87,6 +89,8 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
 export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
+  const { refreshQuietly } = screen.home;
+  useEffect(() => { if (props.refreshSignal) void refreshQuietly(); }, [props.refreshSignal, refreshQuietly]);
   const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
   const { subjectName, emptyHome } = screen;
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;

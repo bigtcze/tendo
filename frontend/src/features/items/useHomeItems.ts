@@ -20,10 +20,11 @@ export function useHomeItems({ householdId, mounted, onSignedOut }: HomeItemsOpt
   const showMoreInFlight = useRef(new Set<ItemGroup>());
   const focusedMoreGroupRef = useRef<ItemGroup | null>(null);
 
-  const loadHome = useCallback(async ({ allowStaleRestart }: { allowStaleRestart: boolean }) => {
+  const loadHome = useCallback(async ({ allowStaleRestart, quiet = false }: { allowStaleRestart: boolean; quiet?: boolean }) => {
     const started = ++generation.current;
     const current = () => mounted.current && started === generation.current;
-    setLoading(true);
+    // Quiet: keep the current rows on screen (no loading status) while fresh data replaces them.
+    if (!quiet) setLoading(true);
     setGroupData((old) => Object.fromEntries(
       Object.entries(old).map(([key, value]) => [key, { ...value, loadingMore: false }]),
     ) as HomeItemGroups);
@@ -50,6 +51,7 @@ export function useHomeItems({ householdId, mounted, onSignedOut }: HomeItemsOpt
     await load(allowStaleRestart); if (current()) setItemsRequestComplete(true);
   }, [householdId, onSignedOut, mounted]);
   const refresh = useCallback(() => loadHome({ allowStaleRestart: true }), [loadHome]);
+  const refreshQuietly = useCallback(() => loadHome({ allowStaleRestart: true, quiet: true }), [loadHome]);
 
   useEffect(() => {
     memberLoadGenerationRef.current++;
@@ -87,6 +89,6 @@ export function useHomeItems({ householdId, mounted, onSignedOut }: HomeItemsOpt
   }
 
   return { groupData, summary, loading, error, itemsRequestComplete, dataHousehold,
-    refresh, loadHome, showMore, invalidate: () => { generation.current++; },
+    refresh, refreshQuietly, loadHome, showMore, invalidate: () => { generation.current++; },
     sectionHeadingRefs, showMoreButtons, focusedMoreGroupRef, memberLoadGeneration: memberLoadGenerationRef };
 }

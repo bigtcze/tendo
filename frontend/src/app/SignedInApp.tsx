@@ -89,7 +89,7 @@ function DesktopItemPane({ props, itemId, householdId, navRoute, actions, deskto
             <div className="desktop-item-brand">Tendo</div>
             {/* The selected item owns the page h1, title and screen-change focus; the refreshed list never takes them. */}
             <SecondaryScreenContext value={true}>
-              <HomeScreen key={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
+              <HomeScreen refreshSignal={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
             </SecondaryScreenContext>
           </div> : null}
           <ItemDetailScreen key={`${householdId}:${itemId}`} embedded={desktop} householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
