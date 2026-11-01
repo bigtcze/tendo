@@ -51,6 +51,8 @@ html {
   .desktop-item-list > .app-frame .home-list-region .home-group-list { display: block; width: min(68ch, 100%); }
   .desktop-item-list > .app-frame .home-group-list > section { display: block; width: 100%; }
   .desktop-item-list > .app-frame .home-list-region .add-item-trigger { position: static; width: auto; margin-bottom: 16px; }
+  .desktop-item-list .add-item-trigger { border: 1px solid var(--color-muted); background: white; color: var(--color-ink); }
+  .desktop-item-list .add-item-trigger:hover { background: var(--color-sand); }
   .desktop-item-list > .app-frame .app-nav { position: static; padding-top: 0; }
   .desktop-item-list > .app-frame .app-nav-list { display: flex; flex-wrap: wrap; padding: 0; }
   .desktop-item-list > .app-frame .app-nav li { display: block; }
