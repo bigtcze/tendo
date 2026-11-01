@@ -30,7 +30,7 @@ Orchestrator review of the final production-build captures (2026-11-01):
 - Desktop Home (`home-populated-1440-en.png`): Add item is pushed to the far right edge, away from the list it belongs to; the list keeps a ~500px measure, leaving a wide empty right half when no item is selected.
 - Rows: the title and subject sit on separate lines with a large gap, so rows read as loose pairs rather than one item; repeat glyphs are small and low-contrast.
 - Phone (`home-populated-390-en.png`): attention chips wrap their counts onto a second line; the bottom bar wraps "People & things" onto two lines.
-- Desktop split view shows two filled buttons at once: Add item in the list and Done in the pane (`detail-1440-*.png`), so the screen as a whole has more than one primary action.
+- Desktop split view keeps Done as the only filled action on screen: Add item in the list beside the pane is outlined there (`detail-1440-*.png`), and stays filled on Home without a selected item and on phone/tablet.
 - Detail: the facts card repeats state ("Done", "For: Dům") as unlabelled lines; Archive sits directly under the completion notice with little separation.
 - Add and Edit dialogs trap Tab and close on Escape/backdrop/Cancel; an uncertain restored create focuses its notice. Screen-reader announcement is not separately audited.
 - More (phone) opens a visible Members/Account menu (`navigation-more-390-en.png`); not tested with real users.
@@ -41,7 +41,7 @@ Orchestrator review of the final production-build captures (2026-11-01):
 These are inputs for the V3-05 comparison; they are not fixed in the prototype.
 
 ## Test status
-Results are for prototype code head `8f3f966`; later branch commits change only this folder. Details are on Issue #324.
+Results are for prototype code head `3bd3810`; later branch commits change only this folder. Details are on Issue #324.
 - `npm run lint`, `npm run typecheck`, `npm run build`: pass.
 - Vitest full suite: 788/788 pass.
 - Required default PostgreSQL E2E (`scripts/e2e-smoke.sh`, production binary, real PostgreSQL): the suite passed as a whole ("Native production-binary E2E passed.", exit 0). Default E2E selection is unchanged; the capture spec is opt-in only.
