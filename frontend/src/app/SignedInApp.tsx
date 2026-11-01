@@ -29,7 +29,8 @@ export function SignedInApp(props: Props) {
   const actions = navigationActions(navigation);
   const desktopPane = useDesktopItemPane(route.kind === 'item' && Boolean(householdId));
   if (route.kind === 'invite') return renderInvite(props);
-  if (desktopPane && route.kind === 'item' && householdId) return <DesktopItemPane props={props} itemId={route.itemId} householdId={householdId} navRoute={navRoute} actions={actions} />;
+  // One tree for both widths so crossing the desktop breakpoint (resize, zoom) keeps the open item, including an in-progress edit.
+  if (route.kind === 'item' && householdId) return <DesktopItemPane props={props} itemId={route.itemId} householdId={householdId} navRoute={navRoute} actions={actions} desktop={desktopPane} />;
   return <HouseholdRouteView props={props} navRoute={navRoute} actions={actions} />;
 }
 
@@ -75,20 +76,20 @@ function useDesktopItemPane(selected: boolean) {
   return selected && matches;
 }
 
-function DesktopItemPane({ props, itemId, householdId, navRoute, actions }: {
-  props: Props; itemId: string; householdId: string; navRoute: ReturnType<typeof householdNavRoute>; actions: NavigationActions;
+function DesktopItemPane({ props, itemId, householdId, navRoute, actions, desktop }: {
+  props: Props; itemId: string; householdId: string; navRoute: ReturnType<typeof householdNavRoute>; actions: NavigationActions; desktop: boolean;
 }) {
   const { session, navigation, sessionActions } = props;
   const [homeRevision, setHomeRevision] = useState(0);
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdNavigationContext value={{ route: navRoute, actions, household: true }}>
       <ScreenTransitionContext value={props.transitioned}>
-        <div className="desktop-item-shell">
-          <div className="desktop-item-list">
+        <div className={desktop ? 'desktop-item-shell' : undefined}>
+          {desktop ? <div className="desktop-item-list">
             <div className="desktop-item-brand">Tendo</div>
             <HomeScreen key={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
-          </div>
-          <ItemDetailScreen key={`${householdId}:${itemId}`} embedded householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
+          </div> : null}
+          <ItemDetailScreen key={`${householdId}:${itemId}`} embedded={desktop} householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
         </div>
       </ScreenTransitionContext>
     </HouseholdNavigationContext>
