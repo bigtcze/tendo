@@ -3,6 +3,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { en } from '../src/i18n/en';
 import { cs } from '../src/i18n/cs';
+import { measureCapture, type CaptureMetrics } from './audit/metrics';
+import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
@@ -13,6 +15,8 @@ test.setTimeout(1_800_000);
 
 const routeOverflow: Record<string, boolean> = {};
 const routeOverflowElements: Record<string, Array<{ tag: string; text: string; right: number }>> = {};
+const routeMetrics: Record<string, CaptureMetrics> = {};
+const journeyMetrics: Record<string, import('./audit/journeys').JourneyResult> = {};
 
 async function capture(page: Page, path: string, fullPage = true) {
   const width = page.viewportSize()?.width;
@@ -30,6 +34,8 @@ async function capture(page: Page, path: string, fullPage = true) {
   });
   routeOverflow[file] = overflow.overflow;
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
+  const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
+  routeMetrics[file] = await measureCapture(page, resultSelector);
   await page.screenshot({ path, fullPage });
 }
 
@@ -41,22 +47,30 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
 
  test('capture staged UX and scale audit', async ({ page, browser }) => {
   mkdirSync(dir, { recursive: true });
-  const metrics: { fixedBusinessDate: string; stages: Record<string, Record<string, unknown>>; seededStateCounts: Record<string, number>; listPageSizes: number[]; stageSeeding: Record<string, unknown>; seedDurationMs?: number } = { fixedBusinessDate: NOW, stages: {}, seededStateCounts: {}, listPageSizes: [], stageSeeding: {} };
+  const metrics: { fixedBusinessDate: string; stages: Record<string, Record<string, unknown>>; seededStateCounts: Record<string, number>; listPageSizes: number[]; stageSeeding: Record<string, unknown>; routes?: Record<string, CaptureMetrics>; journeys?: Record<string, import('./audit/journeys').JourneyResult>; seedDurationMs?: number } = { fixedBusinessDate: NOW, stages: {}, seededStateCounts: {}, listPageSizes: [], stageSeeding: {} };
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: en['onboarding.title'] })).toBeVisible();
-  for (const width of [320, 390, 768, 1440]) {
+  for (const width of [320, 360, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await capture(page, join(dir, `onboarding-en-${width}.png`));
   }
-  await page.locator('#onboarding-timezone').selectOption('Europe/Prague');
-  await page.getByLabel(en['onboarding.setupCode'], { exact: true }).fill(process.env.E2E_SETUP_TOKEN!);
-  await page.getByLabel(en['onboarding.householdName']).fill('Audit household');
-  await page.locator('#onboarding-login').fill('audit_owner');
-  await page.locator('#onboarding-password').fill(process.env.E2E_OWNER_PASSWORD!);
+  for (const width of [390, 1440]) {
+    const csSetupContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+    const csSetupPage = await csSetupContext.newPage();
+    await csSetupPage.goto('/'); await csSetupPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csSetupPage.reload();
+    await expect(csSetupPage.getByRole('heading', { level: 1, name: cs['onboarding.title'] })).toBeVisible();
+    await capture(csSetupPage, join(dir, `onboarding-cs-${width}.png`));
+    await csSetupContext.close();
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: en['onboarding.submit'] }).click();
+  await expect(page.getByRole('alert').first()).toBeVisible();
+  await capture(page, join(dir, 'onboarding-error-en-390.png'));
+  const setupRecorder = new JourneyRecorder(); setupRecorder.start();
+  journeyMetrics['J9 first-run setup 390x844'] = await runFirstRunSetup(page, process.env.E2E_SETUP_TOKEN!, process.env.E2E_OWNER_PASSWORD!, setupRecorder);
   await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
-  for (const width of [320, 390, 768, 1440]) {
+  for (const width of [320, 360, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await capture(page, join(dir, `home-after-setup-en-${width}.png`));
   }
@@ -74,7 +88,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   const auditInviteResponse = await api(page, 'post', `${root}/invitations`, {}, { 'Idempotency-Key': key() });
   expect(auditInviteResponse.status(), 'create audit acceptance invitation').toBe(201);
   const auditInvite = await auditInviteResponse.json() as { token: string };
-  for (const width of [320, 390, 768, 1440]) {
+  for (const width of [320, 360, 390, 768, 1024, 1440]) {
     const context = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
     const signedOut = await context.newPage();
     await signedOut.goto('/');
@@ -85,12 +99,12 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();
     await expect(signedOut.getByRole('alert')).toHaveText(en['login.error.invalid']);
     await capture(signedOut, join(dir, `audit-login-error-en-${width}.png`));
-    if (width === 390) {
+    if (width === 390 || width === 1440) {
       await signedOut.goto('/');
       await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
       await signedOut.reload();
       await expect(signedOut.getByRole('heading', { level: 1, name: cs['login.title'] })).toBeVisible();
-      await capture(signedOut, join(dir, 'audit-login-cs-390.png'));
+      await capture(signedOut, join(dir, `audit-login-cs-${width}.png`));
     }
     await signedOut.goto('/');
     await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
@@ -125,7 +139,6 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     }
   }
   const createdItems: Array<{ generatorIndex: number; id: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
-  const random = rng(0x5eed1234);
   async function verifyList(done: boolean, archived: boolean) {
     const all: Array<{ workflowState: string; done: boolean; archived: boolean }> = [];
     let cursor: string | undefined;
@@ -139,6 +152,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     } while (cursor);
     return all;
   }
+  const random = rng(0x5eed1234);
   const stages = [ ['empty', 0], ['1', 1], ['30', 30], ['500', 500], ['1200', 1200] ] as const;
   let created = 0;
   let previousTarget = 0;
@@ -149,11 +163,15 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     while (created < target) {
       const n = created++;
       const recurrence = random() < .55 ? null : { intervalValue: 1 + Math.floor(random() * 3), intervalUnit: (['day', 'week', 'month', 'year'] as const)[Math.floor(random() * 4)], mode: random() < .5 ? 'fixed' : 'after_completion' };
-      const title = random() < .05 ? `Kontrola nejneobhospodařovávatelnějšího příslušenství domácnosti ${n} ${'dlouhý'.repeat(18)}` : `Audit task ${String(n + 1).padStart(4, '0')}`;
+      const title = n === 8 ? `Kontrola nejneobhospodařovávatelnějšího příslušenství české domácnosti ${'dlouhý'.repeat(18)}` : random() < .05 ? `Kontrola nejneobhospodařovávatelnějšího příslušenství domácnosti ${n} ${'dlouhý'.repeat(18)}` : `Audit task ${String(n + 1).padStart(4, '0')}`;
       const day = Math.floor(random() * 90) - 45;
       const d = new Date(`${NOW}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + day);
       const historical = Boolean(recurrence && random() < .12);
-      const item: Record<string, unknown> = { title, recurrence, subjectId: activeSubjects[Math.floor(random() * activeSubjects.length)], attentionOn: historical || random() < .1 ? null : d.toISOString().slice(0, 10), ...(random() < .12 ? { notes: `Audit notes ${n}: ${'detail '.repeat(8)}` } : {}) };
+      const item: Record<string, unknown> = { title, recurrence, subjectId: activeSubjects[Math.floor(random() * activeSubjects.length)], attentionOn: historical || random() < .1 ? null : d.toISOString().slice(0, 10), ...(n === 7 ? { notes: `První odstavec s českou diakritikou: žluťoučký kůň úpěl ďábelské ódy.
+
+Druhý odstavec popisuje dlouhou poznámku pro domácnost a její postup.
+
+Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat čitelné i na telefonu.` } : random() < .12 ? { notes: `Audit notes ${n}: ${'detail '.repeat(8)}` } : {}) };
       if (historical) item.historicalCompletedOn = '2025-12-01';
       const responsibleChoice = random();
       if (responsibleChoice < .34) item.responsibleUserId = ownerUserId;
@@ -285,7 +303,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         const complete = await api(page, 'post', `${root}/items/${recurringHistoryItemId}/completions`, {}, { 'Idempotency-Key': key(), 'If-Match': current.headers()['etag']! });
         expect(complete.status(), `complete recurring cycle ${cycle + 1}`).toBe(201);
       }
-      for (const width of [320, 390, 768, 1440]) {
+      for (const width of [320, 360, 390, 768, 1024, 1440]) {
         await page.setViewportSize({ width, height: 900 }); await page.goto('/items');
         const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
@@ -336,6 +354,32 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await capture(csPage, join(dir, `audit-item-detail-cs-${width}.png`));
         await csContext.close();
         if (width === 390 || width === 1440) {
+          const longNotesFixture = createdItems[7];
+          if (!longNotesFixture) throw new Error('long notes item fixture missing');
+          await page.goto(`/items/${longNotesFixture.id}`);
+          await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+          await expect(page.getByText(/První odstavec/)).toBeVisible();
+          const noteText = await page.locator('main p.whitespace-pre-wrap').textContent();
+          expect(noteText).toContain('\n\n');
+          const noteParagraphs = await page.locator('main p.whitespace-pre-wrap').evaluate(element => getComputedStyle(element).whiteSpace);
+          expect(noteParagraphs).toBe('pre-wrap');
+          await capture(page, join(dir, `audit-item-detail-long-notes-en-${width}.png`));
+          const longTitleFixture = createdItems[8];
+          if (!longTitleFixture) throw new Error('long Czech title fixture missing');
+          await page.goto(`/items/${longTitleFixture.id}`);
+          await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+          await capture(page, join(dir, `audit-item-detail-long-title-en-${width}.png`));
+          if (width === 390) {
+            const csLongTitleContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+            await csLongTitleContext.addCookies(await page.context().cookies());
+            const csLongTitlePage = await csLongTitleContext.newPage();
+            await csLongTitlePage.goto('/'); await csLongTitlePage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csLongTitlePage.reload();
+            await csLongTitlePage.goto(`/items/${longTitleFixture.id}`);
+            await expect(csLongTitlePage.getByRole('heading', { level: 1 })).toBeVisible();
+            await expect(csLongTitlePage.getByRole('heading', { level: 1 })).toContainText('Kontrola');
+            await capture(csLongTitlePage, join(dir, 'audit-item-detail-long-title-cs-390.png'));
+            await csLongTitleContext.close();
+          }
           await page.goto(`/items/${doneDetailFixture!.id}`);
           await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
           await expect(page.getByText(en['itemDetail.state.done'], { exact: true })).toBeVisible();
@@ -354,6 +398,58 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
         await expect(page.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toBeVisible();
         await capture(page, join(dir, `audit-item-edit-en-${width}.png`));
+        if (width === 390) {
+          const conflictItem = await api(page, 'get', `${root}/items/${recurringHistoryItemId}`);
+          expect(conflictItem.status()).toBe(200);
+          const conflictBody = await conflictItem.json() as { title: string };
+          const editTitle = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] }).getByLabel(en['items.title']);
+          await editTitle.fill(`${conflictBody.title} user edit`);
+          const serverConflict = await api(page, 'patch', `${root}/items/${recurringHistoryItemId}`, { title: `${conflictBody.title} server edit` }, { 'If-Match': conflictItem.headers()['etag']! });
+          expect(serverConflict.status()).toBe(200);
+          await page.getByRole('form', { name: en['itemDetail.edit.formLabel'] }).getByRole('button', { name: en['itemDetail.save'], exact: true }).click();
+          await expect(page.getByText(en['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
+          await expect(page.getByText(en['itemDetail.edit.conflictHint'], { exact: true })).toBeVisible();
+          await capture(page, join(dir, 'audit-item-edit-conflict-en-390.png'));
+        }
+        if (width === 390 || width === 1440) {
+          const csRoute = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+          await csRoute.addCookies(await page.context().cookies());
+          const csRoutePage = await csRoute.newPage();
+          await csRoutePage.goto('/'); await csRoutePage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csRoutePage.reload();
+          for (const [path, name, file] of [['/items', 'allItems.title', `audit-all-items-cs-${width}.png`], ['/people', 'subjects.title', `audit-people-things-cs-${width}.png`], ['/members', 'members.title', `audit-members-cs-${width}.png`], ['/account', 'account.title', `audit-account-cs-${width}.png`]] as const) {
+            await csRoutePage.goto(path);
+            await expect(csRoutePage.getByRole('heading', { level: 1, name: cs[name] })).toBeVisible();
+            await capture(csRoutePage, join(dir, file));
+          }
+          await csRoutePage.goto('/'); await csRoutePage.getByRole('button', { name: cs['items.add'] }).click();
+          await expect(csRoutePage.getByRole('form', { name: cs['items.add.formLabel'] })).toBeVisible();
+          await capture(csRoutePage, join(dir, `audit-add-form-cs-${width}.png`));
+          await csRoutePage.goto(`/items/${recurringHistoryItemId}`);
+          await expect(csRoutePage.getByRole('heading', { name: cs['itemDetail.history'] })).toBeVisible();
+          await csRoutePage.getByRole('button', { name: cs['itemDetail.edit.button'], exact: true }).click();
+          await expect(csRoutePage.getByRole('form', { name: cs['itemDetail.edit.formLabel'] })).toBeVisible();
+          await capture(csRoutePage, join(dir, `audit-item-edit-cs-${width}.png`));
+          await csRoutePage.goto(`/items/${doneDetailFixture!.id}`); await expect(csRoutePage.getByText(cs['itemDetail.state.done'], { exact: true })).toBeVisible();
+          await capture(csRoutePage, join(dir, `audit-item-detail-done-cs-${width}.png`));
+          await csRoutePage.goto(`/items/${archivedDetailFixture!.id}`); await expect(csRoutePage.getByRole('heading', { level: 1 })).toBeVisible();
+          await capture(csRoutePage, join(dir, `audit-item-detail-archived-cs-${width}.png`));
+          if (width === 390) {
+            const csErrorContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+            await csErrorContext.addCookies(await page.context().cookies());
+            const csErrorPage = await csErrorContext.newPage();
+            await csErrorPage.goto('/');
+            const errorSession = await api(csErrorPage, 'get', '/api/v1/session');
+            expect(errorSession.status()).toBe(200);
+            const csHouseholdForError = (await errorSession.json() as { defaultHouseholdId: string }).defaultHouseholdId;
+            await csErrorPage.route(`**/api/v1/households/${csHouseholdForError}/items/summary**`, async route => {
+              await route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
+            });
+            await csErrorPage.goto('/'); await expect(csErrorPage.getByRole('heading', { level: 1 })).toBeVisible();
+            await capture(csErrorPage, join(dir, 'audit-home-server-error-cs-390.png'));
+            await csErrorContext.close();
+          }
+          await csRoute.close();
+        }
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['subjects.title'] })).toBeVisible();
@@ -361,6 +457,22 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await expect(page.getByRole('main').getByText('Anna Nováková', { exact: true })).toBeVisible();
         await expect(page.getByRole('main').getByText('Škoda Octavia', { exact: true })).toBeVisible();
         await capture(page, join(dir, `audit-people-things-en-${width}.png`));
+        if (width === 390) {
+          const offlineContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+          await offlineContext.addCookies(await page.context().cookies());
+          const offlinePage = await offlineContext.newPage();
+          await offlinePage.goto('/');
+          const offlineSession = await api(offlinePage, 'get', '/api/v1/session');
+          expect(offlineSession.status()).toBe(200);
+          const householdForError = (await offlineSession.json() as { defaultHouseholdId: string }).defaultHouseholdId;
+          await offlinePage.route(`**/api/v1/households/${householdForError}/items/summary**`, async route => {
+            await route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
+          });
+          await offlinePage.goto('/');
+          await expect(offlinePage.getByRole('heading', { level: 1 })).toBeVisible();
+          await expect(offlinePage.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+          await capture(offlinePage, join(dir, 'audit-home-server-error-en-390.png')); await offlineContext.close();
+        }
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.members'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['members.title'] })).toBeVisible();
@@ -369,6 +481,20 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await expect(page.getByRole('main').getByText('audit_member', { exact: true })).toBeVisible();
         await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
         await capture(page, join(dir, `audit-members-en-${width}.png`));
+        const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
+        const memberPage = await memberContext.newPage(); await memberPage.goto('/login');
+        await memberPage.getByLabel(en['login.login'], { exact: true }).fill('audit_member');
+        await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
+        await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+        await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+        await capture(memberPage, join(dir, `audit-members-non-owner-en-${width}.png`));
+        if (width === 390 || width === 1440) {
+          await memberPage.goto('/'); await memberPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await memberPage.reload();
+          await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: cs['members.title'] })).toBeVisible();
+          await capture(memberPage, join(dir, `audit-members-non-owner-cs-${width}.png`));
+        }
+        await memberContext.close();
         await page.getByRole('button', { name: 'Create invite link' }).click();
         await expect(page.getByLabel('Invitation link')).toBeVisible();
         await capture(page, join(dir, `audit-members-invite-en-${width}.png`));
@@ -382,7 +508,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await page.setViewportSize({ width: 640, height: 900 }); await page.goto('/');
       await capture(page, join(dir, 'home-1200-en-640-reflow-proxy.png'));
     }
-    const widths = [320, 390, 768, 1440];
+    const widths = [320, 360, 390, 768, 1024, 1440];
     for (const width of widths) for (const locale of ['en', 'cs']) {
       const context = locale === 'cs' ? await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } }) : null;
       if (context) await context.addCookies(await page.context().cookies());
@@ -426,7 +552,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
       await capture(targetPage, join(dir, `${file}-fold.png`), false);
-      metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, showMoreVisible: await targetPage.locator('button[data-group-more]').first().isVisible().catch(() => false) };
+      metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, accessibility: routeMetrics[`${file}.png`], showMoreVisible: await targetPage.locator('button[data-group-more]').first().isVisible().catch(() => false) };
       metrics.listPageSizes.push(...pageSizes);
       targetPage.off('response', responseListener);
       if (context) await context.close();
@@ -445,7 +571,6 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
         await page.setViewportSize({ width, height: 900 }); await page.goto('/');
         const clickMetrics: Array<Record<string, number>> = [];
         await page.getByRole('heading', { level: 1 }).first().waitFor({ state: 'visible' });
-        // Each group is capped at 100 rows; then its complete count is available in All items.
         const groupMore = page.locator('main button[data-group-more]');
         await expect(page.locator('main li[data-item-id]')).toHaveCount(expectedInitial);
         if (groupCounts.some((count) => count > 25)) await expect(groupMore.first()).toBeVisible();
@@ -459,15 +584,23 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
           const timeToRenderMs = Date.now() - before;
           const state = await page.evaluate(() => ({ dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('main li[data-item-id]').length, height: document.documentElement.scrollHeight }));
           clickMetrics.push({ click, ...state, timeToRenderMs });
-          await page.waitForLoadState('networkidle');
         }
         expect(expectedRows, `capped rows cannot exceed active item count at ${width}px`).toBeLessThanOrEqual(actualActiveTotal);
-        expect(await page.locator('main li[data-item-id]').count(), `expanded rows at ${width}px`).toBe(expectedRows);
-        expect(await page.locator('main a[data-group-all]').count()).toBe(expectedSeeAllLinks);
+        await expect(page.locator('main li[data-item-id]'), `expanded rows at ${width}px`).toHaveCount(expectedRows);
+        await expect(page.locator('main a[data-group-all]')).toHaveCount(expectedSeeAllLinks);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
-        await capture(page, join(dir, `home-1200-en-${width}-expanded.png`));
+        await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
       }
+      const darkContext = await browser.newContext({ colorScheme: 'dark', reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+      await darkContext.addCookies(await page.context().cookies());
+      const darkPage = await darkContext.newPage();
+      await darkPage.goto('/');
+      await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
+      metrics.stages.darkMode = { requestedColorScheme: 'dark', renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)') };
+      expect(metrics.stages.darkMode.renderedIdenticallyToLight).toBe(true);
+      await darkContext.close();
     }
   }
   const activeItems = await verifyList(false, false);
@@ -476,9 +609,17 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   const serverStates = activeItems.reduce<Record<string, number>>((counts, item) => { counts[item.workflowState] = (counts[item.workflowState] ?? 0) + 1; return counts; }, {});
   metrics.seededStateCounts = { ...serverStates, done: doneItems.length, archived: archivedItems.length, activeUndone: activeItems.length };
   expect(activeItems.length + doneItems.length + archivedItems.length).toBe(1200);
+  Object.assign(journeyMetrics, await runHouseholdJourneys(page, browser, householdId, process.env.E2E_OWNER_PASSWORD!));
+  metrics.journeys = journeyMetrics;
+  metrics.routes = routeMetrics;
   metrics.stages.routeOverflow = routeOverflow;
   metrics.stages.routeOverflowElements = routeOverflowElements;
-  writeFileSync(join(dir, 'metrics.json'), JSON.stringify(metrics, null, 2));
+  const safeMetrics = JSON.stringify(metrics);
+  for (const secret of [process.env.E2E_SETUP_TOKEN, process.env.E2E_OWNER_PASSWORD, 'audit-member-password-long-enough', invitation.token, auditInvite.token]) {
+    expect(secret, 'audit secret fixture is present').toBeTruthy();
+    expect(safeMetrics, 'metrics.json must not contain credential or invitation secrets').not.toContain(secret!);
+  }
+  writeFileSync(join(dir, 'metrics.json'), safeMetrics);
   const overflowFiles = Object.entries(routeOverflow).filter(([, overflow]) => overflow).map(([file]) => file);
   expect(overflowFiles, `route captures with horizontal overflow: ${overflowFiles.join(', ') || 'none'}`).toEqual([]);
  });
