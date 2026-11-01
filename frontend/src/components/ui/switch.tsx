@@ -1,24 +1,39 @@
 // Adapted from shadcn/ui (MIT) — https://ui.shadcn.com
-import type { ButtonHTMLAttributes } from 'react';
+import type { InputHTMLAttributes } from 'react';
 import { cn } from '../../lib/cn';
 
-type SwitchProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'role' | 'onChange'> & {
+type SwitchProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'role' | 'checked' | 'onChange'> & {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
-  name?: string;
 };
 
-export function Switch({ checked, onCheckedChange, className, name, ...props }: SwitchProps) {
+export function Switch({ checked, onCheckedChange, className, ...props }: SwitchProps) {
   return (
-    <button type="button" role="switch" aria-checked={checked} data-state={checked ? 'checked' : 'unchecked'}
-      className={cn(
-        'relative inline-flex min-h-11 min-w-11 items-center rounded-full p-1',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-60',
-        checked ? 'bg-accent' : 'bg-line', className,
-      )}
-      onClick={() => onCheckedChange(!checked)} {...props}>
-      <span aria-hidden="true" className={cn('h-7 w-7 rounded-full bg-raised transition-transform', checked && 'translate-x-3')} />
-      {name ? <input type="checkbox" name={name} checked={checked} readOnly hidden /> : null}
-    </button>
+    <span className="relative inline-flex min-h-11 min-w-11 items-center">
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        checked={checked}
+        onChange={(event) => onCheckedChange(event.currentTarget.checked)}
+        className={cn(
+          'peer absolute inset-0 z-10 m-0 h-11 w-11 cursor-pointer appearance-none rounded-full opacity-0',
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed',
+          className,
+        )}
+        {...props}
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none relative inline-flex h-8 w-14 items-center rounded-full p-1 transition-colors',
+          'bg-field peer-checked:bg-accent peer-checked:[&>span]:translate-x-6',
+          'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus',
+          'peer-disabled:opacity-60 motion-reduce:transition-none',
+        )}
+      >
+        <span className="h-6 w-6 rounded-full bg-raised transition-transform motion-reduce:transition-none" />
+      </span>
+    </span>
   );
 }

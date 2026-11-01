@@ -12,7 +12,7 @@ Practical foundation for Direction A's calm list-first language and a dedicated 
 
 ## Typography and rhythm
 
-Use existing system stacks; no font dependency is added. Body uses the system-rounded stack; display uses the existing system serif. Sizes/line-height (rem; line-height unitless):
+Use existing system stacks; no font dependency is added. Body uses the system-rounded stack; display uses the existing system serif. Sizes in px / line-height unitless (CSS uses rem equivalents):
 
 | Role | Size / line-height | Use |
 |---|---:|---|
@@ -33,6 +33,8 @@ Spacing scale: 4, 8, 12, 16, 24, 32, 48, 64px. Use 8/16 for routine grouping, 24
 ## Responsive rules
 
 Design/test widths: **320, 360, 390, 768, 1024, 1440px**. At 768px tablet content can gain measure while retaining phone navigation and full-width touch controls. At 1024px desktop composition may introduce a navigation rail and independent content columns, only when both columns earn their width and retain readable measure. Do not reserve shell space on sign-in/setup. These are system breakpoints; screen composition is owned by later screen issues.
+
+Responsive add/edit forms keep one mounted form across breakpoint and browser-zoom changes. Draft values, validation/errors, pending operations, and focus remain intact. The phone sheet / wider dialog presentation changes with CSS only; never remount or replace the form when crossing a breakpoint.
 
 ## Color roles
 
@@ -78,6 +80,9 @@ WCAG AA: normal text ≥4.5:1; large text ≥3:1; non-text controls/boundaries �
 | Accent / paper | 5.85 | 8.73 | 4.5 |
 | Focus / paper | 8.67 | 10.96 | 3 |
 | Field border / paper | 3.85 | 7.48 | 3 |
+| Done control border / paper | 3.85 | 7.48 | 3 |
+| Switch unchecked track / thumb | 4.11 | 6.37 | 3 |
+| Switch selected track / thumb | 6.25 | 7.43 | 3 |
 | Needs attention / subtle | 6.14 | 7.80 | 4.5 |
 | In progress / subtle | 6.23 | 7.91 | 4.5 |
 | Waiting / subtle | 5.63 | 7.21 | 4.5 |
@@ -86,7 +91,9 @@ WCAG AA: normal text ≥4.5:1; large text ≥3:1; non-text controls/boundaries �
 | Error / subtle | 5.59 | 7.44 | 4.5 |
 | Success / subtle | 5.96 | 7.29 | 4.5 |
 
-Field boundary passes 3:1 as non-text UI; field values themselves use ink. The CSS token sync and all pair thresholds are enforced in `designTokens.test.ts`.
+Field boundary passes 3:1 as non-text UI; field values themselves use ink. The unchecked round done control border now uses the field/control border token, and the unchecked switch track uses that same control-grade tone with a raised thumb. Both checked and unchecked track/thumb pairs exceed 3:1 in both themes. The CSS token sync and all pair thresholds are enforced in `designTokens.test.ts`.
+
+Shared date contract: display dates through `frontend/src/features/items/formatDate.ts` and locale resources. Derive “today” and attention dates from the server's household evaluation context, never the client's UTC date.
 
 ## Elevation, shape, focus, motion, icons
 
@@ -104,17 +111,17 @@ Primitives in `frontend/src/components/ui` are presentation-only: copy and label
 |---|---|
 | Button | Primary filled, secondary outlined, quiet text. One filled action per screen; min-height 44px. Include disabled and busy state (`aria-busy`) without losing label. Focus visible. |
 | Field / select / textarea | `Field` renders visible label, control render slot, optional hint and error; stable id and `htmlFor`; error uses `aria-invalid` and `aria-describedby`; focus, disabled and invalid states. |
-| Switch | Label plus track; `role=switch`, `aria-checked`; 44px minimum target; checked/unchecked/disabled. |
+| Switch | Native checkbox input with `role=switch`, styled as track/thumb; controlled `checked`/`onCheckedChange`, form `name`, label association and native disabled semantics; 44px minimum target. |
 | Disclosure | Button with `aria-expanded`/`aria-controls`, keyboard and touch activation; collapsed content is not exposed. |
-| Dialog / sheet | Native `<dialog>` with `showModal()`, theme-neutral functional dim `::backdrop`, inert background, Escape, one focus-return owner and heading fallback target. A labelled close control sits in the heading row. No dismissal while busy; an unexpected native close reopens while busy. Phone sheet is a dialog variant; no custom focus trap. |
+| Dialog / sheet | Native `<dialog>` with `showModal()`, theme-neutral functional dim `::backdrop`, inert background and Escape. The heading is only the initial-focus fallback when the dialog content has no autofocus/focusable control. Closing returns focus only to a connected external `returnFocusRef` or `triggerRef`; the component does not fall back to focusing its own heading after close. No dismissal while busy; stale close events are ignored. Phone sheet is a presentation variant; no custom focus trap. |
 | List row / done | Title, always-readable context, optional action. Round completion button has ≥44px target, caller-provided localized accessible name and pressed state; glyph is hidden from assistive tech. |
 | Group header | Clear heading with optional count; count is supplementary, not the heading name. |
 | Empty state | Plain title, brief helpful context and optional one obvious action; no ornamental dividers. |
-| Inline notice / toast | Status or alert semantics, concise text, success/error tone plus text; persistence/dismissal owned by caller. |
+| Inline notice / toast | Status or alert semantics, concise text, success/error tone plus text; persistence/dismissal owned by caller. For dynamic announcements, keep `NoticeRegion` mounted; update its message rather than mounting an already-populated live region. |
 | Skeleton / loading | Decorative skeleton hidden from accessibility tree; pair with a real `aria-busy`/live loading label at screen level. Reduced motion is still legible. |
 | Pagination | Cursor paging in named navigation: localized previous/next controls disabled at bounds plus localized results-range/status label (for example “Items 26–50 of 80”); no numbered pages. The caller may omit Next when the service confirms there is no next cursor. |
 
-Dialog behavior tests use a minimal `HTMLDialogElement.showModal` polyfill if jsdom does not implement native methods; browser semantics remain native and should be covered in browser QA.
+Dialog tests install a minimal asynchronous `HTMLDialogElement.showModal`/`close` polyfill in `frontend/src/components/ui/primitives.test.tsx`; it updates native open state and queues close events to exercise browser-like races.
 
 ## Migration notes
 

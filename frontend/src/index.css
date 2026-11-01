@@ -10,6 +10,7 @@
   --color-muted: var(--text-muted);
   --color-line: var(--border-line);
   --color-field: var(--border-field);
+  --color-control-border: var(--border-field);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-on-accent: var(--on-accent);

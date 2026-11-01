@@ -1,5 +1,5 @@
 // Adapted from shadcn/ui (MIT) — native dialog semantics, focus return owned here.
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { useEffect, useId, useRef } from 'react';
 import { cn } from '../../lib/cn';
 import { Button } from './button';
@@ -11,32 +11,46 @@ type DialogProps = {
   closeLabel: string;
   children: ReactNode;
   busy?: boolean;
-  triggerRef?: { current: HTMLElement | null };
+  triggerRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   sheet?: boolean;
 };
 
-export function Dialog({ open, onOpenChange, title, closeLabel, children, busy = false, triggerRef, sheet = false }: DialogProps) {
+const focusableSelector = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
+export function Dialog({ open, onOpenChange, title, closeLabel, children, busy = false, triggerRef, returnFocusRef, sheet = false }: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const fallbackRef = useRef<HTMLHeadingElement>(null);
-  const wasOpen = useRef(false);
+  const openRef = useRef(open);
+  const busyRef = useRef(busy);
   const titleId = useId();
+
+  useEffect(() => {
+    openRef.current = open;
+    busyRef.current = busy;
+  }, [open, busy]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (open) wasOpen.current = true;
-    else if (wasOpen.current) {
-      wasOpen.current = false;
-      if (triggerRef?.current) {
-        dialog.close();
-        triggerRef.current.focus();
-      } else {
-        fallbackRef.current?.focus();
-        dialog.close();
-      }
+    if (open && !dialog.open) {
+      dialog.showModal();
+      const content = dialog.querySelector('[data-dialog-content]');
+      const hasInitialFocus = content?.querySelector(`[autofocus], ${focusableSelector}`);
+      if (!hasInitialFocus) fallbackRef.current?.focus();
+    } else if (!open && dialog.open) {
+      const returnTarget = returnFocusRef?.current ?? triggerRef?.current;
+      if (returnTarget?.isConnected) returnTarget.focus();
+      dialog.close();
     }
-  }, [open, triggerRef]);
+  }, [open, returnFocusRef, triggerRef]);
 
   const sheetClasses = sheet
     ? [
@@ -44,19 +58,29 @@ export function Dialog({ open, onOpenChange, title, closeLabel, children, busy =
       'sm:inset-auto sm:m-auto sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-xl sm:rounded-2xl',
     ].join(' ')
     : '';
+
   return (
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy) onOpenChange(false);
+        if (!busyRef.current && openRef.current) onOpenChange(false);
       }}
       onClose={() => {
-        if (busy) dialogRef.current?.showModal();
-        else if (open) onOpenChange(false);
+        const dialog = dialogRef.current;
+        if (!dialog?.isConnected) return;
+        if (openRef.current) {
+          if (busyRef.current && !dialog.open) dialog.showModal();
+          return;
+        }
+        const target = returnFocusRef?.current ?? triggerRef?.current;
+        if (target?.isConnected) target.focus();
       }}
-      className={cn('max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-line bg-paper p-6 text-ink', sheetClasses)}
+      className={cn(
+        'max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-line bg-paper p-6 text-ink',
+        sheetClasses,
+      )}
     >
       <header className="flex items-start justify-between gap-4">
         <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="font-display text-h2">{title}</h2>
@@ -71,7 +95,7 @@ export function Dialog({ open, onOpenChange, title, closeLabel, children, busy =
           {closeLabel}
         </Button>
       </header>
-      <div className="mt-4">{children}</div>
+      <div data-dialog-content className="mt-4">{children}</div>
     </dialog>
   );
 }

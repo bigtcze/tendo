@@ -5,7 +5,7 @@ import { Button } from './button';
 export function DoneControl({ label, done, onToggle }: { label: string; done: boolean; onToggle: () => void }) {
   return (
     <Button type="button" variant="quiet" aria-label={label} aria-pressed={done} onClick={onToggle}
-      className="h-11 w-11 shrink-0 rounded-full border border-line !p-0">
+      className="h-11 w-11 shrink-0 rounded-full border border-control-border !p-0">
       {done ? <span aria-hidden="true">✓</span> : null}
     </Button>
   );
