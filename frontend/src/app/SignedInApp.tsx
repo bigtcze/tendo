@@ -53,8 +53,8 @@ function HouseholdRouteView({ props, navRoute, actions }: { props: Props; navRou
           : route.kind === 'people' && householdId ? <SubjectsScreen userId={session.userId} householdId={householdId} login={session.login} onSignedOut={sessionActions.sessionEnded} />
             : route.kind === 'members' && householdId ? <MembersScreen householdId={householdId} userId={session.userId} login={session.login} onSignedOut={sessionActions.sessionEnded} />
               : route.kind === 'allItems' && householdId ? <AllItemsScreen key={props.allItemsVisit} householdId={householdId} login={session.login} userId={session.userId} onBack={navigation.goHome} onSignedOut={sessionActions.sessionEnded} onOpenItem={navigation.openItemFromAllItems} />
-                : route.kind === 'item' && householdId ? <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} />
-                  : route.kind === 'invalidItem' && householdId ? <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" login={session.login} onBack={navigation.goHome} onSignedOut={sessionActions.sessionEnded} />
+                : route.kind === 'item' && householdId ? <ItemDetailScreen key={`${householdId}:${route.itemId}`} householdId={householdId} itemId={route.itemId} userId={session.userId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} />
+                  : route.kind === 'invalidItem' && householdId ? <ItemDetailScreen key={`${householdId}:invalid`} householdId={householdId} itemId="invalid" userId={session.userId} login={session.login} onBack={navigation.goHome} onSignedOut={sessionActions.sessionEnded} />
                     : <HomeScreen session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />}
       </ScreenTransitionContext>
     </HouseholdNavigationContext>
@@ -92,7 +92,7 @@ function DesktopItemPane({ props, itemId, householdId, navRoute, actions, deskto
               <HomeScreen refreshSignal={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
             </SecondaryScreenContext>
           </div> : null}
-          <ItemDetailScreen key={`${householdId}:${itemId}`} embedded={desktop} householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
+          <ItemDetailScreen key={`${householdId}:${itemId}`} embedded={desktop} householdId={householdId} itemId={itemId} userId={session.userId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
         </div>
       </ScreenTransitionContext>
     </HouseholdNavigationContext>

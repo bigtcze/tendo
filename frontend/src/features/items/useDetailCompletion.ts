@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Translate } from '../../i18n';
 import { idempotencyKey } from '../../lib/idempotencyKey';
+import { clearPendingCompletion, getPendingCompletion, setPendingCompletion } from './pendingCompletions';
 import { completeItem, getItem, undoCompletion, type Completion, type CompleteResult, type UndoResult } from './itemsApi';
 
 function completionMessage(result: CompleteResult, t: Translate) {
@@ -18,7 +19,7 @@ function undoMessage(result: UndoResult, t: Translate) {
   return t('items.error.action');
 }
 
-export function useDetailCompletion(householdId: string, itemId: string, title: string, t: Translate, onSignedOut: () => void, reload: () => void) {
+export function useDetailCompletion(userId: string, householdId: string, itemId: string, title: string, t: Translate, onSignedOut: () => void, reload: () => void) {
   const [busy, setBusy] = useState(false);
   const [completion, setCompletion] = useState<Completion | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -31,12 +32,16 @@ export function useDetailCompletion(householdId: string, itemId: string, title: 
       if (current.kind === 'unauthenticated') { onSignedOut(); return; }
       if (current.kind === 'notFound') { setNotice(t('items.notice.gone')); return; }
       if (current.kind !== 'ok') { setNotice(t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action')); return; }
-      const key = idempotencyKey();
+      const key = getPendingCompletion(userId, householdId, itemId) ?? idempotencyKey();
+      setPendingCompletion(userId, householdId, itemId, key);
       const result = await completeItem(householdId, itemId, current.etag, key);
       if (result.kind === 'unauthenticated') { onSignedOut(); return; }
-      if (result.kind === 'ok') { setCompletion(result.completion); setNotice(t('items.notice.done', { title })); reload(); }
+      if (result.kind === 'ok') { clearPendingCompletion(userId, householdId, itemId, key); setCompletion(result.completion); setNotice(t('items.notice.done', { title })); reload(); }
       else if (result.kind === 'error' || result.kind === 'unavailable') setNotice(t('items.notice.retry'));
-      else setNotice(completionMessage(result, t));
+      else {
+        clearPendingCompletion(userId, householdId, itemId, key);
+        setNotice(completionMessage(result, t));
+      }
     } finally { setBusy(false); }
   }
 

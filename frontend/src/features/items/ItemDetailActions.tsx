@@ -8,7 +8,7 @@ import type { WorkflowState } from './useItemDetailActions';
 type Props = {
   item: Item; busy: boolean; editLoading: boolean; editRef: Ref<HTMLButtonElement>; t: Translate;
   onEdit: () => void; onWorkflow: (state: WorkflowState) => void; onArchive: () => void; onRestore: () => void;
-  onDone: () => void; onUndo: () => void; completionNotice: string | null;
+  onDone: () => void; onUndo: () => void; completionNotice: string | null; hasCompletion: boolean;
 };
 
 function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
@@ -30,10 +30,10 @@ function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
 
 /** Read-mode actions: Edit and workflow while the item is live, then archive or restore. */
 export function ItemDetailActions(props: Props) {
-  const { item, busy, editLoading, editRef, t, onEdit, onArchive, onRestore, onDone, onUndo, completionNotice } = props;
+  const { item, busy, editLoading, editRef, t, onEdit, onArchive, onRestore, onDone, onUndo, completionNotice, hasCompletion } = props;
   const live = !item.done && !item.archived;
   return <>
-    <div className="item-detail-primary"><DetailCompletionActions className="item-detail-actions" done={item.done} busy={busy} notice={completionNotice} completion={Boolean(completionNotice)} t={t} onDone={onDone} onUndo={onUndo} /></div>
+    <div className="item-detail-primary"><DetailCompletionActions className="item-detail-actions" done={item.done} busy={busy} notice={completionNotice} completion={hasCompletion} t={t} onDone={onDone} onUndo={onUndo} /></div>
     {live && editLoading ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.edit.loading')}</p> : null}
     <div className="item-secondary-actions flex flex-wrap items-center gap-2">
       {live ? <WorkflowButtons {...props} /> : null}

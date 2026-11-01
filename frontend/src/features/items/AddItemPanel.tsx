@@ -62,16 +62,26 @@ export function AddItemPanel(props: AddItemPanelProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(false);
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
   useEffect(() => {
-    if (!adding) { if (wasOpen.current) { wasOpen.current = false; previousFocus.current?.focus(); } return; }
-    if (wasOpen.current) return;
-    wasOpen.current = true;
-    previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = dialogRef.current;
-    const first = dialog?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), button:not([disabled])');
-    first?.focus();
+    if (adding && !wasOpen.current) {
+      wasOpen.current = true;
+      previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const dialog = dialogRef.current;
+      const uncertainNotice = createUncertain ? dialog?.querySelector<HTMLElement>('[role="status"]') : null;
+      const first = dialog?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), button:not([disabled])');
+      (uncertainNotice ?? first)?.focus();
+    } else if (!adding && wasOpen.current) {
+      wasOpen.current = false;
+      previousFocus.current?.focus();
+    }
+  }, [adding, createUncertain]);
+  useEffect(() => {
+    if (!adding) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') { event.preventDefault(); onCancel(); return; }
+      const dialog = dialogRef.current;
+      if (event.key === 'Escape') { event.preventDefault(); onCancelRef.current(); return; }
       if (event.key !== 'Tab' || !dialog) return;
       const controls = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')];
       if (!controls.length) return;
@@ -81,7 +91,7 @@ export function AddItemPanel(props: AddItemPanelProps) {
     }
     document.addEventListener('keydown', onKeyDown);
     return () => { document.removeEventListener('keydown', onKeyDown); };
-  }, [adding, onCancel]);
+  }, [adding]);
   if (!adding) return null;
   const showForm = recovering || recoveryEditable || (subjectState === 'ready' && selectable.length > 0);
   const showEmpty = !recovering && !recoveryEditable && subjectState === 'ready' && selectable.length === 0;

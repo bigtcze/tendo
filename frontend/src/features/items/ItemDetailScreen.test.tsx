@@ -154,6 +154,23 @@ describe('item details', () => {
     expect(await screen.findByRole('button', { name: 'Done' })).toBeVisible();
   });
 
+  it('reuses the completion idempotency key after an uncertain 503 and offers no Undo', async () => {
+    let posts = 0;
+    const fake = installFakeServer(common({
+      [`POST ${historyPath}`]: () => ++posts === 1 ? json(503) : json(201, completion('c-retried', '2026-05-14')),
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await screen.findByRole('button', { name: 'Undo' });
+    const completions = requestsOf(fake.requests, 'POST', historyPath);
+    expect(completions).toHaveLength(2);
+    expect(completions[0]!.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
+    expect(completions[1]!.headers.get('Idempotency-Key')).toBe(completions[0]!.headers.get('Idempotency-Key'));
+  });
+
   it('reloads after a stale write and shows latest values and notice', async () => {
     let reads = 0; const latest = item({ title: 'New title', workflowState: 'waiting', notes: 'Latest note' });
     installFakeServer(common({ [`GET ${path}`]: () => json(200, ++reads === 1 ? item() : latest, { ETag: `"${reads}"` }), [`PATCH ${path}`]: json(412) }));

@@ -20,7 +20,7 @@ import { useItemDetailEdit } from './useItemDetailEdit';
 import { useItemDetailHistory } from './useItemDetailHistory';
 import { useLoadGeneration } from './useLoadGeneration';
 
-type Props = { householdId: string; itemId: string; login: string; onBack: () => void; onSignedOut: () => void; onChanged?: () => void; embedded?: boolean };
+type Props = { householdId: string; itemId: string; userId: string; login: string; onBack: () => void; onSignedOut: () => void; onChanged?: () => void; embedded?: boolean };
 const BACK_LINK_CLASS = '-ml-3 inline-flex min-h-11 max-w-full whitespace-normal break-words text-left items-center rounded-xl px-3 text-muted '
   + 'hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
@@ -58,7 +58,7 @@ function responsibleLine(item: Item, members: Member[], t: Translate) {
   return <p className="text-sm text-muted">{t('items.responsible.read', { name })}</p>;
 }
 
-export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedOut, onChanged, embedded = false }: Props) {
+export function ItemDetailScreen({ householdId, itemId, userId, login, onBack, onSignedOut, onChanged, embedded = false }: Props) {
   const { t, locale } = useI18n();
   const loads = useLoadGeneration();
   const historySectionRef = useRef<HTMLElement>(null);
@@ -72,7 +72,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
   const edit = useItemDetailEdit({ householdId, itemId, onSignedOut, onChanged, t, detail, busy, loads, returnEditFocusRef });
   const actions = useItemDetailActions({ householdId, itemId, onSignedOut, onChanged, detail, busy, loads });
   const { state, item, notice, editing, editLoading, focusAfterMutationRef } = detail;
-  const completion = useDetailCompletion(householdId, itemId, item?.title ?? '', t, onSignedOut, () => { onChanged?.(); void detail.retry(); });
+  const completion = useDetailCompletion(userId, householdId, itemId, item?.title ?? '', t, onSignedOut, () => { onChanged?.(); void detail.retry(); });
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
 
@@ -119,7 +119,7 @@ function ItemDetailReadState({ item, detail, busy, completion, actions, edit, ed
     <div className="item-detail-actions">
       <ItemDetailActions item={item} busy={busy.busy || completion.busy} editLoading={editLoading} editRef={editButtonRef} t={t}
         onEdit={() => void edit.beginEdit()} onWorkflow={actions.setWorkflow} onArchive={actions.archive} onRestore={actions.restore}
-        onDone={() => void completion.onDone()} onUndo={() => void completion.onUndo()} completionNotice={completion.notice} />
+        onDone={() => void completion.onDone()} onUndo={() => void completion.onUndo()} completionNotice={completion.notice} hasCompletion={completion.completion != null} />
     </div>
     <ItemDetailHistory history={history} sectionRef={historySectionRef} headingRef={historyHeadingRef} t={t} locale={locale} />
   </>;

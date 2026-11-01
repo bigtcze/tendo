@@ -208,6 +208,7 @@ describe('item creation', () => {
     expect(within(restored).getByLabelText('What needs doing?')).toHaveValue('Reload item');
     expect(within(restored).getByLabelText('What needs doing?')).toBeDisabled();
     expect(await within(restored).findByRole('button', { name: 'Check again' })).toBeVisible();
+    await waitFor(() => expect(within(restored).getByText('We couldn’t confirm this was saved.')).toHaveFocus());
     await userEvent.click(within(restored).getByRole('button', { name: 'Check again' }));
     await screen.findByText('“Reload item” was added.');
     const resent = requestsOf(reloaded.requests, 'POST', `${base}/items`)[0]!;
