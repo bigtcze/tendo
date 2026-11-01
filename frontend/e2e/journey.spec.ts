@@ -1288,7 +1288,7 @@ test.describe('Tendo production journey', () => {
     await expect(rowDone).toHaveAttribute('data-variant', 'secondary');
     await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toHaveAttribute('data-variant', 'primary');
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', title) }).click();
-    await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
+    await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login), { exact: true })).toBeVisible();
     const created = await serverItem(title);
     expect(created.responsibleUserId).toBe(member!.userId);
     await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
