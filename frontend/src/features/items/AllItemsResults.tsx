@@ -71,7 +71,7 @@ function ItemRow({ item, subjectName, members, onOpenItem }: {
   return <li data-item-id={item.id} className="item-row flex items-center gap-3 border-b border-line px-3 py-2">
     <div className="row-copy min-w-0 flex-1">
       <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
-        className="row-title inline-flex min-h-11 max-w-full text-left text-lg font-medium leading-snug focus-visible:outline-2 focus-visible:outline-accent">{item.title}</NavLink>
+        className="row-title inline-flex min-h-11 min-w-0 max-w-full [overflow-wrap:anywhere] text-left text-lg font-medium leading-snug focus-visible:outline-2 focus-visible:outline-accent">{item.title}</NavLink>
       <p className="row-secondary text-base text-muted" aria-label={attentionDescription}>
         <span>{visibleSecondary}</span>
         {recurrenceText ? <span className="sr-only"> {recurrenceText}</span> : null}
