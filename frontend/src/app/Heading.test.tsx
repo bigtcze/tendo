@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
-import { Heading, ScreenTransitionContext } from './Heading';
+import { Heading, ScreenTransitionContext, SecondaryScreenContext } from './Heading';
 
 const actGlobal = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
@@ -59,5 +59,26 @@ it('names the document after the current heading and resets the title when the h
   expect(document.title).toBe('Renew passport soon — Tendo');
   await act(async () => root.render(<p>Loading…</p>));
   expect(document.title).toBe('Tendo');
+  await act(async () => root.unmount());
+});
+
+it('a secondary screen beside the current one yields the h1, focus and document title', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const { act } = await import('react');
+  actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  document.title = 'Tendo';
+  await act(async () => root.render(
+    <ScreenTransitionContext value={{ current: true }}>
+      <SecondaryScreenContext value={true}><Heading>Household list</Heading></SecondaryScreenContext>
+      <Heading>Selected item</Heading>
+    </ScreenTransitionContext>,
+  ));
+  expect(container.querySelectorAll('h1')).toHaveLength(1);
+  expect(container.querySelector('h1')).toHaveTextContent('Selected item');
+  expect(container.querySelector('h2')).toHaveTextContent('Household list');
+  expect(document.activeElement).toBe(container.querySelector('h1'));
+  expect(document.title).toBe('Selected item — Tendo');
   await act(async () => root.unmount());
 });

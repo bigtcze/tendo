@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { AccountScreen } from '../features/auth/AccountScreen';
 import type { OidcOutcome } from '../features/auth/oidcApi';
 import type { useAppNavigation } from './useAppNavigation';
@@ -9,7 +9,7 @@ import { AllItemsScreen } from '../features/items/AllItemsScreen';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
-import { ScreenTransitionContext } from './Heading';
+import { ScreenTransitionContext, SecondaryScreenContext } from './Heading';
 import { SignOutContext } from './SignOutContext';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
@@ -81,17 +81,16 @@ function DesktopItemPane({ props, itemId, householdId, navRoute, actions, deskto
 }) {
   const { session, navigation, sessionActions } = props;
   const [homeRevision, setHomeRevision] = useState(0);
-  const listTransition = useRef(false);
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdNavigationContext value={{ route: navRoute, actions, household: true }}>
       <ScreenTransitionContext value={props.transitioned}>
         <div className={desktop ? 'desktop-item-shell' : undefined}>
           {desktop ? <div className="desktop-item-list">
             <div className="desktop-item-brand">Tendo</div>
-            {/* The selected item owns screen-change focus; a refreshed list must never pull focus out of the pane. */}
-            <ScreenTransitionContext value={listTransition}>
+            {/* The selected item owns the page h1, title and screen-change focus; the refreshed list never takes them. */}
+            <SecondaryScreenContext value={true}>
               <HomeScreen key={homeRevision} session={session} onSignedOut={sessionActions.sessionEnded} onOpenPeople={navigation.openPeople} onOpenAllItems={navigation.openAllItemsForStatus} onOpenItem={navigation.openItemFromHome} />
-            </ScreenTransitionContext>
+            </SecondaryScreenContext>
           </div> : null}
           <ItemDetailScreen key={`${householdId}:${itemId}`} embedded={desktop} householdId={householdId} itemId={itemId} login={session.login} onBack={navigation.goBackFromItem} onSignedOut={sessionActions.sessionEnded} onChanged={() => setHomeRevision((revision) => revision + 1)} />
         </div>
