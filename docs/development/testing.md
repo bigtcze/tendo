@@ -145,7 +145,9 @@ With the dedicated PostgreSQL service, pinned tools, and frontend dependencies a
 TENDO_UX_AUDIT_DIR=/tmp/opencode/ux-audit bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
 ```
 
-This opt-in production-build run captures staged home screenshots and viewport-fold screenshots, plus `metrics.json` (request counts/bytes, render timing, DOM size, rows, overflow, and seeding details). It is deliberately excluded from the default browser suite and is not part of required CI.
+This opt-in production-build run captures staged Home (empty, 1, 30, 500, and 1200-item) full-page and viewport-fold screenshots at 320/360/390/768/1024/1440 px in English and Czech; route/state captures at the supported phone and desktop widths; and `metrics.json` (request counts/bytes, render timing, DOM size, rows, horizontal overflow, smallest visible text, targets below 44/24 px with offenders, keyboard tab stops, and scripted journey records). A dark color-scheme capture records the light-only rendering. The server test clock is fixed to 2026-05-14, generated fixture data uses a seeded RNG, and capture viewport is set/asserted before each screenshot. The committed refresh set is under 30 MB; preserve `metrics.json` only after the harness credential/invitation-token assertions pass. Journey steps/interactions/keystrokes and wall times are measurements of scripted Playwright actions against loopback with reduced motion, not human task durations; wall times are inherently machine-dependent. The audit is deliberately excluded from the default browser suite and required CI.
+
+To refresh committed baseline evidence, run the capture above with a dedicated output directory such as `/tmp/opencode/ux-audit`, inspect `metrics.json` for secrets and completeness, then curate the route/state PNGs and metrics into `docs/design/v3-baseline/` and update the screenshot index and metric/journey tables in `docs/design/v3-baseline-audit.md`. Capture filenames and metrics entries use the viewport as a suffix; keep every committed PNG linked in the index. Keep the committed set below 30 MB; do not commit runner logs or reports.
 
 ## Assertion coverage map
 
