@@ -21,11 +21,15 @@ export function Notice({ children, tone = 'neutral', className, ...props }: Noti
   );
 }
 
-/** Keep this live host mounted; changing its message triggers a reliable announcement. */
+/**
+ * Persistent live host: it is the only live-region owner, so keep it mounted and update
+ * `message` rather than mounting an already-populated region. Announcement timing and
+ * verbosity remain up to the user's assistive technology.
+ */
 export function NoticeRegion({ message = '', tone = 'neutral', className }: NoticeRegionProps) {
   return (
-    <div aria-live={tone === 'error' ? 'assertive' : 'polite'} aria-atomic="true" className={cn('min-h-0', className)}>
-      {message ? <div role={tone === 'error' ? 'alert' : 'status'} className={cn(noticeClass, toneClass(tone))}>{message}</div> : null}
+    <div role={tone === 'error' ? 'alert' : 'status'} aria-atomic="true" className={cn('min-h-0', className)}>
+      {message ? <div className={cn(noticeClass, toneClass(tone))}>{message}</div> : null}
     </div>
   );
 }

@@ -76,7 +76,7 @@ describe('sign in with the configured provider', () => {
     const retry = await screen.findByRole('button', { name: 'Try again' });
     await userEvent.click(retry);
     const providerButton = await screen.findByRole('button', { name: 'Sign in with Pocket ID' });
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
     await waitFor(() => expect(providerButton).toHaveFocus());
     expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
   });
@@ -140,7 +140,7 @@ describe('sign in with the configured provider', () => {
     renderApp();
     const retry = await screen.findByRole('button', { name: 'Try again' });
     await userEvent.click(retry);
-    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
     expect(screen.getByLabelText('Password')).toHaveFocus();
   });
 
@@ -149,7 +149,7 @@ describe('sign in with the configured provider', () => {
     renderApp();
     await screen.findByLabelText('Login');
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('ignores a stale initial status response after a newer StrictMode request', async () => {

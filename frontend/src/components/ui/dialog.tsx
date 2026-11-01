@@ -71,8 +71,15 @@ export function Dialog({ open, onOpenChange, title, closeLabel, children, busy =
         const dialog = dialogRef.current;
         if (!dialog?.isConnected) return;
         if (openRef.current) {
-          if (busyRef.current && !dialog.open) dialog.showModal();
-          return;
+          // Stale close from an earlier dismissal: the dialog has already been reopened.
+          if (dialog.open) return;
+          // A native close (e.g. form method="dialog") while saving is refused.
+          if (busyRef.current) {
+            dialog.showModal();
+            return;
+          }
+          // Genuine native close while idle: sync the controlled state with the platform.
+          onOpenChange(false);
         }
         const target = returnFocusRef?.current ?? triggerRef?.current;
         if (target?.isConnected) target.focus();

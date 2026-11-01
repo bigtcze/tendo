@@ -9,7 +9,7 @@ type SwitchProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'role' |
 
 export function Switch({ checked, onCheckedChange, className, ...props }: SwitchProps) {
   return (
-    <span className="relative inline-flex min-h-11 min-w-11 items-center">
+    <span data-switch-root className="relative inline-flex min-h-11 w-14 items-center">
       <input
         type="checkbox"
         role="switch"
@@ -17,7 +17,8 @@ export function Switch({ checked, onCheckedChange, className, ...props }: Switch
         checked={checked}
         onChange={(event) => onCheckedChange(event.currentTarget.checked)}
         className={cn(
-          'peer absolute inset-0 z-10 m-0 h-11 w-11 cursor-pointer appearance-none rounded-full opacity-0',
+          // Covers the whole visible track width and stays at least 44px tall.
+          'peer absolute inset-0 z-10 m-0 h-full w-full cursor-pointer appearance-none rounded-full opacity-0',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed',
           className,
         )}

@@ -3149,12 +3149,12 @@ test.describe('Tendo production journey', () => {
     try {
       await loginPage.goto('/');
       await expect(loginPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
-      await expect(loginPage.getByRole('status')).toHaveText(en['login.oidc.loadError']);
+      await expect(loginPage.getByRole('status').filter({ hasText: en['login.oidc.loadError'] })).toHaveText(en['login.oidc.loadError']);
       await expect(loginPage.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', 'OIDC Smoke Provider'), exact: true })).toHaveCount(0);
       await expectNoAxeViolations(loginPage, 'login-oidc-recovery');
       await loginPage.getByRole('button', { name: 'Čeština', exact: true }).click();
       await expect(loginPage.getByRole('heading', { level: 1, name: cs['login.title'] })).toBeVisible();
-      await expect(loginPage.getByRole('status')).toHaveText(cs['login.oidc.loadError']);
+      await expect(loginPage.getByRole('status').filter({ hasText: cs['login.oidc.loadError'] })).toHaveText(cs['login.oidc.loadError']);
       const cdp = await context.newCDPSession(loginPage);
       for (const [percent, width] of [[200, 640], [400, 320]] as const) {
         await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 400, deviceScaleFactor: percent / 100, mobile: false });

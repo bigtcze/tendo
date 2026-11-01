@@ -234,14 +234,37 @@ describe('UI primitive behavior', () => {
     rerender(<Notice tone="success">Saved</Notice>);
     expect(screen.getByRole('status')).toHaveTextContent('Saved');
   });
-  it('notice region keeps polite live host mounted while message changes', () => {
-    const { rerender } = render(<NoticeRegion />);
-    const liveRegion = document.querySelector('[aria-live="polite"]');
-    expect(liveRegion).toBeInTheDocument();
+  it('notice region keeps one persistent live host mounted while message changes', () => {
+    const { container, rerender } = render(<NoticeRegion />);
+    const liveRegion = screen.getByRole('status');
     expect(liveRegion).toBeEmptyDOMElement();
     expect(liveRegion).toHaveClass('min-h-0');
     rerender(<NoticeRegion message="Signed in" />);
-    expect(document.querySelector('[aria-live="polite"]')).toBe(liveRegion);
+    expect(screen.getByRole('status')).toBe(liveRegion);
     expect(liveRegion).toHaveTextContent('Signed in');
+    const liveOwners = container.querySelectorAll('[role="status"], [role="alert"], [aria-live]');
+    expect(liveOwners).toHaveLength(1);
+    expect(liveRegion.firstElementChild).not.toHaveAttribute('role');
+    rerender(<NoticeRegion tone="error" message="Wrong password" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Wrong password');
+    expect(container.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(1);
+  });
+  it('dialog syncs controlled state after a genuine native close while idle', async () => {
+    const onOpenChange = vi.fn();
+    render(<Dialog open title="Native" closeLabel="Close" onOpenChange={onOpenChange}>Body</Dialog>);
+    const dialog = screen.getByRole('dialog', { name: 'Native' }) as HTMLDialogElement;
+    dialog.close();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(dialog.open).toBe(false);
+  });
+  it('switch native input spans the full visible track at touch height', () => {
+    render(<Switch aria-label="Repeat" checked={false} onCheckedChange={() => undefined} />);
+    const toggle = screen.getByRole('switch', { name: 'Repeat' });
+    const root = toggle.closest('[data-switch-root]');
+    expect(toggle.className).toContain('inset-0');
+    expect(toggle.className).toContain('w-full');
+    expect(root).toHaveClass('w-14', 'min-h-11');
+    expect(root?.querySelector('[aria-hidden="true"]')).toHaveClass('w-14');
   });
 });
