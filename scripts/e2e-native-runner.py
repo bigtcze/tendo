@@ -344,7 +344,9 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         run_screen_reader(root, base, children, artifact_dir, sr_audit_dir)
     elif audit_dir is not None:
         base["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
-        run_playwright(root, base, children, "e2e/ux-audit.spec.ts", timeout=1800)
+        # Prototype-only: TENDO_DIRECTION_CAPTURE=1 swaps the audit spec for the design-direction capture.
+        spec = "e2e/direction-capture.spec.ts" if inherited.get("TENDO_DIRECTION_CAPTURE") == "1" else "e2e/ux-audit.spec.ts"
+        run_playwright(root, base, children, spec, timeout=1800)
     else:
         if screenshot_path is None:
             raise RuntimeError("screenshot path is required for README capture")

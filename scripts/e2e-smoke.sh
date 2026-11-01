@@ -75,7 +75,7 @@ for mode in TENDO_README_SCREENSHOT TENDO_UX_AUDIT_DIR TENDO_SR_AUDIT_DIR; do
   [[ -n "${!mode:-}" ]] && ((mode_count+=1))
 done
 if (( mode_count > 1 )); then
-  printf 'TENDO_README_SCREENSHOT, TENDO_UX_AUDIT_DIR and TENDO_SR_AUDIT_DIR are mutually exclusive\n' >&2
+  printf 'E2E capture modes are mutually exclusive\n' >&2
   exit 1
 fi
 if [[ -n "${TENDO_README_SCREENSHOT:-}" ]]; then
