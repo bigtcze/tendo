@@ -9,7 +9,7 @@ A direct, low-noise daily list that gets wider as the screen allows. The item it
 ## Layout and navigation
 - Phone (<768px): compact top brand/account line, single-column list, and a fixed bottom bar for Home, All items and People and things plus a visible More button. More opens a small menu with Members and Account.
 - Tablet (768–1023px): list structure with wider reading width; bottom navigation remains.
-- Desktop (≥1024px): 190px left rail and two useful surfaces: the Home/All items list remains on the left while selected item detail opens persistently on the right; the URL remains `/items/:id`, including deep links, reload and browser Back. Lists and facts stay near 72ch. On deep-link reload, Home provides the list context beside the selected item.
+- Desktop (≥1024px): 190px left rail and two useful surfaces: a list remains on the left while selected item detail opens persistently on the right; the URL stays `/items/:id`, so a deep link opens the same split view. The list beside the item is always Home, even when the item was opened from All items. Lists and facts stay near 72ch.
 - Home leads with local date and household, followed by attention groups and quieter groups. A row uses a circular done target, title, compact subject/assignee/date context and a repeat mark.
 
 ## Type and color
@@ -18,9 +18,9 @@ A direct, low-noise daily list that gets wider as the screen allows. The item it
 - WCAG contrast, calculated from sRGB relative luminance of these hex values: ink on paper 12.79:1; muted on paper 5.66:1; white on accent 6.25:1; white on strong accent 9.27:1; accent on paper 5.85:1. These token pairs pass 4.5:1; not every rendered pair (for example muted text on sand) was measured. No new font, icon or UI package added.
 
 ## Density, interaction and household fit
-- In the populated 390×844 capture, six row starts are visible; on 1440×844, eight are visible. These are screenshot observations, not user-study measurements.
-- Create uses the existing API-backed form and one-off default. Phone uses a full-screen sheet; desktop/tablet uses a centered dialog. Escape and Cancel close it, keyboard Tab is trapped inside, and focus returns to Add. Repeat is a real switch with a 54×32 track inside a larger touch row. Fixed vs after-completion explanatory copy gives a short household example in English and Czech. Edit reuses the same form.
-- Home uses the existing idempotent completion/Undo flow. Detail completion calls the existing `completeItem` and `undoCompletion` APIs, with ETag reads, result messaging and reload. Done is the only filled detail action; Start/Resume is outlined and Waiting, Pause, Edit and Archive are quiet. Detail facts and history are distinct.
+- In the populated 390×844 capture, six complete rows (seven row starts) are visible; on 1440×844, eight complete rows (nine row starts). These are screenshot observations, not user-study measurements.
+- Create uses the existing API-backed form and one-off default. Phone uses a full-screen sheet; desktop/tablet uses a centered dialog. Escape and Cancel close it, keyboard Tab is trapped inside, and focus returns to Add. Repeat is a real switch; its touch target is the 54×32 track itself (the surrounding row is not clickable). Fixed vs after-completion explanatory copy gives a short household example in English and Czech. Edit reuses the same form.
+- Home uses the existing idempotent completion/Undo flow. Detail completion calls the existing `completeItem` and `undoCompletion` APIs, with ETag reads, result messaging and reload. Done is the only filled action inside detail; Start/Resume is outlined and Waiting, Pause, Edit and Archive are quiet. Detail completion keeps one idempotency key across retries after an uncertain result, and Undo is offered only when a completion was recorded. Detail facts and history are distinct.
 - In the desktop split view the selected item owns the page's single h1, document title and screen-change focus; the list beside it uses an h2 and refreshes in place after any change made in the pane (done/undo, edit, workflow, archive).
 - The title, household object and a clear done affordance aim to make a routine check understandable without project-management terminology.
 
@@ -30,20 +30,21 @@ Orchestrator review of the final production-build captures (2026-11-01):
 - Desktop Home (`home-populated-1440-en.png`): Add item is pushed to the far right edge, away from the list it belongs to; the list keeps a ~500px measure, leaving a wide empty right half when no item is selected.
 - Rows: the title and subject sit on separate lines with a large gap, so rows read as loose pairs rather than one item; repeat glyphs are small and low-contrast.
 - Phone (`home-populated-390-en.png`): attention chips wrap their counts onto a second line; the bottom bar wraps "People & things" onto two lines.
+- Desktop split view shows two filled buttons at once: Add item in the list and Done in the pane (`detail-1440-*.png`), so the screen as a whole has more than one primary action.
 - Detail: the facts card repeats state ("Done", "For: Dům") as unlabelled lines; Archive sits directly under the completion notice with little separation.
-- The add sheet traps focus with Escape/backdrop/Cancel close paths; screen-reader announcement is not separately audited.
+- Add and Edit dialogs trap Tab and close on Escape/backdrop/Cancel; an uncertain restored create focuses its notice. Screen-reader announcement is not separately audited.
 - More (phone) opens a visible Members/Account menu (`navigation-more-390-en.png`); not tested with real users.
-- Repeat interval unit initially reads "years" (existing form default), which may surprise households adding a monthly task.
-- Capture coverage gaps: no 360px or 1280px captures of Add, Edit or Detail; no phone All items capture; Czech captures cover Home, Repeat and Detail only (no Czech one-off Add, Edit, Done/Undo or open More menu).
+- Repeat interval unit initially reads "years" (existing form default), while the explanatory examples speak of a monthly filter change; the default may surprise households adding a monthly task.
+- Capture coverage gaps: no 360px or 1280px captures of Add, Edit or Detail; no phone All items capture; Czech captures cover Home, phone Repeat and Detail only (no desktop Czech Repeat, Czech one-off Add, Edit, Done/Undo or open More menu); no capture scrolls to Home's In progress or Waiting sections (only their counts in the overview chips are visible).
 - Only focused screens carry this direction. Dark theme, other routes/states, very large backlogs, zoom and human testing are not proven. No human household participants were involved.
 
 These are inputs for the V3-05 comparison; they are not fixed in the prototype.
 
 ## Test status
-Branch head and results are recorded on Issue #324 and the docs PR.
+Results are for prototype code head `8f3f966`; later branch commits change only this folder. Details are on Issue #324.
 - `npm run lint`, `npm run typecheck`, `npm run build`: pass.
-- Vitest full suite: 787/787 pass.
-- Required default PostgreSQL E2E (`scripts/e2e-smoke.sh`): pass on the branch head (50/50 journeys). Default E2E selection is unchanged; the capture spec is opt-in only.
+- Vitest full suite: 788/788 pass.
+- Required default PostgreSQL E2E (`scripts/e2e-smoke.sh`, production binary, real PostgreSQL): the suite passed as a whole ("Native production-binary E2E passed.", exit 0). Default E2E selection is unchanged; the capture spec is opt-in only.
 - Direction capture (opt-in `TENDO_DIRECTION_CAPTURE=1` with `TENDO_UX_AUDIT_DIR`): pass; all 28 screenshots in this folder come from that run, using the production build, real PostgreSQL and authenticated synthetic households. Done/Undo captures wait for the Undo round-trip so each starts from an open item.
 
 ## Screenshot index
