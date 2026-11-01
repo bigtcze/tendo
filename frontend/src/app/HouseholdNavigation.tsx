@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { NavLink } from './NavLink';
 import { useI18n } from '../i18n';
 
@@ -9,6 +9,7 @@ export const HouseholdNavigationContext = createContext<{ route: HouseholdRoute;
 export function HouseholdNavigation() {
   const navigation = useContext(HouseholdNavigationContext);
   const { t } = useI18n();
+  const [moreOpen, setMoreOpen] = useState(false);
   if (!navigation) return null;
   const links: { route: HouseholdRoute; href: string; label: string; accessibleName?: string; action: () => void }[] = [
     { route: 'home', href: '/', label: t('nav.home'), action: navigation.actions.home },
@@ -20,11 +21,35 @@ export function HouseholdNavigation() {
     { route: 'account', href: '/account', label: t('nav.account'), accessibleName: t('home.account'), action: navigation.actions.account },
   ];
   const active = navigation.route === 'item' ? 'allItems' : navigation.route;
-  return <nav aria-label={t('nav.label')} className="border-b border-line lg:flex lg:justify-end">
-    <ul className="flex gap-1 overflow-x-auto py-2 lg:w-auto lg:min-w-[42rem] lg:justify-between">
-      {links.map((link) => <li key={link.route} className="shrink-0 lg:flex-1">
+  const primary = links.slice(0, 2);
+  const overflow = links.slice(2);
+  return <nav aria-label={t('nav.label')} className="border-b border-line">
+    <ul className="flex gap-1 py-2 sm:hidden">
+      {primary.map((link) => <li key={link.route} className="min-w-0 flex-1">
         <NavLink href={link.href} onNavigate={link.action} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined}
-          className={`flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-center text-sm transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
+          className={`flex min-h-11 items-center justify-center rounded-xl px-2 text-center text-sm leading-tight transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
+          {link.label}
+        </NavLink>
+      </li>)}
+      <li className="relative min-w-0 flex-1">
+        <button type="button" aria-expanded={moreOpen} aria-controls="household-nav-more" onClick={() => setMoreOpen((open) => !open)}
+          className="flex min-h-11 w-full items-center justify-center rounded-xl px-2 text-sm hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          {t('nav.more')}
+        </button>
+        {moreOpen ? <ul id="household-nav-more" className="absolute right-0 top-full z-20 min-w-48 rounded-xl border border-line bg-white p-1 shadow-lg">
+          {overflow.map((link) => <li key={link.route}>
+            <NavLink href={link.href} onNavigate={() => { setMoreOpen(false); link.action(); }} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined}
+              className={`flex min-h-11 items-center rounded-lg px-3 text-sm hover:bg-sand focus-visible:outline-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
+              {link.label}
+            </NavLink>
+          </li>)}
+        </ul> : null}
+      </li>
+    </ul>
+    <ul className="hidden gap-x-1 py-2 sm:flex">
+      {links.map((link) => <li key={link.route} className="min-w-0 flex-1">
+        <NavLink href={link.href} onNavigate={link.action} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined}
+          className={`flex min-h-11 min-w-0 items-center justify-center rounded-xl px-2 text-center text-sm leading-tight transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
           {link.label}
         </NavLink>
       </li>)}
