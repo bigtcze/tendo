@@ -13,9 +13,9 @@ export default defineConfig({
   testIgnore: process.env.E2E_SR_AUDIT_DIR || process.env.E2E_AUDIT_DIR
     ? []
     : process.env.E2E_SCREENSHOT_PATH
-      ? ['e2e/journey.spec.ts', 'e2e/attention-clock.spec.ts', 'e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts']
+      ? ['e2e/journey.spec.ts', 'e2e/attention-clock.spec.ts', 'e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts', 'e2e/primitives-browser.spec.ts']
       : process.env.E2E_CLOCK_PHASE
-        ? ['e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts']
+        ? ['e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts', 'e2e/primitives-browser.spec.ts']
         : ['e2e/attention-clock.spec.ts', 'e2e/readme-screenshot.spec.ts', 'e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts'],
   fullyParallel: false,
   workers: 1,

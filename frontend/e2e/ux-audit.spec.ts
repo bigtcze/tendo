@@ -96,6 +96,11 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await signedOut.goto('/');
     await expect(signedOut.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
     await capture(signedOut, join(dir, `audit-login-en-${width}.png`));
+    if (width === 390) {
+      await signedOut.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+      await capture(signedOut, join(dir, 'audit-login-dark-en-390.png'));
+      await signedOut.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+    }
     await signedOut.getByLabel(en['login.login'], { exact: true }).fill('audit_missing_user');
     await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-audit-password');
     await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();

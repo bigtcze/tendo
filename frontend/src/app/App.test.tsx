@@ -270,7 +270,7 @@ describe('signed in', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
     expect(fake.requests.some((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toBe(true);
     expect(screen.queryByText('Veselí')).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('failed sign out keeps the signed-in state and says so', async () => {
@@ -308,7 +308,7 @@ describe('signed in', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('ignores a delayed mutation 401 after deliberate sign out', async () => {
@@ -335,7 +335,7 @@ describe('signed in', () => {
     expect(await screen.findByLabelText('Password')).toBeVisible();
     release(problem(401));
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus());
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('other household failures show a retryable error', async () => {

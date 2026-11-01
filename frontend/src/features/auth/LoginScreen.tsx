@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { Button } from '../../components/ui/button';
+import { NoticeRegion } from '../../components/ui/notice';
 import { LoginProviderOptions } from './LoginProviderOptions';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -47,7 +48,7 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
   return (
     <section className="settle">
       <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('login.title')}</Heading>
-      {notice ? <p role="status" className="mt-4 rounded-xl bg-sand px-4 py-3">{notice}</p> : null}
+      <NoticeRegion message={notice} className={notice ? 'mt-4' : undefined} />
       <form onSubmit={(event) => void actions.submit(event)} className="mt-8 space-y-5" noValidate>
         <div className="space-y-2">
           <Label htmlFor="login">{t('login.login')}</Label>
