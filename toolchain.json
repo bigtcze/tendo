@@ -11,7 +11,7 @@
   },
   "mise": {
     "version": "2026.10.23",
-    "linuxX64Sha256": "b8c44caa1ff2f7c417e0d40efc9235839e84bb9f55a13f93c128d48941c145a9"
+    "linuxX64Sha256": "4be3403954d8e8cdeba93bddd10212ae8ecb69ce549833041805a027b803d996"
   },
   "oapiCodegen": "v2.8.1",
   "openapiTypescript": "7.13.0",
