@@ -106,16 +106,12 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
 
 function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisabled: boolean }) {
   const { state, disabled, withHistory } = props;
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   return <div className="space-y-4 rounded-xl bg-sand/70 p-4">
     <IntervalFieldset {...props} />
     <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })} label={t('items.fluid')} />
-    <p className="text-base text-muted">{locale === 'cs'
-      ? (state.draft.fluid ? 'Konvici odvápněte znovu za 3 měsíce od dokončení.' : 'Popelnice každé úterý, i když se opozdíme.')
-      : (state.draft.fluid ? 'From completion: descale the kettle 3 months after it’s done.' : 'Fixed schedule: bins every Tuesday, even if you’re late.')}</p>
-    <p className="text-sm text-muted">{state.draft.fluid
-      ? t('items.fluid.on')
-      : locale === 'cs' ? 'Termíny zůstávají podle plánu.' : 'Keeps the planned dates, even if you finish late.'}</p>
+    <p className="text-base text-muted">{t(state.draft.fluid ? 'items.fluid.on' : 'items.fluid.off')}</p>
+    <p className="text-sm text-muted">{t(state.draft.fluid ? 'items.fluid.example.on' : 'items.fluid.example.off')}</p>
     {withHistory ? <HistoricalCompletion {...props} /> : null}
   </div>;
 }

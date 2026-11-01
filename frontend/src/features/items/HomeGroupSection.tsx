@@ -64,9 +64,9 @@ export function ItemRow({ item, group, subjectName, locale, userId, members, mem
           <span className='sr-only'>{t('itemDetail.open', { title: item.title })}</span>
         </NavLink>
         <p className='mt-1 break-words text-base text-muted'>
-          {group === 'needs' ? null : subjectName}
-          {attentionLine ? `${group === 'needs' ? '' : ' · '}${attentionLine}` : ''}
-          {historyLine ? ` · ${historyLine}` : ''}
+          {group === 'needs' ? null : <span>{subjectName}</span>}
+          {attentionLine ? `${group === 'needs' ? '' : ' · '}${attentionLine}` : null}
+          {historyLine ? ` · ${historyLine}` : null}
         </p>
         {item.recurrence ? <p className='mt-1 hidden break-words text-sm text-muted group-hover:block group-focus-within:block'>{repeatSummary(t, item.recurrence, locale)}</p> : null}
       </div>

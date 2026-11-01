@@ -21,38 +21,21 @@ export function HouseholdNavigation() {
     { route: 'account', href: '/account', label: t('nav.account'), accessibleName: t('home.account'), action: navigation.actions.account },
   ];
   const active = navigation.route === 'item' ? 'allItems' : navigation.route;
-  const primary = links.slice(0, 2);
-  const overflow = links.slice(2);
+  const linkClass = (route: HouseholdRoute) => `flex min-h-11 min-w-0 items-center justify-center rounded-xl px-2 text-center text-sm leading-tight transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === route ? 'bg-sand font-medium text-ink' : 'text-muted'}`;
+  // One list for every width: on phones the first two links stay visible and "More" reveals the rest as a second row.
   return <nav aria-label={t('nav.label')} className="border-b border-line">
-    <ul className="flex gap-1 py-2 sm:hidden">
-      {primary.map((link) => <li key={link.route} className="min-w-0 flex-1">
-        <NavLink href={link.href} onNavigate={link.action} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined}
-          className={`flex min-h-11 items-center justify-center rounded-xl px-2 text-center text-sm leading-tight transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
+    <ul id="household-nav-links" className="flex flex-wrap gap-1 py-2 sm:flex-nowrap">
+      {links.map((link, index) => <li key={link.route} className={index < 2 ? 'min-w-0 flex-1' : `${moreOpen ? 'order-2 basis-full' : 'hidden'} sm:order-none sm:block sm:min-w-0 sm:flex-1 sm:basis-0`}>
+        <NavLink href={link.href} onNavigate={() => { setMoreOpen(false); link.action(); }} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined} className={linkClass(link.route)}>
           {link.label}
         </NavLink>
       </li>)}
-      <li className="relative min-w-0 flex-1">
-        <button type="button" aria-expanded={moreOpen} aria-controls="household-nav-more" onClick={() => setMoreOpen((open) => !open)}
-          className="flex min-h-11 w-full items-center justify-center rounded-xl px-2 text-sm hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+      {links.length > 2 ? <li className="order-1 min-w-0 flex-1 sm:hidden">
+        <button type="button" aria-expanded={moreOpen} aria-controls="household-nav-links" onClick={() => setMoreOpen((open) => !open)}
+          className="flex min-h-11 w-full items-center justify-center rounded-xl px-2 text-sm text-muted hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
           {t('nav.more')}
         </button>
-        {moreOpen ? <ul id="household-nav-more" className="absolute right-0 top-full z-20 min-w-48 rounded-xl border border-line bg-white p-1 shadow-lg">
-          {overflow.map((link) => <li key={link.route}>
-            <NavLink href={link.href} onNavigate={() => { setMoreOpen(false); link.action(); }} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined}
-              className={`flex min-h-11 items-center rounded-lg px-3 text-sm hover:bg-sand focus-visible:outline-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
-              {link.label}
-            </NavLink>
-          </li>)}
-        </ul> : null}
-      </li>
-    </ul>
-    <ul className="hidden gap-x-1 py-2 sm:flex">
-      {links.map((link) => <li key={link.route} className="min-w-0 flex-1">
-        <NavLink href={link.href} onNavigate={link.action} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined}
-          className={`flex min-h-11 min-w-0 items-center justify-center rounded-xl px-2 text-center text-sm leading-tight transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted'}`}>
-          {link.label}
-        </NavLink>
-      </li>)}
+      </li> : null}
     </ul>
   </nav>;
 }

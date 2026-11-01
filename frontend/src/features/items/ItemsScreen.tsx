@@ -121,7 +121,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
     {emptyHome ? <EmptyHome /> : null}
     {home.itemsRequestComplete && !adding
-      ? <div className="quick-add-area"><label htmlFor="quick-add-trigger" className="mb-2 block font-display text-xl">Add something to remember</label><Button ref={addRef} id="quick-add-trigger" data-action="completion-trigger" type="button" aria-label={t('items.add')} onClick={add.openAddForm} className="w-full justify-start bg-white/70 text-left font-normal text-muted sm:max-w-xl">
+      ? <div className="quick-add-area"><p className="mb-2 font-display text-xl">{t('items.quickAdd.title')}</p><Button ref={addRef} id="quick-add-trigger" data-action="completion-trigger" type="button" aria-label={t('items.add')} onClick={add.openAddForm} className="w-full justify-start bg-white/70 text-left font-normal text-muted sm:max-w-xl">
         {t('items.add')}
       </Button></div>
       : null}

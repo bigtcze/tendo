@@ -81,7 +81,7 @@ export function HomeScreen({
           <div className="home-intro mb-8 flex flex-col justify-between gap-2 border-b border-line pb-6 sm:flex-row sm:items-end">
             <div><p className="text-base text-muted">{new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</p>
               <Heading className="mt-1 font-display text-display leading-tight">{household.name}</Heading></div>
-            <p className="font-display text-xl text-accent-strong">A little care makes a home.</p>
+            <p className="font-display text-xl text-accent-strong">{t('home.tagline')}</p>
           </div>
           <div className="mt-5">
             <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} />

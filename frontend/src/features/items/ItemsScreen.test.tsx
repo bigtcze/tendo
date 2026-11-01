@@ -747,7 +747,7 @@ describe('Home items', () => {
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
     expect(screen.getByText(/Nov 1, 2026/)).toBeVisible();
-    const rows = screen.getByRole('main').querySelectorAll('ul.divide-y > li');
+    const rows = screen.getByRole('main').querySelectorAll('li[data-item-id]');
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
