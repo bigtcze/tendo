@@ -119,11 +119,16 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
 
   const j4 = async (recorder: JourneyRecorder) => {
     await page.goto('/'); await requireItems(); recorder.step();
-    const done = page.locator('main li[data-item-id]').first().locator('button[data-action="done"]');
+    const firstRow = page.locator('main li[data-item-id]').first();
+    const itemId = await firstRow.getAttribute('data-item-id');
+    expect(itemId).toBeTruthy();
+    const done = firstRow.locator('button[data-action="done"]');
     await expect(done).toBeVisible();
     await click(done, recorder);
     const undo = page.getByRole('button', { name: en['items.undo'], exact: true });
     await expect(undo).toBeVisible(); recorder.step(); await click(undo, recorder);
+    await expect(undo).toHaveCount(0);
+    await expect(page.locator(`main li[data-item-id="${itemId}"] button[data-action="done"]`)).toBeVisible();
   };
   await record('J4 mark done and undo from Home', j4);
   await record('J4 mark done and undo from Home', j4, 1440);
@@ -143,6 +148,7 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await click(page.getByRole('button', { name: en['allItems.searchButton'], exact: true }), recorder);
     const result = page.getByRole('main').getByRole('link', { name: oldTitle!, exact: true }).first();
     await expect(result).toBeVisible(); recorder.step(); await click(result, recorder);
+    await expect(page.getByRole('heading', { level: 1, name: oldTitle!, exact: true })).toBeVisible();
   };
   await record('J5 search an old done item in All items', j5);
   await record('J5 search an old done item in All items', j5, 1440);
@@ -163,6 +169,7 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await click(archive, recorder);
     await expect(page.getByRole('button', { name: en['subjects.restore'], exact: true })).toBeVisible();
     await click(page.getByRole('button', { name: en['subjects.restore'], exact: true }), recorder);
+    await expect(archive).toBeVisible();
     recorder.obstacle('Detail has no Done action; archive and restore are available there.');
   };
   await record('J6 edit archive restore from detail', j6);
@@ -172,6 +179,9 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await click(page.getByRole('button', { name: en['members.invite.action'], exact: true }), recorder);
     await expect(page.getByRole('textbox', { name: en['members.invite.link'] })).toBeVisible();
     await click(page.getByRole('button', { name: en['members.invite.copy'], exact: true }), recorder);
+    // Headless clipboard access may be denied; either outcome is a completed, visible copy result.
+    await expect(page.getByRole('button', { name: en['members.invite.copiedButton'], exact: true })
+      .or(page.getByText(en['members.invite.manualCopy'], { exact: true }))).toBeVisible();
     recorder.step(); recorder.obstacle('Invite creation displays a one-time link and Copy control.');
   });
 

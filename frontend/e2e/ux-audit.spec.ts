@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Response } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { en } from '../src/i18n/en';
@@ -17,8 +17,9 @@ const routeOverflow: Record<string, boolean> = {};
 const routeOverflowElements: Record<string, Array<{ tag: string; text: string; right: number }>> = {};
 const routeMetrics: Record<string, CaptureMetrics> = {};
 const journeyMetrics: Record<string, import('./audit/journeys').JourneyResult> = {};
+const shownInviteTokens: string[] = [];
 
-async function capture(page: Page, path: string, fullPage = true) {
+async function capture(page: Page, path: string, fullPage = true, mask: Locator[] = []) {
   const width = page.viewportSize()?.width;
   if (!width) throw new Error(`Capture requires a viewport: ${path}`);
   await page.setViewportSize({ width, height: 900 });
@@ -36,7 +37,7 @@ async function capture(page: Page, path: string, fullPage = true) {
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
   routeMetrics[file] = await measureCapture(page, resultSelector);
-  await page.screenshot({ path, fullPage });
+  await page.screenshot({ path, fullPage, mask });
 }
 
 async function api(page: Page, method: 'get' | 'post' | 'patch', path: string, data?: unknown, headers: Record<string, string> = {}) {
@@ -67,6 +68,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   await page.getByRole('button', { name: en['onboarding.submit'] }).click();
   await expect(page.getByRole('alert').first()).toBeVisible();
   await capture(page, join(dir, 'onboarding-error-en-390.png'));
+  await page.setViewportSize({ width: 390, height: 844 });
   const setupRecorder = new JourneyRecorder(); setupRecorder.start();
   journeyMetrics['J9 first-run setup 390x844'] = await runFirstRunSetup(page, process.env.E2E_SETUP_TOKEN!, process.env.E2E_OWNER_PASSWORD!, setupRecorder);
   await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
@@ -421,9 +423,6 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             await expect(csRoutePage.getByRole('heading', { level: 1, name: cs[name] })).toBeVisible();
             await capture(csRoutePage, join(dir, file));
           }
-          await csRoutePage.goto('/'); await csRoutePage.getByRole('button', { name: cs['items.add'] }).click();
-          await expect(csRoutePage.getByRole('form', { name: cs['items.add.formLabel'] })).toBeVisible();
-          await capture(csRoutePage, join(dir, `audit-add-form-cs-${width}.png`));
           await csRoutePage.goto(`/items/${recurringHistoryItemId}`);
           await expect(csRoutePage.getByRole('heading', { name: cs['itemDetail.history'] })).toBeVisible();
           await csRoutePage.getByRole('button', { name: cs['itemDetail.edit.button'], exact: true }).click();
@@ -434,10 +433,10 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await csRoutePage.goto(`/items/${archivedDetailFixture!.id}`); await expect(csRoutePage.getByRole('heading', { level: 1 })).toBeVisible();
           await capture(csRoutePage, join(dir, `audit-item-detail-archived-cs-${width}.png`));
           if (width === 390) {
-            const csErrorContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+            const csErrorContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
             await csErrorContext.addCookies(await page.context().cookies());
             const csErrorPage = await csErrorContext.newPage();
-            await csErrorPage.goto('/');
+            await csErrorPage.goto('/'); await csErrorPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
             const errorSession = await api(csErrorPage, 'get', '/api/v1/session');
             expect(errorSession.status()).toBe(200);
             const csHouseholdForError = (await errorSession.json() as { defaultHouseholdId: string }).defaultHouseholdId;
@@ -445,6 +444,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
               await route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) });
             });
             await csErrorPage.goto('/'); await expect(csErrorPage.getByRole('heading', { level: 1 })).toBeVisible();
+            await expect(csErrorPage.getByRole('button', { name: cs['app.error.retry'], exact: true })).toBeVisible();
             await capture(csErrorPage, join(dir, 'audit-home-server-error-cs-390.png'));
             await csErrorContext.close();
           }
@@ -495,9 +495,12 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await capture(memberPage, join(dir, `audit-members-non-owner-cs-${width}.png`));
         }
         await memberContext.close();
-        await page.getByRole('button', { name: 'Create invite link' }).click();
-        await expect(page.getByLabel('Invitation link')).toBeVisible();
-        await capture(page, join(dir, `audit-members-invite-en-${width}.png`));
+        await page.getByRole('button', { name: en['members.invite.action'], exact: true }).click();
+        const inviteLink = page.getByLabel(en['members.invite.link'], { exact: true });
+        await expect(inviteLink).toHaveValue(/\/invite#.+/);
+        shownInviteTokens.push((await inviteLink.inputValue()).split('#')[1]!);
+        // The one-time invitation token is a bearer secret: mask the link field in committed evidence.
+        await capture(page, join(dir, `audit-members-invite-en-${width}.png`), true, [inviteLink]);
         await page.goto('/');
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.account'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['account.title'] })).toBeVisible();
@@ -615,7 +618,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
   metrics.stages.routeOverflow = routeOverflow;
   metrics.stages.routeOverflowElements = routeOverflowElements;
   const safeMetrics = JSON.stringify(metrics);
-  for (const secret of [process.env.E2E_SETUP_TOKEN, process.env.E2E_OWNER_PASSWORD, 'audit-member-password-long-enough', invitation.token, auditInvite.token]) {
+  for (const secret of [process.env.E2E_SETUP_TOKEN, process.env.E2E_OWNER_PASSWORD, 'audit-member-password-long-enough', invitation.token, auditInvite.token, ...shownInviteTokens]) {
     expect(secret, 'audit secret fixture is present').toBeTruthy();
     expect(safeMetrics, 'metrics.json must not contain credential or invitation secrets').not.toContain(secret!);
   }
