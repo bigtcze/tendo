@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
@@ -83,7 +84,8 @@ export function AddItemPanel(props: AddItemPanelProps) {
   if (!adding) return null;
   const showForm = recovering || recoveryEditable || (subjectState === 'ready' && selectable.length > 0);
   const showEmpty = !recovering && !recoveryEditable && subjectState === 'ready' && selectable.length === 0;
-  return <div className="add-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+  // Portal to <body>: an animated ancestor creates a stacking context that would keep the sheet under the fixed phone nav.
+  return createPortal(<div className="add-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t('items.add.formLabel')} className="add-sheet" onMouseDown={(event) => event.stopPropagation()}>
     {showForm ? <ItemForm
       busy={busy}
@@ -100,8 +102,8 @@ export function AddItemPanel(props: AddItemPanelProps) {
     /> : null}
     {showEmpty ? <div className="rounded-2xl border border-line bg-white/70 p-5">
       <p>{t('items.noSubjects')}</p>
-      <Button ref={noSubjectsRef} type="button" variant="quiet" aria-label={t('home.people')} className="mt-3" onClick={onOpenPeople}>
-        {t('nav.peopleShort')}
+      <Button ref={noSubjectsRef} type="button" variant="quiet" className="mt-3" onClick={onOpenPeople}>
+        {t('home.people')}
       </Button>
       <Button type="button" variant="quiet" className="mt-3" onClick={onCancel}>{t('items.cancel')}</Button>
     </div> : null}
@@ -109,5 +111,5 @@ export function AddItemPanel(props: AddItemPanelProps) {
       ? <Button type="button" variant="quiet" className="mt-3" onClick={onCancel}>{t('items.cancel')}</Button>
       : null}
     </div>
-  </div>;
+  </div>, document.body);
 }
