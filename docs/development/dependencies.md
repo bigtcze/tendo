@@ -11,7 +11,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | Node.js (CI, Docker web build) | 26.13.0 | 26.13.0 (LTS "Lithium") | Current; see Node.js 26 migration notes below; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
-| mise (installer used by `scripts/dev-exec.sh`) | 2026.10.21 | 2026.10.24 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
+| mise (installer used by `scripts/dev-exec.sh`) | 2026.10.22 | 2026.10.24 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
 | oapi-codegen | v2.8.1 | v2.8.1 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
