@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path';
 import { en } from '../src/i18n/en';
 import { cs } from '../src/i18n/cs';
 
-const dir = resolve(process.env.TENDO_DIRECTION_CAPTURE_DIR ?? '/tmp/opencode/direction-capture-unconfigured');
+const dir = resolve(process.env.E2E_AUDIT_DIR!);
 const baseURL = process.env.E2E_BASE_URL!;
 test.describe.configure({ mode: 'serial' });
 test.use({ reducedMotion: 'reduce' });

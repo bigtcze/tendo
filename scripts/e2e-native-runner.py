@@ -331,7 +331,7 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         "E2E_ARTIFACT_DIR": str(artifact_dir),
     })
     if sum(value is not None for value in (screenshot_path, audit_dir, sr_audit_dir)) > 1:
-        raise RuntimeError("capture modes are mutually exclusive")
+        raise RuntimeError("screenshot, UX audit and screen-reader audit modes are mutually exclusive")
     if sr_audit_dir is not None:
         base["E2E_SR_AUDIT_DIR"] = str(sr_audit_dir.resolve())
         base["E2E_SR_DEBUG_FILE"] = str(sr_audit_dir.resolve() / "orca-debug.out")
@@ -344,7 +344,9 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         run_screen_reader(root, base, children, artifact_dir, sr_audit_dir)
     elif audit_dir is not None:
         base["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
-        run_playwright(root, base, children, "e2e/ux-audit.spec.ts", timeout=1800)
+        # Prototype-only: TENDO_DIRECTION_CAPTURE=1 swaps the audit spec for the design-direction capture.
+        spec = "e2e/direction-capture.spec.ts" if inherited.get("TENDO_DIRECTION_CAPTURE") == "1" else "e2e/ux-audit.spec.ts"
+        run_playwright(root, base, children, spec, timeout=1800)
     else:
         if screenshot_path is None:
             raise RuntimeError("screenshot path is required for README capture")
@@ -454,7 +456,7 @@ def main():
     args = parser.parse_args()
     selected = [args.screenshot, args.audit_dir, args.sr_audit_dir]
     if sum(value is not None for value in selected) > 1:
-        parser.error("capture modes are mutually exclusive")
+        parser.error("--screenshot, --audit-dir and --sr-audit-dir are mutually exclusive")
     root = args.root.resolve()
     for key in ("TEST_DATABASE_ADMIN_URL", "TEST_DATABASE_URL", "TENDO_TEST_POSTGRES_ADMIN_URL"):
         register_database_url(os.environ.get(key, ""))
@@ -482,10 +484,8 @@ def main():
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
-        inherited = os.environ.copy()
-        inherited.pop("TENDO_DIRECTION_CAPTURE_DIR", None)
         if args.screenshot or args.audit_dir or args.sr_audit_dir:
-            run_screenshot(root, args.app.resolve(), inherited, children, artifact_dir, args.screenshot, args.audit_dir, args.sr_audit_dir)
+            run_screenshot(root, args.app.resolve(), os.environ.copy(), children, artifact_dir, args.screenshot, args.audit_dir, args.sr_audit_dir)
             if args.sr_audit_dir:
                 print(f"Screen-reader audit artifacts saved at {args.sr_audit_dir.resolve()}")
             elif args.audit_dir:
@@ -493,7 +493,7 @@ def main():
             else:
                 print(f"README screenshot saved at {args.screenshot.resolve()}")
         else:
-            run_suite(root, args.app.resolve(), args.provider.resolve(), inherited, children, artifact_dir)
+            run_suite(root, args.app.resolve(), args.provider.resolve(), os.environ.copy(), children, artifact_dir)
             print(f"E2E artifacts retained at {artifact_dir}")
             print("Native production-binary E2E passed.")
     except BaseException as exc:

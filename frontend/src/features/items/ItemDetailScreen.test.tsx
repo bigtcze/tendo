@@ -133,16 +133,25 @@ describe('item details', () => {
     release();
   });
 
-  it('keeps detail Done and Undo feedback while the list refreshes in the background', async () => {
-    const fake = installFakeServer(common({ [`GET ${path}`]: json(200, item(), { ETag: '"1"' }), [`PATCH ${path}`]: json(200, item({ done: true, workflowState: 'open' })) }));
+  it('completes from detail with an idempotent completion request and undoes it', async () => {
+    let done = false;
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => json(200, item({ done }), { ETag: done ? '"2"' : '"1"' }),
+      [`POST ${historyPath}`]: () => { done = true; return json(201, completion('c-detail', '2026-05-14')); },
+      [`PATCH ${historyPath}/c-detail`]: () => { done = false; return json(200, completion('c-detail', '2026-05-14')); },
+    }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
     expect(await screen.findByRole('button', { name: 'Undo' })).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('Renew passport');
-    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1);
+    expect(screen.getByText(/Renew passport/, { selector: '[role="status"]' })).toBeVisible();
+    const posts = requestsOf(fake.requests, 'POST', historyPath);
+    expect(posts).toHaveLength(1);
+    expect(posts[0].headers.get('If-Match')).toBe('"1"');
+    expect(posts[0].headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', `${historyPath}/c-detail`)).toHaveLength(1));
+    expect(JSON.parse(requestsOf(fake.requests, 'PATCH', `${historyPath}/c-detail`)[0].body)).toEqual({ undone: true });
     expect(await screen.findByRole('button', { name: 'Done' })).toBeVisible();
-    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2);
   });
 
   it('reloads after a stale write and shows latest values and notice', async () => {
