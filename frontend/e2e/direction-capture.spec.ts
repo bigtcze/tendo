@@ -131,12 +131,12 @@ test('capture Direction A with real synthetic households', async ({ page, browse
   await page.setViewportSize({ width: 390, height: 844 }); await capture(page, 'edit-390-en.png', 390);
   await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/items/${detailId}`); await capture(page, 'detail-390-en.png', 390);
-  await page.setViewportSize({ width: 1440, height: 844 }); await page.goto(`/items/${detailId}`);
+  await page.setViewportSize({ width: 1440, height: 844 }); await page.goto(`/items/${detailId}`); await expect(page.locator('.desktop-item-list [data-item-id]').first()).toBeVisible();
   await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
   const wideEditForm = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] }); await expect(wideEditForm).toBeVisible(); await capture(page, 'edit-1440-en.png', 1440);
   await wideEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
-  await page.goto(`/items/${detailId}`); await capture(page, 'detail-1440-en.png', 1440);
-  await page.setViewportSize({ width: 1440, height: 844 }); await page.goto(`/items/${detailId}`);
+  await page.goto(`/items/${detailId}`); await expect(page.locator('.desktop-item-list [data-item-id]').first()).toBeVisible(); await capture(page, 'detail-1440-en.png', 1440);
+  await page.setViewportSize({ width: 1440, height: 844 }); await page.goto(`/items/${detailId}`); await expect(page.locator('.desktop-item-list [data-item-id]').first()).toBeVisible();
   await page.locator('.detail-done').click();
   await expect(page.getByRole('status').filter({ hasText: items[2]!.title })).toBeVisible();
   await expect(page.getByRole('button', { name: en['items.undo'], exact: true })).toBeVisible();
@@ -155,6 +155,6 @@ test('capture Direction A with real synthetic households', async ({ page, browse
   await csContext.addCookies(await page.context().cookies());
   const csPage = await csContext.newPage(); await csPage.clock.setFixedTime(new Date('2026-05-14T08:00:00Z')); await csPage.evaluate(() => { document.documentElement.dataset.testDate = '2026-05-14'; }); await csPage.goto('/'); await csPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csPage.reload();
   await csPage.setViewportSize({ width: 390, height: 844 }); await csPage.goto(`/items/${items[2]!.id}`); await expect(csPage.getByRole('heading', { level: 1 })).toBeVisible();
-  await capture(csPage, 'detail-390-cs.png', 390); await csPage.setViewportSize({ width: 1440, height: 844 }); await capture(csPage, 'detail-1440-cs.png', 1440);
+  await capture(csPage, 'detail-390-cs.png', 390); await csPage.setViewportSize({ width: 1440, height: 844 }); await expect(csPage.locator('.desktop-item-list [data-item-id]').first()).toBeVisible(); await capture(csPage, 'detail-1440-cs.png', 1440);
   await csContext.close();
 });
