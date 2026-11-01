@@ -10,7 +10,7 @@ import { HOME_GROUP_ROW_CAP, groups, type GroupData } from './homeGroups';
 
 function rowMetadata(item: Item, group: ItemGroup, subjectName: string, locale: string, members: Member[], membersLoaded: boolean, userId: string, t: ReturnType<typeof useI18n>['t']) {
   const responsible = item.responsibleUserId ? members.find((member) => member.userId === item.responsibleUserId) : undefined;
-  const accessibleDate = item.attentionOn ? new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${item.attentionOn}T00:00:00Z`)) : null;
+  const accessibleDate = item.attentionOn ? formatDate(item.attentionOn, locale) : null;
   const attention = accessibleDate ? t(group === 'needs' ? 'items.needsSince' : group === 'upcoming' ? 'items.attentionOn' : 'items.rowAttentionDate', { date: accessibleDate }) : null;
   const relativeDate = item.attentionOn ? relativeAttention(item.attentionOn, locale, nowFromPage()) : null;
   const assigned = item.responsibleUserId && membersLoaded

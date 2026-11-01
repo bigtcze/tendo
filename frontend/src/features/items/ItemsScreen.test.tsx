@@ -751,7 +751,7 @@ describe('Home items', () => {
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
     const futureRow = screen.getByText('Future item').closest('li')!;
-    expect(futureRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention 1 Nov 2026'));
+    expect(futureRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention Nov 1, 2026'));
     const rows = screen.getByRole('main').querySelectorAll('.home-group-list ul > li');
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
@@ -771,14 +771,14 @@ describe('Home items', () => {
     const needsRow = needs.closest('li')!;
     await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
     expect(needsRow.querySelector('.row-secondary')).toHaveTextContent('Anna');
-    expect(needsRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention since 3 Dec 2025'));
+    expect(needsRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention since Dec 3, 2025'));
     expect(needsRow.querySelector('.row-secondary .sr-only')).toHaveTextContent('Last done Dec 1, 2025');
     const progressRow = screen.getByText('In progress date').closest('li')!;
     expect(progressRow.querySelector('.row-secondary')).toHaveTextContent('petr');
-    expect(progressRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date 4 Mar 2026'));
-    expect(screen.getByText('Waiting date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date 5 Mar 2026'));
-    expect(screen.getByText('Paused date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date 6 Mar 2026'));
-    expect(screen.getByText('Upcoming date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention 3 Feb 2026'));
+    expect(progressRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date Mar 4, 2026'));
+    expect(screen.getByText('Waiting date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date Mar 5, 2026'));
+    expect(screen.getByText('Paused date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date Mar 6, 2026'));
+    expect(screen.getByText('Upcoming date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention Feb 3, 2026'));
     const noDateRow = screen.getByText('No attention date').closest('li')!;
     expect(noDateRow.querySelector('.row-secondary')).not.toHaveTextContent('Attention date');
     expect(noDateRow.querySelector('.row-secondary')).not.toHaveAttribute('aria-label');
