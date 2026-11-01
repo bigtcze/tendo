@@ -3,8 +3,8 @@ import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { useI18n, type MessageKey, type Translate } from '../../i18n';
 import type { Member } from '../members/membersApi';
-import { formatDate } from './formatDate';
 import { repeatSummary } from './repeatSummary';
+import { formatDate } from './formatDate';
 import type { Item } from './itemsApi';
 import type { PageState } from './allItemsPageState';
 import { countFor, countKey, cursorStack, hasFilters, type Context } from './allItemsUrl';
@@ -12,8 +12,6 @@ import type { AllItemsActions } from './useAllItems';
 
 const emptyCard = 'rounded-3xl border border-line bg-white/70 p-6 sm:p-8';
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const titleLink = 'inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg leading-snug underline decoration-line underline-offset-4 '
-  + `hover:decoration-accent ${focusRing}`;
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
@@ -42,20 +40,22 @@ export function outcomeText(view: ResultsView, context: Context, page: PageState
   return view === 'rows' ? rangeLabel(context, page, t, locale) : '';
 }
 
-const stateLabels: Partial<Record<Item['workflowState'], MessageKey>> = {
-  paused: 'items.group.paused', in_progress: 'items.group.inProgress', waiting: 'items.group.waiting',
-};
-
-function stateLabel(item: Item): MessageKey {
-  if (item.archived) return 'allItems.status.archived';
-  if (item.done) return 'itemDetail.state.done';
-  return stateLabels[item.workflowState] ?? (item.attention === 'upcoming' ? 'items.group.upcoming' : 'items.group.needs');
+function relativeDay(value: string, locale: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  const today = new Date();
+  const delta = Math.round((date.getTime() - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86_400_000);
+  if (!delta) return locale === 'cs' ? 'dnes' : 'today';
+  if (delta > 0) return locale === 'cs' ? `za ${delta} dní` : `in ${delta} days`;
+  return locale === 'cs' ? `od ${date.getUTCDate()}. ${new Intl.DateTimeFormat('cs-CZ', { month: 'short', timeZone: 'UTC' }).format(date)}` : `since ${date.getUTCDate()} ${new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(date)}`;
 }
 
-// Same wording as Home rows: only an open item can be due on or overdue since its date.
-function attentionKey(item: Item): MessageKey {
-  if (item.archived || item.done || item.workflowState !== 'open') return 'items.rowAttentionDate';
-  return item.attention === 'upcoming' ? 'items.attentionOn' : 'items.needsSince';
+function allItemsAttentionDescription(item: Item, date: string | null, locale: string, t: Translate) {
+  if (!date) return undefined;
+  const key: MessageKey = item.done || item.archived || item.workflowState !== 'open'
+    ? 'items.rowAttentionDate'
+    : item.attention === 'upcoming' ? 'items.attentionOn' : 'items.needsSince';
+  const lastDone = item.lastCompletedOn ? ` · ${t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) })}` : '';
+  return `${t(key, { date })}${lastDone}`;
 }
 
 function ItemRow({ item, subjectName, members, onOpenItem }: {
@@ -63,14 +63,22 @@ function ItemRow({ item, subjectName, members, onOpenItem }: {
 }) {
   const { t, locale } = useI18n();
   const responsible = members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
-  return <li data-item-id={item.id} className="p-4">
-    <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
-      className={titleLink}>{item.title}</NavLink>
-    <p className="mt-1 text-sm text-muted">{subjectName ?? t('items.subject.unknown')}</p>
-    <p className="text-sm font-medium text-accent-strong">{t(stateLabel(item))}</p>
-    {item.attentionOn ? <p className="text-sm text-muted">{t(attentionKey(item), { date: formatDate(item.attentionOn, locale) })}</p> : null}
-    {item.recurrence ? <p className="text-sm text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
-    {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: responsible })}</p> : null}
+  const attentionDate = item.attentionOn ? formatDate(item.attentionOn, locale) : null;
+  const attentionDescription = allItemsAttentionDescription(item, attentionDate, locale, t);
+  const attentionText = attentionDate ? relativeDay(item.attentionOn!, locale) : null;
+  const recurrenceText = item.recurrence ? repeatSummary(t, item.recurrence, locale) : null;
+  const visibleSecondary = [subjectName ?? t('items.subject.unknown'), attentionText, item.responsibleUserId ? t('items.responsible.read', { name: responsible }) : null].filter(Boolean).join(' · ');
+  return <li data-item-id={item.id} className="item-row flex items-center gap-3 border-b border-line px-3 py-2">
+    <div className="row-copy min-w-0 flex-1">
+      <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
+        className="row-title inline-flex min-h-11 max-w-full text-left text-lg font-medium leading-snug focus-visible:outline-2 focus-visible:outline-accent">{item.title}</NavLink>
+      <p className="row-secondary text-base text-muted" aria-label={attentionDescription}>
+        <span>{visibleSecondary}</span>
+        {recurrenceText ? <span className="sr-only"> {recurrenceText}</span> : null}
+        {attentionDescription ? <span className="sr-only"> {attentionDescription}</span> : null}
+      </p>
+    </div>
+    {item.recurrence ? <span className="repeat-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7v5h-5M4 17v-5h5M5.6 9a7 7 0 0 1 11.7-2L20 12M4 12l2.7 5a7 7 0 0 0 11.7-2"/></svg></span> : null}
   </li>;
 }
 
@@ -106,7 +114,7 @@ export function AllItemsResults({ view, context, page, subjectNames, members, ac
   if (view !== 'rows') return null;
   return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
     <h2 className="font-display text-xl leading-snug">{rangeLabel(context, page, t, locale)}</h2>
-    <ul className="mt-3 divide-y divide-line border-y border-line bg-white/70">
+    <ul className="all-items-list mt-3 divide-y divide-line border-y border-line bg-white/70">
       {page.items.map((item) =>
         <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem} />)}
     </ul>

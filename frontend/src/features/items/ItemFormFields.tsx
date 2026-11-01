@@ -66,16 +66,16 @@ function DateField({ id, errorId, state, disabled }: FieldProps) {
 }
 
 function Switch({ checked, disabled, onChange, label }: { checked: boolean; disabled: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <label className="switch-row flex min-h-12 items-center justify-between gap-4">
-    <span className="text-base font-medium">{label}</span>
-    <span className="switch-control">
+  return <div className="switch-row flex min-h-12 items-center justify-between gap-4">
+    <span className="switch-label text-base font-medium">{label}</span>
+    <label className="switch-target" aria-label={label}>
       <input
-        disabled={disabled} type="checkbox" role="switch" checked={checked}
+        disabled={disabled} type="checkbox" role="switch" aria-label={label} checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      <span aria-hidden="true" />
-    </span>
-  </label>;
+      <span className="switch-control" aria-hidden="true" style={{ width: 54, height: 32 }} />
+    </label>
+  </div>;
 }
 
 function RepeatSwitch({ state, disabled, mode }: FieldProps & { mode: 'add' | 'edit' }) {
@@ -110,7 +110,7 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
 function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisabled: boolean }) {
   const { state, disabled, withHistory } = props;
   const { t } = useI18n();
-  return <div className="space-y-4 rounded-xl bg-sand/70 p-4">
+  return <div className="repeat-settings space-y-4 rounded-xl bg-sand/70 p-4">
     <IntervalFieldset {...props} />
     <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })} label={t('items.fluid')} />
     <p className="text-base text-muted"><span>{t(state.draft.fluid ? 'items.fluid.on' : 'items.fluid.off')}</span><span className="example-copy"> {t(state.draft.fluid ? 'items.fluid.exampleOn' : 'items.fluid.exampleOff')}</span></p>

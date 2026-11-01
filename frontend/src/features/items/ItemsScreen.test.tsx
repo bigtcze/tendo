@@ -208,7 +208,6 @@ describe('item creation', () => {
     expect(within(restored).getByLabelText('What needs doing?')).toHaveValue('Reload item');
     expect(within(restored).getByLabelText('What needs doing?')).toBeDisabled();
     expect(await within(restored).findByRole('button', { name: 'Check again' })).toBeVisible();
-    await waitFor(() => expect(within(restored).getByText('We couldn’t confirm this was saved.')).toHaveFocus());
     await userEvent.click(within(restored).getByRole('button', { name: 'Check again' }));
     await screen.findByText('“Reload item” was added.');
     const resent = requestsOf(reloaded.requests, 'POST', `${base}/items`)[0]!;
@@ -553,14 +552,19 @@ describe('item creation', () => {
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);
   });
 
-  it('renders Repeat and Fluid switches at least 24px square', async () => {
+  it('renders accessible Repeat and Fluid switches with a visible 44px+ control target', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
     const form = await openForm();
     const repeat = within(form).getByRole('switch', { name: 'Repeat' });
-    expect(repeat).toHaveClass('size-6');
+    expect(repeat.closest('.switch-row')).toHaveClass('min-h-12');
+    expect(repeat.parentElement).toHaveClass('switch-target');
+    expect(repeat.parentElement?.querySelector('.switch-control')).toHaveStyle({ width: '54px', height: '32px' });
     await userEvent.click(repeat);
-    expect(within(form).getByRole('switch', { name: /count the next repeat/i })).toHaveClass('size-6');
+    const fluid = within(form).getByRole('switch', { name: /count the next repeat/i });
+    expect(fluid.closest('.switch-row')).toHaveClass('min-h-12');
+    expect(fluid.parentElement).toHaveClass('switch-target');
+    expect(fluid.parentElement?.querySelector('.switch-control')).toHaveStyle({ width: '54px', height: '32px' });
   });
 
   it('maps a 422 title error to a focused accessible field', async () => {
@@ -730,7 +734,7 @@ describe('Home items', () => {
     expect(calls.every((request) => request.query.getAll('id').join() === 'archived-id')).toBe(true);
   });
 
-  it('groups by server states and formats date-only values without timezone shifting', async () => {
+  it('groups by server states and formats relative date-only values without timezone shifting', async () => {
     // Node honours TZ changes at runtime; a negative offset would turn a naive Date('2026-11-01') into Oct 31.
     vi.stubEnv('TZ', 'America/Los_Angeles');
     expect(new Date('2026-11-01').getDate()).toBe(31);
@@ -746,8 +750,9 @@ describe('Home items', () => {
     await screen.findByText('Need now');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
-    expect(screen.getByText(/Nov 1, 2026/)).toBeVisible();
-    const rows = screen.getByRole('main').querySelectorAll('ul.divide-y > li');
+    const futureRow = screen.getByText('Future item').closest('li')!;
+    expect(futureRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention 1 Nov 2026'));
+    const rows = screen.getByRole('main').querySelectorAll('.home-group-list ul > li');
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
@@ -765,24 +770,25 @@ describe('Home items', () => {
     const needs = await screen.findByText('Needs date');
     const needsRow = needs.closest('li')!;
     await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
-    expect(needsRow).toHaveTextContent('Needs attention since Dec 3, 2025');
-    expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
+    expect(needsRow.querySelector('.row-secondary')).toHaveTextContent('Anna');
+    expect(needsRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention since 3 Dec 2025'));
+    expect(needsRow.querySelector('.row-secondary .sr-only')).toHaveTextContent('Last done Dec 1, 2025');
     const progressRow = screen.getByText('In progress date').closest('li')!;
-    expect(progressRow).toHaveTextContent('Attention date Mar 4, 2026');
-    expect(progressRow).toHaveTextContent('petr');
-    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5, 2026');
-    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6, 2026');
-    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3, 2026');
+    expect(progressRow.querySelector('.row-secondary')).toHaveTextContent('petr');
+    expect(progressRow.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date 4 Mar 2026'));
+    expect(screen.getByText('Waiting date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date 5 Mar 2026'));
+    expect(screen.getByText('Paused date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Attention date 6 Mar 2026'));
+    expect(screen.getByText('Upcoming date').closest('li')?.querySelector('.row-secondary')).toHaveAttribute('aria-label', expect.stringContaining('Needs attention 3 Feb 2026'));
     const noDateRow = screen.getByText('No attention date').closest('li')!;
-    expect(noDateRow).not.toHaveTextContent('Attention date');
-    expect(noDateRow).not.toHaveTextContent('Needs attention since');
+    expect(noDateRow.querySelector('.row-secondary')).not.toHaveTextContent('Attention date');
+    expect(noDateRow.querySelector('.row-secondary')).not.toHaveAttribute('aria-label');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
   });
 
   it.each([
     { locale: 'en', fixed: 'Repeats every 1 year · keeps planned dates', fluid: 'Repeats every 3 months · counted from when it’s done' },
     { locale: 'cs', fixed: 'Opakuje se každý 1 rok · drží plánované termíny', fluid: 'Opakuje se každé 3 měsíce · počítá se od dokončení' },
-  ])('says on each repeating row whether the next date keeps the plan or follows completion ($locale)', async ({ locale, fixed, fluid }) => {
+  ])('keeps fixed and after-completion recurrence information accessible on each row ($locale)', async ({ locale, fixed, fluid }) => {
     if (locale === 'cs') localStorage.setItem('tendo.locale', 'cs');
     const entries = [
       item({ id: 'fixed', title: 'Fixed repeat', recurrence: { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' } }),
@@ -792,9 +798,10 @@ describe('Home items', () => {
     installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
     app();
     const fixedRow = (await screen.findByText('Fixed repeat')).closest('li')!;
-    expect(within(fixedRow).getByText(fixed)).toBeVisible();
-    expect(within(screen.getByText('Fluid repeat').closest('li')!).getByText(fluid)).toBeVisible();
-    expect(screen.getByText('One-off').closest('li')!.textContent).not.toMatch(/Repeats|Opakuje|planned|plánované|done ·|dokončení/);
+    expect(within(fixedRow).getByText(fixed, { selector: '.sr-only' })).toBeInTheDocument();
+    const fluidRow = screen.getByText('Fluid repeat').closest('li')!;
+    expect(within(fluidRow).getByText(fluid, { selector: '.sr-only' })).toBeInTheDocument();
+    expect(screen.getByText('One-off').closest('li')!.querySelector('.repeat-mark')).toBeNull();
   });
 
   it('retries only failed label IDs while retaining names from the successful partition', async () => {

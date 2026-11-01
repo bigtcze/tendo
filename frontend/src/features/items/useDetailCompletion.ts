@@ -29,6 +29,7 @@ export function useDetailCompletion(householdId: string, itemId: string, title: 
     try {
       const current = await getItem(householdId, itemId);
       if (current.kind === 'unauthenticated') { onSignedOut(); return; }
+      if (current.kind === 'notFound') { setNotice(t('items.notice.gone')); return; }
       if (current.kind !== 'ok') { setNotice(t(current.kind === 'changed' ? 'items.notice.changed' : 'items.error.action')); return; }
       const key = idempotencyKey();
       const result = await completeItem(householdId, itemId, current.etag, key);

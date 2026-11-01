@@ -50,9 +50,18 @@ export function useItemFormState({ id, noticeRef, subjects, onSubmit, busy, mode
     }
     wasLocked.current = locked;
   }, [locked, preserveDraftOnUnlock]);
+  const focusedInitial = useRef(false);
+  const focusedNotice = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (notice && noticeRef.current) noticeRef.current.focus();
-    else document.getElementById(controlId(id, 'title'))?.focus();
+    if (!focusedInitial.current && !notice) {
+      document.getElementById(controlId(id, 'title'))?.focus();
+      focusedInitial.current = true;
+    }
+    if (notice && noticeRef.current && focusedNotice.current !== notice) {
+      noticeRef.current.focus();
+      focusedNotice.current = notice;
+    }
+    if (!notice) focusedNotice.current = undefined;
   }, [notice, id, noticeRef]);
 
   const update = (patch: Partial<ItemDraft>) => setDraft((current) => ({ ...current, ...patch }));

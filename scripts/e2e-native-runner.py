@@ -330,6 +330,8 @@ def run_screenshot(root: Path, app_path: Path, inherited: dict[str, str], childr
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
         "E2E_ARTIFACT_DIR": str(artifact_dir),
     })
+    if sum(value is not None for value in (screenshot_path, audit_dir, sr_audit_dir)) > 1:
+        raise RuntimeError("capture modes are mutually exclusive")
     if sr_audit_dir is not None:
         base["E2E_SR_AUDIT_DIR"] = str(sr_audit_dir.resolve())
         base["E2E_SR_DEBUG_FILE"] = str(sr_audit_dir.resolve() / "orca-debug.out")

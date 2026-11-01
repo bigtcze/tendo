@@ -26,7 +26,7 @@ type HomeGroupListProps = {
 export function HomeGroupList(props: HomeGroupListProps) {
   const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, userId, members, membersLoaded, busy } = props;
   const { t, locale } = useI18n();
-  return <>{groups.map((group) => {
+  return <div className="home-group-list">{groups.map((group) => {
     const state = groupData[group.id];
     return <HomeGroupSection
       key={group.id}
@@ -55,5 +55,5 @@ export function HomeGroupList(props: HomeGroupListProps) {
         onOpenItem={props.onOpenItem}
       />)}
     </HomeGroupSection>;
-  })}</>;
+  })}</div>;
 }

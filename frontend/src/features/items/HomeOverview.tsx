@@ -114,7 +114,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
   // Overview links only target sections that actually render (summary count and loaded rows), so every link has a heading to focus.
   const overviewGroups = groups.filter((group) => summary[group.count] > 0 && groupData[group.id].items.length > 0);
   if (overviewGroups.length < 2) return null;
-  return <nav aria-label={t('items.group.overview')} className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+  return <nav aria-label={t('items.group.overview')} className="home-overview-nav flex flex-wrap gap-x-4 gap-y-2 text-sm">
     {overviewGroups.map((group) => <a
       key={group.id}
       href={`#group-${group.id}`}
@@ -125,7 +125,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
         event.preventDefault();
         sectionHeadingRefs.current.get(group.id)?.focus();
       }}
-      className={overviewLinkClass}
+      className={`${overviewLinkClass} overview-chip`}
     >{t(group.key)} {summary[group.count]}</a>)}
   </nav>;
 }

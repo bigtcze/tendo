@@ -92,6 +92,7 @@ describe('item details', () => {
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.getByText('Bring old passport')).toBeVisible();
     expect(screen.getByText(/Repeats every 2 years/)).toBeVisible();
+    expect(screen.getByText(/For: Anna/)).toBeVisible();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Renew passport' })).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
@@ -130,6 +131,18 @@ describe('item details', () => {
     expect(patch.headers.get('If-Match')).toBe('"2"');
     expect(button).toBeDisabled();
     release();
+  });
+
+  it('keeps detail Done and Undo feedback while the list refreshes in the background', async () => {
+    const fake = installFakeServer(common({ [`GET ${path}`]: json(200, item(), { ETag: '"1"' }), [`PATCH ${path}`]: json(200, item({ done: true, workflowState: 'open' })) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('Renew passport');
+    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByRole('button', { name: 'Done' })).toBeVisible();
+    expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2);
   });
 
   it('reloads after a stale write and shows latest values and notice', async () => {
@@ -765,7 +778,7 @@ describe('item details', () => {
     await userEvent.clear(title); await userEvent.type(title, 'Other title');
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit item' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Edit' })).toHaveFocus();
+    expect(document.activeElement).toHaveAttribute('data-item-detail-focus-return', 'true');
     expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1);
     expect(title).toHaveValue('Other title');
   });
@@ -859,7 +872,7 @@ describe('item details', () => {
     const edit = await screen.findByRole('button', { name: 'Edit' });
     await userEvent.click(edit); const form = await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByRole('button', { name: 'Edit' })).toHaveFocus();
+    expect(document.activeElement).toHaveAttribute('data-item-detail-focus-return', 'true');
     await userEvent.click(screen.getByRole('button', { name: 'Edit' })); const formAgain = await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Changed title');
     await userEvent.click(within(formAgain).getByRole('button', { name: 'Save changes' }));
@@ -995,7 +1008,7 @@ describe('item details', () => {
     installFakeServer(common({ [`GET ${base}/items`]: json(200, { items: [item()], nextCursor: null }) })); app();
     await userEvent.click(await screen.findByRole('link', { name: 'Otevřít položku Renew passport' }));
     expect(await screen.findByRole('heading', { name: 'Renew passport' })).toBeVisible();
-    expect(screen.getByText('Naposledy hotovo 10. 10. 2025')).toBeVisible();
+    expect(screen.getByText('Naposledy hotovo 10. října')).toBeVisible();
     window.history.back(); await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(await screen.findByRole('heading', { name: 'Veselí' })).toBeVisible();
   });

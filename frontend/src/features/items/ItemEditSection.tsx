@@ -13,7 +13,7 @@ export function ItemEditSection({ editing, subjects, members, busy, locale, t, o
   const conflict = editing.conflict && editing.latest
     ? <ItemEditConflictSummary latest={editing.latest} mine={editing.mine} subjects={subjects} members={members} locale={locale} t={t} />
     : null;
-  return <div className="mt-6 space-y-4">
+  return <div className="item-edit-section mt-6 space-y-4">
     {conflict}
     <ItemForm
       key={`${editing.baseline.id}:${editing.etag}`} mode="edit"

@@ -33,21 +33,13 @@ export function ItemDetailActions(props: Props) {
   const { item, busy, editLoading, editRef, t, onEdit, onArchive, onRestore, onDone, onUndo, completionNotice } = props;
   const live = !item.done && !item.archived;
   return <>
-    <DetailCompletionActions className="item-detail-actions" done={item.done} busy={busy} notice={completionNotice} completion={Boolean(completionNotice)} t={t} onDone={onDone} onUndo={onUndo} />
-    {live ? <>
-      {editLoading ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.edit.loading')}</p> : null}
-      <Button ref={editRef} type="button" variant="quiet" className="mt-0" disabled={busy || editLoading} onClick={onEdit}>
-        {t('itemDetail.edit.button')}
-      </Button>
-    </> : null}
-    {live ? <details className="item-secondary-actions mt-4">
-      <summary className="inline-flex min-h-11 cursor-pointer items-center px-3 text-muted underline decoration-line underline-offset-4">{t('itemDetail.otherActions')}</summary>
-      <div className="mt-3 flex flex-wrap gap-2"><WorkflowButtons {...props} /></div>
-    </details> : null}
-    {!item.archived
-      ? <div className="mt-5 border-t border-line pt-4">
-        <Button type="button" variant="quiet" disabled={busy} onClick={onArchive}>{t('subjects.archive')}</Button>
-      </div>
-      : <Button type="button" variant="quiet" className="mt-5" disabled={busy} onClick={onRestore}>{t('subjects.restore')}</Button>}
+    <div className="item-detail-primary"><DetailCompletionActions className="item-detail-actions" done={item.done} busy={busy} notice={completionNotice} completion={Boolean(completionNotice)} t={t} onDone={onDone} onUndo={onUndo} /></div>
+    {live && editLoading ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.edit.loading')}</p> : null}
+    <div className="item-secondary-actions flex flex-wrap items-center gap-2">
+      {live ? <WorkflowButtons {...props} /> : null}
+      {live ? <Button ref={editRef} data-item-detail-focus-return="true" type="button" variant="quiet" disabled={busy || editLoading} onClick={onEdit}>{t('itemDetail.edit.button')}</Button> : null}
+      {item.archived ? <Button type="button" variant="quiet" disabled={busy} onClick={onRestore}>{t('subjects.restore')}</Button> : null}
+      {!item.archived ? <Button type="button" variant="quiet" disabled={busy} onClick={onArchive}>{t('subjects.archive')}</Button> : null}
+    </div>
   </>;
 }

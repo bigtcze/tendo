@@ -79,7 +79,6 @@ export function HomeScreen({
       {household.kind === 'ready' ? (
         <section className="settle">
           <div className="home-heading"><p className="text-base font-medium text-accent">{new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}</p><Heading className="mt-1 font-display text-display leading-tight">{household.name}</Heading></div>
-          <p className="home-today-label text-base font-medium text-accent">{t('items.group.needs')}</p>
           <div className="mt-3">
             <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} locale={locale} />
           </div>

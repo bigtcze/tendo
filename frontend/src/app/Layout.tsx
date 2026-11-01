@@ -25,12 +25,12 @@ function LanguageSwitch() {
   );
 }
 
-export function Layout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
+export function Layout({ actions, children, embedded = false }: { actions?: ReactNode; children: ReactNode; embedded?: boolean }) {
   const { t } = useI18n();
   const mainRef = useRef<HTMLElement>(null);
   const navigationContext = useContext(HouseholdNavigationContext);
   return (
-    <div className="app-frame mx-auto flex min-h-dvh w-full flex-col px-5 sm:px-8 lg:px-10">
+    <div className={`app-frame mx-auto flex min-h-dvh w-full flex-col px-5 sm:px-8 lg:px-10 ${embedded ? 'app-embedded' : ''}`}>
       <a
         href="#main"
         onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); mainRef.current?.scrollIntoView(); }}
@@ -38,17 +38,17 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
       >
         {t('app.skipToContent')}
       </a>
-      <header className="app-header flex min-h-16 flex-wrap items-center justify-between gap-x-4 py-3">
+      {!embedded ? <header className="app-header flex min-h-16 flex-wrap items-center justify-between gap-x-4 py-3">
         <span className="font-display text-xl tracking-tight">{t('app.name')}</span>
         {actions}
-      </header>
-      {navigationContext ? <HouseholdNavigation /> : null}
+      </header> : null}
+      {!embedded && navigationContext ? <HouseholdNavigation /> : null}
       <main id="main" ref={mainRef} tabIndex={-1} className="app-main flex-1 py-4 sm:py-8">
         {children}
       </main>
-      <footer className="flex justify-end py-4">
+      {!embedded ? <footer className="flex justify-end py-4">
         <LanguageSwitch />
-      </footer>
+      </footer> : null}
     </div>
   );
 }

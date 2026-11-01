@@ -65,7 +65,7 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   }, [setRoute, transitionedRef]);
   const openItemFromHome = useCallback((itemId: string) => {
     transitionedRef.current = true;
-    window.history.pushState(null, '', `/items/${encodeURIComponent(itemId)}`);
+    window.history.pushState({ returnTo: window.location.pathname + window.location.search }, '', `/items/${encodeURIComponent(itemId)}`);
     setRoute({ kind: 'item', itemId });
   }, [setRoute, transitionedRef]);
 

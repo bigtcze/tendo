@@ -164,14 +164,14 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
   });
 
-  it('shows the repeat mode next to the interval on result rows', async () => {
+  it('keeps the repeat mode available to assistive technology on result rows', async () => {
     await openAllItems([
       makeItem(1, { title: 'Fixed result', recurrence: { intervalUnit: 'week', intervalValue: 2, mode: 'fixed' } }),
       makeItem(2, { title: 'Fluid result', recurrence: { intervalUnit: 'day', intervalValue: 1, mode: 'after_completion' } }),
     ]);
     const main = screen.getByRole('main');
-    expect(within(within(main).getByText('Fixed result').closest('li')!).getByText('Repeats every 2 weeks · keeps planned dates')).toBeVisible();
-    expect(within(within(main).getByText('Fluid result').closest('li')!).getByText('Repeats every 1 day · counted from when it’s done')).toBeVisible();
+    expect(within(within(main).getByText('Fixed result').closest('li')!).getByText('Repeats every 2 weeks · keeps planned dates', { selector: '.sr-only' })).toBeInTheDocument();
+    expect(within(within(main).getByText('Fluid result').closest('li')!).getByText('Repeats every 1 day · counted from when it’s done', { selector: '.sr-only' })).toBeInTheDocument();
   });
 
   it('names the search landmark and the results region', async () => {
@@ -182,16 +182,19 @@ describe('All items', () => {
     expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
   });
 
-  it('words the attention date by state, never repeating "Needs attention" without "since"', async () => {
+  it('shows compact attention dates while keeping full state wording accessible', async () => {
     await openAllItems([
       makeItem(1, { title: 'Overdue result', attentionOn: '2025-11-18', attention: 'needs_attention' }),
       makeItem(2, { title: 'Upcoming result', attentionOn: '2026-02-15', attention: 'upcoming' }),
       makeItem(3, { title: 'Paused result', attentionOn: '2026-03-01', attention: 'upcoming', workflowState: 'paused' }),
     ]);
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
-    expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
-    expect(row('Upcoming result').getByText('Needs attention Feb 15, 2026')).toBeVisible();
-    expect(row('Paused result').getByText('Attention date Mar 1, 2026')).toBeVisible();
+    expect(row('Overdue result').getByText(/since 18 Nov/, { selector: 'span:not(.sr-only)' })).toBeVisible();
+    expect(row('Overdue result').getByText(/Needs attention since Nov 18, 2025/, { selector: '.sr-only' })).toBeInTheDocument();
+    expect(row('Upcoming result').getByText(/since 15 Feb/, { selector: 'span:not(.sr-only)' })).toBeVisible();
+    expect(row('Upcoming result').getByText(/Needs attention Feb 15, 2026/, { selector: '.sr-only' })).toBeInTheDocument();
+    expect(row('Paused result').getByText(/since 1 Mar/, { selector: 'span:not(.sr-only)' })).toBeVisible();
+    expect(row('Paused result').getByText(/Attention date Mar 1, 2026/, { selector: '.sr-only' })).toBeInTheDocument();
   });
 
   it('sends all combined filter values to both summary and list', async () => {

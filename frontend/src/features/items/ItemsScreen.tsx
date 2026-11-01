@@ -88,10 +88,14 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
   const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
-  const { cancelAddAndFocus, subjectName, emptyHome } = screen;
+  const { subjectName, emptyHome } = screen;
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
-  const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
+  const { adding, createNotice, names, createUncertain, recoveryEditable } = add;
 
+  const closeAdd = () => {
+    add.cancelAddForm();
+    requestAnimationFrame(() => addRef.current?.focus());
+  };
   return <div className="home-content space-y-6">
     <ItemsNoticeArea
       noticeRef={noticeRef}
@@ -107,15 +111,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       <Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button>
     </div> : null}
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-    <AddItemCatalogueStatus
-      adding={adding}
-      subjectLoading={add.subjectLoading}
-      subjectState={add.subjectState}
-      editingRecovery={recoveryEditable && !!pendingCreate}
-      retryRef={add.catalogueRetryRef}
-      onRetry={add.retryCatalogue}
-      onCancel={cancelAddAndFocus}
-    />
+    <AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState} editingRecovery={recoveryEditable && !!add.pendingCreate} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={closeAdd} />
     {labels.loading && visibleSubjectIDs.some((id) => !names.has(id))
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
@@ -124,8 +120,9 @@ export function ItemsScreen(props: ItemsScreenProps) {
     {!loading && summary && !adding
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
+    <div className="home-list-region">
     {home.itemsRequestComplete && !adding
-      ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="w-full sm:w-auto">
+      ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="add-item-trigger w-full sm:w-auto">
         {t('items.add')}
       </Button>
       : null}
@@ -143,7 +140,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       initialValues={recovering ? add.pendingValues : add.retryDraft}
       noSubjectsRef={add.noSubjectsRef}
       onSubmit={add.create}
-      onCancel={cancelAddAndFocus}
+      onCancel={closeAdd}
       onOpenPeople={() => { add.cancelForPeople(); onOpenPeople(); }}
     />
     {!loading && summary ? <HomeGroupList
@@ -161,5 +158,6 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onDone={(itemId) => void completion.finish(itemId)}
       onOpenItem={onOpenItem}
     /> : null}
+    </div>
   </div>;
 }
