@@ -278,6 +278,7 @@ export const en = {
   'items.fluid.example.off': 'For example, bins go out every Tuesday, even if you’re late once.',
   'items.fluid.example.on': 'For example, descale the kettle 3 months after you last did it.',
   'nav.more': 'More',
+  'itemDetail.markDone': 'Mark done',
   'home.tagline': 'A little care makes a home.',
   'items.quickAdd.title': 'Add something to remember',
   'items.repeatMode.fixed': 'keeps planned dates',

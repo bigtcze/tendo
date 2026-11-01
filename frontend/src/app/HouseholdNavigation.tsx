@@ -22,15 +22,15 @@ export function HouseholdNavigation() {
   ];
   const active = navigation.route === 'item' ? 'allItems' : navigation.route;
   const linkClass = (route: HouseholdRoute) => `flex min-h-11 min-w-0 items-center justify-center rounded-xl px-2 text-center text-sm leading-tight transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active === route ? 'bg-sand font-medium text-ink' : 'text-muted'}`;
-  // One list for every width: on phones the first two links stay visible and "More" reveals the rest as a second row.
+  // One list for every width: on phones Home, All items and People and things stay visible and "More" reveals the rest as a second row.
   return <nav aria-label={t('nav.label')} className="border-b border-line">
     <ul id="household-nav-links" className="flex flex-wrap gap-1 py-2 sm:flex-nowrap">
-      {links.map((link, index) => <li key={link.route} className={index < 2 ? 'min-w-0 flex-1' : `${moreOpen ? 'order-2 basis-full' : 'hidden'} sm:order-none sm:block sm:min-w-0 sm:flex-1 sm:basis-0`}>
+      {links.map((link, index) => <li key={link.route} className={index < 3 ? 'min-w-0 flex-1' : `${moreOpen ? 'order-2 basis-full' : 'hidden'} sm:order-none sm:block sm:min-w-0 sm:flex-1 sm:basis-0`}>
         <NavLink href={link.href} onNavigate={() => { setMoreOpen(false); link.action(); }} aria-label={link.accessibleName} aria-current={active === link.route ? 'page' : undefined} className={linkClass(link.route)}>
           {link.label}
         </NavLink>
       </li>)}
-      {links.length > 2 ? <li className="order-1 min-w-0 flex-1 sm:hidden">
+      {links.length > 3 ? <li className="order-1 min-w-0 flex-1 sm:hidden">
         <button type="button" aria-expanded={moreOpen} aria-controls="household-nav-links" onClick={() => setMoreOpen((open) => !open)}
           className="flex min-h-11 w-full items-center justify-center rounded-xl px-2 text-sm text-muted hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
           {t('nav.more')}

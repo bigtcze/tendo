@@ -281,6 +281,7 @@ export const cs: Record<MessageKey, string> = {
   'items.fluid.example.off': 'Například popelnice každé úterý, i když se jednou opozdíte.',
   'items.fluid.example.on': 'Například odvápnit konvici 3 měsíce od posledního odvápnění.',
   'nav.more': 'Další',
+  'itemDetail.markDone': 'Označit jako hotové',
   'home.tagline': 'Trocha péče dělá domov.',
   'items.quickAdd.title': 'Přidejte, na co nezapomenout',
   'items.repeatMode.fixed': 'drží plánované termíny',

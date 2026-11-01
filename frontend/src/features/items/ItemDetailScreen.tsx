@@ -108,7 +108,7 @@ export function ItemDetailScreen({ householdId, itemId, login, onBack, onSignedO
         : <>
           {completionError ? <p role="alert" className="mt-4 text-danger">{t('itemDetail.actionFailed')}</p> : null}
           {completion ? <Button type="button" variant="quiet" disabled={completionBusy} onClick={() => void undoDone()}>{t('items.undo')}</Button>
-            : !item.done && !item.archived ? <Button type="button" className="mt-5" disabled={completionBusy} onClick={() => void markDone()}>{completionBusy ? t('items.add.submitting') : 'Mark done'}</Button> : null}
+            : !item.done && !item.archived ? <Button type="button" className="mt-5" disabled={completionBusy} onClick={() => void markDone()}>{t('itemDetail.markDone')}</Button> : null}
           <ItemDetailReadView item={item} t={t} locale={locale} />
           <ItemDetailActions item={item} busy={busy.busy} editLoading={editLoading} editRef={editButtonRef} t={t}
             onEdit={() => void edit.beginEdit()} onWorkflow={actions.setWorkflow} onArchive={actions.archive} onRestore={actions.restore} />
