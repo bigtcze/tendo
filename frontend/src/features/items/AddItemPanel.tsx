@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
@@ -16,7 +16,7 @@ type CatalogueStatusProps = {
   onCancel: () => void;
 };
 
-/** Catalogue loading and error states shown above the home overview while the add form opens. */
+/** Catalogue loading and error states shown inside the add dialog while the form opens. */
 export function AddItemCatalogueStatus(props: CatalogueStatusProps) {
   const { adding, subjectLoading, subjectState, editingRecovery, retryRef, onRetry, onCancel } = props;
   const { t } = useI18n();
@@ -50,12 +50,14 @@ type AddItemPanelProps = {
   onSubmit: (values: ItemFormValues) => Promise<SubmitOutcome>;
   onCancel: () => void;
   onOpenPeople: () => void;
+  /** Catalogue loading/error content; rendered inside the dialog so it is never covered by the backdrop. */
+  catalogueStatus?: ReactNode;
 };
 
 /** Add-item form, empty-catalogue prompt and loading cancel action. */
 export function AddItemPanel(props: AddItemPanelProps) {
   const { adding, busy, subjectLoading, subjectState, recovering, recoveryEditable, createUncertain } = props;
-  const { selectable, recoverySubjects, members, initialValues, noSubjectsRef, onSubmit, onCancel, onOpenPeople } = props;
+  const { selectable, recoverySubjects, members, initialValues, noSubjectsRef, onSubmit, onCancel, onOpenPeople, catalogueStatus } = props;
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
@@ -85,6 +87,7 @@ export function AddItemPanel(props: AddItemPanelProps) {
   const showEmpty = !recovering && !recoveryEditable && subjectState === 'ready' && selectable.length === 0;
   return <div className="add-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t('items.add.formLabel')} className="add-sheet" onMouseDown={(event) => event.stopPropagation()}>
+    {catalogueStatus}
     {showForm ? <ItemForm
       busy={busy}
       members={members}

@@ -115,7 +115,6 @@ export function ItemsScreen(props: ItemsScreenProps) {
       <Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button>
     </div> : null}
     {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-    <AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState} editingRecovery={recoveryEditable && !!add.pendingCreate} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={closeAdd} />
     {labels.loading && visibleSubjectIDs.some((id) => !names.has(id))
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
@@ -146,6 +145,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onSubmit={add.create}
       onCancel={closeAdd}
       onOpenPeople={() => { add.cancelForPeople(); onOpenPeople(); }}
+      catalogueStatus={<AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState} editingRecovery={recoveryEditable && !!add.pendingCreate} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={closeAdd} />}
     />
     {!loading && summary ? <HomeGroupList
       summary={summary}
