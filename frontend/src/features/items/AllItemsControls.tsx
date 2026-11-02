@@ -102,9 +102,9 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
         <span aria-hidden="true" className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
       </Button>
     </div>
+    {clear}
     <div id={panelId} className={`${expanded ? 'mt-4 block' : 'hidden'} space-y-4 lg:mt-0 lg:block`}>
       {fields}
     </div>
-    {clear}
   </div>;
 }

@@ -530,10 +530,15 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           if (width === 320) {
             await csItemsPage.getByLabel(cs['allItems.status.label']).selectOption('needs');
             await csItemsPage.locator('[data-all-items-filter-disclosure]').click();
-            await csItemsPage.getByLabel(cs['items.subject']).selectOption({ index: 1 });
+            const csSubject = csItemsPage.getByLabel(cs['items.subject']);
+            const selectedSubjectId = await csSubject.locator('option').nth(1).getAttribute('value');
+            await csSubject.selectOption({ index: 1 });
             await expect(csItemsPage.locator('[data-all-items-clear]')).toBeVisible();
+            await expect(csItemsPage.getByRole('button', { name: /Filtry \(1\)/ })).toBeVisible();
+            await expect(csSubject).toHaveValue(selectedSubjectId!);
             await expect(csItemsPage.locator('select').first()).toHaveValue('needs');
-            await csItemsPage.evaluate(() => window.scrollTo(0, 0));
+            await csItemsPage.locator('main').evaluate((main) => main.scrollIntoView({ block: 'start' }));
+            await expect(csItemsPage.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeInViewport();
             await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-active-filter.png'), false);
           }
           await csItemsPage.evaluate(() => window.scrollTo(0, 0));

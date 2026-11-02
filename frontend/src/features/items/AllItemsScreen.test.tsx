@@ -198,13 +198,18 @@ describe('All items', () => {
     window.history.replaceState(null, '', '/items?status=done');
     const activeItem = makeItem(1, { title: 'Active task' });
     const requests: RecordedRequest[] = [];
-    const doneSummary = json(200, { evaluatedOn: '2026-01-15', total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 });
-    const activeSummary = json(200, { evaluatedOn: '2026-01-15', total: 1, needsAttention: 1, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 });
     const routes = itemRoutes(base, [activeItem]);
     installFakeServer({
       ...bootRoutes,
-      [`GET ${base}/items/summary?status=done`]: (request) => { requests.push(request); return doneSummary; },
-      [`GET ${base}/items/summary`]: (request) => { requests.push(request); return activeSummary; },
+      [`GET ${base}/items/summary`]: (request) => {
+        requests.push(request);
+        return json(200, {
+          evaluatedOn: '2026-01-15',
+          total: request.query.get('status') === 'done' ? 0 : 1,
+          needsAttention: request.query.get('status') === 'done' ? 0 : 1,
+          inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0,
+        });
+      },
       ...routes,
       [`GET ${base}/items?limit=25&sort=attention_on&attentionDate=2026-01-15&done=true&archived=false`]: (request) => {
         requests.push(request);
