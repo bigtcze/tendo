@@ -19,14 +19,15 @@ All dimensions below were verified from PNG headers with `file` after the final 
 | `before/audit-all-items-en-320.png` (320×4923, full page) | `after/audit-all-items-en-320.png` (320×640, viewport) | English 320px list fold; Status and Filters occupy separate full-width rows, first title target clears navigation |
 | — | `after/audit-all-items-en-360.png` (360×900, viewport) | English list at 360px; stacked controls and first results |
 | `before/audit-all-items-en-390.png` (390×4702, full page) | `after/audit-all-items-en-390.png` (390×844, viewport) | English 390px list fold; full first result row above navigation |
-| — | `after/audit-all-items-cs-320.png` (320×640, viewport) | Czech 320px list fold with long selected attention status |
-| — | `after/audit-all-items-cs-320-active-filter.png` (320×640, viewport) | Czech 320px, Needs status, Filters (1), active secondary filter, and visible Clear; disclosure expanded |
+| — | `after/audit-all-items-cs-320.png` (320×640, viewport) | Czech 320px list fold, Active selected, first title visible above bottom navigation |
+| — | `after/audit-all-items-cs-320-status-only.png` (320×640, viewport) | Czech 320px, Needs status only; first title is asserted above bottom navigation |
+| — | `after/audit-all-items-cs-320-active-filter.png` (320×640, viewport) | Czech 320px, Needs status plus active Subject; Filters (1), expanded disclosure, and visible Clear |
 | — | `after/audit-all-items-filters-expanded-390.png` (390×844, viewport) | English phone disclosure expanded |
 | — | `after/audit-all-items-filtered-count-390.png` (390×844, viewport) | English phone with secondary filter count and visible Clear |
 | `before/audit-all-items-en-768.png` (768×4275, full page) | `after/audit-all-items-en-768.png` (768×900, viewport) | English tablet list |
 | `before/audit-all-items-en-1024.png` (1024×4151, full page) | `after/audit-all-items-en-1024.png` (1024×900, viewport) | English list at desktop breakpoint |
 | `before/audit-all-items-en-1440.png` (1440×4127, full page) | `after/audit-all-items-en-1440.png` (1440×900, viewport) | English desktop rail and result list |
-| `before/audit-all-items-cs-390.png` (390×4642, full page) | `after/audit-all-items-cs-390.png` (390×4103, viewport) | Czech phone list at 390px; after image is a viewport fold, not a full-page capture |
+| `before/audit-all-items-cs-390.png` (390×4642, full page) | `after/audit-all-items-cs-390.png` (390×4126, viewport) | Czech phone list at 390px; after image is a viewport fold, not a full-page capture |
 | `before/audit-all-items-cs-1440.png` (1440×4127, full page) | `after/audit-all-items-cs-1440.png` (1440×3315, viewport) | Czech desktop at 1440px; after image is a viewport fold, not a full-page capture |
 | — | `after/audit-all-items-dark-390.png` (390×844, viewport) | Forced-dark phone list readiness |
 | — | `after/audit-all-items-dark-1440.png` (1440×900, viewport) | Forced-dark desktop list readiness |

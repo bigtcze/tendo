@@ -48,12 +48,21 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
     return;
   }
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
+  const captureFocus = file === 'audit-all-items-cs-320-active-filter.png'
+    ? page.getByRole('heading', { level: 1, name: cs['allItems.title'] })
+    : undefined;
+  if (captureFocus) await captureFocus.focus();
   routeMetrics[file] = await measureCapture(page, resultSelector);
+  if (captureFocus) await captureFocus.focus();
   // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
   const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
   if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
-  // Measurement tabs through page content; restore viewport captures to the top afterwards.
-  await page.evaluate(() => window.scrollTo(0, 0));
+  // Measurement tabs through page content; restore viewport captures to the intended position afterwards.
+  if (file === 'audit-all-items-cs-320-active-filter.png') {
+    await page.getByRole('heading', { level: 1, name: cs['allItems.title'] }).scrollIntoViewIfNeeded();
+  } else {
+    await page.evaluate(() => window.scrollTo(0, 0));
+  }
   // Leave no measurement focus ring or pointer hover in the evidence image.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.mouse.move(0, 0);
@@ -514,7 +523,20 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await csItemsPage.goto('/'); await csItemsPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csItemsPage.reload(); await csItemsPage.goto('/items');
           const csRange = new RegExp(cs['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
           await expect(csItemsPage.getByRole('main').getByRole('heading', { name: csRange })).toBeVisible();
-          if (width <= 390) {
+          if (width === 320) {
+            await csItemsPage.evaluate(() => window.scrollTo(0, 0));
+            await capture(csItemsPage, join(dir, 'audit-all-items-cs-320.png'), false);
+            await csItemsPage.getByLabel(cs['allItems.status.label']).selectOption('needs');
+            await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toHaveValue('needs');
+            await expect(csItemsPage.locator('[data-all-items-filter-disclosure]')).toHaveAttribute('aria-expanded', 'false');
+            const firstStatusOnlyTitle = csItemsPage.locator('main li[data-item-id]').first().getByRole('link');
+            const firstStatusOnlyBox = await firstStatusOnlyTitle.boundingBox();
+            const bottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
+            expect(firstStatusOnlyBox).not.toBeNull();
+            expect(firstStatusOnlyBox!.y + firstStatusOnlyBox!.height).toBeLessThan(bottomBar);
+            await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-status-only.png'), false);
+          }
+          if (width <= 390 && !(width === 320 && csItemsPage.url().includes('status=needs'))) {
             const csFirstLink = csItemsPage.locator('main li[data-item-id]').first().getByRole('link');
             const csFirstLinkBox = await csFirstLink.boundingBox();
             const csBottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
@@ -528,7 +550,6 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             }
           }
           if (width === 320) {
-            await csItemsPage.getByLabel(cs['allItems.status.label']).selectOption('needs');
             await csItemsPage.locator('[data-all-items-filter-disclosure]').click();
             const csSubject = csItemsPage.getByLabel(cs['items.subject']);
             const selectedSubjectId = await csSubject.locator('option').nth(1).getAttribute('value');
@@ -536,13 +557,16 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             await expect(csItemsPage.locator('[data-all-items-clear]')).toBeVisible();
             await expect(csItemsPage.getByRole('button', { name: /Filtry \(1\)/ })).toBeVisible();
             await expect(csSubject).toHaveValue(selectedSubjectId!);
-            await expect(csItemsPage.locator('select').first()).toHaveValue('needs');
-            await csItemsPage.locator('main').evaluate((main) => main.scrollIntoView({ block: 'start' }));
+            await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toHaveValue('needs');
+            await csItemsPage.getByLabel(cs['allItems.status.label']).scrollIntoViewIfNeeded();
+            await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toBeInViewport();
             await expect(csItemsPage.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeInViewport();
             await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-active-filter.png'), false);
           }
-          await csItemsPage.evaluate(() => window.scrollTo(0, 0));
-          await capture(csItemsPage, join(dir, `audit-all-items-cs-${width}.png`), false);
+          if (width !== 320) {
+            await csItemsPage.evaluate(() => window.scrollTo(0, 0));
+            await capture(csItemsPage, join(dir, `audit-all-items-cs-${width}.png`), false);
+          }
           await csItemsContext.close();
         }
         await page.goto('/');
