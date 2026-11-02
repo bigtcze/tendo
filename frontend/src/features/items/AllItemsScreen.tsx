@@ -2,6 +2,7 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
+import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
 import { AllItemsResults, outcomeText, resultsView } from './AllItemsResults';
@@ -26,14 +27,21 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
     <section className="settle space-y-5">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
       <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
-      <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
-      <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId} actions={actions} />
-      {page.notice ? <p role="status" aria-live="polite" className="rounded-xl bg-sand px-4 py-2">{t('allItems.stale')}</p> : null}
-      {page.loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-      {page.error ? <div><p className="text-muted">{t('app.error.body')}</p>
-        <Button type="button" variant="quiet" onClick={actions.retry}>{t('app.error.retry')}</Button></div> : null}
-      <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} members={facets.members.values}
-        actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
+      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-6">
+          <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
+          <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
+            actions={actions} showClear={view !== 'noMatch'} />
+        </aside>
+        <div className="min-w-0 space-y-4">
+          {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}
+          {page.loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
+          {page.error ? <Notice tone="error" className="space-y-3"><p>{t('app.error.body')}</p>
+            <Button data-all-items-retry type="button" variant="secondary" onClick={actions.retry}>{t('app.error.retry')}</Button></Notice> : null}
+          <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} members={facets.members.values}
+            actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
+        </div>
+      </div>
     </section>
   </Layout>;
 }

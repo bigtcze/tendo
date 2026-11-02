@@ -412,6 +412,7 @@ export const en = {
   'allItems.first': 'First page',
   'allItems.next': 'Next page',
   'allItems.results': 'Results',
+
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -372,13 +372,55 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await page.setViewportSize({ width, height: 900 }); await page.goto('/items');
         const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
-        await capture(page, join(dir, `audit-all-items-en-${width}.png`));
+        await expect(page.getByRole('searchbox', { name: en['allItems.search'], exact: true })).toBeVisible();
+        const layout = await page.evaluate(() => ({
+          overflow: document.documentElement.scrollWidth > window.innerWidth,
+          offenders: [...document.querySelectorAll<HTMLElement>('*')].filter((element) => element.getBoundingClientRect().right > window.innerWidth + 0.5)
+            .map((element) => ({ tag: element.tagName, className: element.className, text: (element.innerText || '').slice(0, 50), right: element.getBoundingClientRect().right })),
+        }));
+        if (layout.overflow) console.error(`All items overflow at ${width}px`, layout.offenders);
+        expect(layout.overflow, `All items horizontal overflow at ${width}px`).toBe(false);
+        if (width <= 390) {
+          const firstRow = await page.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
+          expect(firstRow.top, `All items rows should begin in the first view at ${width}px`).toBeLessThan(900);
+          expect(firstRow.bottom, `All items first row should be visible at ${width}px`).toBeLessThan(900);
+        }
+        if (width >= 1024) {
+          const searchRect = await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).evaluate((node) => node.getBoundingClientRect());
+          const resultsRect = await page.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
+          expect(resultsRect.left, 'Desktop results should sit beside the filter rail').toBeGreaterThan(searchRect.right);
+        }
+        await capture(page, join(dir, `audit-all-items-en-${width}.png`), false);
+        if (width === 390 || width === 1440) {
+          await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+          await capture(page, join(dir, `audit-all-items-dark-${width}.png`), false);
+          await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+          await page.getByRole('button', { name: en['allItems.next'], exact: true }).click();
+          await expect(page.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeVisible();
+          await capture(page, join(dir, `audit-all-items-page2-${width}.png`), false);
+          await page.goto('/items');
+          await page.route('**/api/v1/households/*/items/summary*', route => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({ evaluatedOn: NOW, total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 }),
+          }));
+          await page.route('**/api/v1/households/*/items*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], nextCursor: null }) }));
+          await page.reload();
+          await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.none'] })).toBeVisible();
+          await capture(page, join(dir, `audit-all-items-empty-${width}.png`), false);
+          await page.unrouteAll();
+          await page.route('**/api/v1/households/*/items/summary*', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+          await page.reload();
+          await expect(page.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+          await capture(page, join(dir, `audit-all-items-error-${width}.png`), false);
+          await page.unrouteAll();
+          await page.goto('/items');
+        }
         await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('nejneobhospodařovávatelnějšího');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await page.getByLabel(en['allItems.status.label']).selectOption('active');
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
         await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
-        await capture(page, join(dir, `audit-all-items-search-en-${width}.png`));
+        await capture(page, join(dir, `audit-all-items-search-en-${width}.png`), false);
         await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await page.getByLabel(en['allItems.status.label']).selectOption('done');

@@ -17,7 +17,7 @@ export function Pagination({ canPrevious, canNext, hideNext = false, range, labe
   return (
     <nav aria-label={label} className="flex flex-wrap items-center justify-between gap-2">
       <Button type="button" variant="quiet" disabled={!canPrevious} onClick={onPrevious}>{previousLabel}</Button>
-      <p aria-live="polite" aria-atomic="true" className="text-meta text-muted">{range}</p>
+      <p aria-atomic="true" className="text-meta text-muted">{range}</p>
       {hideNext ? null : <Button type="button" variant="quiet" disabled={!canNext} onClick={onNext}>{nextLabel}</Button>}
     </nav>
   );

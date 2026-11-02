@@ -415,4 +415,5 @@ export const cs: Record<MessageKey, string> = {
   'allItems.first': 'První stránka',
   'allItems.next': 'Další stránka',
   'allItems.results': 'Výsledky',
+
 };

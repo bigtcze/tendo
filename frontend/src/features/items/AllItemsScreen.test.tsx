@@ -90,7 +90,7 @@ describe('All items', () => {
     window.history.replaceState(null, '', '/items?status=bogus&recurring=maybe&q=%20%20&subject=unknown-id');
     const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
     app();
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'p.font-display' })).toBeInTheDocument();
     expect(window.location.search).toBe('?subject=unknown-id');
     expect(screen.getByLabelText('Show')).toHaveValue('active');
     expect(screen.getByLabelText('For')).toHaveValue('unknown-id');
@@ -119,7 +119,7 @@ describe('All items', () => {
     expect(await screen.findByRole('option', { name: 'Unknown' })).toBeInTheDocument();
     expect(screen.getByLabelText('For')).toHaveValue('unknown-subject');
     // Facets (subject names) and the item list load independently; Clear exists only once the list settles to no-match.
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'p.font-display' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
     expect(window.location.pathname + window.location.search).toBe('/items');
     expect(unknown.requests.length).toBeGreaterThan(0);
@@ -191,7 +191,7 @@ describe('All items', () => {
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
     expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
     expect(row('Upcoming result').getByText('Needs attention Feb 15, 2026')).toBeVisible();
-    expect(row('Paused result').getByText('Attention date Mar 1, 2026')).toBeVisible();
+    expect(row('Paused result').getByText('Paused · Attention date Mar 1, 2026')).toBeVisible();
   });
 
   it('sends all combined filter values to both summary and list', async () => {
@@ -295,7 +295,7 @@ describe('All items', () => {
     const fake = await openAllItems([makeItem(1)]);
     await userEvent.type(screen.getByRole('searchbox'), 'missing');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'p.font-display' })).toBeInTheDocument();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
     await screen.findByText('Item 1');
@@ -333,7 +333,7 @@ describe('All items', () => {
     expect(screen.getByRole('searchbox')).toHaveValue('Unique archive target');
 
     await act(async () => releasePatch());
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByText('No items match.', { selector: 'p.font-display' })).toBeInTheDocument();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
     expect(window.location.pathname + window.location.search).toBe(filteredUrl);
     expect(screen.getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
