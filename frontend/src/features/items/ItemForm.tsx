@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react';
+import { useId, useRef, type RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
@@ -24,31 +24,38 @@ type ItemFormProps = {
   retryLabel?: string;
   submittingLabel?: string;
   preserveDraftOnUnlock?: boolean;
+  initialFocusRef?: RefObject<HTMLElement | null>;
 };
 
 export function ItemForm(props: ItemFormProps) {
-  const { subjects, members, onCancel, busy = false, mode = 'add', notice, locked = false } = props;
+  const { subjects, members, onCancel, busy = false, mode = 'add', notice, locked = false, initialFocusRef } = props;
   const { t } = useI18n();
   const id = useId();
   const noticeRef = useRef<HTMLDivElement>(null);
+  const initialTitleRef = useRef<HTMLInputElement>(null);
   const state = useItemFormState({
-    id, noticeRef, subjects, onSubmit: props.onSubmit, busy, mode, initialValues: props.initialValues, notice, locked,
+    id, subjects, onSubmit: props.onSubmit, busy, mode, initialValues: props.initialValues, notice, locked,
     preserveDraftOnUnlock: props.preserveDraftOnUnlock ?? false,
   });
   const errorId = `${id}-error`;
   const pendingOrLocked = state.pending || locked;
   return <form
     aria-label={t(mode === 'edit' ? 'itemDetail.edit.formLabel' : 'items.add.formLabel')} noValidate onSubmit={state.submit}
-    className="space-y-5 rounded-2xl border border-line bg-white/70 p-4 sm:p-6"
+    className="space-y-5 px-1 pb-1"
   >
     <ItemFormFields
       id={id} errorId={errorId} state={state} mode={mode} subjects={subjects} members={members}
+      titleRef={initialTitleRef}
+      onTitleRef={(node) => { if (node && !notice && initialFocusRef) initialFocusRef.current = node; }}
       disabled={pendingOrLocked || (mode === 'edit' && busy)} historyDisabled={pendingOrLocked}
     />
     {notice && state.showNotice
-      ? <div ref={noticeRef} tabIndex={-1} role="status" className="rounded-xl bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div>
+      ? <div ref={(node) => {
+        noticeRef.current = node;
+        if (node && state.showNotice && initialFocusRef) initialFocusRef.current = node;
+      }} tabIndex={-1} role="status" className="rounded-xl border border-line bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div>
       : null}
-    <div id={errorId} role="alert" className="text-danger">{errorMessage(state.error, t)}</div>
+    {state.error ? <div id={errorId} role="alert" className="text-danger">{errorMessage(state.error, t)}</div> : null}
     <FormActions {...props} busy={busy} mode={mode} locked={locked} pending={state.pending} onCancel={onCancel} />
   </form>;
 }

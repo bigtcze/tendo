@@ -1,10 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
+import { cs } from '../../i18n/cs';
+import { en } from '../../i18n/en';
 import type { Member } from '../members/membersApi';
 import type { Subject } from './itemsApi';
 import { ItemForm, type ItemFormValues } from './ItemForm';
+import { Dialog } from '../../components/ui/dialog';
+import { initialDraft } from './itemFormModel';
 
 const subjects: Subject[] = [{ id: 's-1', name: 'Kitchen', type: 'person', linkedUserId: null, archived: false, createdAt: '', updatedAt: '' }];
 const members: Member[] = [{ userId: 'u-1', login: 'anna', role: 'owner' }];
@@ -13,6 +17,40 @@ const renderForm = (props: Partial<React.ComponentProps<typeof ItemForm>> = {}) 
 const title = () => screen.getByLabelText('What needs doing?');
 
  describe('ItemForm direct behavior', () => {
+  it('shows a localized concrete title example while keeping the title optional until submission', () => {
+    renderForm();
+    expect(title()).toHaveAttribute('placeholder', en['items.title.placeholder']);
+    cleanup();
+    localStorage.setItem('tendo.locale', 'cs');
+    renderForm();
+    expect(screen.getByLabelText(cs['items.title'])).toHaveAttribute('placeholder', cs['items.title.placeholder']);
+  });
+
+  it('uses the intentionally chosen yearly recurrence default', () => {
+    expect(initialDraft(undefined, subjects)).toMatchObject({ interval: '1', unit: 'year', repeat: false });
+  });
+
+  it.each([
+    { locale: 'en', value: '1', unit: 'month', expected: '1 month' },
+    { locale: 'en', value: '2', unit: 'month', expected: '2 months' },
+    { locale: 'cs', value: '1', unit: 'month', expected: '1 měsíc' },
+    { locale: 'cs', value: '2', unit: 'month', expected: '2 měsíce' },
+    { locale: 'cs', value: '3', unit: 'month', expected: '3 měsíce' },
+    { locale: 'cs', value: '5', unit: 'month', expected: '5 měsíců' },
+    { locale: 'cs', value: '25', unit: 'month', expected: '25 měsíců' },
+  ])('uses natural $locale interval copy for $value $unit', async ({ locale, value, unit, expected }) => {
+    if (locale === 'cs') localStorage.setItem('tendo.locale', 'cs');
+    renderForm();
+    await userEvent.click(screen.getByRole('switch', { name: locale === 'cs' ? 'Opakovat' : 'Repeat' }));
+    await userEvent.clear(screen.getByRole('spinbutton'));
+    await userEvent.type(screen.getByRole('spinbutton'), value);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: locale === 'cs' ? 'Jednotka opakování' : 'Repeat interval' }), unit);
+    const completion = screen.getByRole('switch', { name: locale === 'cs' ? 'Další opakování počítat od dokončení' : 'Count the next repeat from when I complete this' });
+    await userEvent.click(completion);
+    const example = locale === 'cs' ? `Například další kontrola kotle bude ${expected} po dokončení.` : `For example, the next boiler check is due ${expected} after you finish.`;
+    expect(screen.getByText(example)).toBeVisible();
+  });
+
   it('submits exact add values, including optional history only for repeating items', async () => {
     const onSubmit = vi.fn(async () => ({ kind: 'done' as const }));
     renderForm({ onSubmit });
@@ -20,7 +58,7 @@ const title = () => screen.getByLabelText('What needs doing?');
     await userEvent.click(screen.getByRole('switch', { name: 'Repeat' }));
     await userEvent.clear(screen.getByRole('spinbutton', { name: 'Repeat every' }));
     await userEvent.type(screen.getByRole('spinbutton', { name: 'Repeat every' }), '3');
-    await userEvent.click(screen.getByRole('switch', { name: /Count the next repeat/ }));
+    await userEvent.click(screen.getByRole('switch', { name: /Count the next/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Add a previous completion' }));
     await userEvent.type(screen.getByLabelText('Last completed on'), '2026-04-02');
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
@@ -94,9 +132,10 @@ const title = () => screen.getByLabelText('What needs doing?');
     expect(screen.getByRole('option', { name: 'Unknown member' })).toHaveValue('u-gone');
   });
 
-  it('focuses notice on mount instead of title', () => {
-    renderForm({ notice: 'Try again' });
-    expect(screen.getByRole('status')).toHaveFocus();
+  it('Dialog focuses the recovery notice instead of the title', async () => {
+    const initialFocusRef: { current: HTMLElement | null } = { current: null };
+    render(<I18nProvider><Dialog open title="Add item" closeLabel="Cancel" initialFocusRef={initialFocusRef} onOpenChange={() => undefined}><ItemForm subjects={subjects} members={members} notice="Try again" initialFocusRef={initialFocusRef} onSubmit={vi.fn(async () => ({ kind: 'done' as const }))} onCancel={vi.fn()} /></Dialog></I18nProvider>);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveFocus());
     expect(title()).not.toHaveFocus();
   });
 
@@ -133,7 +172,7 @@ const title = () => screen.getByLabelText('What needs doing?');
     expect(screen.getByRole('switch', { name: 'Repeat' })).toBeChecked();
     expect(screen.getByRole('spinbutton', { name: 'Repeat every' })).toHaveValue(3);
     expect(screen.getByRole('combobox', { name: 'Repeat interval' })).toHaveValue('month');
-    expect(screen.getByRole('switch', { name: /Count the next repeat/ })).toBeChecked();
+    expect(screen.getByRole('switch', { name: /Count the next/ })).toBeChecked();
   });
 
   it('never sends a historical date from edit mode, even when initial values carry one', async () => {

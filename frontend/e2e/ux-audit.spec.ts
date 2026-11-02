@@ -236,7 +236,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       expect(archive.status(), `archive subject ${subject.name}`).toBe(200);
     }
   }
-  const createdItems: Array<{ generatorIndex: number; id: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
+  const createdItems: Array<{ generatorIndex: number; id: string; title: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
   async function verifyList(done: boolean, archived: boolean) {
     const all: Array<{ workflowState: string; done: boolean; archived: boolean }> = [];
     let cursor: string | undefined;
@@ -278,8 +278,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       pending.push((async () => {
         const response = await api(page, 'post', `${root}/items`, item, { 'Idempotency-Key': key() });
         expect(response.status(), `create item ${n}: ${await response.text()}`).toBe(201);
-        const result = await response.json() as { id: string; recurrence: { mode: string } | null; done: boolean; archived: boolean; workflowState: string };
-        createdItems.push({ generatorIndex: n, id: result.id, recurrence: result.recurrence, done: result.done, archived: result.archived, workflowState: result.workflowState });
+        const result = await response.json() as { id: string; title: string; recurrence: { mode: string } | null; done: boolean; archived: boolean; workflowState: string };
+        createdItems.push({ generatorIndex: n, id: result.id, title: result.title, recurrence: result.recurrence, done: result.done, archived: result.archived, workflowState: result.workflowState });
       })());
       if (pending.length >= 8) { await Promise.all(pending.splice(0)); }
     }
@@ -366,14 +366,14 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await page.getByRole('link', { name: target!.title, exact: true }).click();
       await expect(page.getByRole('heading', { level: 1, name: target!.title })).toBeVisible();
       await page.getByRole('button', { name: en['itemDetail.pause'], exact: true }).click();
-      await expect.poll(async () => (await (await api(page, 'get', `${root}/items/${target!.id}`)).json() as { workflowState: string }).workflowState).toBe('paused');
+      await expect.poll(async () => (await (await api(page, 'get', `${root}/items/${target!.id}`)).json() as { workflowState: string }).workflowState, { timeout: 10_000, message: 'item pauses after the action' }).toBe('paused');
       await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
       await expect(page).toHaveURL(searchUrl);
       await expect(searchbox).toHaveValue(query);
       await expect(page.locator(`main li[data-item-id="${target!.id}"]`)).toContainText(en['items.group.paused']);
       await page.getByRole('link', { name: target!.title, exact: true }).click();
       await page.getByRole('button', { name: en['itemDetail.resume'], exact: true }).click();
-      await expect.poll(async () => (await (await api(page, 'get', `${root}/items/${target!.id}`)).json() as { workflowState: string }).workflowState).toBe('open');
+      await expect.poll(async () => (await (await api(page, 'get', `${root}/items/${target!.id}`)).json() as { workflowState: string }).workflowState, { timeout: 10_000, message: 'item resumes after the action' }).toBe('open');
       await expect(page.getByRole('button', { name: en['itemDetail.pause'], exact: true })).toBeEnabled();
       await expect(page.getByRole('button', { name: en['itemDetail.resume'], exact: true })).toHaveCount(0);
       await capture(page, join(dir, 'audit-500-find-manage-detail-en-390.png'));
@@ -383,6 +383,12 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const tall = createdItems.find(item => item.recurrence?.mode === 'fixed' && !item.archived);
       expect(tall, 'recurring item fixture').toBeTruthy();
       const recurringHistoryItemId = tall!.id;
+      const afterCompletionFixture = createdItems.find(item =>
+        item.recurrence?.mode === 'after_completion' && !item.archived &&
+        ![1, 2, 4].includes(item.generatorIndex % 20),
+      );
+      expect(afterCompletionFixture, 'after-completion item fixture').toBeTruthy();
+      const afterCompletionItemId = afterCompletionFixture!.id;
       let doneDetailFixture: { id: string } | undefined;
       let archivedDetailFixture: { id: string } | undefined;
       for (const candidate of createdItems.filter(item => item.recurrence === null)) {
@@ -570,20 +576,66 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await csItemsContext.close();
         }
         await page.goto('/');
+        await page.setViewportSize({ width, height: 900 });
         await page.getByRole('button', { name: en['items.add'] }).click();
-        await expect(page.getByRole('switch', { name: en['items.repeat'] })).toBeVisible();
-        await page.getByRole('switch', { name: en['items.repeat'] }).check();
-        await expect(page.getByText(en['items.fluid'], { exact: true })).toBeVisible();
-        await capture(page, join(dir, `audit-add-form-en-${width}.png`));
+        const addForm = page.getByRole('form', { name: en['items.add.formLabel'] });
+        await expect(addForm).toBeVisible();
+        await expect(addForm.getByLabel(en['items.title'])).toBeFocused();
+        await capture(page, join(dir, `audit-add-empty-en-${width}.png`), false);
+        if (width === 320 || width === 390) await capture(page, join(dir, `audit-add-empty-placeholder-en-${width}.png`), false);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth), `add form overflow at ${width}px`).toBeLessThanOrEqual(width);
+        await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+        await expect(addForm.getByRole('switch', { name: /Count the next/ })).toBeVisible();
+        await capture(page, join(dir, `audit-add-fixed-en-${width}.png`), false);
+        await addForm.getByRole('switch', { name: /Count the next/ }).check();
+        await capture(page, join(dir, `audit-add-after-completion-en-${width}.png`), false);
+        await addForm.getByRole('switch', { name: /Count the next/ }).uncheck();
+        await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).uncheck();
+        await addForm.getByRole('button', { name: en['items.add.submit'], exact: true }).click();
+        await expect(addForm.getByRole('alert')).toBeVisible();
+        await capture(page, join(dir, `audit-add-validation-en-${width}.png`), false);
+        if (width === 390 || width === 1440) {
+          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+          await capture(page, join(dir, `audit-add-forced-dark-en-${width}.png`), false);
+          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+        }
+        await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
+        await page.setViewportSize({ width, height: 900 });
+        const afterCompletionDetail = createdItems.find(item => item.id === afterCompletionItemId)!;
+        const detailResponse = await api(page, 'get', `${root}/items/${afterCompletionItemId}`);
+        expect(detailResponse.status(), 'after-completion Edit fixture remains available').toBe(200);
+        const detailItem = await detailResponse.json() as { title: string; recurrence: { mode: string } | null; archived: boolean; done: boolean };
+        expect(detailItem).toMatchObject({ title: afterCompletionDetail.title, recurrence: { mode: 'after_completion' }, archived: false, done: false });
+        await page.goto(`/items/${afterCompletionItemId}`);
+        await expect(page.getByRole('heading', { level: 1, name: detailItem.title, exact: true }), 'loaded the intended after-completion item detail').toBeVisible({ timeout: 10_000 });
+        const editButton = page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true });
+        await expect(editButton, 'owner can edit the loaded after-completion item').toBeVisible({ timeout: 10_000 });
+        await editButton.click({ timeout: 10_000 });
+        const editForAfterMode = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+        await expect(editForAfterMode.getByRole('switch', { name: /Count the next/ })).toBeVisible();
+        await expect(editForAfterMode.getByRole('switch', { name: /Count the next/ })).toBeChecked();
+        await capture(page, join(dir, `audit-item-edit-after-completion-en-${width}.png`), false);
+        await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
         const csContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
         await csContext.addCookies(await page.context().cookies());
         const csPage = await csContext.newPage();
         await csPage.goto('/'); await csPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csPage.reload();
+        await csPage.setViewportSize({ width, height: 900 });
         await csPage.getByRole('button', { name: cs['items.add'] }).click();
-        await expect(csPage.getByRole('switch', { name: cs['items.repeat'] })).toBeVisible();
-        await csPage.getByRole('switch', { name: cs['items.repeat'] }).check();
-        await expect(csPage.getByText(cs['items.fluid'], { exact: true })).toBeVisible();
-        await capture(csPage, join(dir, `audit-add-form-cs-${width}.png`));
+        const csAddForm = csPage.getByRole('form', { name: cs['items.add.formLabel'] });
+        await expect(csAddForm).toBeVisible();
+        await capture(csPage, join(dir, `audit-add-empty-cs-${width}.png`), false);
+        if (width === 320 || width === 390) await capture(csPage, join(dir, `audit-add-empty-placeholder-cs-${width}.png`), false);
+        await csAddForm.getByRole('switch', { name: cs['items.repeat'], exact: true }).check();
+        await expect(csAddForm.getByRole('switch', { name: /Další/ })).toBeVisible();
+        await capture(csPage, join(dir, `audit-add-fixed-cs-${width}.png`), false);
+        await csAddForm.getByRole('switch', { name: /Další/ }).check();
+        await capture(csPage, join(dir, `audit-add-after-completion-cs-${width}.png`), false);
+        await csAddForm.getByRole('switch', { name: cs['items.repeat'], exact: true }).uncheck();
+        await csAddForm.getByRole('button', { name: cs['items.add.submit'], exact: true }).click();
+        await expect(csAddForm.getByRole('alert')).toBeVisible();
+        await capture(csPage, join(dir, `audit-add-validation-cs-${width}.png`), false);
+        await csPage.getByRole('dialog').locator('header button[aria-label]').click();
         await csPage.goto(`/items/${recurringHistoryItemId}`);
         await expect(csPage.getByRole('heading', { name: cs['itemDetail.history'] })).toBeVisible();
         await expect(csPage.getByRole('main').locator('ol li')).toHaveCount(2);
@@ -633,7 +685,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await capture(page, join(dir, `audit-item-detail-en-${width}.png`));
         await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
         await expect(page.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toBeVisible();
-        await capture(page, join(dir, `audit-item-edit-en-${width}.png`));
+        await capture(page, join(dir, `audit-item-edit-en-${width}.png`), false);
         if (width === 390) {
           const conflictItem = await api(page, 'get', `${root}/items/${recurringHistoryItemId}`);
           expect(conflictItem.status()).toBe(200);
@@ -645,7 +697,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await page.getByRole('form', { name: en['itemDetail.edit.formLabel'] }).getByRole('button', { name: en['itemDetail.save'], exact: true }).click();
           await expect(page.getByText(en['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
           await expect(page.getByText(en['itemDetail.edit.conflictHint'], { exact: true })).toBeVisible();
-          await capture(page, join(dir, 'audit-item-edit-conflict-en-390.png'));
+          await capture(page, join(dir, 'audit-item-edit-conflict-en-390.png'), false);
         }
         if (width === 390 || width === 1440) {
           const csRoute = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
@@ -662,7 +714,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await expect(csRoutePage.getByRole('heading', { name: cs['itemDetail.history'] })).toBeVisible();
           await csRoutePage.getByRole('button', { name: cs['itemDetail.edit.button'], exact: true }).click();
           await expect(csRoutePage.getByRole('form', { name: cs['itemDetail.edit.formLabel'] })).toBeVisible();
-          await capture(csRoutePage, join(dir, `audit-item-edit-cs-${width}.png`));
+          await capture(csRoutePage, join(dir, `audit-item-edit-cs-${width}.png`), false);
           await csRoutePage.goto(`/items/${doneDetailFixture!.id}`); await expect(csRoutePage.getByText(cs['itemDetail.state.done'], { exact: true })).toBeVisible();
           await capture(csRoutePage, join(dir, `audit-item-detail-done-cs-${width}.png`));
           await csRoutePage.goto(`/items/${archivedDetailFixture!.id}`); await expect(csRoutePage.getByRole('heading', { level: 1 })).toBeVisible();

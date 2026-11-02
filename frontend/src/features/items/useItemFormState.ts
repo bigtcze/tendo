@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   baselineValues, errorField, initialDraft, localError, restoredDraft, submittedValues,
   type FormError, type FormField, type ItemDraft, type ItemFormOutcome, type ItemFormValues,
@@ -6,7 +6,6 @@ import {
 
 type Options = {
   id: string;
-  noticeRef: RefObject<HTMLDivElement | null>;
   subjects: { id: string }[];
   onSubmit: (values: ItemFormValues) => Promise<ItemFormOutcome>;
   busy: boolean;
@@ -31,7 +30,7 @@ export function controlId(id: string, field: FormField): string {
   return `${id}-${controlSuffix[field]}`;
 }
 
-export function useItemFormState({ id, noticeRef, subjects, onSubmit, busy, mode, initialValues, notice, locked, preserveDraftOnUnlock }: Options) {
+export function useItemFormState({ id, subjects, onSubmit, busy, mode, initialValues, notice, locked, preserveDraftOnUnlock }: Options) {
   const [draft, setDraft] = useState<ItemDraft>(() => initialDraft(initialValues, subjects));
   const [notesOpen, setNotesOpen] = useState(Boolean(initialValues?.notes));
   const [historicalOpen, setHistoricalOpen] = useState(Boolean(initialValues?.historicalCompletedOn));
@@ -50,10 +49,6 @@ export function useItemFormState({ id, noticeRef, subjects, onSubmit, busy, mode
     }
     wasLocked.current = locked;
   }, [locked, preserveDraftOnUnlock]);
-  useEffect(() => {
-    if (notice && noticeRef.current) noticeRef.current.focus();
-    else document.getElementById(controlId(id, 'title'))?.focus();
-  }, [notice, id, noticeRef]);
 
   const update = (patch: Partial<ItemDraft>) => setDraft((current) => ({ ...current, ...patch }));
 

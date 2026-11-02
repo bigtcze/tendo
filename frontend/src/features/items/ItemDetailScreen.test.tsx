@@ -91,7 +91,7 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Renew passport' })).toBeVisible();
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.getByText('Bring old passport')).toBeVisible();
-    expect(screen.getByText(/Repeats every 2 years/)).toBeVisible();
+    expect(screen.getByText(/2 years/)).toBeVisible();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Renew passport' })).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
@@ -656,7 +656,7 @@ describe('item details', () => {
     await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.click(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    expect(await screen.findByText(/Latest saved repeat setting: Repeats every 2 years · Keeps the planned dates\./)).toBeVisible();
+    expect(await screen.findByText(/Latest saved repeat setting: 2 years · Keeps the planned dates\./)).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' })).toBeChecked();
     expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1); expect(writes).toBe(1);
   });
@@ -937,7 +937,7 @@ describe('item details', () => {
     await screen.findByText('That didn’t work. Check your connection and try again.');
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await screen.findByRole('form', { name: 'Edit item' });
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('dialog').querySelector('header button[aria-label="Cancel"]')!);
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
   });

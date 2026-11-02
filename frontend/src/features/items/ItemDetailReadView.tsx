@@ -4,8 +4,10 @@ import { formatDate } from './formatDate';
 import { detailStatusKey, pluralKey } from './itemEditModel';
 
 export function repeatLabel(recurrence: Recurrence, locale: string, t: Translate) {
+  const phrase = t(pluralKey(recurrence.intervalUnit, recurrence.intervalValue, locale), { count: String(recurrence.intervalValue) });
+  const unit = phrase.replace(/^.*?\d+ /u, '');
   return {
-    interval: t(pluralKey(recurrence.intervalUnit, recurrence.intervalValue, locale), { count: String(recurrence.intervalValue) }),
+    interval: `${recurrence.intervalValue} ${unit}`,
     mode: t(recurrence.mode === 'after_completion' ? 'itemDetail.repeat.fluid' : 'itemDetail.repeat.fixed'),
   };
 }

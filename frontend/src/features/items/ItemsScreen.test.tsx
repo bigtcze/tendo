@@ -203,12 +203,14 @@ describe('item creation', () => {
     const firstPost = requestsOf(first.requests, 'POST', `${base}/items`)[0]!;
     cleanup();
     const reloaded = installFakeServer(server);
+    document.body.focus();
     app();
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeVisible());
     const restored = await screen.findByRole('form', { name: 'Add an item' });
     expect(within(restored).getByLabelText('What needs doing?')).toHaveValue('Reload item');
     expect(within(restored).getByLabelText('What needs doing?')).toBeDisabled();
     expect(await within(restored).findByRole('button', { name: 'Check again' })).toBeVisible();
-    await waitFor(() => expect(within(restored).getByText('We couldn’t confirm this was saved.')).toHaveFocus());
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('form', { name: 'Add an item' }).querySelector('[role="status"]')).toHaveFocus());
     await userEvent.click(within(restored).getByRole('button', { name: 'Check again' }));
     await screen.findByText('“Reload item” was added.');
     const resent = requestsOf(reloaded.requests, 'POST', `${base}/items`)[0]!;
@@ -345,7 +347,7 @@ describe('item creation', () => {
     await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
-    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await userEvent.click((await screen.findByRole('dialog')).querySelector('header button[aria-label="Cancel"]')!);
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
@@ -460,14 +462,14 @@ describe('item creation', () => {
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Check smoke alarm');
     await userEvent.click(within(form).getByRole('switch', { name: 'Repeat' }));
     expect(within(form).getByRole('spinbutton', { name: 'Repeat every' })).toBeVisible();
-    expect(within(form).getByRole('switch', { name: 'Count the next repeat from when I complete this' })).not.toBeChecked();
-    expect(within(form).getByText('Keeps the planned dates, even if you finish late.')).toBeVisible();
+    expect(within(form).getByRole('switch', { name: /count the next repeat/i })).not.toBeChecked();
+    expect(within(form).getByText('A boiler check keeps its planned dates, even if you finish late.')).toBeVisible();
     await userEvent.clear(within(form).getByRole('spinbutton'));
     await userEvent.type(within(form).getByRole('spinbutton'), '3');
     await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Repeat interval' }), 'month');
     if (fluid) {
-      await userEvent.click(within(form).getByRole('switch', { name: 'Count the next repeat from when I complete this' }));
-      expect(within(form).getByText('The next one is counted from the day you finish.')).toBeVisible();
+      await userEvent.click(within(form).getByRole('switch', { name: /count the next repeat/i }));
+      expect(within(form).getByText('For example, the next boiler check is due 3 months after you finish.')).toBeVisible();
     }
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
     await screen.findByText('“Check smoke alarm” was added.');
@@ -553,14 +555,17 @@ describe('item creation', () => {
     expect(requestsOf(fake.requests, 'POST', `${base}/items`)).toHaveLength(1);
   });
 
-  it('renders Repeat and Fluid switches at least 24px square', async () => {
+  it('renders Repeat and after-completion switches with shared touch targets', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
     const form = await openForm();
     const repeat = within(form).getByRole('switch', { name: 'Repeat' });
-    expect(repeat).toHaveClass('size-6');
+    expect(repeat.closest('[data-switch-root]')).toHaveClass('min-h-11', 'w-14');
+    expect(repeat).toHaveClass('h-full', 'w-full');
     await userEvent.click(repeat);
-    expect(within(form).getByRole('switch', { name: /count the next repeat/i })).toHaveClass('size-6');
+    const afterCompletion = within(form).getByRole('switch', { name: /count the next repeat/i });
+    expect(afterCompletion.closest('[data-switch-root]')).toHaveClass('min-h-11', 'w-14');
+    expect(afterCompletion).toHaveClass('h-full', 'w-full');
   });
 
   it('maps a 422 title error to a focused accessible field', async () => {
@@ -800,8 +805,8 @@ describe('Home items', () => {
   });
 
   it.each([
-    { locale: 'en', fixed: 'Repeats every 1 year · keeps planned dates', fluid: 'Repeats every 3 months · counted from when it’s done' },
-    { locale: 'cs', fixed: 'Opakuje se každý 1 rok · drží plánované termíny', fluid: 'Opakuje se každé 3 měsíce · počítá se od dokončení' },
+    { locale: 'en', fixed: '1 year · keeps planned dates', fluid: '3 months · counted from when it’s done' },
+    { locale: 'cs', fixed: '1 rok · drží plánované termíny', fluid: '3 měsíce · počítá se od dokončení' },
   ])('says on each repeating row whether the next date keeps the plan or follows completion ($locale)', async ({ locale, fixed, fluid }) => {
     if (locale === 'cs') localStorage.setItem('tendo.locale', 'cs');
     const entries = [

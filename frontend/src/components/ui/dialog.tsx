@@ -13,6 +13,8 @@ type DialogProps = {
   busy?: boolean;
   triggerRef?: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  /** Focus a state-specific target after showModal, before generic autofocus/default focus. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   sheet?: boolean;
 };
 
@@ -25,7 +27,20 @@ const focusableSelector = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
-export function Dialog({ open, onOpenChange, title, closeLabel, children, busy = false, triggerRef, returnFocusRef, sheet = false }: DialogProps) {
+function focusInitial(dialog: HTMLDialogElement, fallback: HTMLHeadingElement | null, initialFocusRef?: RefObject<HTMLElement | null>) {
+  const explicitTarget = initialFocusRef?.current;
+  const content = dialog.querySelector('[data-dialog-content]');
+  const hasInitialFocus = content?.querySelector(`[autofocus], ${focusableSelector}`);
+  const target = explicitTarget?.isConnected && dialog.contains(explicitTarget) ? explicitTarget : null;
+  const fallbackTarget = !target && !hasInitialFocus ? fallback : null;
+  const focusTarget = target ?? fallbackTarget;
+  focusTarget?.focus();
+}
+
+export function Dialog({
+  open, onOpenChange, title, closeLabel, children, busy = false,
+  triggerRef, returnFocusRef, initialFocusRef, sheet = false,
+}: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const fallbackRef = useRef<HTMLHeadingElement>(null);
   const openRef = useRef(open);
@@ -42,20 +57,18 @@ export function Dialog({ open, onOpenChange, title, closeLabel, children, busy =
     if (!dialog) return;
     if (open && !dialog.open) {
       dialog.showModal();
-      const content = dialog.querySelector('[data-dialog-content]');
-      const hasInitialFocus = content?.querySelector(`[autofocus], ${focusableSelector}`);
-      if (!hasInitialFocus) fallbackRef.current?.focus();
+      focusInitial(dialog, fallbackRef.current, initialFocusRef);
     } else if (!open && dialog.open) {
       const returnTarget = returnFocusRef?.current ?? triggerRef?.current;
       if (returnTarget?.isConnected) returnTarget.focus();
       dialog.close();
     }
-  }, [open, returnFocusRef, triggerRef]);
+  }, [open, returnFocusRef, triggerRef, initialFocusRef]);
 
   const sheetClasses = sheet
     ? [
       'fixed inset-x-0 bottom-0 top-0 m-0 h-dvh max-h-dvh w-full max-w-none rounded-none',
-      'sm:inset-auto sm:m-auto sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-xl sm:rounded-2xl',
+      'md:inset-x-0 md:top-1/2 md:bottom-auto md:m-0 md:h-auto md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:-translate-y-1/2 md:rounded-2xl',
     ].join(' ')
     : '';
 
@@ -85,7 +98,7 @@ export function Dialog({ open, onOpenChange, title, closeLabel, children, busy =
         if (target?.isConnected) target.focus();
       }}
       className={cn(
-        'max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-line bg-paper p-6 text-ink',
+        'max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-paper p-4 text-ink sm:p-6',
         sheetClasses,
       )}
     >

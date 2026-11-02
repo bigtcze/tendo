@@ -20,6 +20,7 @@ function Harness() {
           title="Primitive dialog"
           closeLabel="Close dialog"
           busy={dialogBusy}
+          sheet
         >
           <form method="dialog">
             <button type="submit">Native close</button>
