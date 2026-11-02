@@ -68,7 +68,7 @@ export function ItemRow({ item, group, evaluatedOn, subjectName, locale, userId,
           <span aria-hidden='true'>{item.title}</span>
           <span className='sr-only'>{t('itemDetail.open', { title: item.title })}</span>
         </NavLink>
-        <p className='mt-1 break-words text-meta text-muted'>
+        <p className='mt-2 break-words text-meta text-muted'>
           {scanLine}
         </p>
         {additionalDetails ? <p className='mt-1 break-words text-meta text-muted'>{additionalDetails}</p> : null}

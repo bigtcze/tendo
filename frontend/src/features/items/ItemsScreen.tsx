@@ -88,8 +88,8 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
   const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
-  const { cancelAddAndFocus, subjectName, emptyHome: isEmptyHome = false } = screen;
-  const emptyHome = Boolean(isEmptyHome);
+  const { cancelAddAndFocus, subjectName } = screen;
+  const emptyHome = Boolean(screen.emptyHome);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
