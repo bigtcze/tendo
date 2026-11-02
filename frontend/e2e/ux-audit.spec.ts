@@ -41,6 +41,13 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
   const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
   if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
+  // Leave no measurement focus ring or pointer hover in the evidence image.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.mouse.move(0, 0);
+  await expect.poll(() => page.evaluate(() => {
+    const focused = document.querySelector(':focus-visible');
+    return focused ? `${focused.tagName} ${focused.textContent?.trim().slice(0, 40)} active=${document.activeElement?.tagName}` : null;
+  }), `no focus ring remains in ${file}`).toBeNull();
   await page.screenshot({ path, fullPage, mask });
 }
 
@@ -664,6 +671,25 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(page.locator('main a[data-group-all]')).toHaveCount(expectedSeeAllLinks);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
+        // Home is one bounded stack at every width: no side-by-side columns, rows never wider than max-w-3xl (48rem).
+        const stack = await page.locator('main [data-home-layout="stack"]').evaluate((element) => ({
+          width: element.getBoundingClientRect().width,
+          lefts: [...element.querySelectorAll(':scope > section')].map((section) => Math.round(section.getBoundingClientRect().left)),
+        }));
+        expect(stack.width, `Home stack measure at ${width}px`).toBeLessThanOrEqual(768.5);
+        expect(new Set(stack.lefts).size, `Home groups share one column at ${width}px`).toBe(1);
+        // Each overview chip's 2px outline + 2px offset must stay inside the horizontally clipped nav when focused.
+        const overviewNav = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
+        for (const link of await overviewNav.getByRole('link').all()) {
+          await link.focus();
+          await expect.poll(async () => link.evaluate((element) => {
+            const nav = element.closest('nav')!.getBoundingClientRect();
+            const rect = element.getBoundingClientRect();
+            return rect.left - 4 >= nav.left - 0.5 && rect.right + 4 <= nav.right + 0.5 && rect.top - 4 >= nav.top - 0.5 && rect.bottom + 4 <= nav.bottom + 0.5;
+          }), `overview focus ring fits inside the nav at ${width}px`).toBe(true);
+        }
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await overviewNav.evaluate((nav) => { nav.scrollLeft = 0; });
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
         if (width === 1440) {
           await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));

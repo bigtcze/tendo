@@ -751,42 +751,20 @@ describe('Home items', () => {
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
-  it('uses independent columns when Needs attention and secondary groups are both populated', async () => {
-    const entries = [item({ id: 'split-needs', title: 'Split needs' }), item({ id: 'split-progress', title: 'Split progress', workflowState: 'in_progress' })];
-    installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects });
+  it.each([
+    { name: 'attention and secondary', entries: () => [item({ id: 'mix-needs', title: 'Mix needs' }), item({ id: 'mix-progress', title: 'Mix progress', workflowState: 'in_progress' })], first: 'Mix needs' },
+    { name: 'needs only', entries: () => [item({ id: 'needs-only', title: 'Needs only' })], first: 'Needs only' },
+    { name: 'secondary only', entries: () => [item({ id: 'secondary-only', title: 'Secondary only', workflowState: 'in_progress' })], first: 'Secondary only' },
+  ])('keeps $name Home in one bounded stack with no desktop columns', async ({ entries, first }) => {
+    installFakeServer({ ...routes, ...itemRoutes(base, entries()), [subjectList]: subjects });
     app();
-    await screen.findByRole('link', { name: 'Open item Split needs' });
+    await screen.findByRole('link', { name: `Open item ${first}` });
     const main = screen.getByRole('main');
-    expect(main.querySelector('[data-home-layout="attention-and-secondary"]')).toBeInTheDocument();
-    expect(main.querySelector('.lg\\:grid-cols-\\[minmax\\(0\\,1\\.35fr\\)_minmax\\(20rem\\,1fr\\)\\]')).toBeInTheDocument();
-  });
-
-  it('keeps needs-only Home in a bounded single column', async () => {
-    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'needs-only', title: 'Needs only' })]), [subjectList]: subjects });
-    app();
-    await screen.findByRole('link', { name: 'Open item Needs only' });
-    const main = screen.getByRole('main');
-    expect(main.querySelector('[data-home-layout="needs-only"]')).toBeInTheDocument();
-    expect(main.querySelector('.max-w-3xl')).toBeInTheDocument();
-  });
-
-  it('stacks secondary-only Home in a bounded single column', async () => {
-    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'secondary-only', title: 'Secondary only', workflowState: 'in_progress' })]), [subjectList]: subjects });
-    app();
-    await screen.findByRole('link', { name: 'Open item Secondary only' });
-    const main = screen.getByRole('main');
-    expect(main.querySelector('[data-home-layout="secondary-only"]')).toBeInTheDocument();
-    expect(main.querySelector('.max-w-3xl')).toBeInTheDocument();
-  });
-
-  it('uses a full-width secondary layout when Needs attention is empty', async () => {
-    installFakeServer({ ...routes, ...itemRoutes(base, [item({ workflowState: 'in_progress' })]), [subjectList]: subjects });
-    app();
-    await screen.findByRole('link', { name: 'Open item Renew passport' });
-    const main = screen.getByRole('main');
-    expect(main.querySelector('[data-home-layout="secondary-only"]')).toBeInTheDocument();
-    expect(main.querySelector('.max-w-3xl')).toBeInTheDocument();
-    expect(main.querySelector('[data-home-layout="attention-and-secondary"]')).toBeNull();
+    const stack = main.querySelector('[data-home-layout="stack"]');
+    expect(stack).toBeInTheDocument();
+    expect(stack!.closest('.max-w-3xl')).toBeInTheDocument();
+    expect(main.querySelector('[class*="grid-cols"]')).toBeNull();
+    expect([...stack!.children].every((child) => child.tagName === 'SECTION')).toBe(true);
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -814,8 +792,6 @@ describe('Home items', () => {
     expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3');
     const noDateRow = screen.getByText('No attention date').closest('li')!;
     const needsGroup = screen.getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
-    expect(screen.getByRole('main').querySelector('[data-home-layout="attention-and-secondary"]')).toBeInTheDocument();
-    expect(screen.getByRole('main').querySelector('[data-home-layout="secondary-only"]')).toBeNull();
     expect(needsGroup).toBeVisible();
     expect(needsRow.querySelector('p')).toHaveTextContent('Anna');
     expect(noDateRow).not.toHaveTextContent('Attention date');
@@ -1524,6 +1500,9 @@ describe('Home items', () => {
     add.focus();
     await act(async () => releaseUndo!());
     await screen.findByRole('link', { name: 'Open item Renew passport' });
+    // Focus restore runs once busy clears; judge focus only after the restored Done is enabled.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Done:/ })).toBeEnabled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
     expect(screen.getByRole('button', { name: /^Add item$/ })).toBe(add);
     expect(add).toHaveFocus();
   });

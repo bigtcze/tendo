@@ -94,7 +94,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
-  return <div className="space-y-6">
+  return <div className="max-w-3xl min-w-0 space-y-6">
     <ItemsNoticeArea
       noticeRef={noticeRef}
       createNotice={createNotice}

@@ -107,8 +107,9 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
   return <nav
     aria-label={t('items.group.overview')}
     className={[
-      'relative flex w-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain',
-      'py-1 scroll-py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+      'relative -mx-1 flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain',
+      // 4px padding on every side clears the 2px outline + 2px offset focus ring inside the scroll clip.
+      'p-1 scroll-p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
       'after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-6',
       'after:bg-gradient-to-l after:from-paper after:to-transparent',
     ].join(' ')}
@@ -118,10 +119,13 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
       if (!(link instanceof HTMLElement)) return;
       const navRect = nav.getBoundingClientRect();
       const linkRect = link.getBoundingClientRect();
-      const topInset = Number.parseFloat(getComputedStyle(nav).paddingTop) || 0;
-      const bottomInset = Number.parseFloat(getComputedStyle(nav).paddingBottom) || 0;
-      if (linkRect.left < navRect.left) nav.scrollLeft -= navRect.left - linkRect.left;
-      else if (linkRect.right > navRect.right) nav.scrollLeft += linkRect.right - navRect.right;
+      const style = getComputedStyle(nav);
+      const topInset = Number.parseFloat(style.paddingTop) || 0;
+      const bottomInset = Number.parseFloat(style.paddingBottom) || 0;
+      const leftInset = Number.parseFloat(style.paddingLeft) || 0;
+      const rightInset = Number.parseFloat(style.paddingRight) || 0;
+      if (linkRect.left < navRect.left + leftInset) nav.scrollLeft -= navRect.left + leftInset - linkRect.left;
+      else if (linkRect.right > navRect.right - rightInset) nav.scrollLeft += linkRect.right - navRect.right + rightInset;
       if (linkRect.top < navRect.top + topInset) nav.scrollTop -= navRect.top + topInset - linkRect.top;
       else if (linkRect.bottom > navRect.bottom - bottomInset) nav.scrollTop += linkRect.bottom - navRect.bottom + bottomInset;
     }}
@@ -136,7 +140,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
         event.preventDefault();
         sectionHeadingRefs.current.get(group.id)?.focus();
       }}
-      className={`${overviewLinkClass} snap-start`}
+      className={overviewLinkClass}
     >{t(group.key)} <span className="text-muted">{summary[group.count]}</span></a>)}
   </nav>;
 }
