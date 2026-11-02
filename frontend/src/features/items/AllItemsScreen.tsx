@@ -24,11 +24,11 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const view = resultsView(context, page, buildQuery(context));
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle space-y-5">
+    <section className="settle -mt-4 space-y-2 lg:mt-0 lg:space-y-5">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
       <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
-      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
-        <aside className="min-w-0 space-y-4 lg:sticky lg:top-6">
+      <div className="grid min-w-0 grid-cols-1 gap-3 lg:gap-6 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <aside className="min-w-0 space-y-3 lg:sticky lg:top-6">
           <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
           <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
             actions={actions} showClear={view !== 'noMatch'} />

@@ -12,7 +12,7 @@ import { countFor, countKey, cursorStack, hasFilters, type Context } from './all
 import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const titleLink = `inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-medium text-ink hover:text-accent ${focusRing}`;
+const titleLink = `inline-flex min-h-10 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-medium text-ink hover:text-accent ${focusRing}`;
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
@@ -71,7 +71,7 @@ function ItemRow({ item, subjectName, members, onOpenItem }: {
     subjectName ?? t('items.subject.unknown'), status,
     item.responsibleUserId ? t('items.responsible.read', { name: responsible }) : null,
   ].filter(Boolean);
-  return <li data-item-id={item.id} className="px-4 py-2">
+  return <li data-item-id={item.id} className="px-4 py-1">
     <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
       className={titleLink}>{item.title}</NavLink>
     <p className="-mt-1 pb-2 text-meta leading-relaxed text-muted">{context.map((part, index) => <span key={`${index}-${part}`}>
@@ -93,11 +93,11 @@ function Pager({ context, nextCursor, goToCursor }: PagerProps) {
   // '' marks the first page (no cursor) so Previous and the range line stay truthful from page 2 on.
   const next = () => goToCursor(nextCursor ?? undefined, [...cursorStack(), context.cursor ?? '']);
   const stack = cursorStack();
-  return <nav aria-label={t('allItems.results')} className="flex flex-wrap items-center justify-between gap-2">
-    {context.cursor ? <Button type="button" variant="quiet" onClick={previous}>
+  return <nav aria-label={t('allItems.pages')} className="flex flex-wrap items-center justify-between gap-2">
+    {context.cursor ? <Button data-all-items-page type="button" variant="quiet" onClick={previous}>
       {stack.length ? t('allItems.previous') : t('allItems.first')}
     </Button> : null}
-    {nextCursor ? <Button type="button" variant="quiet" onClick={next}>{t('allItems.next')}</Button> : null}
+    {nextCursor ? <Button data-all-items-page type="button" variant="quiet" onClick={next}>{t('allItems.next')}</Button> : null}
   </nav>;
 }
 
@@ -106,16 +106,16 @@ export function AllItemsResults({ view, context, page, subjectNames, members, ac
   resultRef: RefObject<HTMLElement | null>; onBack: () => void; onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
-  if (view === 'none') return <EmptyState title={t('allItems.none')} titleClassName="font-display" titleAs="p">
+  if (view === 'none') return <EmptyState title={t('allItems.none')} titleAs="p">
     <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
   </EmptyState>;
-  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')} titleClassName="font-display" titleAs="p">
+  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')} titleAs="p">
     <Button type="button" variant="quiet" className="mt-2" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
   </EmptyState>;
   if (view !== 'rows') return null;
   const range = rangeLabel(context, page, t, locale);
   return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="min-w-0 outline-none">
-    <h2 className="text-h2 text-ink">{range}</h2>
+    <h2 className="flex items-baseline justify-between border-b border-line pb-2 text-h2 font-medium text-ink">{range}</h2>
     <ul className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
       {page.items.map((item) =>
         <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem} />)}

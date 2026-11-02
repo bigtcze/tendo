@@ -12,9 +12,11 @@ TENDO_UX_AUDIT_DIR="$PWD/docs/design/v3-all-items/after" bash scripts/dev-exec.s
 
 | Before | After | Purpose |
 |---|---|---|
-| `before/audit-all-items-en-320.png` | `after/audit-all-items-en-320.png` | Minimum phone width / overflow |
-| `before/audit-all-items-en-390.png` | `after/audit-all-items-en-390.png` | Phone composition |
+| `before/audit-all-items-en-320.png` | `after/audit-all-items-en-320.png` | Minimum phone width (320×640) / overflow; first row above bottom bar |
+| `before/audit-all-items-en-390.png` | `after/audit-all-items-en-390.png` | Phone composition at 390×844; search/status and first result above bottom navigation |
 | — | `after/audit-all-items-en-360.png` | Intermediate phone width |
+| — | `after/audit-all-items-filters-expanded-390.png` | Progressive disclosure open; secondary selects remain accessible |
+| — | `after/audit-all-items-filtered-count-390.png` | Active secondary filter remains visible in the disclosure count |
 | `before/audit-all-items-en-768.png` | `after/audit-all-items-en-768.png` | Tablet composition |
 | `before/audit-all-items-en-1024.png` | `after/audit-all-items-en-1024.png` | Desktop breakpoint and split |
 | `before/audit-all-items-en-1440.png` | `after/audit-all-items-en-1440.png` | Wide desktop usage |

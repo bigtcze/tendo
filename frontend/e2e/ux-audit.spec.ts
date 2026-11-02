@@ -23,7 +23,8 @@ const shownInviteTokens: string[] = [];
 async function capture(page: Page, path: string, fullPage = true, mask: Locator[] = []) {
   const width = page.viewportSize()?.width;
   if (!width) throw new Error(`Capture requires a viewport: ${path}`);
-  await page.setViewportSize({ width, height: 900 });
+  const height = width === 320 ? 640 : width === 390 ? 844 : page.viewportSize()?.height ?? 900;
+  await page.setViewportSize({ width, height });
   expect(await page.evaluate(() => window.innerWidth), `viewport width for ${path}`).toBe(width);
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   const file = path.split('/').pop()!;
@@ -369,7 +370,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         expect(complete.status(), `complete recurring cycle ${cycle + 1}`).toBe(201);
       }
       for (const width of [320, 360, 390, 768, 1024, 1440]) {
-        await page.setViewportSize({ width, height: 900 }); await page.goto('/items');
+        const height = width === 320 ? 640 : width === 390 ? 844 : 900;
+        await page.setViewportSize({ width, height }); await page.goto('/items');
         const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
         await expect(page.getByRole('searchbox', { name: en['allItems.search'], exact: true })).toBeVisible();
@@ -382,8 +384,9 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         expect(layout.overflow, `All items horizontal overflow at ${width}px`).toBe(false);
         if (width <= 390) {
           const firstRow = await page.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
-          expect(firstRow.top, `All items rows should begin in the first view at ${width}px`).toBeLessThan(900);
-          expect(firstRow.bottom, `All items first row should be visible at ${width}px`).toBeLessThan(900);
+          const bottomBarTop = await page.getByRole('navigation', { name: en['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
+          expect(firstRow.top, `All items rows should begin in the first view at ${width}px`).toBeLessThan(bottomBarTop);
+          expect(firstRow.bottom, `All items first row should be visible above phone navigation at ${width}px`).toBeLessThan(bottomBarTop);
         }
         if (width >= 1024) {
           const searchRect = await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).evaluate((node) => node.getBoundingClientRect());
@@ -391,6 +394,17 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           expect(resultsRect.left, 'Desktop results should sit beside the filter rail').toBeGreaterThan(searchRect.right);
         }
         await capture(page, join(dir, `audit-all-items-en-${width}.png`), false);
+        if (width === 390) {
+          const disclosure = page.locator('[data-all-items-filter-disclosure]');
+          expect(await disclosure.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+          await disclosure.click();
+          await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+          await capture(page, join(dir, 'audit-all-items-filters-expanded-390.png'), false);
+          await page.getByLabel(en['items.subject']).selectOption({ index: 1 });
+          await expect(page.getByRole('button', { name: /Filters \(1\)/ })).toBeVisible();
+          await capture(page, join(dir, 'audit-all-items-filtered-count-390.png'), false);
+          await page.goto('/items');
+        }
         if (width === 390 || width === 1440) {
           await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
           await capture(page, join(dir, `audit-all-items-dark-${width}.png`), false);

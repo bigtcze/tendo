@@ -5,11 +5,11 @@
 | Area | Decision | Reason |
 |---|---|---|
 | Desktop layout | At `lg`, a compact 18rem search/filter rail sits beside the flexible results list; it sticks near the top while scrolling. | Uses the shell's wide main area without stretching row text into an unreadable line or reserving an empty secondary results column. |
-| Phone layout | Search and status are first; the remaining filters follow in a compact two-column grid from `sm`, then results. All controls remain visible and reachable without an extra tap. | Search is the common entry point, status is the main scope, and the fold can still show the range/results on ordinary phone heights. |
+| Phone layout | Search and status remain visible; Subject, Responsible and Repeat filters sit behind an accessible disclosure. Its label reports the active secondary-filter count, and Clear stays visible when any filters or search are active. | Search stays prominent, status is the quick scope, and secondary choices do not push results below the first view. |
 | Search | Search input and explicit Search action remain together; input is visible at every width. | Predictable touch action and preserved form-submit, focus, validation, and live outcome behavior. |
-| Filters | Status counts remain in the status choices. Subject, responsible person, and repeat use labeled native selects; clear appears only when filters are active. | Familiar controls, counts aid recognition, and clear is not a competing action when nothing is filtered. |
+| Filters | Status counts remain in the status choice. Subject, responsible person, and repeat use labeled native selects; on phone they are progressively disclosed with active count. Clear stays reachable for active criteria. | Familiar controls, counts aid recognition, and secondary choices do not dominate the phone's first view. |
 | Rows | Strong non-underlined title; one visible scan line combines subject, state/date, and responsible person; repeat text appears on a second line only when present. | Aligns with Home row anatomy while preserving all displayed content in the accessibility tree. |
-| Paging | Shared named pagination controls and range status; each cursor page replaces the prior 25 rows. | Keeps 1,000+ backlogs bounded and preserves the existing cursor stack / exact back restoration. |
+| Paging | Named Previous/Next controls and a range heading; each cursor page replaces the prior 25 rows. | Keeps 1,000+ backlogs bounded and preserves the existing cursor stack / exact back restoration. |
 | States | Shared EmptyState for empty/no-match, Notice for stale/error, with Retry in the error notice. | Consistent recovery language and semantic tokens, including dark readiness. |
 
 ## Row anatomy
@@ -21,11 +21,11 @@
 
 ## Desktop and phone composition
 
-On desktop, the sticky filter rail stays narrow and results take the remaining width. Rows have a clear reading measure while the overall page makes use of the signed-in shell width. At phone and tablet widths the layout becomes one stack; search and status are at the top, other filters are compactly arranged, and results follow immediately. The current mobile composition keeps all secondary filters expanded for direct access rather than hiding them behind an extra disclosure. On a very dense 1,000+ fixture, the first result falls below those controls, so the strict first-view goal remains an open concern to address without making filters difficult to discover. No filter depends on hover or a hidden panel.
+On desktop, the sticky filter rail stays narrow, uses a single column with consistent field spacing, and results take the remaining width. At phone and tablet widths, search and status remain visible while the secondary filters start collapsed behind a 44px disclosure control. Its label reports the active secondary-filter count; clear remains visible when the search, status, or any other filter is active. The loaded first result appears above the phone navigation bar at 390×844 and 320×640 in the production UX audit. The disclosure uses `aria-expanded` and `aria-controls`; no filter depends on hover.
 
 ## Screenshot critique
 
-The before/after production captures are indexed in [`v3-all-items/CAPTURES.md`](v3-all-items/CAPTURES.md). Review the named viewport at each capture rather than assuming the filename proves dimensions. The target is a visibly wider results area on desktop, an uncramped search-first phone fold, readable Czech wrapping, and no horizontal overflow. Captures are scripted evidence only; no human usability testing is claimed.
+The before/after production captures are indexed in [`v3-all-items/CAPTURES.md`](v3-all-items/CAPTURES.md). Review the named viewport at each capture rather than assuming the filename proves dimensions. Desktop makes effective use of the rail/results composition; the phone fold keeps search and status calm and leaves a full result row visible above bottom navigation. A separate expanded-filter capture confirms the secondary controls remain reachable, and an active-filter capture shows their count in the disclosure label. The long Czech search fixture wraps naturally, though it creates an unusually tall first row; this is realistic content density rather than clipping. Captures are scripted evidence only; no human usability testing is claimed.
 
 ## States and behavior
 

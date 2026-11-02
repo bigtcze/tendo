@@ -199,6 +199,7 @@ describe('All items', () => {
     const fake = await openAllItems([item]);
     await userEvent.type(screen.getByRole('searchbox'), 'cafe');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await userEvent.click(screen.getByRole('button', { name: /Filters/ }));
     await userEvent.selectOptions(screen.getByLabelText('For'), 's-1');
     await userEvent.selectOptions(screen.getByLabelText("Who's looking after it"), member.userId);
     await userEvent.selectOptions(screen.getByLabelText('Repeat'), 'true');
@@ -548,6 +549,16 @@ describe('All items', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('Search needs to be 200 characters or fewer.')).toBeInTheDocument();
     expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
+  });
+
+  it('moves focus to results after Next when another cursor page follows', async () => {
+    const items = Array.from({ length: 60 }, (_, index) => makeItem(index + 1));
+    await openAllItems(items);
+    const next = await screen.findByRole('button', { name: 'Next page' });
+    next.focus();
+    await userEvent.click(next);
+    await screen.findByRole('heading', { level: 2, name: 'Showing 26–50 of 60' });
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Results' }));
   });
 
   it('keeps a count-only heading while paging from a deep-linked cursor', async () => {
