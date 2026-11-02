@@ -201,16 +201,11 @@ describe('All items', () => {
     const routes = itemRoutes(base, [activeItem]);
     installFakeServer({
       ...bootRoutes,
+      ...routes,
       [`GET ${base}/items/summary`]: (request) => {
         requests.push(request);
-        return json(200, {
-          evaluatedOn: '2026-01-15',
-          total: request.query.get('status') === 'done' ? 0 : 1,
-          needsAttention: request.query.get('status') === 'done' ? 0 : 1,
-          inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0,
-        });
+        return routes[`GET ${base}/items/summary`]!(request);
       },
-      ...routes,
       [`GET ${base}/items?limit=25&sort=attention_on&attentionDate=2026-01-15&done=true&archived=false`]: (request) => {
         requests.push(request);
         return json(200, { items: [], nextCursor: null });
@@ -227,8 +222,10 @@ describe('All items', () => {
     await userEvent.click(noMatchClear!);
     await waitFor(() => expect(window.location.search).toBe(''));
     expect(await screen.findByText('Active task')).toBeInTheDocument();
-    expect(requests.filter((request) => request.path === `${base}/items/summary`).at(-1)?.query.toString()).toBeUndefined();
-    expect(requests.filter((request) => request.path === `${base}/items/summary`).at(-1)?.query.get('status')).toBeUndefined();
+    const summaryRequests = requests.filter((request) => request.path === `${base}/items/summary`);
+    expect(summaryRequests.length).toBeGreaterThan(0);
+    expect(summaryRequests.at(-1)!.query.toString()).toBe('');
+    expect(summaryRequests.at(-1)!.query.get('status')).toBeNull();
     expect(requests.some((request) => request.path === `${base}/items` && request.query.get('done') === 'true')).toBe(true);
     expect(requests.at(-1)?.query.get('done')).toBe('false');
   });
