@@ -108,7 +108,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
     aria-label={t('items.group.overview')}
     className={[
       'relative flex w-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain',
-      'py-1 -my-1 scroll-py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+      'py-1 scroll-py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
       'after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-6',
       'after:bg-gradient-to-l after:from-paper after:to-transparent',
     ].join(' ')}

@@ -38,7 +38,8 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
   routeMetrics[file] = await measureCapture(page, resultSelector);
-  const overview = page.locator('main nav[aria-label="Group overview"]');
+  // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
+  const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
   if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
   await page.screenshot({ path, fullPage, mask });
 }
