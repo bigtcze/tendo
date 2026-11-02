@@ -1,4 +1,3 @@
-import type { RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty-state';
 import { Notice } from '../../components/ui/notice';
@@ -21,11 +20,9 @@ export function HomeLoadState({ loading, error, onRetry }: { loading: boolean; e
   </>;
 }
 
-export function HomeEmptyState({ onAdd, addRef }: { onAdd: () => void; addRef: RefObject<HTMLButtonElement | null> }) {
+export function HomeEmptyState() {
   const { t } = useI18n();
-  return <EmptyState title={t('home.empty.title')} action={
-    <Button ref={addRef} type="button" onClick={onAdd}>{t('items.add')}</Button>
-  }>
+  return <EmptyState title={t('home.empty.title')}>
     <p>{t('home.empty.body')} {t('home.empty.addHint')}</p>
   </EmptyState>;
 }

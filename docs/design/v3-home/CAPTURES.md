@@ -7,7 +7,7 @@ Command pattern:
 ```sh
 source ~/.config/tendo-test/env
 TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-before-captures bash scripts/dev-exec.sh -- bash -c 'cd /tmp/opencode/v308-before && bash scripts/e2e-smoke.sh'
-TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-review3-captures bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-complete-captures bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
 ```
 
 | Before | After | Purpose |
@@ -22,7 +22,7 @@ TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-review3-captures bash scripts/dev-exec.sh 
 | `before/home-30-cs-320-fold.png`, `390-fold.png`, `1440-fold.png` | matching files | Czech wrapping |
 | `before/home-500-en-390-fold.png` | `after/home-500-en-390-fold.png` | Large stage |
 | `before/home-1200-en-390-fold.png`, `1440-fold.png` | `after/` matching files | 1,000+ stage / cap navigation |
-| — | `after/home-1200-en-390-forced-dark.png`, `1440-forced-dark.png` | Explicit dark-token readiness |
+| — | `after/home-1200-en-390-forced-dark.png`, `1440-forced-dark.png` | Explicit dark-token readiness (the 1440 capture is full-page after expansion) |
 | `before/audit-home-server-error-en-390.png` | `after/` same | Error/retry state |
 | `before/home-30-cs-390.png` | `after/` same | Long Czech title/data |
 

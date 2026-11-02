@@ -6,8 +6,8 @@ import { countPluralKey } from './itemsScreenHelpers';
 import { groups, type GroupData } from './homeGroups';
 import type { CreateNotice } from './useAddItem';
 
-const overviewLinkClass = 'inline-flex min-h-11 items-center gap-1 rounded-full bg-sand px-3 text-sm font-medium text-ink '
-  + 'transition-colors hover:bg-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const overviewLinkClass = 'inline-flex min-h-11 shrink-0 items-center gap-1 rounded-full bg-sand px-3 text-sm font-medium text-ink '
+  + 'transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 /** Completion/undo outcome shown in the home notice area; Undo and retry controls depend on its fields. */
 export type Notice = {
@@ -104,7 +104,24 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
   // Overview links only target sections that actually render (summary count and loaded rows), so every link has a heading to focus.
   const overviewGroups = groups.filter((group) => summary[group.count] > 0 && groupData[group.id].items.length > 0);
   if (overviewGroups.length < 2) return null;
-  return <nav aria-label={t('items.group.overview')} className="flex flex-wrap gap-2">
+  return <nav
+    aria-label={t('items.group.overview')}
+    className={[
+      'relative flex w-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain',
+      '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+      'after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-6',
+      'after:bg-gradient-to-l after:from-paper after:to-transparent',
+    ].join(' ')}
+    onFocusCapture={(event) => {
+      const link = event.target;
+      const nav = event.currentTarget;
+      if (!(link instanceof HTMLElement)) return;
+      const navRect = nav.getBoundingClientRect();
+      const linkRect = link.getBoundingClientRect();
+      if (linkRect.left < navRect.left) nav.scrollLeft -= navRect.left - linkRect.left;
+      else if (linkRect.right > navRect.right) nav.scrollLeft += linkRect.right - navRect.right;
+    }}
+  >
     {overviewGroups.map((group) => <a
       key={group.id}
       href={`#group-${group.id}`}
@@ -115,7 +132,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
         event.preventDefault();
         sectionHeadingRefs.current.get(group.id)?.focus();
       }}
-      className={overviewLinkClass}
+      className={`${overviewLinkClass} snap-start`}
     >{t(group.key)} <span className="text-muted">{summary[group.count]}</span></a>)}
   </nav>;
 }

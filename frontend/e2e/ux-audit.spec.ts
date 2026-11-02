@@ -662,6 +662,11 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
+        if (width === 1440) {
+          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+          await capture(page, join(dir, `home-1200-en-${width}-forced-dark.png`), false);
+          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+        }
       }
       const darkContext = await browser.newContext({ colorScheme: 'dark', reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
       await darkContext.addCookies(await page.context().cookies());

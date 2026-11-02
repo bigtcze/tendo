@@ -751,6 +751,25 @@ describe('Home items', () => {
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
+  it('stacks independently paged groups when secondary content greatly exceeds attention', async () => {
+    const entries = [
+      ...Array.from({ length: 2 }, (_, index) => item({ id: `scale-needs-${index}`, title: `Scale needs ${index}` })),
+      ...Array.from({ length: 20 }, (_, index) => item({ id: `scale-progress-${index}`, title: `Scale progress ${index}`, workflowState: 'in_progress' })),
+    ];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects });
+    app();
+    await screen.findByRole('link', { name: 'Open item Scale needs 0' });
+    const main = screen.getByRole('main');
+    expect(main.querySelector('[data-home-layout="balanced-stacked"]')).toBeInTheDocument();
+    expect(main.querySelector('.lg\\:grid-cols-\\[minmax\\(0\\,1\\.35fr\\)_minmax\\(20rem\\,1fr\\)\\]')).toBeNull();
+    const needs = within(main).getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
+    const progress = within(main).getByRole('heading', { level: 2, name: 'In progress 20 items' }).closest('section')!;
+    expect(within(needs).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(progress).getAllByRole('listitem')).toHaveLength(20);
+    const overview = within(main).getByRole('navigation', { name: 'Group overview' });
+    expect(within(overview).getByRole('link', { name: 'In progress 20 items' })).toBeVisible();
+  });
+
   it('uses a full-width secondary layout when Needs attention is empty', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item({ workflowState: 'in_progress' })]), [subjectList]: subjects });
     app();
@@ -1307,7 +1326,7 @@ describe('Home items', () => {
     expect(add).toBeEnabled();
     expect(screen.getByRole('button', { name: /Done:/ })).toBeDisabled();
     release();
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Add item' })).toBeEnabled());
+    await waitFor(() => expect(add).toBeEnabled());
   });
 
   it('focuses the restored group heading when undo restores an unloaded row', async () => {
@@ -1468,6 +1487,52 @@ describe('Home items', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Done:/ })).toBeEnabled());
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(add).toHaveFocus();
+  });
+
+  it('keeps the same Add button focused when Undo repopulates empty Home', async () => {
+    let completed = false;
+    let releaseUndo: (() => void) | undefined;
+    const receipt = { id: 'c-empty-undo', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null };
+    installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => completed ? [] : [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: () => json(200, item(), { ETag: completed ? '"8"' : '"7"' }),
+      [`POST ${donePath}`]: () => { completed = true; return json(201, receipt); },
+      [`PATCH ${donePath}/c-empty-undo`]: () => new Promise<Response>((resolve) => {
+        releaseUndo = () => { completed = false; resolve(json(200, { ...receipt, undoneAt: '2026-01-02T00:00:00Z', undoneByUserId: 'u-1' })); };
+      }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    await screen.findByText('Nothing needs attention right now.');
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(releaseUndo).toBeDefined());
+    const add = screen.getByRole('button', { name: 'Add item' });
+    add.focus();
+    await act(async () => releaseUndo!());
+    await screen.findByRole('link', { name: 'Open item Renew passport' });
+    expect(screen.getByRole('button', { name: 'Add item' })).toBe(add);
+    expect(add).toHaveFocus();
+  });
+
+  it('keeps Add focused when completing the last item makes Home empty', async () => {
+    let done = false;
+    const receipt = { id: 'c-empty-done', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null };
+    installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => done ? [] : [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }),
+      [`POST ${donePath}`]: () => { done = true; return json(201, receipt); },
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    const add = screen.getByRole('button', { name: 'Add item' });
+    add.focus();
+    await screen.findByText('Nothing needs attention right now.');
+    expect(screen.getByRole('button', { name: 'Add item' })).toBe(add);
     expect(add).toHaveFocus();
   });
 

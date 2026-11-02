@@ -23,6 +23,7 @@ type HomeGroupListProps = {
 };
 
 const TWO_COLUMN_CLASS = 'grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,1fr)]';
+const STACKED_CLASS = 'grid grid-cols-1 items-start gap-8';
 
 /** Puts attention first and lets the quieter groups form an independent desktop column. */
 export function HomeGroupList(props: HomeGroupListProps) {
@@ -62,11 +63,13 @@ export function HomeGroupList(props: HomeGroupListProps) {
   const primary = groups[0]!;
   const secondary = groups.slice(1);
   const hasPrimary = groupData[primary.id].items.length > 0;
-  const layoutClass = hasPrimary ? TWO_COLUMN_CLASS : 'grid grid-cols-1 items-start';
-  const columnClass = 'min-w-0 space-y-8';
-  const layoutName = hasPrimary ? 'attention-and-secondary' : 'secondary-only';
+  const secondaryCount = secondary.reduce((total, group) => total + groupData[group.id].items.length, 0);
+  const needsCount = groupData[primary.id].items.length;
+  const secondaryDominates = hasPrimary && secondaryCount >= Math.max(20, needsCount * 3);
+  const layoutClass = hasPrimary && !secondaryDominates ? TWO_COLUMN_CLASS : STACKED_CLASS;
+  const layoutName = !hasPrimary ? 'secondary-only' : secondaryDominates ? 'balanced-stacked' : 'attention-and-secondary';
   return <div data-home-layout={layoutName} className={layoutClass}>
-    {hasPrimary ? <div className={columnClass}>{renderGroup(primary)}</div> : null}
-    <div className={columnClass}>{secondary.map(renderGroup)}</div>
+    {hasPrimary ? renderGroup(primary) : null}
+    {secondary.map(renderGroup)}
   </div>;
 }

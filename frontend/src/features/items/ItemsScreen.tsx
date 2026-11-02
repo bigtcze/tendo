@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
@@ -88,7 +88,8 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
   const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
-  const { cancelAddAndFocus, subjectName, emptyHome } = screen;
+  const { cancelAddAndFocus, subjectName, emptyHome: isEmptyHome = false } = screen;
+  const emptyHome = Boolean(isEmptyHome);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
@@ -116,17 +117,10 @@ export function ItemsScreen(props: ItemsScreenProps) {
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
-    {emptyHome ? <HomeEmptyState onAdd={add.openAddForm} addRef={addRef} /> : null}
     {!loading && summary && !adding
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
-    {home.itemsRequestComplete && !adding && !emptyHome
-      ? <div className="flex justify-start">
-        <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="w-full sm:w-auto">
-          {t('items.add')}
-        </Button>
-      </div>
-      : null}
+    <HomeActions empty={emptyHome} ready={home.itemsRequestComplete} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
     <AddItemPanel
       adding={adding}
       busy={busy}
@@ -159,5 +153,32 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onDone={(itemId) => void completion.finish(itemId)}
       onOpenItem={onOpenItem}
     /> : null}
+  </div>;
+}
+
+function HomeActions({ empty, ready, adding, addRef, onAdd }: {
+  empty: boolean;
+  ready: boolean;
+  adding: boolean;
+  addRef: RefObject<HTMLButtonElement | null>;
+  onAdd: () => void;
+}) {
+  const { t } = useI18n();
+  if (!ready) return null;
+  return <div className="space-y-4">
+    <div className={`flex justify-start ${adding ? 'hidden' : ''}`}>
+      <Button
+        ref={addRef}
+        data-action="completion-trigger"
+        type="button"
+        aria-hidden={adding}
+        tabIndex={adding ? -1 : 0}
+        onClick={onAdd}
+        className="w-full sm:w-auto"
+      >
+        {t('items.add')}
+      </Button>
+    </div>
+    {empty ? <HomeEmptyState /> : null}
   </div>;
 }
