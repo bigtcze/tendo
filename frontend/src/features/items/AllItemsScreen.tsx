@@ -24,7 +24,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const view = resultsView(context, page, buildQuery(context));
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle space-y-6">
+    <section className="settle space-y-4">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
       <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
       <div className="grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">

@@ -1,6 +1,6 @@
 # All items capture index
 
-Production-build UX audit (`frontend/e2e/ux-audit.spec.ts`) through `scripts/e2e-smoke.sh`, pinned browser/toolchain, real test API/database for the staged household. Before captures are from detached `origin/main` at `cc74ce9`; dimensions are labeled per file because the baseline helper emitted full pages. The curated after set uses viewport captures from `feat/v3-09-all-items`. The audit also emits full-page route/state artifacts; this index identifies the curated All items files and whether they are fold or full-page. No human testing is claimed.
+Production-build UX audit (`frontend/e2e/ux-audit.spec.ts`) through `scripts/e2e-smoke.sh`, pinned browser/toolchain. The All items backlog, separately created empty household, and item details use real test API/database data; the transport-error state is browser-stubbed. Before captures are from detached `origin/main` at `cc74ce9`; dimensions and capture type are labeled per file. Curated after captures are generated from `feat/v3-09-all-items-r4`. The audit also emits other route/state artifacts; this index lists every curated All items PNG. No human testing is claimed.
 
 Commands:
 
@@ -10,27 +10,34 @@ TENDO_UX_AUDIT_DIR=/tmp/opencode/v309-before-captures bash scripts/dev-exec.sh -
 TENDO_UX_AUDIT_DIR="$PWD/docs/design/v3-all-items/after" bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
 ```
 
-| Before | After | Capture type / purpose |
+| Before | After | Capture dimensions / visible content |
 |---|---|---|
-| `before/audit-all-items-en-320.png` | `after/audit-all-items-en-320.png` | Before full page; after viewport fold 320×640; title and focus target clear bottom navigation |
-| `before/audit-all-items-en-390.png` | `after/audit-all-items-en-390.png` | Before full page; after viewport fold 390×844; full first row above phone navigation |
-| — | `after/audit-all-items-en-360.png` | Viewport fold, intermediate phone width |
-| — | `after/audit-all-items-filters-expanded-390.png` | Viewport fold, secondary filter disclosure open |
-| — | `after/audit-all-items-filtered-count-390.png` | Viewport fold, active secondary-filter count and visible Clear |
-| `before/audit-all-items-en-768.png` | `after/audit-all-items-en-768.png` | Before full page; after viewport fold, tablet |
-| `before/audit-all-items-en-1024.png` | `after/audit-all-items-en-1024.png` | Before full page; after viewport fold, desktop breakpoint |
-| `before/audit-all-items-en-1440.png` | `after/audit-all-items-en-1440.png` | Before full page; after viewport fold, wide desktop |
-| `before/audit-all-items-cs-390.png` | `after/audit-all-items-cs-390.png` | Full-page pair: before 390×4642; after 390×4048, Czech phone |
-| `before/audit-all-items-cs-1440.png` | `after/audit-all-items-cs-1440.png` | Full-page pair: before 1440×4127; after 1440×3323, Czech desktop |
-| — | `after/audit-all-items-dark-{390,1440}.png` | Viewport fold, forced-dark token readiness |
-| — | `after/audit-all-items-page2-390.png` | Viewport 390×844, scrolled to page-2 pager; Previous and Next are visible |
-| — | `after/audit-all-items-page2-1440.png` | Viewport 1440×900, scrolled to page-2 pager; Previous and Next are visible |
-| — | `after/audit-all-items-error-{390,1440}.png` | Viewport fold, server failure and Retry |
-| `before/audit-all-items-done-en-390.png` | `after/audit-all-items-done-en-390.png` | Before full page; after viewport fold, filtered status state |
-| `before/audit-all-items-nomatch-en-390.png` | `after/audit-all-items-nomatch-en-390.png` | Before full page; after viewport fold, no-match state / clear recovery |
-| — | `after/audit-all-items-search-unaccented-en-{390,1440}.png` | Viewport fold; ASCII query searches seeded Czech records containing accents |
-| — | `after/audit-all-items-search-accented-en-{390,1440}.png` | Viewport fold; accented query comparison |
-| — | `after/audit-all-items-empty-{390,1440}.png` | Browser render with stubbed empty response; not real-API empty-household evidence |
-| — | `after/metrics.json` | Scripted route, viewport, overflow, target-size, and DOM metrics |
+| `before/audit-all-items-en-320.png` | `after/audit-all-items-en-320.png` | Before full page 320×4923; after viewport 320×640, English list; Status and Filters use separate full-width rows |
+| `before/audit-all-items-en-390.png` | `after/audit-all-items-en-390.png` | Before full page 390×4702; after viewport 390×844, full first row above phone navigation |
+| — | `after/audit-all-items-en-360.png` | Viewport 360×900, English list; stacked Status and Filters |
+| — | `after/audit-all-items-cs-320.png` | Viewport 320×640, Czech long selected Status and collapsed Filters |
+| — | `after/audit-all-items-cs-320-active-filter.png` | Viewport 320×640, Czech Needs status, Filters (1), expanded Subject, and visible Clear |
+| — | `after/audit-all-items-filters-expanded-390.png` | Viewport 390×844, expanded secondary filter controls |
+| — | `after/audit-all-items-filtered-count-390.png` | Viewport 390×844, active secondary-filter count and Clear |
+| `before/audit-all-items-en-768.png` | `after/audit-all-items-en-768.png` | Before full page 768×4275; after viewport 768×900, tablet layout |
+| `before/audit-all-items-en-1024.png` | `after/audit-all-items-en-1024.png` | Before full page 1024×4151; after viewport 1024×900, desktop breakpoint |
+| `before/audit-all-items-en-1440.png` | `after/audit-all-items-en-1440.png` | Before full page 1440×4127; after viewport 1440×900, desktop rail and results |
+| `before/audit-all-items-cs-390.png` | `after/audit-all-items-cs-390.png` | Before full page 390×4642; after viewport 390×844, Czech list |
+| `before/audit-all-items-cs-1440.png` | `after/audit-all-items-cs-1440.png` | Before full page 1440×4127; after viewport 1440×900, Czech desktop |
+| — | `after/audit-all-items-dark-390.png` | Viewport 390×844, forced-dark list |
+| — | `after/audit-all-items-dark-1440.png` | Viewport 1440×900, forced-dark desktop list |
+| — | `after/audit-all-items-page2-390.png` | Viewport 390×844, page-2 pager scrolled into view; Previous and Next shown |
+| — | `after/audit-all-items-page2-1440.png` | Viewport 1440×900, page-2 pager scrolled into view; Previous and Next shown |
+| — | `after/audit-all-items-error-390.png` | Viewport 390×844, browser-stubbed error and Retry |
+| — | `after/audit-all-items-error-1440.png` | Viewport 1440×900, browser-stubbed error and Retry |
+| `before/audit-all-items-done-en-390.png` | `after/audit-all-items-done-en-390.png` | Before full page 390×4702; after viewport 390×844, Done results |
+| `before/audit-all-items-nomatch-en-390.png` | `after/audit-all-items-nomatch-en-390.png` | Before full page 390×986; after viewport 390×844, no-match and Clear |
+| — | `after/audit-all-items-search-unaccented-en-390.png` | Viewport 390×844, ASCII query returns accented Czech records |
+| — | `after/audit-all-items-search-unaccented-en-1440.png` | Viewport 1440×900, same ASCII query at desktop width |
+| — | `after/audit-all-items-search-accented-en-390.png` | Viewport 390×844, accented-query comparison |
+| — | `after/audit-all-items-search-accented-en-1440.png` | Viewport 1440×900, accented-query comparison |
+| — | `after/audit-all-items-empty-390.png` | Viewport 390×844, empty fresh household through real API |
+| — | `after/audit-all-items-empty-1440.png` | Viewport 1440×900, same empty real-API household |
+| — | `after/metrics.json` | Scripted routes, dimensions, overflow, targets, DOM size and journeys |
 
-Empty state limitation: the audit household has a large staged backlog and is shared with the scale journey. The empty captures deliberately stub summary/list responses in the browser; they prove the frontend presentation only, not an empty real API household. The real API failure/retry captures likewise use a route stub. The curated page-2 images scroll to the pager before viewport capture; the audit asserts the pager and both controls are in view. The original baseline pair used for English captures is full-page, while the additional Czech before captures were re-run as viewport folds. Do not infer matching dimensions from pair names; use the labeled capture type.
+Empty-state evidence uses the audit owner's household created by the real first-run API setup, before backlog fixtures are seeded; its summary/list are real API responses with zero items. Error/retry is still a browser-stubbed presentation, not an offline API test. Page-2 captures scroll to the pager and assert both buttons are in view. English baseline screenshots are full-page; all curated after screenshots are viewport images. Czech before screenshots are full-page; Czech after screenshots are viewport images. Dimensions above are verified from the PNG headers.

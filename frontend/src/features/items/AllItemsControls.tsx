@@ -10,6 +10,7 @@ import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 const selectClass = `mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 ${focusRing}`;
+const statusSelectClass = `${selectClass} max-[360px]:px-2 max-[360px]:text-small`;
 
 export function AllItemsSearch({ draft, page, actions, searchRef }: {
   draft: Draft; page: PageState; actions: AllItemsActions; searchRef: RefObject<HTMLInputElement | null>;
@@ -86,10 +87,13 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
     </FilterSelect>
   </div>;
   return <div className="space-y-3">
-    <FilterSelect label={t('allItems.status.label')} value={draft.status}
-      onChange={select('status', (value) => ({ status: value as AllItemsStatus }))}>
-      {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
-    </FilterSelect>
+    <label className="block min-w-0 text-label">
+      {t('allItems.status.label')}
+      <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
+        className={statusSelectClass}>
+        {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
+      </select>
+    </label>
     <div className="lg:hidden">
       <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
         className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"

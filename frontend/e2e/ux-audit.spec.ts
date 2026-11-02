@@ -37,11 +37,23 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   });
   routeOverflow[file] = overflow.overflow;
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
+  if (file.startsWith('audit-all-items-page2-')) {
+    const pager = page.getByRole('navigation', { name: en['allItems.pages'] });
+    await expect(pager).toBeInViewport();
+    await expect(pager.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeInViewport();
+    await expect(pager.getByRole('button', { name: en['allItems.next'], exact: true })).toBeInViewport();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path, fullPage, mask });
+    return;
+  }
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
   routeMetrics[file] = await measureCapture(page, resultSelector);
   // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
   const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
   if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
+  // Measurement tabs through page content; restore viewport captures to the top afterwards.
+  await page.evaluate(() => window.scrollTo(0, 0));
   // Leave no measurement focus ring or pointer hover in the evidence image.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.mouse.move(0, 0);
@@ -139,6 +151,17 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   expect(session.status()).toBe(200);
   const { defaultHouseholdId: householdId } = await session.json() as { defaultHouseholdId: string };
   const root = `/api/v1/households/${householdId}`;
+
+  // Capture the household's genuine API-backed empty state before this audit seeds its large backlog.
+  await page.goto('/items');
+  await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.none'] })).toBeVisible();
+  for (const [width, height] of [[390, 844], [1440, 900]] as const) {
+    await page.setViewportSize({ width, height });
+    await capture(page, join(dir, `audit-all-items-empty-${width}.png`), false);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
   const invite = await api(page, 'post', `${root}/invitations`, {}, { 'Idempotency-Key': key() });
   expect(invite.status(), 'create member invitation').toBe(201);
   const invitation = await invite.json() as { token: string };
@@ -455,15 +478,6 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await page.mouse.move(0, 0);
           await page.screenshot({ path: join(dir, `audit-all-items-page2-${width}.png`) });
           await page.goto('/items');
-          await page.route('**/api/v1/households/*/items/summary*', route => route.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify({ evaluatedOn: NOW, total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 }),
-          }));
-          await page.route('**/api/v1/households/*/items*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], nextCursor: null }) }));
-          await page.reload();
-          await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.none'] })).toBeVisible();
-          await capture(page, join(dir, `audit-all-items-empty-${width}.png`), false);
-          await page.unrouteAll();
           // Failure/retry view is a browser-stubbed transport response, not a real offline household test.
           await page.route('**/api/v1/households/*/items/summary*', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
           await page.reload();
@@ -492,21 +506,37 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
         await capture(page, join(dir, `audit-all-items-nomatch-en-${width}.png`), false);
-        if (width === 390 || width === 1440) {
-          const csHeight = width === 390 ? 844 : 900;
+        if (width === 320 || width === 390 || width === 1440) {
+          const csHeight = width === 320 ? 640 : width === 390 ? 844 : 900;
           const csItemsContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: csHeight } });
           await csItemsContext.addCookies(await page.context().cookies());
           const csItemsPage = await csItemsContext.newPage();
           await csItemsPage.goto('/'); await csItemsPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csItemsPage.reload(); await csItemsPage.goto('/items');
           const csRange = new RegExp(cs['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
           await expect(csItemsPage.getByRole('main').getByRole('heading', { name: csRange })).toBeVisible();
-          if (width === 390) {
-            const csRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
+          if (width <= 390) {
+            const csFirstLink = csItemsPage.locator('main li[data-item-id]').first().getByRole('link');
+            const csFirstLinkBox = await csFirstLink.boundingBox();
             const csBottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
-            expect(csRow.bottom, 'Czech first row should fit above the 390px phone navigation').toBeLessThan(csBottomBar);
-            await expect.poll(async () => csItemsPage.locator('main li[data-item-id] a').evaluateAll((links) =>
-              Math.min(...links.map((link) => link.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
+            expect(csFirstLinkBox).not.toBeNull();
+            expect(csFirstLinkBox!.height).toBeGreaterThanOrEqual(44);
+            if (width === 390) {
+              const csRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
+              expect(csRow.bottom, 'Czech first row should fit above the 390px phone navigation').toBeLessThan(csBottomBar);
+            } else {
+              expect(csFirstLinkBox!.y + csFirstLinkBox!.height, 'Czech first title should clear bottom navigation at 320px').toBeLessThan(csBottomBar);
+            }
           }
+          if (width === 320) {
+            await csItemsPage.getByLabel(cs['allItems.status.label']).selectOption('needs');
+            await csItemsPage.locator('[data-all-items-filter-disclosure]').click();
+            await csItemsPage.getByLabel(cs['items.subject']).selectOption({ index: 1 });
+            await expect(csItemsPage.locator('[data-all-items-clear]')).toBeVisible();
+            await expect(csItemsPage.locator('select').first()).toHaveValue('needs');
+            await csItemsPage.evaluate(() => window.scrollTo(0, 0));
+            await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-active-filter.png'), false);
+          }
+          await csItemsPage.evaluate(() => window.scrollTo(0, 0));
           await capture(csItemsPage, join(dir, `audit-all-items-cs-${width}.png`), false);
           await csItemsContext.close();
         }

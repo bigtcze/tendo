@@ -197,14 +197,20 @@ describe('All items', () => {
   it('clears a status-only no-match and returns to active rows', async () => {
     window.history.replaceState(null, '', '/items?status=done');
     const activeItem = makeItem(1, { title: 'Active task' });
-    const listPath = `GET ${base}/items`;
+    const requests: RecordedRequest[] = [];
+    const doneSummary = json(200, { evaluatedOn: '2026-01-15', total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 });
+    const activeSummary = json(200, { evaluatedOn: '2026-01-15', total: 1, needsAttention: 1, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 });
     const routes = itemRoutes(base, [activeItem]);
-    const fake = installFakeServer({
+    installFakeServer({
       ...bootRoutes,
+      [`GET ${base}/items/summary?status=done`]: (request) => { requests.push(request); return doneSummary; },
+      [`GET ${base}/items/summary`]: (request) => { requests.push(request); return activeSummary; },
       ...routes,
-      [listPath]: (request: RecordedRequest) => request.query.get('done') === 'true'
-        ? json(200, { items: [], nextCursor: null })
-        : routes[listPath]!(request),
+      [`GET ${base}/items?limit=25&sort=attention_on&attentionDate=2026-01-15&done=true&archived=false`]: (request) => {
+        requests.push(request);
+        return json(200, { items: [], nextCursor: null });
+      },
+      [`GET ${base}/items`]: (request) => { requests.push(request); return routes[`GET ${base}/items`]!(request); },
     });
     app();
     expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
@@ -216,7 +222,10 @@ describe('All items', () => {
     await userEvent.click(noMatchClear!);
     await waitFor(() => expect(window.location.search).toBe(''));
     expect(await screen.findByText('Active task')).toBeInTheDocument();
-    expect(reqs(fake.requests, `${base}/items/summary`).at(-1)?.query.toString()).toBe('');
+    expect(requests.filter((request) => request.path === `${base}/items/summary`).at(-1)?.query.toString()).toBeUndefined();
+    expect(requests.filter((request) => request.path === `${base}/items/summary`).at(-1)?.query.get('status')).toBeUndefined();
+    expect(requests.some((request) => request.path === `${base}/items` && request.query.get('done') === 'true')).toBe(true);
+    expect(requests.at(-1)?.query.get('done')).toBe('false');
   });
 
   it('keeps deep-linked secondary filters clearable with the disclosure collapsed', async () => {
