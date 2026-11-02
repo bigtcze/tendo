@@ -22,11 +22,11 @@ type HomeGroupListProps = {
   onOpenItem: (itemId: string) => void;
 };
 
-/** Ordered home group sections with their item rows. */
+/** Puts attention first, then the quieter groups, in one stack inside Home's bounded reading measure (no desktop columns). */
 export function HomeGroupList(props: HomeGroupListProps) {
   const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, userId, members, membersLoaded, busy } = props;
   const { t, locale } = useI18n();
-  return <>{groups.map((group) => {
+  const renderGroup = (group: (typeof groups)[number]) => {
     const state = groupData[group.id];
     return <HomeGroupSection
       key={group.id}
@@ -45,6 +45,7 @@ export function HomeGroupList(props: HomeGroupListProps) {
         key={item.id}
         item={item}
         group={group.id}
+        evaluatedOn={summary.evaluatedOn}
         subjectName={subjectName(item.subjectId)}
         locale={locale}
         userId={userId}
@@ -55,5 +56,8 @@ export function HomeGroupList(props: HomeGroupListProps) {
         onOpenItem={props.onOpenItem}
       />)}
     </HomeGroupSection>;
-  })}</>;
+  };
+  return <div data-home-layout="stack" className="min-w-0 space-y-8">
+    {groups.map(renderGroup)}
+  </div>;
 }

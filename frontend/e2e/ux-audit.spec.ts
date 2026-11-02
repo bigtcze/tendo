@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { en } from '../src/i18n/en';
 import { cs } from '../src/i18n/cs';
+import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 
@@ -37,6 +38,16 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
   routeMetrics[file] = await measureCapture(page, resultSelector);
+  // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
+  const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
+  if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
+  // Leave no measurement focus ring or pointer hover in the evidence image.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.mouse.move(0, 0);
+  await expect.poll(() => page.evaluate(() => {
+    const focused = document.querySelector(':focus-visible');
+    return focused ? `${focused.tagName} ${focused.textContent?.trim().slice(0, 40)} active=${document.activeElement?.tagName}` : null;
+  }), `no focus ring remains in ${file}`).toBeNull();
   await page.screenshot({ path, fullPage, mask });
 }
 
@@ -207,7 +218,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     return all;
   }
   const random = rng(0x5eed1234);
-  const stages = [ ['empty', 0], ['1', 1], ['30', 30], ['500', 500], ['1200', 1200] ] as const;
+  const stages = [ ['empty', 0], ['1', 1], ['30', 30], ['100', 100], ['500', 500], ['1200', 1200] ] as const;
   let created = 0;
   let previousTarget = 0;
   metrics.stageSeeding = {};
@@ -594,6 +605,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const timeToContentMs = Date.now() - started;
       await targetPage.waitForLoadState('networkidle');
       const overview = targetPage.getByRole('main').getByRole('navigation', { name: (locale === 'cs' ? cs : en)['items.group.overview'] });
+      if (stage === 'empty') await expect(targetPage.getByRole('main').getByRole('button', { name: (locale === 'cs' ? cs : en)['items.add'], exact: true })).toBeVisible();
       if (stage === '1200') await expect(overview).toBeVisible();
       const actualViewport = targetPage.viewportSize();
       const innerWidth = await targetPage.evaluate(() => window.innerWidth);
@@ -604,6 +616,20 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         return { dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, height: document.documentElement.scrollHeight, overflowOffenders: offenders };
       });
       if (stage === '1') expect(observed.rows, `1-item stage shows exactly one Home row (${locale} ${width}px)`).toBe(1);
+      if (stage === '100') {
+        await expect(overview, `100-item overview is visible (${locale} ${width}px)`).toBeVisible();
+        const renderedGroups = await targetPage.locator('main section[id^="group-"] ul').evaluateAll((lists) =>
+          lists.map((list) => list.querySelectorAll(':scope > li[data-item-id]').length),
+        );
+        const expectedGroupCount = await targetPage.locator('main li[data-item-id]')
+          .evaluateAll((rows) => new Set(rows.map((row) => row.closest('section')?.id)).size);
+        const renderedListGroupCount = await targetPage.locator('main section[id^="group-"]')
+          .evaluateAll((sections) => sections.filter((section) => section.querySelector('ul > li[data-item-id]')).length);
+        expect(renderedListGroupCount, 'each populated group has one rendered list').toBe(expectedGroupCount);
+        expect(renderedGroups.length, 'every populated list has rendered rows').toBe(renderedListGroupCount);
+        expect(renderedGroups.length, 'the 100-item fixture populates multiple Home groups').toBeGreaterThan(1);
+        expect(renderedGroups.every((count) => count > 0 && count <= HOME_GROUP_ROW_CAP), 'each populated Home group respects its row cap').toBe(true);
+      }
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
       await capture(targetPage, join(dir, `${file}-fold.png`), false);
@@ -645,16 +671,51 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(page.locator('main a[data-group-all]')).toHaveCount(expectedSeeAllLinks);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
+        // Home is one bounded stack at every width: no side-by-side columns, rows never wider than max-w-3xl (48rem).
+        const stack = await page.locator('main [data-home-layout="stack"]').evaluate((element) => ({
+          width: element.getBoundingClientRect().width,
+          lefts: [...element.querySelectorAll(':scope > section')].map((section) => Math.round(section.getBoundingClientRect().left)),
+        }));
+        expect(stack.width, `Home stack measure at ${width}px`).toBeLessThanOrEqual(768.5);
+        expect(new Set(stack.lefts).size, `Home groups share one column at ${width}px`).toBe(1);
+        // Each overview chip's 2px outline + 2px offset must stay inside the horizontally clipped nav when focused.
+        const overviewNav = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
+        for (const link of await overviewNav.getByRole('link').all()) {
+          await link.focus();
+          await expect.poll(async () => link.evaluate((element) => {
+            const nav = element.closest('nav')!.getBoundingClientRect();
+            const rect = element.getBoundingClientRect();
+            return rect.left - 4 >= nav.left - 0.5 && rect.right + 4 <= nav.right + 0.5 && rect.top - 4 >= nav.top - 0.5 && rect.bottom + 4 <= nav.bottom + 0.5;
+          }), `overview focus ring fits inside the nav at ${width}px`).toBe(true);
+        }
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await overviewNav.evaluate((nav) => { nav.scrollLeft = 0; });
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
+        if (width === 1440) {
+          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+          await capture(page, join(dir, `home-1200-en-${width}-expanded-forced-dark.png`), false);
+          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+        }
       }
       const darkContext = await browser.newContext({ colorScheme: 'dark', reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
       await darkContext.addCookies(await page.context().cookies());
       const darkPage = await darkContext.newPage();
       await darkPage.goto('/');
       await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await darkPage.waitForLoadState('networkidle');
       await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
-      metrics.stages.darkMode = { requestedColorScheme: 'dark', renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)') };
+      metrics.stages.darkMode = {
+        requestedColorScheme: 'dark',
+        renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)'),
+      };
       expect(metrics.stages.darkMode.renderedIdenticallyToLight).toBe(true);
+      for (const width of [390, 1440]) {
+        await darkPage.setViewportSize({ width, height: 900 });
+        await expect(darkPage.evaluate(() => window.innerWidth)).resolves.toBe(width);
+        await darkPage.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+        await capture(darkPage, join(dir, `home-1200-en-${width}-forced-dark.png`));
+        await darkPage.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+      }
       await darkContext.close();
       metrics.stages.shell = await captureShell(page);
     }

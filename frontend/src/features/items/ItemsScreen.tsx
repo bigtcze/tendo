@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type RefObject } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
@@ -8,7 +8,8 @@ import { AddItemCatalogueStatus, AddItemPanel } from './AddItemPanel';
 import { groups, HOME_GROUP_ROW_CAP } from './homeGroups';
 import type { Notice } from './HomeOverview';
 import { HomeGroupList } from './HomeGroupList';
-import { EmptyHome, HomeOverviewNav, ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
+import { HomeOverviewNav, ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
+import { HomeEmptyState, HomeLoadState } from './HomeStates';
 import { useHomeItems } from './useHomeItems';
 import { useHomeMembers } from './useHomeMembers';
 import { useMutationLock } from './useMutationLock';
@@ -87,11 +88,13 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
   const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
-  const { cancelAddAndFocus, subjectName, emptyHome } = screen;
+  const { cancelAddAndFocus, subjectName } = screen;
+  const emptyHome = Boolean(screen.emptyHome);
+  const homeReady = home.itemsRequestComplete;
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
-  return <div className="space-y-6">
+  return <div className="max-w-3xl min-w-0 space-y-6">
     <ItemsNoticeArea
       noticeRef={noticeRef}
       createNotice={createNotice}
@@ -101,11 +104,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onRetry={() => void completion.retryNotice()}
       onRetryFocus={completion.markRetryFocused}
     />
-    {error ? <div className="space-y-3">
-      <p className="text-muted">{t('app.error.body')}</p>
-      <Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button>
-    </div> : null}
-    {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
+    <HomeLoadState loading={loading} error={error} onRetry={() => void refresh()} />
     <AddItemCatalogueStatus
       adding={adding}
       subjectLoading={add.subjectLoading}
@@ -119,15 +118,10 @@ export function ItemsScreen(props: ItemsScreenProps) {
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
-    {emptyHome ? <EmptyHome /> : null}
     {!loading && summary && !adding
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
-    {home.itemsRequestComplete && !adding
-      ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="w-full sm:w-auto">
-        {t('items.add')}
-      </Button>
-      : null}
+    <HomeActions empty={emptyHome} ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
     <AddItemPanel
       adding={adding}
       busy={busy}
@@ -160,5 +154,32 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onDone={(itemId) => void completion.finish(itemId)}
       onOpenItem={onOpenItem}
     /> : null}
+  </div>;
+}
+
+function HomeActions({ empty, ready, adding, addRef, onAdd }: {
+  empty: boolean;
+  ready: boolean;
+  adding: boolean;
+  addRef: RefObject<HTMLButtonElement | null>;
+  onAdd: () => void;
+}) {
+  const { t } = useI18n();
+  if (!ready) return null;
+  return <div className="space-y-4">
+    <div className={`flex justify-start ${adding ? 'hidden' : ''}`}>
+      <Button
+        ref={addRef}
+        data-action="completion-trigger"
+        type="button"
+        aria-hidden={adding || undefined}
+        tabIndex={adding ? -1 : undefined}
+        onClick={onAdd}
+        className="w-full sm:w-auto"
+      >
+        {t('items.add')}
+      </Button>
+    </div>
+    {empty ? <HomeEmptyState /> : null}
   </div>;
 }

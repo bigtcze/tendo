@@ -746,9 +746,25 @@ describe('Home items', () => {
     await screen.findByText('Need now');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
-    expect(screen.getByText(/Nov 1, 2026/)).toBeVisible();
+    expect(screen.getByText(/Nov 1/)).toBeVisible();
     const rows = screen.getByRole('main').querySelectorAll('ul.divide-y > li');
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
+  });
+
+  it.each([
+    { name: 'attention and secondary', entries: () => [item({ id: 'mix-needs', title: 'Mix needs' }), item({ id: 'mix-progress', title: 'Mix progress', workflowState: 'in_progress' })], first: 'Mix needs' },
+    { name: 'needs only', entries: () => [item({ id: 'needs-only', title: 'Needs only' })], first: 'Needs only' },
+    { name: 'secondary only', entries: () => [item({ id: 'secondary-only', title: 'Secondary only', workflowState: 'in_progress' })], first: 'Secondary only' },
+  ])('keeps $name Home in one bounded stack with no desktop columns', async ({ entries, first }) => {
+    installFakeServer({ ...routes, ...itemRoutes(base, entries()), [subjectList]: subjects });
+    app();
+    await screen.findByRole('link', { name: `Open item ${first}` });
+    const main = screen.getByRole('main');
+    const stack = main.querySelector('[data-home-layout="stack"]');
+    expect(stack).toBeInTheDocument();
+    expect(stack!.closest('.max-w-3xl')).toBeInTheDocument();
+    expect(main.querySelector('[class*="grid-cols"]')).toBeNull();
+    expect([...stack!.children].every((child) => child.tagName === 'SECTION')).toBe(true);
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -762,18 +778,22 @@ describe('Home items', () => {
     ];
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
     app();
-    const needs = await screen.findByText('Needs date');
+    const needs = await screen.findByRole('link', { name: 'Open item Needs date' });
     const needsRow = needs.closest('li')!;
     await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
-    expect(needsRow).toHaveTextContent('Needs attention since Dec 3, 2025');
+    expect(needsRow).toHaveTextContent('Needs attention since Dec 3');
     expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
+    expect(needsRow).toHaveTextContent('Looked after by you');
     const progressRow = screen.getByText('In progress date').closest('li')!;
-    expect(progressRow).toHaveTextContent('Attention date Mar 4, 2026');
+    expect(progressRow).toHaveTextContent('Attention date Mar 4');
     expect(progressRow).toHaveTextContent('petr');
-    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5, 2026');
-    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6, 2026');
-    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3, 2026');
+    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5');
+    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6');
+    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3');
     const noDateRow = screen.getByText('No attention date').closest('li')!;
+    const needsGroup = screen.getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
+    expect(needsGroup).toBeVisible();
+    expect(needsRow.querySelector('p')).toHaveTextContent('Anna');
     expect(noDateRow).not.toHaveTextContent('Attention date');
     expect(noDateRow).not.toHaveTextContent('Needs attention since');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
@@ -1281,7 +1301,7 @@ describe('Home items', () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: async () => { await waiting; return json(200, item(), { ETag: '"7"' }); }, [`POST ${donePath}`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'item_done' }), [`POST ${base}/items`]: json(201, item()) });
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
-    const add = await screen.findByRole('button', { name: 'Add item' });
+    const add = await screen.findByRole('button', { name: /^Add item$/ });
     await userEvent.click(add);
     const form = await screen.findByRole('form', { name: 'Add an item' });
     expect(within(form).getByLabelText('What needs doing?')).toBeEnabled();
@@ -1293,7 +1313,7 @@ describe('Home items', () => {
     expect(add).toBeEnabled();
     expect(screen.getByRole('button', { name: /Done:/ })).toBeDisabled();
     release();
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Add item' })).toBeEnabled());
+    await waitFor(() => expect(within(screen.getByRole('main')).getByRole('button', { name: /^Add item$/ })).toBeEnabled());
   });
 
   it('focuses the restored group heading when undo restores an unloaded row', async () => {
@@ -1454,6 +1474,63 @@ describe('Home items', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Done:/ })).toBeEnabled());
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(add).toHaveFocus();
+  });
+
+  it('keeps the same Add button focused when Undo repopulates empty Home', async () => {
+    let completed = false;
+    let releaseUndo: (() => void) | undefined;
+    const receipt = { id: 'c-empty-undo', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null };
+    installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => completed ? [] : [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: () => json(200, item(), { ETag: completed ? '"8"' : '"7"' }),
+      [`POST ${donePath}`]: () => { completed = true; return json(201, receipt); },
+      [`PATCH ${donePath}/c-empty-undo`]: () => new Promise<Response>((resolve) => {
+        releaseUndo = () => { completed = false; resolve(json(200, { ...receipt, undoneAt: '2026-01-02T00:00:00Z', undoneByUserId: 'u-1' })); };
+      }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    await screen.findByText('Nothing needs attention right now.');
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(releaseUndo).toBeDefined());
+    const add = screen.getByRole('button', { name: 'Add item' });
+    add.focus();
+    await act(async () => releaseUndo!());
+    await screen.findByRole('link', { name: 'Open item Renew passport' });
+    // Focus restore runs once busy clears; judge focus only after the restored Done is enabled.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Done:/ })).toBeEnabled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect(screen.getByRole('button', { name: /^Add item$/ })).toBe(add);
+    expect(add).toHaveFocus();
+  });
+
+  it('keeps Add focused when completing the last item makes Home empty', async () => {
+    let done = false;
+    let releaseCompletion: (() => void) | undefined;
+    const receipt = { id: 'c-empty-done', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null };
+    const fake = installFakeServer({
+      ...routes,
+      ...itemRoutes(base, () => done ? [] : [item()]),
+      [subjectList]: subjects,
+      [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }),
+      [`POST ${donePath}`]: () => new Promise<Response>((resolve) => {
+        releaseCompletion = () => { done = true; resolve(json(201, receipt)); };
+      }),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
+    await waitFor(() => expect(releaseCompletion).toBeDefined());
+    const add = screen.getByRole('button', { name: /^Add item$/ });
+    add.focus();
+    const summariesBefore = requestsOf(fake.requests, 'GET', `${base}/items/summary`).length;
+    await act(async () => releaseCompletion!());
+    await screen.findByText('Nothing needs attention right now.');
+    await screen.findByRole('button', { name: 'Undo' });
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`).length).toBeGreaterThan(summariesBefore));
+    expect(screen.getByRole('button', { name: /^Add item$/ })).toBe(add);
     expect(add).toHaveFocus();
   });
 
@@ -1819,7 +1896,10 @@ describe('Home items', () => {
     app();
     await screen.findByText('Overview needs');
     const nav = screen.getByRole('navigation', { name: 'Group overview' });
-    expect(within(nav).getByRole('link', { name: 'Needs attention 1 item' })).toBeVisible();
+    const needsLink = within(nav).getByRole('link', { name: 'Needs attention 1 item' });
+    expect(needsLink).toBeVisible();
+    expect(needsLink).toHaveClass('bg-sand');
+    expect(needsLink).not.toHaveClass('border');
     expect(within(nav).getByRole('link', { name: 'In progress 1 item' })).toBeVisible();
     expect(within(nav).getByRole('link', { name: 'Coming up 1 item' })).toBeVisible();
     expect(within(nav).queryByRole('link', { name: 'Waiting' })).not.toBeInTheDocument();
