@@ -751,31 +751,42 @@ describe('Home items', () => {
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
-  it('stacks independently paged groups when secondary content greatly exceeds attention', async () => {
-    const entries = [
-      ...Array.from({ length: 2 }, (_, index) => item({ id: `scale-needs-${index}`, title: `Scale needs ${index}` })),
-      ...Array.from({ length: 20 }, (_, index) => item({ id: `scale-progress-${index}`, title: `Scale progress ${index}`, workflowState: 'in_progress' })),
-    ];
+  it('uses independent columns when Needs attention and secondary groups are both populated', async () => {
+    const entries = [item({ id: 'split-needs', title: 'Split needs' }), item({ id: 'split-progress', title: 'Split progress', workflowState: 'in_progress' })];
     installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects });
     app();
-    await screen.findByRole('link', { name: 'Open item Scale needs 0' });
+    await screen.findByRole('link', { name: 'Open item Split needs' });
     const main = screen.getByRole('main');
-    expect(main.querySelector('[data-home-layout="balanced-stacked"]')).toBeInTheDocument();
-    expect(main.querySelector('.lg\\:grid-cols-\\[minmax\\(0\\,1\\.35fr\\)_minmax\\(20rem\\,1fr\\)\\]')).toBeNull();
-    const needs = within(main).getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
-    const progress = within(main).getByRole('heading', { level: 2, name: 'In progress 20 items' }).closest('section')!;
-    expect(within(needs).getAllByRole('listitem')).toHaveLength(2);
-    expect(within(progress).getAllByRole('listitem')).toHaveLength(20);
-    const overview = within(main).getByRole('navigation', { name: 'Group overview' });
-    expect(within(overview).getByRole('link', { name: 'In progress 20 items' })).toBeVisible();
+    expect(main.querySelector('[data-home-layout="attention-and-secondary"]')).toBeInTheDocument();
+    expect(main.querySelector('.lg\\:grid-cols-\\[minmax\\(0\\,1\\.35fr\\)_minmax\\(20rem\\,1fr\\)\\]')).toBeInTheDocument();
+  });
+
+  it('keeps needs-only Home in a bounded single column', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'needs-only', title: 'Needs only' })]), [subjectList]: subjects });
+    app();
+    await screen.findByRole('link', { name: 'Open item Needs only' });
+    const main = screen.getByRole('main');
+    expect(main.querySelector('[data-home-layout="needs-only"]')).toBeInTheDocument();
+    expect(main.querySelector('.max-w-3xl')).toBeInTheDocument();
+  });
+
+  it('stacks secondary-only Home in a bounded single column', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'secondary-only', title: 'Secondary only', workflowState: 'in_progress' })]), [subjectList]: subjects });
+    app();
+    await screen.findByRole('link', { name: 'Open item Secondary only' });
+    const main = screen.getByRole('main');
+    expect(main.querySelector('[data-home-layout="secondary-only"]')).toBeInTheDocument();
+    expect(main.querySelector('.max-w-3xl')).toBeInTheDocument();
   });
 
   it('uses a full-width secondary layout when Needs attention is empty', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item({ workflowState: 'in_progress' })]), [subjectList]: subjects });
     app();
-    await screen.findByText('Renew passport');
-    expect(screen.getByRole('main').querySelector('[data-home-layout="secondary-only"]')).toBeInTheDocument();
-    expect(screen.getByRole('main').querySelector('[data-home-layout="attention-and-secondary"]')).toBeNull();
+    await screen.findByRole('link', { name: 'Open item Renew passport' });
+    const main = screen.getByRole('main');
+    expect(main.querySelector('[data-home-layout="secondary-only"]')).toBeInTheDocument();
+    expect(main.querySelector('.max-w-3xl')).toBeInTheDocument();
+    expect(main.querySelector('[data-home-layout="attention-and-secondary"]')).toBeNull();
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -1314,7 +1325,7 @@ describe('Home items', () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: async () => { await waiting; return json(200, item(), { ETag: '"7"' }); }, [`POST ${donePath}`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'item_done' }), [`POST ${base}/items`]: json(201, item()) });
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
-    const add = await screen.findByRole('button', { name: 'Add item' });
+    const add = await screen.findByRole('button', { name: /^Add item$/ });
     await userEvent.click(add);
     const form = await screen.findByRole('form', { name: 'Add an item' });
     expect(within(form).getByLabelText('What needs doing?')).toBeEnabled();
@@ -1326,7 +1337,7 @@ describe('Home items', () => {
     expect(add).toBeEnabled();
     expect(screen.getByRole('button', { name: /Done:/ })).toBeDisabled();
     release();
-    await waitFor(() => expect(add).toBeEnabled());
+    await waitFor(() => expect(within(screen.getByRole('main')).getByRole('button', { name: /^Add item$/ })).toBeEnabled());
   });
 
   it('focuses the restored group heading when undo restores an unloaded row', async () => {
@@ -1513,26 +1524,34 @@ describe('Home items', () => {
     add.focus();
     await act(async () => releaseUndo!());
     await screen.findByRole('link', { name: 'Open item Renew passport' });
-    expect(screen.getByRole('button', { name: 'Add item' })).toBe(add);
+    expect(screen.getByRole('button', { name: /^Add item$/ })).toBe(add);
     expect(add).toHaveFocus();
   });
 
   it('keeps Add focused when completing the last item makes Home empty', async () => {
     let done = false;
+    let releaseCompletion: (() => void) | undefined;
     const receipt = { id: 'c-empty-done', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null };
-    installFakeServer({
+    const fake = installFakeServer({
       ...routes,
       ...itemRoutes(base, () => done ? [] : [item()]),
       [subjectList]: subjects,
       [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }),
-      [`POST ${donePath}`]: () => { done = true; return json(201, receipt); },
+      [`POST ${donePath}`]: () => new Promise<Response>((resolve) => {
+        releaseCompletion = () => { done = true; resolve(json(201, receipt)); };
+      }),
     });
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
-    const add = screen.getByRole('button', { name: 'Add item' });
+    await waitFor(() => expect(releaseCompletion).toBeDefined());
+    const add = screen.getByRole('button', { name: /^Add item$/ });
     add.focus();
+    const summariesBefore = requestsOf(fake.requests, 'GET', `${base}/items/summary`).length;
+    await act(async () => releaseCompletion!());
     await screen.findByText('Nothing needs attention right now.');
-    expect(screen.getByRole('button', { name: 'Add item' })).toBe(add);
+    await screen.findByRole('button', { name: 'Undo' });
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`).length).toBeGreaterThan(summariesBefore));
+    expect(screen.getByRole('button', { name: /^Add item$/ })).toBe(add);
     expect(add).toHaveFocus();
   });
 

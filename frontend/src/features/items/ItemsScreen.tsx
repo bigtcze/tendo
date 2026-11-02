@@ -90,6 +90,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
   const { cancelAddAndFocus, subjectName } = screen;
   const emptyHome = Boolean(screen.emptyHome);
+  const homeReady = home.itemsRequestComplete;
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
@@ -120,7 +121,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
     {!loading && summary && !adding
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
-    <HomeActions empty={emptyHome} ready={home.itemsRequestComplete} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
+    <HomeActions empty={emptyHome} ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
     <AddItemPanel
       adding={adding}
       busy={busy}
@@ -171,8 +172,8 @@ function HomeActions({ empty, ready, adding, addRef, onAdd }: {
         ref={addRef}
         data-action="completion-trigger"
         type="button"
-        aria-hidden={adding}
-        tabIndex={adding ? -1 : 0}
+        aria-hidden={adding || undefined}
+        tabIndex={adding ? -1 : undefined}
         onClick={onAdd}
         className="w-full sm:w-auto"
       >

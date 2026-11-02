@@ -38,6 +38,8 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
   routeMetrics[file] = await measureCapture(page, resultSelector);
+  const overview = page.locator('main nav[aria-label="Group overview"]');
+  if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
   await page.screenshot({ path, fullPage, mask });
 }
 
@@ -664,7 +666,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
         if (width === 1440) {
           await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-          await capture(page, join(dir, `home-1200-en-${width}-forced-dark.png`), false);
+          await capture(page, join(dir, `home-1200-en-${width}-expanded-forced-dark.png`), false);
           await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
         }
       }

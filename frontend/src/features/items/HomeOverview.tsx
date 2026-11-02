@@ -7,7 +7,7 @@ import { groups, type GroupData } from './homeGroups';
 import type { CreateNotice } from './useAddItem';
 
 const overviewLinkClass = 'inline-flex min-h-11 shrink-0 items-center gap-1 rounded-full bg-sand px-3 text-sm font-medium text-ink '
-  + 'transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+  + 'transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 /** Completion/undo outcome shown in the home notice area; Undo and retry controls depend on its fields. */
 export type Notice = {
@@ -108,7 +108,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
     aria-label={t('items.group.overview')}
     className={[
       'relative flex w-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain',
-      '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+      'py-1 -my-1 scroll-py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
       'after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-6',
       'after:bg-gradient-to-l after:from-paper after:to-transparent',
     ].join(' ')}
@@ -118,8 +118,12 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
       if (!(link instanceof HTMLElement)) return;
       const navRect = nav.getBoundingClientRect();
       const linkRect = link.getBoundingClientRect();
+      const topInset = Number.parseFloat(getComputedStyle(nav).paddingTop) || 0;
+      const bottomInset = Number.parseFloat(getComputedStyle(nav).paddingBottom) || 0;
       if (linkRect.left < navRect.left) nav.scrollLeft -= navRect.left - linkRect.left;
       else if (linkRect.right > navRect.right) nav.scrollLeft += linkRect.right - navRect.right;
+      if (linkRect.top < navRect.top + topInset) nav.scrollTop -= navRect.top + topInset - linkRect.top;
+      else if (linkRect.bottom > navRect.bottom - bottomInset) nav.scrollTop += linkRect.bottom - navRect.bottom + bottomInset;
     }}
   >
     {overviewGroups.map((group) => <a
