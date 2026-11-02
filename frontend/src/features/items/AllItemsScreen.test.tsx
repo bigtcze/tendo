@@ -121,7 +121,7 @@ describe('All items', () => {
     const unknownPanel = document.getElementById(filtersDisclosure.getAttribute('aria-controls')!)!;
     await userEvent.click(filtersDisclosure);
     expect(filtersDisclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(unknownPanel).not.toHaveAttribute('hidden');
+    expect(unknownPanel).not.toHaveClass('hidden');
     expect(await screen.findByRole('option', { name: 'Unknown' })).toBeInTheDocument();
     expect(screen.getByLabelText('For')).toHaveValue('unknown-subject');
     // Facets (subject names) and the item list load independently; the same single Clear action works in the no-match card.
@@ -162,7 +162,7 @@ describe('All items', () => {
     expect(document.getElementById(panelId)).toHaveClass('hidden');
     await userEvent.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(document.getElementById(panelId)).not.toHaveAttribute('hidden');
+    expect(document.getElementById(panelId)).not.toHaveClass('hidden');
     expect(screen.getByLabelText('For')).toHaveValue('s-1');
     expect(screen.getByLabelText('Repeat')).toHaveValue('false');
     await userEvent.click(disclosure);
@@ -192,6 +192,31 @@ describe('All items', () => {
     await userEvent.click(statusClear);
     await waitFor(() => expect(window.location.search).toBe(''));
     expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('done')).toBe('false');
+  });
+
+  it('clears a status-only no-match and returns to active rows', async () => {
+    window.history.replaceState(null, '', '/items?status=done');
+    const activeItem = makeItem(1, { title: 'Active task' });
+    const listPath = `GET ${base}/items`;
+    const routes = itemRoutes(base, [activeItem]);
+    const fake = installFakeServer({
+      ...bootRoutes,
+      ...routes,
+      [listPath]: (request: RecordedRequest) => request.query.get('done') === 'true'
+        ? json(200, { items: [], nextCursor: null })
+        : routes[listPath]!(request),
+    });
+    app();
+    expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Show')).toHaveValue('done');
+    const noMatchClear = screen.getByRole('heading', { name: 'No items match.' }).closest('section')!
+      .querySelector<HTMLButtonElement>('[data-all-items-clear]');
+    expect(noMatchClear).not.toBeNull();
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    await userEvent.click(noMatchClear!);
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(await screen.findByText('Active task')).toBeInTheDocument();
+    expect(reqs(fake.requests, `${base}/items/summary`).at(-1)?.query.toString()).toBe('');
   });
 
   it('keeps deep-linked secondary filters clearable with the disclosure collapsed', async () => {

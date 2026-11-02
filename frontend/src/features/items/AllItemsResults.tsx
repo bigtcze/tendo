@@ -110,7 +110,7 @@ export function AllItemsResults({ view, context, page, subjectNames, members, ac
     <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
   </EmptyState>;
   if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')}>
-    {hasFilters(context) ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
+    {(hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
       onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null}
   </EmptyState>;
   if (view !== 'rows') return null;

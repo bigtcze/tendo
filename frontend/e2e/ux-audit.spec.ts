@@ -455,9 +455,6 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await page.mouse.move(0, 0);
           await page.screenshot({ path: join(dir, `audit-all-items-page2-${width}.png`) });
           await page.goto('/items');
-          // The shared scale household is populated; stub empty results only to review frontend presentation.
-          // This shared 1,000+ fixture remains populated; stub empty responses only for a frontend presentation capture.
-          // Empty-household response is a presentation stub: this shared 1,000+ audit household is populated.
           await page.route('**/api/v1/households/*/items/summary*', route => route.fulfill({
             status: 200, contentType: 'application/json',
             body: JSON.stringify({ evaluatedOn: NOW, total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0 }),

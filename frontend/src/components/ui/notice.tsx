@@ -3,7 +3,7 @@ import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
 type Tone = 'neutral' | 'success' | 'error';
-type NoticeProps = Omit<HTMLAttributes<HTMLDivElement>, 'role'> & { children: ReactNode; tone?: Tone; live?: boolean; role?: 'status' | 'alert' | null };
+type NoticeProps = Omit<HTMLAttributes<HTMLDivElement>, 'role'> & { children: ReactNode; tone?: Tone; role?: 'status' | 'alert' | null };
 type NoticeRegionProps = { message?: string; tone?: Tone; className?: string };
 
 const toneClass = (tone: Tone) => {
@@ -13,8 +13,8 @@ const toneClass = (tone: Tone) => {
 };
 const noticeClass = 'rounded-xl border border-line bg-sand px-4 py-3 text-base text-ink';
 
-export function Notice({ children, tone = 'neutral', live = true, role: roleOverride, className, ...props }: NoticeProps) {
-  const role = roleOverride === null ? undefined : roleOverride ?? (live ? (tone === 'error' ? 'alert' : 'status') : undefined);
+export function Notice({ children, tone = 'neutral', role: roleOverride, className, ...props }: NoticeProps) {
+  const role = roleOverride === null ? undefined : roleOverride ?? (tone === 'error' ? 'alert' : 'status');
   return (
     <div role={role} className={cn(noticeClass, toneClass(tone), className)} {...props}>
       {children}

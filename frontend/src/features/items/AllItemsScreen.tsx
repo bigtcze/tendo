@@ -26,7 +26,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle space-y-6">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
-      <Heading className="font-display text-2xl leading-tight sm:text-h1">{t('allItems.title')}</Heading>
+      <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
       <div className="grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
         <aside className="min-w-0 space-y-3 lg:sticky lg:top-6">
           <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
