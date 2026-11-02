@@ -391,14 +391,17 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const afterCompletionItemId = afterCompletionFixture!.id;
       let doneDetailFixture: { id: string } | undefined;
       let archivedDetailFixture: { id: string } | undefined;
+      let openDetailFixture: { id: string; title: string } | undefined;
       for (const candidate of createdItems.filter(item => item.recurrence === null)) {
         const current = await api(page, 'get', `${root}/items/${candidate.id}`);
         expect(current.status()).toBe(200);
-        const detail = await current.json() as { done: boolean; archived: boolean };
+        const detail = await current.json() as { done: boolean; archived: boolean; workflowState: string };
         if (detail.done && !doneDetailFixture) doneDetailFixture = candidate;
         if (detail.archived && !archivedDetailFixture) archivedDetailFixture = candidate;
-        if (doneDetailFixture && archivedDetailFixture) break;
+        if (!detail.done && !detail.archived && detail.workflowState === 'open' && !openDetailFixture) openDetailFixture = candidate;
+        if (doneDetailFixture && archivedDetailFixture && openDetailFixture) break;
       }
+      expect(openDetailFixture, 'open one-off detail fixture for Done and Undo').toBeTruthy();
       expect(doneDetailFixture, 'done one-off detail fixture').toBeTruthy();
       expect(archivedDetailFixture, 'archived detail fixture').toBeTruthy();
       for (const cycle of [0, 1]) {
@@ -676,6 +679,25 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
           await expect(page.getByRole('main').getByText(/Archived\./)).toBeVisible();
           await capture(page, join(dir, `audit-item-detail-archived-en-${width}.png`));
+          // Done then Undo on detail: the fixture ends open again, so later stages see the same household.
+          await page.goto(`/items/${openDetailFixture!.id}`);
+          const detailDone = page.getByRole('button', { name: en['items.done.label'].replace('{title}', openDetailFixture!.title), exact: true });
+          await expect(detailDone).toBeEnabled({ timeout: 10_000 });
+          await detailDone.click();
+          await expect(page.getByText(en['items.notice.done'].replace('{title}', openDetailFixture!.title), { exact: true })).toBeVisible({ timeout: 10_000 });
+          await capture(page, join(dir, `audit-item-detail-done-notice-en-${width}.png`), false);
+          await page.getByRole('button', { name: en['items.undo'], exact: true }).click();
+          await expect(page.getByText(en['itemDetail.completionUndone'], { exact: true })).toBeVisible({ timeout: 10_000 });
+          await expect(detailDone).toBeEnabled({ timeout: 10_000 });
+          await capture(page, join(dir, `audit-item-detail-undone-en-${width}.png`), false);
+          await page.goto('/items/0198a2f0-0000-7000-8000-00000000dead');
+          await expect(page.getByRole('heading', { level: 1, name: en['itemDetail.gone'] })).toBeVisible({ timeout: 10_000 });
+          await capture(page, join(dir, `audit-item-detail-gone-en-${width}.png`));
+          await page.goto(`/items/${recurringHistoryItemId}`);
+          await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible({ timeout: 10_000 });
+          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+          await capture(page, join(dir, `audit-item-detail-forced-dark-en-${width}.png`));
+          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
         }
         await page.goto(`/items/${recurringHistoryItemId}`);
         await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
@@ -683,7 +705,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(history.locator('li')).toHaveCount(2);
         expect(recurringHistoryItemId).toBe(tall!.id);
         await capture(page, join(dir, `audit-item-detail-en-${width}.png`));
-        await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+        await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
         await expect(page.getByRole('form', { name: en['itemDetail.edit.formLabel'] })).toBeVisible();
         await capture(page, join(dir, `audit-item-edit-en-${width}.png`), false);
         if (width === 390) {

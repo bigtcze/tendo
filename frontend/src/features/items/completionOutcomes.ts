@@ -24,6 +24,8 @@ export type CompletionTools = {
   /** Restored after the mutation lock clears, once a successful Undo re-renders the row. */
   undoFocusRef: { current: { itemId: string; group: ItemGroup | null } | null };
   noticeRef: { current: HTMLDivElement | null };
+  /** Detail only: confirm a successful Undo in the notice instead of clearing it. */
+  undoneText?: string;
 };
 /** The prerequisite item read and, only when it returned an ETag, the guarded write. */
 export type ReadThenWrite<R> = { current: ItemRead; result?: R };
@@ -124,7 +126,7 @@ export async function handleUndoResult(
   }
   if (result.kind === 'unauthenticated') { onSignedOut(); return; }
   if (result.kind === 'ok') {
-    setNotice(null);
+    setNotice(tools.undoneText ? { text: tools.undoneText } : null);
     await refresh();
     // Restored after busy clears (useCompletionFocus): the row's Done is disabled until then and cannot take focus.
     undoFocusRef.current = { itemId, group: focusedGroup };

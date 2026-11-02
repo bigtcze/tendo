@@ -16,8 +16,7 @@ describe('locale catalogs', () => {
   ])('plural rules give natural $locale unit words for $count $unit', ({ locale, unit, count, expected }) => {
     const category = new Intl.PluralRules(locale).select(count);
     const catalog = locale === 'cs' ? cs : en;
-    const phrase = catalog[`items.every.${unit}.${category}` as keyof typeof en].replace(/\{count\}/g, String(count));
-    const unitWord = phrase.replace(/^.*?\d+ /u, '');
+    const unitWord = catalog[`items.unitWord.${unit}.${category}` as keyof typeof en];
     expect(unitWord).toBe(expected);
   });
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MessageKey } from '../../i18n';
+import type { Notice } from './HomeOverview';
 import { getSubject } from '../subjects/subjectsApi';
 import type { Member } from '../members/membersApi';
 import { getItem, type Item } from './itemsApi';
@@ -27,6 +28,7 @@ export function useItemDetail({ householdId, itemId, onSignedOut, loads, history
   const [subjectOverride, setSubjectOverride] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [notice, setNotice] = useState<MessageKey | null>(null);
+  const [completionNotice, setCompletionNotice] = useState<Notice | null>(null);
   const [undoArchive, setUndoArchive] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -46,7 +48,7 @@ export function useItemDetail({ householdId, itemId, onSignedOut, loads, history
     if (!ITEM_ID.test(itemId)) { if (current(token)) setState('gone'); return; }
     resetHistory();
     setState('loading'); setEditing(null); setEditLoading(false);
-    if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); }
+    if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); setCompletionNotice(null); }
     const result = await getItem(householdId, itemId);
     if (!current(token)) return;
     if (result.kind === 'unauthenticated') { onSignedOut(); return; }
@@ -73,8 +75,9 @@ export function useItemDetail({ householdId, itemId, onSignedOut, loads, history
   function announce(next: MessageKey) { setNotice(next); focusAfterMutationRef.current = true; }
 
   return {
-    state, item, subjectName, subjectOverride, members, notice, undoArchive, editing, editLoading, focusAfterMutationRef,
-    load, retry: () => setAttempt((n) => n + 1), setState, setItem, setNotice, announce, setUndoArchive, setEditing, setEditLoading, showSubject,
+    state, item, subjectName, subjectOverride, members, notice, completionNotice, undoArchive, editing, editLoading, focusAfterMutationRef,
+    load, retry: () => setAttempt((n) => n + 1), setState, setItem, setNotice, setCompletionNotice, announce,
+    setUndoArchive, setEditing, setEditLoading, showSubject,
   };
 }
 

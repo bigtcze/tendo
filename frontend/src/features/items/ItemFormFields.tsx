@@ -6,6 +6,7 @@ import { Select } from '../../components/ui/select';
 import { Switch as Toggle } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
 import { useI18n, type MessageKey } from '../../i18n';
+import { unitWord } from './repeatSummary';
 import type { Member } from '../members/membersApi';
 import { units, type FormField, type IntervalUnit } from './itemFormModel';
 import type { Subject } from './itemsApi';
@@ -91,7 +92,7 @@ function RepeatSwitch({ state, disabled, mode }: FieldProps & { mode: 'add' | 'e
 }
 
 function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const labelId = `${controlId(id, 'recurrence')}-label`;
   const intervalId = controlId(id, 'recurrence');
   return <fieldset className="space-y-2">
@@ -107,7 +108,7 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
         value={state.draft.unit}
         onChange={(event) => state.update({ unit: event.target.value as IntervalUnit })}
       >
-        {units.map((value) => <option key={value} value={value}>{t(`items.unit.${value}` as MessageKey)}</option>)}
+        {units.map((value) => <option key={value} value={value}>{unitWord(t, locale, Number(state.draft.interval), value)}</option>)}
       </Select>
     </div>
   </fieldset>;
@@ -119,10 +120,7 @@ function intervalLabel(
   count: string,
   unit: IntervalUnit,
 ) {
-  const category = new Intl.PluralRules(locale).select(Number(count));
-  const key = `items.every.${unit}.${category}` as MessageKey;
-  const phrase = t(key, { count });
-  return phrase.replace(/^(?:Repeats every|Opakuje se každ(?:ý|é|ých)) \d+ /u, `${count} `);
+  return `${count} ${unitWord(t, locale, Number(count), unit)}`;
 }
 
 function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisabled: boolean }) {

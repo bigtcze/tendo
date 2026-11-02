@@ -1292,7 +1292,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
     const created = await serverItem(title);
     expect(created.responsibleUserId).toBe(member!.userId);
-    await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+    await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
     const edit = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
     await edit.getByLabel(en['items.responsible.label']).selectOption('');
     await edit.getByRole('button', { name: en['itemDetail.save'] }).click();
@@ -4602,8 +4602,8 @@ test.describe('Tendo production journey', () => {
       const first = await actorContext();
       const second = await actorContext();
       // Both item detail forms load version 1 (asynchronous GET + choices) before session A commits.
-      await first.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
-      await second.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+      await first.actor.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      await second.actor.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
       const formA = first.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       const formB = second.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       await expect(formA.getByLabel(en['items.title'])).toHaveValue(title);

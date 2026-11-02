@@ -1,9 +1,14 @@
 // Adapted from shadcn/ui (MIT) — https://ui.shadcn.com
-import type { HTMLAttributes, ReactNode } from 'react';
+import type { HTMLAttributes, ReactNode, Ref } from 'react';
 import { cn } from '../../lib/cn';
 
 type Tone = 'neutral' | 'success' | 'error';
-type NoticeProps = Omit<HTMLAttributes<HTMLDivElement>, 'role'> & { children: ReactNode; tone?: Tone; role?: 'status' | 'alert' | null };
+type NoticeProps = Omit<HTMLAttributes<HTMLDivElement>, 'role' | 'ref'> & {
+  children: ReactNode;
+  tone?: Tone;
+  role?: 'status' | 'alert' | null;
+  ref?: Ref<HTMLDivElement>;
+};
 type NoticeRegionProps = { message?: string; tone?: Tone; className?: string };
 
 const toneClass = (tone: Tone) => {
