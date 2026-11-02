@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { en } from '../src/i18n/en';
 import { cs } from '../src/i18n/cs';
+import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 
@@ -605,9 +606,19 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         return { dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, height: document.documentElement.scrollHeight, overflowOffenders: offenders };
       });
       if (stage === '1') expect(observed.rows, `1-item stage shows exactly one Home row (${locale} ${width}px)`).toBe(1);
-      if (stage === '100') expect(observed.rows, `100-item stage shows no more than the group cap (${locale} ${width}px)`).toBeLessThanOrEqual(500);
-      if (width === 320 || width === 390 || width === 768 || width === 1024 || width === 1440) {
-        await capture(targetPage, join(dir, `home-${stage}-${locale}-${width}-fold.png`), false);
+      if (stage === '100') {
+        await expect(overview, `100-item overview is visible (${locale} ${width}px)`).toBeVisible();
+        const renderedGroups = await targetPage.locator('main section[id^="group-"] ul').evaluateAll((lists) =>
+          lists.map((list) => list.querySelectorAll(':scope > li[data-item-id]').length),
+        );
+        const expectedGroupCount = await targetPage.locator('main li[data-item-id]')
+          .evaluateAll((rows) => new Set(rows.map((row) => row.closest('section')?.id)).size);
+        const renderedListGroupCount = await targetPage.locator('main section[id^="group-"]')
+          .evaluateAll((sections) => sections.filter((section) => section.querySelector('ul > li[data-item-id]')).length);
+        expect(renderedListGroupCount, 'each populated group has one rendered list').toBe(expectedGroupCount);
+        expect(renderedGroups.length, 'every populated list has rendered rows').toBe(renderedListGroupCount);
+        expect(renderedGroups.length, 'the 100-item fixture populates multiple Home groups').toBeGreaterThan(1);
+        expect(renderedGroups.every((count) => count > 0 && count <= HOME_GROUP_ROW_CAP), 'each populated Home group respects its row cap').toBe(true);
       }
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
@@ -657,12 +668,16 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const darkPage = await darkContext.newPage();
       await darkPage.goto('/');
       await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
-      await darkPage.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+      await darkPage.waitForLoadState('networkidle');
       await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
-      metrics.stages.darkMode = { requestedColorScheme: 'dark', bodyBackground: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor) };
-      await darkPage.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+      metrics.stages.darkMode = {
+        requestedColorScheme: 'dark',
+        renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)'),
+      };
+      expect(metrics.stages.darkMode.renderedIdenticallyToLight).toBe(true);
       for (const width of [390, 1440]) {
         await darkPage.setViewportSize({ width, height: 900 });
+        await expect(darkPage.evaluate(() => window.innerWidth)).resolves.toBe(width);
         await darkPage.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
         await capture(darkPage, join(dir, `home-1200-en-${width}-forced-dark.png`));
         await darkPage.locator('html').evaluate((html) => html.removeAttribute('data-theme'));

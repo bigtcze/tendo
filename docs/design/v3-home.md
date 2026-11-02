@@ -6,7 +6,7 @@
 |---|---|---|
 | Layout | Single column below `lg`; at `lg`, Needs attention is the wider primary column and the other groups share an independent secondary column. If Needs attention has no loaded rows, all populated secondary groups use the full content width. | Keeps the first useful work prominent without shared grid rows or an empty primary column. |
 | Measure | Home follows the signed-in shell's max-width; each group and row can shrink and wrap rather than spreading title/action to opposite page edges. | Avoids the previous wide white panel and preserves readable context. |
-| Group navigation | Two or more populated groups produce outlined, touch-sized links with counts. Links focus existing group headings; fewer than two groups hides the overview. | Preserves the in-page navigation contract while improving scanning. |
+| Group navigation | Two or more populated groups produce quiet sand pill links with a muted count and 44px hit area. Links focus existing group headings; fewer than two groups hides the overview. | Preserves the in-page navigation contract without competing with Add. |
 | Add | The primary Add item action sits before groups, close to the list; empty Home has one obvious Add action inside the empty-state primitive. | One primary action and a clear next step. |
 | Date | Attention dates omit the year when it matches the server's `evaluatedOn` year; cross-year dates include it. Formatting stays locale-aware and date-only values remain UTC-stable. | Dates scan faster without a relative phrase that can read unnaturally in sentence contexts. |
 | Row | Strong, non-underlined title; one visible supporting scan line (subject, attention date, responsible person) plus a visible secondary line for last done and repeat mode when present. | Preserve subject/assignment information in both the visual and accessibility trees without hiding recurrence/history. |
@@ -28,7 +28,7 @@ At 1024px and wider, when Needs attention exists, the group layout uses independ
 
 ## Screenshot critique
 
-The after capture at 1440px uses the available content width well: the attention list and independent secondary groups are both visible, titles/actions are no longer separated by a vast panel-width gap, and metadata remains legible. At 390px the layout does not overflow and metadata wraps, but Done moves below its row text and the first rows are vertically tall; this trades density for a recognizable 44px action. At 320px the household header account controls wrap and the fixed phone navigation crowds the last visible row; this shell-level narrow-phone pressure remains visible. The task rows use wrapping rather than clipping. The 320px and Czech screenshots are included for wrapping checks; no claim of household user testing is made.
+The refreshed 1440px capture keeps independent attention and secondary columns, with Done beside the flexible text column and metadata clear of the title focus outline. At 390px, Done remains consistently right-aligned rather than wrapping below row text. In the 320px Czech view, the action stays beside the title even when longer row details wrap; the shell account controls wrap and bottom navigation crowds the fold. Captures are scripted evidence only; no household user testing is claimed.
 
 ## States and behavior
 

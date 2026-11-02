@@ -8,9 +8,13 @@ import { formatAttentionDate, formatDate } from './formatDate';
 import { HOME_GROUP_ROW_CAP, groups, type GroupData } from './homeGroups';
 
 const ROW_TITLE_CLASS = [
-  'inline-flex min-h-11 max-w-full items-center text-left text-row-title font-medium leading-snug text-ink',
-  '[overflow-wrap:anywhere] hover:text-accent focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+  'inline-flex min-h-11 w-fit max-w-full items-center py-1 text-left text-row-title font-medium leading-snug text-ink',
+  '[overflow-wrap:anywhere] hover:text-accent focus-visible:rounded-sm focus-visible:outline-2',
+  'focus-visible:outline-offset-2 focus-visible:outline-accent',
 ].join(' ');
+const ROW_CLASS = 'flex items-start gap-3 px-4 py-3';
+const ROW_CONTENT_CLASS = 'min-w-0 flex-1';
+const DONE_CLASS = 'mt-1 shrink-0';
 const GROUP_HEADING_CLASS = [
   'flex items-baseline justify-between border-b border-line pb-2 text-h2 font-medium text-ink',
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
@@ -54,8 +58,8 @@ export function ItemRow({ item, group, evaluatedOn, subjectName, locale, userId,
     item.recurrence ? repeatSummary(t, item.recurrence, locale) : null,
   ].filter(Boolean).join(' · ');
   return (
-    <li ref={rowRef} data-item-id={item.id} className='flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3'>
-      <div className='min-w-0 flex-1 basis-64'>
+    <li ref={rowRef} data-item-id={item.id} className={ROW_CLASS}>
+      <div className={ROW_CONTENT_CLASS}>
         <NavLink
           href={`/items/${encodeURIComponent(item.id)}`}
           onNavigate={() => onOpenItem(item.id)}
@@ -64,12 +68,20 @@ export function ItemRow({ item, group, evaluatedOn, subjectName, locale, userId,
           <span aria-hidden='true'>{item.title}</span>
           <span className='sr-only'>{t('itemDetail.open', { title: item.title })}</span>
         </NavLink>
-        <p className='break-words text-meta text-muted'>
+        <p className='mt-1 break-words text-meta text-muted'>
           {scanLine}
         </p>
         {additionalDetails ? <p className='mt-1 break-words text-meta text-muted'>{additionalDetails}</p> : null}
       </div>
-      <Button type='button' variant='secondary' data-action='done' aria-label={t('items.done.label', { title: item.title })} disabled={busy} onClick={onDone}>
+      <Button
+        className={DONE_CLASS}
+        type='button'
+        variant='secondary'
+        data-action='done'
+        aria-label={t('items.done.label', { title: item.title })}
+        disabled={busy}
+        onClick={onDone}
+      >
         {t('items.done')}
       </Button>
     </li>

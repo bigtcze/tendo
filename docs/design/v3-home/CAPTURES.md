@@ -7,7 +7,7 @@ Command pattern:
 ```sh
 source ~/.config/tendo-test/env
 TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-before-captures bash scripts/dev-exec.sh -- bash -c 'cd /tmp/opencode/v308-before && bash scripts/e2e-smoke.sh'
-TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-after-final-captures bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+TENDO_UX_AUDIT_DIR=/tmp/opencode/v308-review3-captures bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
 ```
 
 | Before | After | Purpose |

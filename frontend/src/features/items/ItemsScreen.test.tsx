@@ -1833,7 +1833,10 @@ describe('Home items', () => {
     app();
     await screen.findByText('Overview needs');
     const nav = screen.getByRole('navigation', { name: 'Group overview' });
-    expect(within(nav).getByRole('link', { name: 'Needs attention 1 item' })).toBeVisible();
+    const needsLink = within(nav).getByRole('link', { name: 'Needs attention 1 item' });
+    expect(needsLink).toBeVisible();
+    expect(needsLink).toHaveClass('bg-sand');
+    expect(needsLink).not.toHaveClass('border');
     expect(within(nav).getByRole('link', { name: 'In progress 1 item' })).toBeVisible();
     expect(within(nav).getByRole('link', { name: 'Coming up 1 item' })).toBeVisible();
     expect(within(nav).queryByRole('link', { name: 'Waiting' })).not.toBeInTheDocument();

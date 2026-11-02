@@ -1132,7 +1132,8 @@ test.describe('Tendo production journey', () => {
     expect(upcoming).toMatchObject({ attentionOn: '2026-01-31', lastCompletedOn: '2025-12-31', attention: 'upcoming' });
     const upcomingRow = group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: upcomingTitle });
     await expect(upcomingRow).toBeVisible();
-    await expect(upcomingRow).toContainText('Jan 31');
+    await expect(upcomingRow).toContainText(en['items.attentionOn'].replace('{date}', 'Jan 31'));
+    await expect(upcomingRow).not.toContainText('Jan 31, 2026');
 
     const ordinaryTitle = 'Ordinary repeating no history';
     await addItem({ title: ordinaryTitle, subject: 'Anička', repeat: { value: '1', unit: 'month', fluid: false } });

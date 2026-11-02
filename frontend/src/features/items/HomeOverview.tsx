@@ -6,8 +6,8 @@ import { countPluralKey } from './itemsScreenHelpers';
 import { groups, type GroupData } from './homeGroups';
 import type { CreateNotice } from './useAddItem';
 
-const overviewLinkClass = 'inline-flex min-h-11 items-center rounded-lg border border-line bg-raised px-3 text-sm font-medium text-ink '
-  + 'transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const overviewLinkClass = 'inline-flex min-h-11 items-center gap-1 rounded-full bg-sand px-3 text-sm font-medium text-ink '
+  + 'transition-colors hover:bg-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 /** Completion/undo outcome shown in the home notice area; Undo and retry controls depend on its fields. */
 export type Notice = {
@@ -104,8 +104,7 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
   // Overview links only target sections that actually render (summary count and loaded rows), so every link has a heading to focus.
   const overviewGroups = groups.filter((group) => summary[group.count] > 0 && groupData[group.id].items.length > 0);
   if (overviewGroups.length < 2) return null;
-  return <div className="space-y-2">
-    <nav aria-label={t('items.group.overview')} className="flex flex-wrap gap-2">
+  return <nav aria-label={t('items.group.overview')} className="flex flex-wrap gap-2">
     {overviewGroups.map((group) => <a
       key={group.id}
       href={`#group-${group.id}`}
@@ -117,7 +116,6 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
         sectionHeadingRefs.current.get(group.id)?.focus();
       }}
       className={overviewLinkClass}
-    >{t(group.key)} {summary[group.count]}</a>)}
-    </nav>
-  </div>;
+    >{t(group.key)} <span className="text-muted">{summary[group.count]}</span></a>)}
+  </nav>;
 }
