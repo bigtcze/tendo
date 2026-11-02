@@ -90,7 +90,7 @@ describe('All items', () => {
     window.history.replaceState(null, '', '/items?status=bogus&recurring=maybe&q=%20%20&subject=unknown-id');
     const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
     app();
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
     expect(window.location.search).toBe('?subject=unknown-id');
     expect(screen.getByLabelText('Show')).toHaveValue('active');
     expect(screen.getByLabelText('For')).toHaveValue('unknown-id');
@@ -116,11 +116,20 @@ describe('All items', () => {
     window.history.replaceState(null, '', '/items?subject=unknown-subject');
     const unknown = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
     app();
+    const filtersDisclosure = await screen.findByRole('button', { name: /Filters/ });
+    expect(filtersDisclosure).toHaveAttribute('aria-expanded', 'false');
+    const unknownPanel = document.getElementById(filtersDisclosure.getAttribute('aria-controls')!)!;
+    await userEvent.click(filtersDisclosure);
+    expect(filtersDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(unknownPanel).not.toHaveClass('hidden');
     expect(await screen.findByRole('option', { name: 'Unknown' })).toBeInTheDocument();
     expect(screen.getByLabelText('For')).toHaveValue('unknown-subject');
-    // Facets (subject names) and the item list load independently; Clear exists only once the list settles to no-match.
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
+    // Facets (subject names) and the item list load independently; the same single Clear action works in the no-match card.
+    expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
+    const noMatchClear = screen.getByRole('heading', { name: 'No items match.' }).closest('section')!.querySelector('[data-all-items-clear]');
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    expect(noMatchClear).not.toBeNull();
+    await userEvent.click(noMatchClear!);
     expect(window.location.pathname + window.location.search).toBe('/items');
     expect(unknown.requests.length).toBeGreaterThan(0);
   });
@@ -141,6 +150,96 @@ describe('All items', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await waitFor(() => expect(reqs(fake.requests, `${base}/items`).length).toBeGreaterThan(before));
     expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('q')).toBe('😀'.repeat(200));
+  });
+
+  it('starts collapsed, toggles the filter disclosure, and reports deep-linked secondary filters', async () => {
+    window.history.replaceState(null, '', '/items?subject=s-1&recurring=false');
+    await openAllItems([makeItem(1)]);
+    const disclosure = screen.getByRole('button', { name: 'Filters (2)' });
+    const panelId = disclosure.getAttribute('aria-controls')!;
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(document.getElementById(panelId)).toHaveClass('hidden');
+    await userEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(panelId)).not.toHaveClass('hidden');
+    expect(screen.getByLabelText('For')).toHaveValue('s-1');
+    expect(screen.getByLabelText('Repeat')).toHaveValue('false');
+    await userEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(document.getElementById(panelId)).toHaveClass('hidden');
+  });
+
+  it('shows and applies Clear for search-only and status-only filters while secondary filters are collapsed', async () => {
+    const items = Array.from({ length: 3 }, (_, index) => makeItem(index + 1, { done: index === 0 }));
+    const fake = await openAllItems(items);
+    await userEvent.type(screen.getByRole('searchbox'), 'Item');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const searchClear = document.querySelector<HTMLButtonElement>('[data-all-items-clear]')!;
+    expect(screen.getByRole('button', { name: 'Filters' })).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    await userEvent.click(searchClear);
+    await waitFor(() => expect(window.location.search).toBe(''));
+
+    await userEvent.selectOptions(screen.getByLabelText('Show'), 'done');
+    const statusClear = await waitFor(() => {
+      const clear = document.querySelector<HTMLButtonElement>('[data-all-items-clear]');
+      expect(clear).not.toBeNull();
+      return clear!;
+    });
+    expect(screen.getByRole('button', { name: 'Filters' })).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    await userEvent.click(statusClear);
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(reqs(fake.requests, `${base}/items`).at(-1)?.query.get('done')).toBe('false');
+  });
+
+  it('clears a status-only no-match and returns to active rows', async () => {
+    window.history.replaceState(null, '', '/items?status=done');
+    const activeItem = makeItem(1, { title: 'Active task' });
+    const requests: RecordedRequest[] = [];
+    const routes = itemRoutes(base, [activeItem]);
+    installFakeServer({
+      ...bootRoutes,
+      ...routes,
+      [`GET ${base}/items/summary`]: (request) => {
+        requests.push(request);
+        return routes[`GET ${base}/items/summary`]!(request);
+      },
+      [`GET ${base}/items?limit=25&sort=attention_on&attentionDate=2026-01-15&done=true&archived=false`]: (request) => {
+        requests.push(request);
+        return json(200, { items: [], nextCursor: null });
+      },
+      [`GET ${base}/items`]: (request) => { requests.push(request); return routes[`GET ${base}/items`]!(request); },
+    });
+    app();
+    expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Show')).toHaveValue('done');
+    const noMatchClear = screen.getByRole('heading', { name: 'No items match.' }).closest('section')!
+      .querySelector<HTMLButtonElement>('[data-all-items-clear]');
+    expect(noMatchClear).not.toBeNull();
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    await userEvent.click(noMatchClear!);
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(await screen.findByText('Active task')).toBeInTheDocument();
+    const summaryRequests = requests.filter((request) => request.path === `${base}/items/summary`);
+    expect(summaryRequests.length).toBeGreaterThan(0);
+    expect(summaryRequests.at(-1)!.query.toString()).toBe('');
+    expect(summaryRequests.at(-1)!.query.get('status')).toBeNull();
+    expect(requests.some((request) => request.path === `${base}/items` && request.query.get('done') === 'true')).toBe(true);
+    expect(requests.at(-1)?.query.get('done')).toBe('false');
+  });
+
+  it('keeps deep-linked secondary filters clearable with the disclosure collapsed', async () => {
+    window.history.replaceState(null, '', '/items?subject=s-1');
+    const fake = await openAllItems([makeItem(1)]);
+    const disclosure = screen.getByRole('button', { name: 'Filters (1)' });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('[data-all-items-clear]')).toHaveLength(1);
+    expect(await screen.findByRole('heading', { name: 'Showing 1–1 of 1' })).toBeInTheDocument();
+    await userEvent.click(document.querySelector<HTMLButtonElement>('[data-all-items-clear]')!);
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(fake.requests.length).toBeGreaterThan(0);
   });
 
   it('submits trimmed search, clears it, and blocks more than 200 characters without a request', async () => {
@@ -191,7 +290,7 @@ describe('All items', () => {
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
     expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
     expect(row('Upcoming result').getByText('Needs attention Feb 15, 2026')).toBeVisible();
-    expect(row('Paused result').getByText('Attention date Mar 1, 2026')).toBeVisible();
+    expect(row('Paused result').getByText('Paused · Attention date Mar 1, 2026')).toBeVisible();
   });
 
   it('sends all combined filter values to both summary and list', async () => {
@@ -199,6 +298,11 @@ describe('All items', () => {
     const fake = await openAllItems([item]);
     await userEvent.type(screen.getByRole('searchbox'), 'cafe');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const disclosure = screen.getByRole('button', { name: /Filters/ });
+    const filtersPanel = document.getElementById(disclosure.getAttribute('aria-controls')!)!;
+    await userEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(filtersPanel).not.toHaveAttribute('hidden');
     await userEvent.selectOptions(screen.getByLabelText('For'), 's-1');
     await userEvent.selectOptions(screen.getByLabelText("Who's looking after it"), member.userId);
     await userEvent.selectOptions(screen.getByLabelText('Repeat'), 'true');
@@ -255,6 +359,19 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
 
+  it('renders item title links at a minimum 44px target with metadata separated beneath', async () => {
+    await openAllItems([makeItem(1, { title: 'A long Czech title: nejneobhospodarovavatelnejsiho příslušenství'.repeat(2) })]);
+    const link = screen.getByRole('link', { name: /A long Czech title/ });
+    const row = link.closest('li')!;
+    const metadata = row.querySelector('p')!;
+    expect(link).toHaveClass('min-h-11');
+    expect(row).toHaveClass('py-3');
+    expect(metadata).toHaveClass('mt-1');
+    link.focus();
+    expect(link).toHaveFocus();
+    expect(link).toHaveClass('focus-visible:outline-2');
+  });
+
   it('replaces page rows, preserves previous cursors, and focuses results only after paging', async () => {
     const items = Array.from({ length: 100 }, (_, i) => makeItem(i + 1));
     await openAllItems(items);
@@ -288,14 +405,14 @@ describe('All items', () => {
 
   it('distinguishes household-empty and no-match states, and Clear resets filters', async () => {
     await openAllItems([]);
-    expect(await screen.findByText('There are no items in this household yet.', { selector: 'p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'There are no items in this household yet.'})).toBeInTheDocument();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('There are no items in this household yet.'));
     cleanup();
     window.history.replaceState(null, '', '/');
     const fake = await openAllItems([makeItem(1)]);
     await userEvent.type(screen.getByRole('searchbox'), 'missing');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filters' }));
     await screen.findByText('Item 1');
@@ -333,7 +450,7 @@ describe('All items', () => {
     expect(screen.getByRole('searchbox')).toHaveValue('Unique archive target');
 
     await act(async () => releasePatch());
-    expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('No items match.'));
     expect(window.location.pathname + window.location.search).toBe(filteredUrl);
     expect(screen.getByRole('option', { name: 'Archived (1)' })).toBeInTheDocument();
@@ -550,6 +667,16 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).length).toBe(before);
   });
 
+  it('moves focus to results after Next when another cursor page follows', async () => {
+    const items = Array.from({ length: 60 }, (_, index) => makeItem(index + 1));
+    await openAllItems(items);
+    const next = await screen.findByRole('button', { name: 'Next page' });
+    next.focus();
+    await userEvent.click(next);
+    await screen.findByRole('heading', { level: 2, name: 'Showing 26–50 of 60' });
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Results' }));
+  });
+
   it('keeps a count-only heading while paging from a deep-linked cursor', async () => {
     window.history.replaceState(null, '', '/items?cursor=c%3A25');
     const items = Array.from({ length: 100 }, (_, index) => makeItem(index + 1));
@@ -645,6 +772,9 @@ describe('All items', () => {
     await screen.findByRole('heading', { name: 'All items' });
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.'));
+    expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Check your connection and try again.', { selector: 'p:not(.sr-only)' })).toBeVisible();
     expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -663,6 +793,8 @@ describe('All items', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'fail');
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('Loading items…')).not.toBeInTheDocument();
     expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
   });
@@ -722,6 +854,10 @@ describe('All items', () => {
     window.history.replaceState(null, '', '/items');
     app();
     await screen.findByText('Item 1');
+    const filtersDisclosure = document.querySelector<HTMLButtonElement>('[data-all-items-filter-disclosure]')!;
+    await userEvent.click(filtersDisclosure);
+    expect(filtersDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(filtersDisclosure.getAttribute('aria-controls')!)).not.toHaveAttribute('hidden');
     const facet = screen.getByLabelText('For');
     expect(within(facet).getAllByRole('option', { name: 'Café' })).toHaveLength(1);
     expect(within(facet).getByRole('option', { name: 'Garden (archived)' })).toBeInTheDocument();
@@ -763,6 +899,11 @@ describe('All items', () => {
     });
     expect(screen.getByRole('searchbox')).toHaveValue('restored');
     expect(screen.getByLabelText('Show')).toHaveValue('done');
+    const disclosure = screen.getByRole('button', { name: /Filters/ });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(disclosure.getAttribute('aria-controls')!)).not.toHaveClass('hidden');
     expect(screen.getByLabelText('For')).toHaveValue('s-1');
     expect(screen.getByLabelText("Who's looking after it")).toHaveValue('unassigned');
     expect(screen.getByLabelText('Repeat')).toHaveValue('false');
@@ -802,5 +943,8 @@ describe('All items', () => {
     installFakeServer({ ...bootRoutes, ...routes, [`GET ${base}/items/summary`]: json(500, {}) });
     app();
     await waitFor(() => expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.'));
+    expect(outcomeRegion()).toHaveTextContent('Check your connection and try again.');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Check your connection and try again.', { selector: 'p:not(.sr-only)' })).toBeVisible();
   });
 });

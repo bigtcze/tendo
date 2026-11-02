@@ -1,4 +1,5 @@
 import type { ReactNode, RefObject } from 'react';
+import { useId, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import type { AllItemsStatus, ItemSummary } from './itemsApi';
@@ -8,30 +9,33 @@ import type { AllItemsFacets } from './useAllItemsFacets';
 import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const selectClass = `mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-white px-3 ${focusRing}`;
+const selectClass = `mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 ${focusRing}`;
+const statusSelectClass = `${selectClass} max-[360px]:px-2 max-[360px]:text-small`;
 
 export function AllItemsSearch({ draft, page, actions, searchRef }: {
   draft: Draft; page: PageState; actions: AllItemsActions; searchRef: RefObject<HTMLInputElement | null>;
 }) {
   const { t } = useI18n();
-  return <form role="search" aria-label={t('allItems.search')} onSubmit={actions.submit}
-    className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
-    <div className="min-w-0 flex-1">
-      <label htmlFor="all-items-search" className="block text-sm font-medium">{t('allItems.search')}</label>
+  return <form role="search" aria-label={t('allItems.search')} onSubmit={actions.submit} className="min-w-0">
+    <label htmlFor="all-items-search" className="mb-1 block text-label font-medium">{t('allItems.search')}</label>
+    <div className="flex min-w-0 gap-2">
       <input ref={searchRef} id="all-items-search" type="search" value={draft.search}
         onChange={(event) => actions.editSearch(event.target.value)}
         aria-invalid={page.searchError} aria-describedby={page.searchError ? 'all-items-search-error' : undefined}
-        className={`mt-1 min-h-11 w-full rounded-xl border border-field bg-white px-3 ${focusRing}`} />
-      {page.searchError
-        ? <p key={page.searchErrorAttempt} id="all-items-search-error" role="alert" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p>
-        : null}
+        className={`min-h-11 min-w-0 flex-1 rounded-xl border border-field bg-raised px-3 text-control ${focusRing}`} />
+      <Button type="submit" className="min-h-11">{t('allItems.searchButton')}</Button>
     </div>
-    <Button type="submit">{t('allItems.searchButton')}</Button>
+    {page.searchError
+      ? <p key={page.searchErrorAttempt} id="all-items-search-error" role="alert" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p>
+      : null}
   </form>;
 }
 
-function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) {
-  return <label className="text-sm">{label}
+type FilterSelectProps = { label: string; value: string; onChange: (value: string) => void; children: ReactNode };
+
+function FilterSelect({ label, value, onChange, children }: FilterSelectProps) {
+  return <label className="block min-w-0 text-label">
+    {label}
     <select value={value} onChange={(event) => onChange(event.target.value)} className={selectClass}>{children}</select>
   </label>;
 }
@@ -40,10 +44,12 @@ function statusOption(id: AllItemsStatus, label: string, summary: ItemSummary | 
   return <option key={id} value={id}>{label}{summary ? ` (${countFor(id, summary)})` : ''}</option>;
 }
 
-export function AllItemsFilters({ draft, summary, facets, userId, actions }: {
-  draft: Draft; summary: ItemSummary | null; facets: AllItemsFacets; userId: string; actions: AllItemsActions;
+export function AllItemsFilters({ draft, summary, facets, userId, actions, showClear }: {
+  draft: Draft; summary: ItemSummary | null; facets: AllItemsFacets; userId: string; actions: AllItemsActions; showClear: boolean;
 }) {
   const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
   const { subjects, members } = facets;
   const knownSubject = subjects.values.some((subject) => subject.id === draft.subjectId);
   const knownMember = draft.responsible === 'unassigned' || members.values.some((member) => member.userId === draft.responsible);
@@ -51,11 +57,12 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions }: {
     actions.setDraft({ [key]: value } as Partial<Draft>);
     actions.update(toContext(value));
   };
-  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <FilterSelect label={t('allItems.status.label')} value={draft.status}
-      onChange={select('status', (value) => ({ status: value as AllItemsStatus }))}>
-      {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
-    </FilterSelect>
+  const activeCount = Number(Boolean(draft.subjectId)) + Number(Boolean(draft.responsible)) + Number(draft.recurring !== '');
+  const hasActiveFilters = activeCount > 0 || Boolean(draft.search.trim()) || draft.status !== 'active';
+  const clear = hasActiveFilters && showClear
+    ? <Button type="button" data-all-items-clear variant="quiet" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
+    : null;
+  const fields = <div className="space-y-4">
     {subjects.state === 'ready' ? <FilterSelect label={t('items.subject')} value={draft.subjectId}
       onChange={select('subjectId', (value) => ({ subjectId: value || undefined }))}>
       <option value="">{t('allItems.any')}</option>
@@ -74,7 +81,30 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions }: {
     </FilterSelect> : null}
     <FilterSelect label={t('allItems.repeat')} value={draft.recurring}
       onChange={select('recurring', (value) => ({ recurring: value === '' ? undefined : value === 'true' }))}>
-      <option value="">{t('allItems.any')}</option><option value="true">{t('allItems.repeating')}</option><option value="false">{t('allItems.oneOff')}</option>
+      <option value="">{t('allItems.any')}</option>
+      <option value="true">{t('allItems.repeating')}</option>
+      <option value="false">{t('allItems.oneOff')}</option>
     </FilterSelect>
+  </div>;
+  return <div className="space-y-3">
+    <label className="block min-w-0 text-label">
+      {t('allItems.status.label')}
+      <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
+        className={statusSelectClass}>
+        {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
+      </select>
+    </label>
+    <div className="lg:hidden">
+      <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
+        className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"
+        data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
+        {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
+        <span aria-hidden="true" className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
+      </Button>
+    </div>
+    {clear}
+    <div id={panelId} className={`${expanded ? 'mt-4 block' : 'hidden'} space-y-4 lg:mt-0 lg:block`}>
+      {fields}
+    </div>
   </div>;
 }

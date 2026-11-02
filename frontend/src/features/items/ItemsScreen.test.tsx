@@ -1592,7 +1592,7 @@ describe('Home items', () => {
     expect(write).toBeGreaterThanOrEqual(0);
     expect(write).toBeLessThan(firstRead);
     expect(done).toBe(action === 'complete');
-    if (action === 'complete') expect(await screen.findByText('No items match.', { selector: 'div p.font-display' })).toBeInTheDocument();
+    if (action === 'complete') expect(await screen.findByRole('heading', { name: 'No items match.' })).toBeInTheDocument();
     else expect(await screen.findByRole('link', { name: 'Renew passport' })).toBeInTheDocument();
   });
 

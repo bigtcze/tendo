@@ -407,11 +407,11 @@ export const en = {
   'allItems.none': 'There are no items in this household yet.',
   'allItems.noMatch': 'No items match.',
   'allItems.clear': 'Clear search and filters',
-  'allItems.range': 'Showing {from}–{to} of {total}',
-  'allItems.previous': 'Previous page',
-  'allItems.first': 'First page',
+  'allItems.range': 'Showing {from}–{to} of {total}', 'allItems.results': 'Results',
+  'allItems.previous': 'Previous page', 'allItems.first': 'First page',
   'allItems.next': 'Next page',
-  'allItems.results': 'Results',
+  'allItems.pages': 'Pages and navigation',
+  'allItems.filters': 'Filters',
 } as const;
 
 export type MessageKey = keyof typeof en;

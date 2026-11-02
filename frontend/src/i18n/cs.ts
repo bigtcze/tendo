@@ -410,9 +410,9 @@ export const cs: Record<MessageKey, string> = {
   'allItems.none': 'V této domácnosti zatím nejsou žádné položky.',
   'allItems.noMatch': 'Žádné položky neodpovídají hledání.',
   'allItems.clear': 'Vymazat hledání a filtry',
-  'allItems.range': 'Zobrazeno {from}–{to} z {total}',
-  'allItems.previous': 'Předchozí stránka',
-  'allItems.first': 'První stránka',
+  'allItems.range': 'Zobrazeno {from}–{to} z {total}', 'allItems.results': 'Výsledky',
+  'allItems.previous': 'Předchozí stránka', 'allItems.first': 'První stránka',
   'allItems.next': 'Další stránka',
-  'allItems.results': 'Výsledky',
+  'allItems.pages': 'Stránky výsledků',
+  'allItems.filters': 'Filtry',
 };

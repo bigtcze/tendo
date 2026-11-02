@@ -23,7 +23,8 @@ const shownInviteTokens: string[] = [];
 async function capture(page: Page, path: string, fullPage = true, mask: Locator[] = []) {
   const width = page.viewportSize()?.width;
   if (!width) throw new Error(`Capture requires a viewport: ${path}`);
-  await page.setViewportSize({ width, height: 900 });
+  const height = page.viewportSize()?.height ?? 900;
+  await page.setViewportSize({ width, height });
   expect(await page.evaluate(() => window.innerWidth), `viewport width for ${path}`).toBe(width);
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   const file = path.split('/').pop()!;
@@ -36,11 +37,32 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   });
   routeOverflow[file] = overflow.overflow;
   if (overflow.overflow) routeOverflowElements[file] = overflow.offenders;
+  if (file.startsWith('audit-all-items-page2-')) {
+    const pager = page.getByRole('navigation', { name: en['allItems.pages'] });
+    await expect(pager).toBeInViewport();
+    await expect(pager.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeInViewport();
+    await expect(pager.getByRole('button', { name: en['allItems.next'], exact: true })).toBeInViewport();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path, fullPage, mask });
+    return;
+  }
   const resultSelector = file.startsWith('home-30-') ? 'main li[data-item-id] a' : file.startsWith('audit-all-items-') ? 'main li[data-item-id] a' : undefined;
+  const captureFocus = file === 'audit-all-items-cs-320-active-filter.png'
+    ? page.getByRole('heading', { level: 1, name: cs['allItems.title'] })
+    : undefined;
+  if (captureFocus) await captureFocus.focus();
   routeMetrics[file] = await measureCapture(page, resultSelector);
+  if (captureFocus) await captureFocus.focus();
   // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
   const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
   if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
+  // Measurement tabs through page content; restore viewport captures to the intended position afterwards.
+  if (file === 'audit-all-items-cs-320-active-filter.png') {
+    await page.getByRole('heading', { level: 1, name: cs['allItems.title'] }).scrollIntoViewIfNeeded();
+  } else {
+    await page.evaluate(() => window.scrollTo(0, 0));
+  }
   // Leave no measurement focus ring or pointer hover in the evidence image.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.mouse.move(0, 0);
@@ -138,6 +160,17 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   expect(session.status()).toBe(200);
   const { defaultHouseholdId: householdId } = await session.json() as { defaultHouseholdId: string };
   const root = `/api/v1/households/${householdId}`;
+
+  // Capture the household's genuine API-backed empty state before this audit seeds its large backlog.
+  await page.goto('/items');
+  await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.none'] })).toBeVisible();
+  for (const [width, height] of [[390, 844], [1440, 900]] as const) {
+    await page.setViewportSize({ width, height });
+    await capture(page, join(dir, `audit-all-items-empty-${width}.png`), false);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
   const invite = await api(page, 'post', `${root}/invitations`, {}, { 'Idempotency-Key': key() });
   expect(invite.status(), 'create member invitation').toBe(201);
   const invitation = await invite.json() as { token: string };
@@ -303,7 +336,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       }
       expect(target, '500-stage open target item').toBeTruthy();
       const query = target!.title.toLowerCase();
-      const accentQuery = 'kontrola nejneobhospodarovavatelnejsiho';
+      const accentQuery = 'nejneobhospodarovavatelnejsiho';
       const accentSummary = await api(page, 'get', `${root}/items/summary?q=${encodeURIComponent(accentQuery)}`);
       expect(accentSummary.status()).toBe(200);
       const accentCounts = await accentSummary.json() as { needsAttention: number; inProgress: number; waiting: number; upcoming: number; paused: number };
@@ -369,33 +402,171 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         expect(complete.status(), `complete recurring cycle ${cycle + 1}`).toBe(201);
       }
       for (const width of [320, 360, 390, 768, 1024, 1440]) {
-        await page.setViewportSize({ width, height: 900 }); await page.goto('/items');
+        const height = width === 320 ? 640 : width === 390 ? 844 : 900;
+        await page.setViewportSize({ width, height }); await page.goto('/items');
         const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
-        await capture(page, join(dir, `audit-all-items-en-${width}.png`));
-        await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('nejneobhospodařovávatelnějšího');
+        const searchLabel = page.locator('label[for="all-items-search"]');
+        const pageTitle = page.getByRole('heading', { level: 1, name: en['allItems.title'], exact: true });
+        await expect(searchLabel).toBeVisible();
+        const [titleRect, labelRect, headerRect] = await Promise.all([
+          pageTitle.boundingBox(), searchLabel.boundingBox(), page.locator('header').boundingBox(),
+        ]);
+        expect(titleRect, `All items h1 box at ${width}px`).not.toBeNull();
+        expect(labelRect, `All items search label box at ${width}px`).not.toBeNull();
+        expect(headerRect, `All items header box at ${width}px`).not.toBeNull();
+        expect(titleRect!.y + titleRect!.height, `All items h1 must clear the search label at ${width}px`).toBeLessThanOrEqual(labelRect!.y);
+        expect(titleRect!.y, `All items h1 must start below the header at ${width}px`).toBeGreaterThanOrEqual(headerRect!.y + headerRect!.height);
+        const layout = await page.evaluate(() => ({
+          overflow: document.documentElement.scrollWidth > window.innerWidth,
+          offenders: [...document.querySelectorAll<HTMLElement>('*')].filter((element) => element.getBoundingClientRect().right > window.innerWidth + 0.5)
+            .map((element) => ({ tag: element.tagName, className: element.className, text: (element.innerText || '').slice(0, 50), right: element.getBoundingClientRect().right })),
+        }));
+        if (layout.overflow) console.error(`All items overflow at ${width}px`, layout.offenders);
+        expect(layout.overflow, `All items horizontal overflow at ${width}px`).toBe(false);
+        if (width <= 390) {
+          const firstRow = page.locator('main li[data-item-id]').first();
+          const titleLink = firstRow.getByRole('link');
+          const [rowRect, titleRect, bottomBarTop] = await Promise.all([
+            firstRow.boundingBox(), titleLink.boundingBox(),
+            page.getByRole('navigation', { name: en['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top),
+          ]);
+          const titleFocusRect = await titleLink.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const offset = Number.parseFloat(style.outlineOffset) || 0;
+            const width = Number.parseFloat(style.outlineWidth) || 0;
+            return { top: rect.top - offset - width, bottom: rect.bottom + offset + width };
+          });
+          expect(rowRect).not.toBeNull();
+          expect(titleRect).not.toBeNull();
+          expect(titleRect!.y).toBeGreaterThan(rowRect!.y);
+          expect(titleRect!.height).toBeGreaterThanOrEqual(44);
+          if (width === 390) {
+            expect(titleFocusRect.top, 'All items title focus outline should clear the card border').toBeGreaterThan(rowRect!.y);
+            expect(rowRect!.y + rowRect!.height, 'All items first row should fit above phone navigation at 390px').toBeLessThan(bottomBarTop);
+          } else {
+            expect(titleFocusRect.bottom, 'All items first title and focus outline must fit above phone navigation at 320px').toBeLessThan(bottomBarTop);
+          }
+        }
+        if (width >= 1024) {
+          const searchRect = await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).evaluate((node) => node.getBoundingClientRect());
+          const resultsRect = await page.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
+          expect(resultsRect.left, 'Desktop results should sit beside the filter rail').toBeGreaterThan(searchRect.right);
+        }
+        await capture(page, join(dir, `audit-all-items-en-${width}.png`), false);
+        if (width === 390) {
+          const disclosure = page.locator('[data-all-items-filter-disclosure]');
+          expect(await disclosure.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+          await disclosure.click();
+          await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+          const filtersPanel = page.locator(`#${await disclosure.getAttribute('aria-controls')}`);
+          await expect(filtersPanel.getByLabel(en['items.subject'])).toBeVisible();
+          await capture(page, join(dir, 'audit-all-items-filters-expanded-390.png'), false);
+          await disclosure.click();
+          await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+          await disclosure.click();
+          await page.getByLabel(en['items.subject']).selectOption({ index: 1 });
+          await expect(page.locator('[data-all-items-clear]')).toHaveCount(1);
+          await expect(page.getByRole('button', { name: /Filters \(1\)/ })).toBeVisible();
+          await capture(page, join(dir, 'audit-all-items-filtered-count-390.png'), false);
+          await page.goto('/items');
+        }
+        if (width === 390 || width === 1440) {
+          await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+          await capture(page, join(dir, `audit-all-items-dark-${width}.png`), false);
+          await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+          await page.getByRole('button', { name: en['allItems.next'], exact: true }).click();
+          await expect(page.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeVisible();
+          const pageTwoPager = page.getByRole('navigation', { name: en['allItems.pages'] });
+          await pageTwoPager.scrollIntoViewIfNeeded();
+          await expect(pageTwoPager).toBeInViewport();
+          await expect(pageTwoPager.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeInViewport();
+          await expect(pageTwoPager.getByRole('button', { name: en['allItems.next'], exact: true })).toBeInViewport();
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+          await page.mouse.move(0, 0);
+          await page.screenshot({ path: join(dir, `audit-all-items-page2-${width}.png`) });
+          await page.goto('/items');
+          // Failure/retry view is a browser-stubbed transport response, not a real offline household test.
+          await page.route('**/api/v1/households/*/items/summary*', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+          await page.reload();
+          await expect(page.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+          await capture(page, join(dir, `audit-all-items-error-${width}.png`), false);
+          await page.unrouteAll();
+          await page.goto('/items');
+        }
+        await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('nejneobhospodarovavatelnejsiho');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await page.getByLabel(en['allItems.status.label']).selectOption('active');
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
         await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
-        await capture(page, join(dir, `audit-all-items-search-en-${width}.png`));
+        await capture(page, join(dir, `audit-all-items-search-unaccented-en-${width}.png`), false);
+        await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('nejneobhospodařovávatelnějšího');
+        await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+        await expect(page.locator('main li[data-item-id]')).toHaveCount(25);
+        await expect(page.locator('main li[data-item-id] a').first()).toContainText('Kontrola');
+        await capture(page, join(dir, `audit-all-items-search-accented-en-${width}.png`), false);
         await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
         await page.getByLabel(en['allItems.status.label']).selectOption('done');
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
-        await capture(page, join(dir, `audit-all-items-done-en-${width}.png`));
+        await capture(page, join(dir, `audit-all-items-done-en-${width}.png`), false);
         await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('audit-no-such-item-xyz');
         await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-        await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
-        await capture(page, join(dir, `audit-all-items-nomatch-en-${width}.png`));
-        if (width === 390 || width === 1440) {
-          const csItemsContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+        await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
+        await capture(page, join(dir, `audit-all-items-nomatch-en-${width}.png`), false);
+        if (width === 320 || width === 390 || width === 1440) {
+          const csHeight = width === 320 ? 640 : width === 390 ? 844 : 900;
+          const csItemsContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: csHeight } });
           await csItemsContext.addCookies(await page.context().cookies());
           const csItemsPage = await csItemsContext.newPage();
-          await csItemsPage.goto('/'); await csItemsPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csItemsPage.goto('/items');
+          await csItemsPage.goto('/'); await csItemsPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csItemsPage.reload(); await csItemsPage.goto('/items');
           const csRange = new RegExp(cs['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
           await expect(csItemsPage.getByRole('main').getByRole('heading', { name: csRange })).toBeVisible();
-          await capture(csItemsPage, join(dir, `audit-all-items-cs-${width}.png`));
+          if (width === 320) {
+            await csItemsPage.evaluate(() => window.scrollTo(0, 0));
+            await capture(csItemsPage, join(dir, 'audit-all-items-cs-320.png'), false);
+            await csItemsPage.getByLabel(cs['allItems.status.label']).selectOption('needs');
+            await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toHaveValue('needs');
+            await expect(csItemsPage.locator('[data-all-items-filter-disclosure]')).toHaveAttribute('aria-expanded', 'false');
+            const firstStatusOnlyTitle = csItemsPage.locator('main li[data-item-id]').first().getByRole('link');
+            const firstStatusOnlyBox = await firstStatusOnlyTitle.boundingBox();
+            const bottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
+            expect(firstStatusOnlyBox).not.toBeNull();
+            expect(firstStatusOnlyBox!.y + firstStatusOnlyBox!.height).toBeLessThan(bottomBar);
+            await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-status-only.png'), false);
+          }
+          if (width <= 390 && !(width === 320 && csItemsPage.url().includes('status=needs'))) {
+            const csFirstLink = csItemsPage.locator('main li[data-item-id]').first().getByRole('link');
+            const csFirstLinkBox = await csFirstLink.boundingBox();
+            const csBottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
+            expect(csFirstLinkBox).not.toBeNull();
+            expect(csFirstLinkBox!.height).toBeGreaterThanOrEqual(44);
+            if (width === 390) {
+              const csRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
+              expect(csRow.bottom, 'Czech first row should fit above the 390px phone navigation').toBeLessThan(csBottomBar);
+            } else {
+              expect(csFirstLinkBox!.y + csFirstLinkBox!.height, 'Czech first title should clear bottom navigation at 320px').toBeLessThan(csBottomBar);
+            }
+          }
+          if (width === 320) {
+            await csItemsPage.locator('[data-all-items-filter-disclosure]').click();
+            const csSubject = csItemsPage.getByLabel(cs['items.subject']);
+            const selectedSubjectId = await csSubject.locator('option').nth(1).getAttribute('value');
+            await csSubject.selectOption({ index: 1 });
+            await expect(csItemsPage.locator('[data-all-items-clear]')).toBeVisible();
+            await expect(csItemsPage.getByRole('button', { name: /Filtry \(1\)/ })).toBeVisible();
+            await expect(csSubject).toHaveValue(selectedSubjectId!);
+            await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toHaveValue('needs');
+            await csItemsPage.getByLabel(cs['allItems.status.label']).scrollIntoViewIfNeeded();
+            await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toBeInViewport();
+            await expect(csItemsPage.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeInViewport();
+            await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-active-filter.png'), false);
+          }
+          if (width !== 320) {
+            await csItemsPage.evaluate(() => window.scrollTo(0, 0));
+            await capture(csItemsPage, join(dir, `audit-all-items-cs-${width}.png`), false);
+          }
           await csItemsContext.close();
         }
         await page.goto('/');
@@ -481,7 +652,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await csRoute.addCookies(await page.context().cookies());
           const csRoutePage = await csRoute.newPage();
           await csRoutePage.goto('/'); await csRoutePage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csRoutePage.reload();
-          for (const [path, name, file] of [['/items', 'allItems.title', `audit-all-items-cs-${width}.png`], ['/people', 'subjects.title', `audit-people-things-cs-${width}.png`], ['/members', 'members.title', `audit-members-cs-${width}.png`], ['/account', 'account.title', `audit-account-cs-${width}.png`]] as const) {
+          // Czech All items is captured above as a viewport fold; re-capturing it here would overwrite that evidence with a full-page image.
+          for (const [path, name, file] of [['/people', 'subjects.title', `audit-people-things-cs-${width}.png`], ['/members', 'members.title', `audit-members-cs-${width}.png`], ['/account', 'account.title', `audit-account-cs-${width}.png`]] as const) {
             await csRoutePage.goto(path);
             await expect(csRoutePage.getByRole('heading', { level: 1, name: cs[name] })).toBeVisible();
             await capture(csRoutePage, join(dir, file));

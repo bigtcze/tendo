@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
+import { EmptyState } from '../../components/ui/empty-state';
 import { useI18n, type MessageKey, type Translate } from '../../i18n';
 import type { Member } from '../members/membersApi';
 import { formatDate } from './formatDate';
@@ -10,10 +11,8 @@ import type { PageState } from './allItemsPageState';
 import { countFor, countKey, cursorStack, hasFilters, type Context } from './allItemsUrl';
 import type { AllItemsActions } from './useAllItems';
 
-const emptyCard = 'rounded-3xl border border-line bg-white/70 p-6 sm:p-8';
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const titleLink = 'inline-flex min-h-11 max-w-full [overflow-wrap:anywhere] text-lg leading-snug underline decoration-line underline-offset-4 '
-  + `hover:decoration-accent ${focusRing}`;
+const titleLink = `inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-medium text-ink hover:text-accent ${focusRing}`;
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
@@ -63,18 +62,28 @@ function ItemRow({ item, subjectName, members, onOpenItem }: {
 }) {
   const { t, locale } = useI18n();
   const responsible = members.find((member) => member.userId === item.responsibleUserId)?.login ?? t('items.responsible.unknown');
-  return <li data-item-id={item.id} className="p-4">
+  const attention = item.attentionOn ? t(attentionKey(item), { date: formatDate(item.attentionOn, locale) }) : null;
+  const state = t(stateLabel(item));
+  const status = attention && item.workflowState === 'open' && !item.done && !item.archived
+    ? attention
+    : [state, attention].filter(Boolean).join(' · ');
+  const context = [
+    subjectName ?? t('items.subject.unknown'), status,
+    item.responsibleUserId ? t('items.responsible.read', { name: responsible }) : null,
+  ].filter(Boolean);
+  return <li data-item-id={item.id} className="px-4 py-3">
     <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
       className={titleLink}>{item.title}</NavLink>
-    <p className="mt-1 text-sm text-muted">{subjectName ?? t('items.subject.unknown')}</p>
-    <p className="text-sm font-medium text-accent-strong">{t(stateLabel(item))}</p>
-    {item.attentionOn ? <p className="text-sm text-muted">{t(attentionKey(item), { date: formatDate(item.attentionOn, locale) })}</p> : null}
-    {item.recurrence ? <p className="text-sm text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
-    {item.responsibleUserId ? <p className="text-sm text-muted">{t('items.responsible.read', { name: responsible })}</p> : null}
+    <p className="mt-1 pb-2 text-meta leading-relaxed text-muted">{context.map((part, index) => <span key={`${index}-${part}`}>
+      {index ? <span aria-hidden="true"> · </span> : null}{part}
+    </span>)}</p>
+    {item.recurrence ? <p className="pb-2 text-meta text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
   </li>;
 }
 
-function Pager({ context, nextCursor, goToCursor }: { context: Context; nextCursor: string | null; goToCursor: AllItemsActions['goToCursor'] }) {
+type PagerProps = { context: Context; nextCursor: string | null; goToCursor: AllItemsActions['goToCursor'] };
+
+function Pager({ context, nextCursor, goToCursor }: PagerProps) {
   const { t } = useI18n();
   const previous = () => {
     const prior = cursorStack();
@@ -83,14 +92,13 @@ function Pager({ context, nextCursor, goToCursor }: { context: Context; nextCurs
   };
   // '' marks the first page (no cursor) so Previous and the range line stay truthful from page 2 on.
   const next = () => goToCursor(nextCursor ?? undefined, [...cursorStack(), context.cursor ?? '']);
-  return <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-    {context.cursor
-      ? <Button data-all-items-page type="button" variant="quiet" onClick={previous}>
-        {cursorStack().length ? t('allItems.previous') : t('allItems.first')}
-      </Button>
-      : null}
+  const stack = cursorStack();
+  return <nav aria-label={t('allItems.pages')} className="flex flex-wrap items-center justify-between gap-2">
+    {context.cursor ? <Button data-all-items-page type="button" variant="quiet" onClick={previous}>
+      {stack.length ? t('allItems.previous') : t('allItems.first')}
+    </Button> : null}
     {nextCursor ? <Button data-all-items-page type="button" variant="quiet" onClick={next}>{t('allItems.next')}</Button> : null}
-  </div>;
+  </nav>;
 }
 
 export function AllItemsResults({ view, context, page, subjectNames, members, actions, resultRef, onBack, onOpenItem }: {
@@ -98,18 +106,23 @@ export function AllItemsResults({ view, context, page, subjectNames, members, ac
   resultRef: RefObject<HTMLElement | null>; onBack: () => void; onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
-  if (view === 'none') return <div className={emptyCard}><p className="font-display text-xl">{t('allItems.none')}</p>
-    <NavLink href="/" onNavigate={onBack}
-      className={addLink}>{t('items.add')}</NavLink></div>;
-  if (view === 'noMatch') return <div className={emptyCard}><p className="font-display text-xl">{t('allItems.noMatch')}</p>
-    <Button type="button" variant="quiet" className="mt-2 -ml-3" onClick={actions.clearFilters}>{t('allItems.clear')}</Button></div>;
+  if (view === 'none') return <EmptyState title={t('allItems.none')}>
+    <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
+  </EmptyState>;
+  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')}>
+    {(hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
+      onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null}
+  </EmptyState>;
   if (view !== 'rows') return null;
-  return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="outline-none">
-    <h2 className="font-display text-xl leading-snug">{rangeLabel(context, page, t, locale)}</h2>
-    <ul className="mt-3 divide-y divide-line border-y border-line bg-white/70">
+  const range = rangeLabel(context, page, t, locale);
+  return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="min-w-0 outline-none">
+    <h2 className="flex items-baseline justify-between border-b border-line pb-2 text-h2 font-medium text-ink">{range}</h2>
+    <ul className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
       {page.items.map((item) =>
         <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem} />)}
     </ul>
-    <Pager context={context} nextCursor={page.nextCursor} goToCursor={actions.goToCursor} />
+    <div className="mt-3">
+      <Pager context={context} nextCursor={page.nextCursor} goToCursor={actions.goToCursor} />
+    </div>
   </section>;
 }

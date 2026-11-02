@@ -228,11 +228,15 @@ describe('UI primitive behavior', () => {
     expect(screen.getByRole('heading', { name: /^Needs attention$/ })).toBeVisible();
     expect(screen.getByText('4')).toBeVisible();
   });
-  it('notice maps tones to alert/status roles', () => {
-    const { rerender } = render(<Notice tone="error">Try again</Notice>);
+  it('notice assigns default roles by tone and supports presentation-only rendering', () => {
+    const { container, rerender } = render(<Notice tone="error">Try again</Notice>);
     expect(screen.getByRole('alert')).toHaveTextContent('Try again');
-    rerender(<Notice tone="success">Saved</Notice>);
-    expect(screen.getByRole('status')).toHaveTextContent('Saved');
+    rerender(<Notice>Update available</Notice>);
+    expect(screen.getByRole('status')).toHaveTextContent('Update available');
+    rerender(<Notice role={null}>Connection error</Notice>);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveTextContent('Connection error');
   });
   it('notice region keeps one persistent live host mounted while message changes', () => {
     const { container, rerender } = render(<NoticeRegion />);
