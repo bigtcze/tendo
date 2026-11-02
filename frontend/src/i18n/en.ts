@@ -15,6 +15,8 @@ export const en = {
   'nav.people': 'People and things',
   'nav.members': 'Members',
   'nav.account': 'Account',
+  'nav.compact.allItems': 'Items',
+  'nav.compact.people': 'People',
   'language.label': 'Language',
   'onboarding.title': 'Welcome to Tendo',
   'onboarding.subtitle': 'Let’s set up your household.',

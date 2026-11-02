@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Phone/tablet viewport too short for a fixed bottom bar (landscape phones, 200–400% zoom). */
+@custom-variant short (@media (max-height: 30rem) and (width < 64rem));
+
 @theme {
   --font-sans: ui-rounded, 'SF Pro Rounded', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
   --font-display: ui-serif, 'New York', Charter, 'Iowan Old Style', Georgia, serif;

@@ -18,6 +18,8 @@ export const cs: Record<MessageKey, string> = {
   'nav.people': 'Lidé a věci',
   'nav.members': 'Členové',
   'nav.account': 'Účet',
+  'nav.compact.allItems': 'Položky',
+  'nav.compact.people': 'Lidé',
   'language.label': 'Jazyk',
   'onboarding.title': 'Vítejte v Tendu',
   'onboarding.subtitle': 'Pojďme nastavit vaši domácnost.',
