@@ -746,9 +746,17 @@ describe('Home items', () => {
     await screen.findByText('Need now');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
-    expect(screen.getByText(/Nov 1, 2026/)).toBeVisible();
+    expect(screen.getByText(/Nov 1/)).toBeVisible();
     const rows = screen.getByRole('main').querySelectorAll('ul.divide-y > li');
     expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
+  });
+
+  it('uses a full-width secondary layout when Needs attention is empty', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ workflowState: 'in_progress' })]), [subjectList]: subjects });
+    app();
+    await screen.findByText('Renew passport');
+    expect(screen.getByRole('main').querySelector('[data-home-layout="secondary-only"]')).toBeInTheDocument();
+    expect(screen.getByRole('main').querySelector('[data-home-layout="attention-and-secondary"]')).toBeNull();
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -762,18 +770,24 @@ describe('Home items', () => {
     ];
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
     app();
-    const needs = await screen.findByText('Needs date');
+    const needs = await screen.findByRole('link', { name: 'Open item Needs date' });
     const needsRow = needs.closest('li')!;
     await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
-    expect(needsRow).toHaveTextContent('Needs attention since Dec 3, 2025');
+    expect(needsRow).toHaveTextContent('Needs attention since Dec 3');
     expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
+    expect(needsRow).toHaveTextContent('Looked after by you');
     const progressRow = screen.getByText('In progress date').closest('li')!;
-    expect(progressRow).toHaveTextContent('Attention date Mar 4, 2026');
+    expect(progressRow).toHaveTextContent('Attention date Mar 4');
     expect(progressRow).toHaveTextContent('petr');
-    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5, 2026');
-    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6, 2026');
-    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3, 2026');
+    expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5');
+    expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6');
+    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3');
     const noDateRow = screen.getByText('No attention date').closest('li')!;
+    const needsGroup = screen.getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
+    expect(screen.getByRole('main').querySelector('[data-home-layout="attention-and-secondary"]')).toBeInTheDocument();
+    expect(screen.getByRole('main').querySelector('[data-home-layout="secondary-only"]')).toBeNull();
+    expect(needsGroup).toBeVisible();
+    expect(needsRow.querySelector('p')).toHaveTextContent('Anna');
     expect(noDateRow).not.toHaveTextContent('Attention date');
     expect(noDateRow).not.toHaveTextContent('Needs attention since');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));

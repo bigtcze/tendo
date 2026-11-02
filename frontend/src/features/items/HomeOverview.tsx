@@ -6,8 +6,8 @@ import { countPluralKey } from './itemsScreenHelpers';
 import { groups, type GroupData } from './homeGroups';
 import type { CreateNotice } from './useAddItem';
 
-const overviewLinkClass = 'inline-flex min-h-6 items-center rounded-sm underline decoration-line underline-offset-4 '
-  + 'hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const overviewLinkClass = 'inline-flex min-h-11 items-center rounded-lg border border-line bg-raised px-3 text-sm font-medium text-ink '
+  + 'transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 /** Completion/undo outcome shown in the home notice area; Undo and retry controls depend on its fields. */
 export type Notice = {
@@ -68,7 +68,6 @@ export function ItemsNoticeArea({ noticeRef, createNotice, notice, busy, onUndo,
         : null}
   </div>;
 }
-
 type LabelRetryProps = {
   hasFailures: boolean;
   pending: boolean;
@@ -93,15 +92,6 @@ export function SubjectLabelRetry({ hasFailures, pending, retryRef, onRetry }: L
   </div>;
 }
 
-/** Empty-household welcome shown when every group is empty. */
-export function EmptyHome() {
-  const { t } = useI18n();
-  return <div className="rounded-3xl border border-line bg-white/70 p-6 sm:p-10">
-    <h2 className="font-display text-2xl">{t('home.empty.title')}</h2>
-    <p className="mt-3 text-muted">{t('home.empty.body')} {t('home.empty.addHint')}</p>
-  </div>;
-}
-
 type OverviewNavProps = {
   summary: ItemSummary;
   groupData: Record<ItemGroup, GroupData>;
@@ -114,7 +104,8 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
   // Overview links only target sections that actually render (summary count and loaded rows), so every link has a heading to focus.
   const overviewGroups = groups.filter((group) => summary[group.count] > 0 && groupData[group.id].items.length > 0);
   if (overviewGroups.length < 2) return null;
-  return <nav aria-label={t('items.group.overview')} className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+  return <div className="space-y-2">
+    <nav aria-label={t('items.group.overview')} className="flex flex-wrap gap-2">
     {overviewGroups.map((group) => <a
       key={group.id}
       href={`#group-${group.id}`}
@@ -127,5 +118,6 @@ export function HomeOverviewNav({ summary, groupData, sectionHeadingRefs }: Over
       }}
       className={overviewLinkClass}
     >{t(group.key)} {summary[group.count]}</a>)}
-  </nav>;
+    </nav>
+  </div>;
 }

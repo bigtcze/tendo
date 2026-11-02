@@ -8,7 +8,8 @@ import { AddItemCatalogueStatus, AddItemPanel } from './AddItemPanel';
 import { groups, HOME_GROUP_ROW_CAP } from './homeGroups';
 import type { Notice } from './HomeOverview';
 import { HomeGroupList } from './HomeGroupList';
-import { EmptyHome, HomeOverviewNav, ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
+import { HomeOverviewNav, ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
+import { HomeEmptyState, HomeLoadState } from './HomeStates';
 import { useHomeItems } from './useHomeItems';
 import { useHomeMembers } from './useHomeMembers';
 import { useMutationLock } from './useMutationLock';
@@ -101,11 +102,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onRetry={() => void completion.retryNotice()}
       onRetryFocus={completion.markRetryFocused}
     />
-    {error ? <div className="space-y-3">
-      <p className="text-muted">{t('app.error.body')}</p>
-      <Button type="button" variant="quiet" onClick={() => void refresh()}>{t('app.error.retry')}</Button>
-    </div> : null}
-    {loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
+    <HomeLoadState loading={loading} error={error} onRetry={() => void refresh()} />
     <AddItemCatalogueStatus
       adding={adding}
       subjectLoading={add.subjectLoading}
@@ -119,14 +116,16 @@ export function ItemsScreen(props: ItemsScreenProps) {
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
-    {emptyHome ? <EmptyHome /> : null}
+    {emptyHome ? <HomeEmptyState onAdd={add.openAddForm} addRef={addRef} /> : null}
     {!loading && summary && !adding
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
-    {home.itemsRequestComplete && !adding
-      ? <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="w-full sm:w-auto">
-        {t('items.add')}
-      </Button>
+    {home.itemsRequestComplete && !adding && !emptyHome
+      ? <div className="flex justify-start">
+        <Button ref={addRef} data-action="completion-trigger" type="button" onClick={add.openAddForm} className="w-full sm:w-auto">
+          {t('items.add')}
+        </Button>
+      </div>
       : null}
     <AddItemPanel
       adding={adding}

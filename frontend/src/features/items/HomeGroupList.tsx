@@ -22,11 +22,13 @@ type HomeGroupListProps = {
   onOpenItem: (itemId: string) => void;
 };
 
-/** Ordered home group sections with their item rows. */
+const TWO_COLUMN_CLASS = 'grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,1fr)]';
+
+/** Puts attention first and lets the quieter groups form an independent desktop column. */
 export function HomeGroupList(props: HomeGroupListProps) {
   const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, userId, members, membersLoaded, busy } = props;
   const { t, locale } = useI18n();
-  return <>{groups.map((group) => {
+  const renderGroup = (group: (typeof groups)[number]) => {
     const state = groupData[group.id];
     return <HomeGroupSection
       key={group.id}
@@ -45,6 +47,7 @@ export function HomeGroupList(props: HomeGroupListProps) {
         key={item.id}
         item={item}
         group={group.id}
+        evaluatedOn={summary.evaluatedOn}
         subjectName={subjectName(item.subjectId)}
         locale={locale}
         userId={userId}
@@ -55,5 +58,15 @@ export function HomeGroupList(props: HomeGroupListProps) {
         onOpenItem={props.onOpenItem}
       />)}
     </HomeGroupSection>;
-  })}</>;
+  };
+  const primary = groups[0]!;
+  const secondary = groups.slice(1);
+  const hasPrimary = groupData[primary.id].items.length > 0;
+  const layoutClass = hasPrimary ? TWO_COLUMN_CLASS : 'grid grid-cols-1 items-start';
+  const columnClass = 'min-w-0 space-y-8';
+  const layoutName = hasPrimary ? 'attention-and-secondary' : 'secondary-only';
+  return <div data-home-layout={layoutName} className={layoutClass}>
+    {hasPrimary ? <div className={columnClass}>{renderGroup(primary)}</div> : null}
+    <div className={columnClass}>{secondary.map(renderGroup)}</div>
+  </div>;
 }

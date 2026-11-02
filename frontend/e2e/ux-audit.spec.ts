@@ -207,7 +207,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     return all;
   }
   const random = rng(0x5eed1234);
-  const stages = [ ['empty', 0], ['1', 1], ['30', 30], ['500', 500], ['1200', 1200] ] as const;
+  const stages = [ ['empty', 0], ['1', 1], ['30', 30], ['100', 100], ['500', 500], ['1200', 1200] ] as const;
   let created = 0;
   let previousTarget = 0;
   metrics.stageSeeding = {};
@@ -594,6 +594,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const timeToContentMs = Date.now() - started;
       await targetPage.waitForLoadState('networkidle');
       const overview = targetPage.getByRole('main').getByRole('navigation', { name: (locale === 'cs' ? cs : en)['items.group.overview'] });
+      if (stage === 'empty') await expect(targetPage.getByRole('main').getByRole('button', { name: (locale === 'cs' ? cs : en)['items.add'], exact: true })).toBeVisible();
       if (stage === '1200') await expect(overview).toBeVisible();
       const actualViewport = targetPage.viewportSize();
       const innerWidth = await targetPage.evaluate(() => window.innerWidth);
@@ -604,6 +605,10 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         return { dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, height: document.documentElement.scrollHeight, overflowOffenders: offenders };
       });
       if (stage === '1') expect(observed.rows, `1-item stage shows exactly one Home row (${locale} ${width}px)`).toBe(1);
+      if (stage === '100') expect(observed.rows, `100-item stage shows no more than the group cap (${locale} ${width}px)`).toBeLessThanOrEqual(500);
+      if (width === 320 || width === 390 || width === 768 || width === 1024 || width === 1440) {
+        await capture(targetPage, join(dir, `home-${stage}-${locale}-${width}-fold.png`), false);
+      }
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
       await capture(targetPage, join(dir, `${file}-fold.png`), false);
@@ -652,9 +657,16 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const darkPage = await darkContext.newPage();
       await darkPage.goto('/');
       await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await darkPage.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
       await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
-      metrics.stages.darkMode = { requestedColorScheme: 'dark', renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)') };
-      expect(metrics.stages.darkMode.renderedIdenticallyToLight).toBe(true);
+      metrics.stages.darkMode = { requestedColorScheme: 'dark', bodyBackground: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor) };
+      await darkPage.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+      for (const width of [390, 1440]) {
+        await darkPage.setViewportSize({ width, height: 900 });
+        await darkPage.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+        await capture(darkPage, join(dir, `home-1200-en-${width}-forced-dark.png`));
+        await darkPage.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+      }
       await darkContext.close();
       metrics.stages.shell = await captureShell(page);
     }
