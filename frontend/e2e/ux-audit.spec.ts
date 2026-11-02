@@ -374,7 +374,17 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await page.setViewportSize({ width, height }); await page.goto('/items');
         const range = new RegExp(en['allItems.range'].replace('{from}', '\\d+').replace('{to}', '\\d+').replace('{total}', '\\d+'));
         await expect(page.getByRole('main').getByRole('heading', { name: range })).toBeVisible();
-        await expect(page.getByRole('searchbox', { name: en['allItems.search'], exact: true })).toBeVisible();
+        const searchLabel = page.locator('label[for="all-items-search"]');
+        const pageTitle = page.getByRole('heading', { level: 1, name: en['allItems.title'], exact: true });
+        await expect(searchLabel).toBeVisible();
+        const [titleRect, labelRect, headerRect] = await Promise.all([
+          pageTitle.boundingBox(), searchLabel.boundingBox(), page.locator('header').boundingBox(),
+        ]);
+        expect(titleRect, `All items h1 box at ${width}px`).not.toBeNull();
+        expect(labelRect, `All items search label box at ${width}px`).not.toBeNull();
+        expect(headerRect, `All items header box at ${width}px`).not.toBeNull();
+        expect(titleRect!.y + titleRect!.height, `All items h1 must clear the search label at ${width}px`).toBeLessThanOrEqual(labelRect!.y);
+        expect(titleRect!.y, `All items h1 must start below the header at ${width}px`).toBeGreaterThanOrEqual(headerRect!.y + headerRect!.height);
         const layout = await page.evaluate(() => ({
           overflow: document.documentElement.scrollWidth > window.innerWidth,
           offenders: [...document.querySelectorAll<HTMLElement>('*')].filter((element) => element.getBoundingClientRect().right > window.innerWidth + 0.5)
@@ -383,12 +393,29 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         if (layout.overflow) console.error(`All items overflow at ${width}px`, layout.offenders);
         expect(layout.overflow, `All items horizontal overflow at ${width}px`).toBe(false);
         if (width <= 390) {
-          const firstRow = await page.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
-          const bottomBarTop = await page.getByRole('navigation', { name: en['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
-          expect(firstRow.top, `All items rows should begin in the first view at ${width}px`).toBeLessThan(bottomBarTop);
-          expect(firstRow.bottom, `All items first row should be visible above phone navigation at ${width}px`).toBeLessThan(bottomBarTop);
-          await expect.poll(async () => page.locator('main li[data-item-id] a').evaluateAll((links) =>
-            Math.min(...links.map((link) => link.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
+          const firstRow = page.locator('main li[data-item-id]').first();
+          const titleLink = firstRow.getByRole('link');
+          const [rowRect, titleRect, bottomBarTop] = await Promise.all([
+            firstRow.boundingBox(), titleLink.boundingBox(),
+            page.getByRole('navigation', { name: en['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top),
+          ]);
+          const titleFocusRect = await titleLink.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const offset = Number.parseFloat(style.outlineOffset) || 0;
+            const width = Number.parseFloat(style.outlineWidth) || 0;
+            return { top: rect.top - offset - width, bottom: rect.bottom + offset + width };
+          });
+          expect(rowRect).not.toBeNull();
+          expect(titleRect).not.toBeNull();
+          expect(titleRect!.y).toBeGreaterThan(rowRect!.y);
+          expect(titleRect!.height).toBeGreaterThanOrEqual(44);
+          if (width === 390) {
+            expect(titleFocusRect.top, 'All items title focus outline should clear the card border').toBeGreaterThan(rowRect!.y);
+            expect(rowRect!.y + rowRect!.height, 'All items first row should fit above phone navigation at 390px').toBeLessThan(bottomBarTop);
+          } else {
+            expect(titleFocusRect.bottom, 'All items first title and focus outline must fit above phone navigation at 320px').toBeLessThan(bottomBarTop);
+          }
         }
         if (width >= 1024) {
           const searchRect = await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).evaluate((node) => node.getBoundingClientRect());
@@ -419,8 +446,14 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
           await page.getByRole('button', { name: en['allItems.next'], exact: true }).click();
           await expect(page.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeVisible();
-          await page.getByRole('navigation', { name: en['allItems.pages'] }).scrollIntoViewIfNeeded();
-          await capture(page, join(dir, `audit-all-items-page2-${width}.png`), false);
+          const pageTwoPager = page.getByRole('navigation', { name: en['allItems.pages'] });
+          await pageTwoPager.scrollIntoViewIfNeeded();
+          await expect(pageTwoPager).toBeInViewport();
+          await expect(pageTwoPager.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeInViewport();
+          await expect(pageTwoPager.getByRole('button', { name: en['allItems.next'], exact: true })).toBeInViewport();
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+          await page.mouse.move(0, 0);
+          await page.screenshot({ path: join(dir, `audit-all-items-page2-${width}.png`) });
           await page.goto('/items');
           // The shared scale household is populated; stub empty results only to review frontend presentation.
           // This shared 1,000+ fixture remains populated; stub empty responses only for a frontend presentation capture.

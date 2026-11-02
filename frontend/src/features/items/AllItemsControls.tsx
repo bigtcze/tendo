@@ -86,17 +86,19 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
     </FilterSelect>
   </div>;
   return <div className="space-y-3">
-    <FilterSelect label={t('allItems.status.label')} value={draft.status}
-      onChange={select('status', (value) => ({ status: value as AllItemsStatus }))}>
-      {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
-    </FilterSelect>
-    <div className="lg:hidden">
-      <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
-        className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"
-        data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
-        {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
-        <span aria-hidden="true" className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
-      </Button>
+    <div className="grid grid-cols-2 items-end gap-2 lg:block lg:space-y-3">
+      <FilterSelect label={t('allItems.status.label')} value={draft.status}
+        onChange={select('status', (value) => ({ status: value as AllItemsStatus }))}>
+        {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
+      </FilterSelect>
+      <div className="lg:hidden">
+        <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
+          className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"
+          data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
+          {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
+          <span aria-hidden="true" className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
+        </Button>
+      </div>
     </div>
     <div id={panelId} className={`${expanded ? 'mt-4 block' : 'hidden lg:block'} space-y-4`}>
       {fields}

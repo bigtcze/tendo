@@ -71,7 +71,7 @@ function ItemRow({ item, subjectName, members, onOpenItem }: {
     subjectName ?? t('items.subject.unknown'), status,
     item.responsibleUserId ? t('items.responsible.read', { name: responsible }) : null,
   ].filter(Boolean);
-  return <li data-item-id={item.id} className="px-4 py-0">
+  return <li data-item-id={item.id} className="px-4 py-3">
     <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
       className={titleLink}>{item.title}</NavLink>
     <p className="mt-1 pb-2 text-meta leading-relaxed text-muted">{context.map((part, index) => <span key={`${index}-${part}`}>

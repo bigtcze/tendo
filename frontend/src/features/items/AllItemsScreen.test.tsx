@@ -323,6 +323,19 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
 
+  it('renders item title links at a minimum 44px target with metadata separated beneath', async () => {
+    await openAllItems([makeItem(1, { title: 'A long Czech title: nejneobhospodarovavatelnejsiho příslušenství'.repeat(2) })]);
+    const link = screen.getByRole('link', { name: /A long Czech title/ });
+    const row = link.closest('li')!;
+    const metadata = row.querySelector('p')!;
+    expect(link).toHaveClass('min-h-11');
+    expect(row).toHaveClass('py-3');
+    expect(metadata).toHaveClass('mt-1');
+    link.focus();
+    expect(link).toHaveFocus();
+    expect(link).toHaveClass('focus-visible:outline-2');
+  });
+
   it('replaces page rows, preserves previous cursors, and focuses results only after paging', async () => {
     const items = Array.from({ length: 100 }, (_, i) => makeItem(i + 1));
     await openAllItems(items);
