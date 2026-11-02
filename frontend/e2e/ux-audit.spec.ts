@@ -40,6 +40,53 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   await page.screenshot({ path, fullPage, mask });
 }
 
+/**
+ * V3-07 shell evidence: viewport (not full-page) captures, so the fixed phone bar appears where users see it.
+ * Asserts the shell variant at each size; dark is forced on <html> for readiness only (V3-14 owns preference).
+ */
+async function captureShell(page: Page) {
+  const shot = async (name: string) => {
+    const size = page.viewportSize()!;
+    expect(await page.evaluate(() => [window.innerWidth, window.innerHeight]), `viewport for ${name}`).toEqual([size.width, size.height]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${name} has no horizontal overflow`).toBe(true);
+    await page.screenshot({ path: join(dir, name) });
+  };
+  const nav = page.getByRole('navigation', { name: en['nav.label'] });
+  const evidence: Record<string, string> = {};
+  for (const [width, height, expected] of [[320, 640, 'fixed'], [390, 844, 'fixed'], [768, 1024, 'fixed'], [640, 360, 'static'], [1024, 768, 'sticky'], [1440, 900, 'sticky']] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+    await expect(page.locator('main li[data-item-id]').first(), `loaded Home rows at ${width}x${height}`).toBeVisible();
+    evidence[`${width}x${height}`] = await nav.evaluate((element) => getComputedStyle(element).position);
+    expect(evidence[`${width}x${height}`], `household navigation presentation at ${width}x${height}`).toBe(expected);
+    await shot(`shell-home-en-${width}x${height}.png`);
+    if (width === 390 || width === 1440) {
+      await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+      await shot(`shell-home-forced-dark-en-${width}.png`);
+      await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/members');
+  await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+  await expect(page.getByText(en['members.loading'], { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('main').getByText(`audit_owner (${en['members.you']})`, { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: en['app.skipToContent'] })).toBeFocused();
+  await shot('shell-skip-link-en-390.png');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const footerClear = await page.evaluate((label) => {
+    const bar = document.querySelector(`nav[aria-label="${label}"]`)!.getBoundingClientRect();
+    const language = document.querySelector('body footer [role="group"]')!.getBoundingClientRect();
+    return language.bottom <= bar.top;
+  }, en['nav.label']);
+  expect(footerClear, 'scrolled to the end, the language switch sits fully above the fixed bar').toBe(true);
+  await shot('shell-members-end-en-390.png');
+  return evidence;
+}
+
 async function api(page: Page, method: 'get' | 'post' | 'patch', path: string, data?: unknown, headers: Record<string, string> = {}) {
   return page.request[method](path, { headers: { Origin: baseURL, ...headers }, ...(data === undefined ? {} : { data }) });
 }
@@ -609,6 +656,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       metrics.stages.darkMode = { requestedColorScheme: 'dark', renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)') };
       expect(metrics.stages.darkMode.renderedIdenticallyToLight).toBe(true);
       await darkContext.close();
+      metrics.stages.shell = await captureShell(page);
     }
   }
   const activeItems = await verifyList(false, false);

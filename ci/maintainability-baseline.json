@@ -2,14 +2,14 @@
   {
     "kind": "file_lines",
     "path": "frontend/src/i18n/cs.ts",
-    "allowed": 418,
+    "allowed": 417,
     "reason": "Czech locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
     "owner": "frontend-localization"
   },
   {
     "kind": "file_lines",
     "path": "frontend/src/i18n/en.ts",
-    "allowed": 417,
+    "allowed": 416,
     "reason": "English locale catalog currently exceeds the file-size threshold; preserve complete localization while allowing long-line checks to guard formatting.",
     "owner": "frontend-localization"
   },

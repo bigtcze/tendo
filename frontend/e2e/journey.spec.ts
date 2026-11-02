@@ -2319,9 +2319,11 @@ test.describe('Tendo production journey', () => {
     }
   });
 
-  test('n15. responsive: every household route fits 320, 360, 390, 768 and 1440 px without horizontal overflow or clipped primary actions', async () => {
+  test('n15. responsive: every household route fits 320, 360, 390, 768, 1024 and 1440 px without horizontal overflow or clipped primary actions', async () => {
+    // Six widths x five routes plus history and Czech 320 checks run ~20–28 s; the 30 s default leaves no load headroom.
+    test.setTimeout(60_000);
     const title = 'Responsive route evidence item';
-    const widths = [320, 360, 390, 768, 1440];
+    const widths = [320, 360, 390, 768, 1024, 1440];
     await page.goto('/');
     await addItem({ title, subject: 'Anička' });
     const created = await serverItem(title);
@@ -2429,6 +2431,70 @@ test.describe('Tendo production journey', () => {
         await page.getByRole('button', { name: 'English' }).click();
         await expect(page.locator('html')).toHaveAttribute('lang', 'en');
       }
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+  });
+
+  // Shell presentation and its keyboard safety. Phone/tablet: a fixed bottom bar must never cover the control
+  // that Tab just focused (WCAG 2.4.11). Short viewports (landscape, high zoom): the bar is static at the top,
+  // keeping visual order equal to DOM/Tab order. Desktop: a left rail beside main.
+  test('n15b. app shell: bottom bar never covers keyboard focus, short viewports keep DOM order, desktop rail sits beside main', async () => {
+    test.setTimeout(120_000);
+    try {
+      const householdNav = page.getByRole('navigation', { name: en['nav.label'] });
+      for (const [width, height] of [[390, 640], [768, 640]] as const) {
+        await page.setViewportSize({ width, height });
+        await page.goto('/');
+        await waitForSettledHome(page, householdName);
+        expect(await householdNav.evaluate((nav) => getComputedStyle(nav).position), `bottom bar fixed at ${width}x${height}`).toBe('fixed');
+        await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+        const covered: string[] = [];
+        let mainStops = 0;
+        let footerStops = 0;
+        for (let index = 0; index < 200 && footerStops < 2; index += 1) {
+          await page.keyboard.press('Tab');
+          const stop = await page.evaluate(() => {
+            const element = document.activeElement as HTMLElement | null;
+            if (!element || element === document.body || !element.closest('main, footer')) return null;
+            const box = element.getBoundingClientRect();
+            const hit = document.elementFromPoint(box.left + box.width / 2, Math.min(box.bottom - 1, window.innerHeight - 1));
+            return { name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), main: !!element.closest('main'), covered: !hit || !(hit === element || element.contains(hit) || hit.contains(element)), footer: !!element.closest('footer') };
+          });
+          if (!stop) continue;
+          if (stop.main) mainStops += 1;
+          if (stop.covered) covered.push(stop.name);
+          if (stop.footer) footerStops += 1;
+        }
+        expect(mainStops, `keyboard sweep at ${width}x${height} reached main controls below the fold`).toBeGreaterThan(8);
+        expect(footerStops, `keyboard sweep at ${width}x${height} reached both language buttons`).toBe(2);
+        expect(covered, `focused controls covered by the bottom bar at ${width}x${height}`).toEqual([]);
+      }
+      await page.setViewportSize({ width: 640, height: 360 });
+      await page.goto('/');
+      await waitForSettledHome(page, householdName);
+      const navSelector = `nav[aria-label="${en['nav.label']}"]`;
+      const shortLayout = await page.evaluate((navSelector) => {
+        const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().top + window.scrollY;
+        return { position: getComputedStyle(document.querySelector(navSelector)!).position, header: top('body header'), nav: top(navSelector), main: top('main'), footer: top('body footer') };
+      }, navSelector);
+      expect(shortLayout.position, 'short viewport bar is static').toBe('static');
+      expect(shortLayout.header < shortLayout.nav && shortLayout.nav < shortLayout.main && shortLayout.main < shortLayout.footer, `short viewport visual order follows DOM order ${JSON.stringify(shortLayout)}`).toBe(true);
+      await page.setViewportSize({ width: 1024, height: 800 });
+      const rail = await page.evaluate((navSelector) => {
+        const element = document.querySelector(navSelector)!;
+        const nav = element.getBoundingClientRect();
+        const main = document.querySelector('main')!.getBoundingClientRect();
+        return { position: getComputedStyle(element).position, navRight: nav.right, mainLeft: main.left, mainWidth: main.width };
+      }, navSelector);
+      expect(rail.position, 'desktop rail is not a fixed overlay').not.toBe('fixed');
+      expect(rail.navRight <= rail.mainLeft && rail.mainWidth >= 700, `desktop rail sits beside a wide main ${JSON.stringify(rail)}`).toBe(true);
+      for (const [width, compact] of [[390, true], [1024, false]] as const) {
+        await page.setViewportSize({ width, height: 800 });
+        const allItemsLink = householdNav.getByRole('link', { name: en['home.allItems'], exact: true });
+        await expect(allItemsLink.getByText(en['nav.compact.allItems'], { exact: true }), `compact label shown=${compact} at ${width}`).toBeVisible({ visible: compact });
+        await expect(allItemsLink.getByText(en['nav.allItems'], { exact: true }), `full label shown=${!compact} at ${width}`).toBeVisible({ visible: !compact });
+      }
+    } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
     }
   });
