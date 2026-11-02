@@ -652,7 +652,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await csRoute.addCookies(await page.context().cookies());
           const csRoutePage = await csRoute.newPage();
           await csRoutePage.goto('/'); await csRoutePage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await csRoutePage.reload();
-          for (const [path, name, file] of [['/items', 'allItems.title', `audit-all-items-cs-${width}.png`], ['/people', 'subjects.title', `audit-people-things-cs-${width}.png`], ['/members', 'members.title', `audit-members-cs-${width}.png`], ['/account', 'account.title', `audit-account-cs-${width}.png`]] as const) {
+          // Czech All items is captured above as a viewport fold; re-capturing it here would overwrite that evidence with a full-page image.
+          for (const [path, name, file] of [['/people', 'subjects.title', `audit-people-things-cs-${width}.png`], ['/members', 'members.title', `audit-members-cs-${width}.png`], ['/account', 'account.title', `audit-account-cs-${width}.png`]] as const) {
             await csRoutePage.goto(path);
             await expect(csRoutePage.getByRole('heading', { level: 1, name: cs[name] })).toBeVisible();
             await capture(csRoutePage, join(dir, file));

@@ -27,8 +27,8 @@ All dimensions below were verified from PNG headers with `file` after the final 
 | `before/audit-all-items-en-768.png` (768×4275, full page) | `after/audit-all-items-en-768.png` (768×900, viewport) | English tablet list |
 | `before/audit-all-items-en-1024.png` (1024×4151, full page) | `after/audit-all-items-en-1024.png` (1024×900, viewport) | English list at desktop breakpoint |
 | `before/audit-all-items-en-1440.png` (1440×4127, full page) | `after/audit-all-items-en-1440.png` (1440×900, viewport) | English desktop rail and result list |
-| `before/audit-all-items-cs-390.png` (390×4642, full page) | `after/audit-all-items-cs-390.png` (390×4126, viewport) | Czech phone list at 390px; after image is a viewport fold, not a full-page capture |
-| `before/audit-all-items-cs-1440.png` (1440×4127, full page) | `after/audit-all-items-cs-1440.png` (1440×3315, viewport) | Czech desktop at 1440px; after image is a viewport fold, not a full-page capture |
+| `before/audit-all-items-cs-390.png` (390×4642, full page) | `after/audit-all-items-cs-390.png` (390×844, viewport) | Czech 390px list fold; full-width status and Filters rows, entire first result row above bottom navigation |
+| `before/audit-all-items-cs-1440.png` (1440×4127, full page) | `after/audit-all-items-cs-1440.png` (1440×900, viewport) | Czech 1440px desktop; filter rail (search, status, subject, responsible, recurrence) beside the result list |
 | — | `after/audit-all-items-dark-390.png` (390×844, viewport) | Forced-dark phone list readiness |
 | — | `after/audit-all-items-dark-1440.png` (1440×900, viewport) | Forced-dark desktop list readiness |
 | — | `after/audit-all-items-page2-390.png` (390×844, viewport) | Page 2 scrolled to pager; Previous and Next are visible and asserted before capture |
