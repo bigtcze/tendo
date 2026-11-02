@@ -1710,8 +1710,17 @@ test.describe('Tendo production journey', () => {
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
 
       const subjectSelect = page.getByLabel(en['items.subject']);
+      const filterDisclosure = page.locator('[data-all-items-filter-disclosure]');
+      if (await filterDisclosure.isVisible()) {
+        if (await filterDisclosure.getAttribute('aria-expanded') !== 'true') await filterDisclosure.click();
+        await expect(filterDisclosure).toHaveAttribute('aria-expanded', 'true');
+      } else {
+        await expect(subjectSelect).toBeVisible();
+      }
       await subjectSelect.selectOption(subjects[0]!.id);
-      await page.getByLabel(en['allItems.repeat']).selectOption('false');
+      const repeatSelect = page.getByLabel(en['allItems.repeat']);
+      await expect(repeatSelect).toBeVisible();
+      await repeatSelect.selectOption('false');
       const filterQuery = `subjectId=${encodeURIComponent(subjects[0]!.id)}&recurring=false`;
       const filteredSummary = await getSummary(filterQuery);
       const expectedWalk = await apiWalk({ subjectId: subjects[0]!.id, recurring: 'false', archived: 'false', done: 'false', sort: 'attention_on', attentionDate: (await getSummary(filterQuery)).evaluatedOn });
@@ -1740,7 +1749,9 @@ test.describe('Tendo production journey', () => {
       expect(domElements).toBeLessThan(1500); // measured bound allows headroom above the 25-row results and filter controls
 
       // Search context can be paged independently. Open a page-three row and verify exact return restoration.
-      await page.getByLabel(en['allItems.repeat']).selectOption('');
+      if (await filterDisclosure.isVisible() && await filterDisclosure.getAttribute('aria-expanded') !== 'true') await filterDisclosure.click();
+      await expect(repeatSelect).toBeVisible();
+      await repeatSelect.selectOption('');
       await subjectSelect.selectOption('');
       await searchInput.fill('All items seed');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
@@ -1768,8 +1779,10 @@ test.describe('Tendo production journey', () => {
       await archivedSearchItem.click();
       await page.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
       await page.getByRole('link', { name: en['itemDetail.backAllItems'], exact: true }).click();
-      await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
       await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['allItems.noMatch'] })).toHaveAttribute('aria-atomic', 'true');
+      const recoveredFilters = page.locator('[data-all-items-filter-disclosure]');
+      if (await recoveredFilters.isVisible() && await recoveredFilters.getAttribute('aria-expanded') !== 'true') await recoveredFilters.click();
       await statusSelect.selectOption('archived');
       await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(1);
 
@@ -2148,6 +2161,8 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
       await page.getByRole('searchbox').fill('balcony plants');
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+      const filterDisclosure = page.locator('[data-all-items-filter-disclosure]');
+      if (await filterDisclosure.isVisible() && await filterDisclosure.getAttribute('aria-expanded') !== 'true') await filterDisclosure.click();
       await page.getByLabel(en['allItems.repeat']).selectOption('true');
       await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: title })).toBeVisible();
       const allItemsSnapshot = await snapshot('all-items-search-and-filters');
@@ -2156,6 +2171,7 @@ test.describe('Tendo production journey', () => {
       await checkTargets('all-items-search-and-filters');
       await expectNoAxeViolations(page, 'all-items-search-and-filters');
       const allItemsControls = async (where: string) => {
+        if (await filterDisclosure.isVisible() && await filterDisclosure.getAttribute('aria-expanded') !== 'true') await filterDisclosure.click();
         await expect(page.getByRole('searchbox'), `search kept ${where}`).toHaveValue('balcony plants');
         await expect(page.getByLabel(en['allItems.repeat']), `repeat filter kept ${where}`).toHaveValue('true');
         for (const control of [page.getByRole('button', { name: en['allItems.searchButton'], exact: true }), page.getByRole('main').getByRole('link', { name: title, exact: true })]) {
@@ -2167,7 +2183,7 @@ test.describe('Tendo production journey', () => {
       await at320('all-items-search-and-filters', () => allItemsControls('at 320px'));
       await page.getByRole('searchbox').fill(noMatch);
       await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(page.getByRole('main').locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
       await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['allItems.noMatch'] })).toHaveAttribute('aria-atomic', 'true');
       await expectNoAxeViolations(page, 'all-items-no-match');
 
@@ -3040,7 +3056,7 @@ test.describe('Tendo production journey', () => {
 
       await main.getByRole('searchbox').fill('N18 no matching household item query');
       await main.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
-      await expect(main.locator('p.font-display').filter({ hasText: en['allItems.noMatch'] })).toBeVisible();
+      await expect(main.getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
       await main.getByRole('button', { name: en['allItems.clear'], exact: true }).click();
       await expect(main.getByRole('listitem').filter({ hasText: 'Water the plants' })).toBeVisible();
 

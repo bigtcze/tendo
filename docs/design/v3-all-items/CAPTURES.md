@@ -1,6 +1,6 @@
 # All items capture index
 
-Production-build UX audit (`frontend/e2e/ux-audit.spec.ts`) through `scripts/e2e-smoke.sh`, pinned toolchain/browser and real test API/database. Capture helper sets and asserts each viewport width; files are viewport-fold captures. Before uses detached `origin/main` at `cc74ce9`; after uses `feat/v3-09-all-items`. V2.1 audit baseline is separately identified. No human testing is claimed.
+Production-build UX audit (`frontend/e2e/ux-audit.spec.ts`) through `scripts/e2e-smoke.sh`, pinned browser/toolchain, real test API/database for the staged household. Before captures are from detached `origin/main` at `cc74ce9`; dimensions are labeled per file because the baseline helper emitted full pages. The curated after set uses viewport captures from `feat/v3-09-all-items`. The audit also emits full-page route/state artifacts; this index identifies the curated All items files and whether they are fold or full-page. No human testing is claimed.
 
 Commands:
 
@@ -10,24 +10,26 @@ TENDO_UX_AUDIT_DIR=/tmp/opencode/v309-before-captures bash scripts/dev-exec.sh -
 TENDO_UX_AUDIT_DIR="$PWD/docs/design/v3-all-items/after" bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
 ```
 
-| Before | After | Purpose |
+| Before | After | Capture type / purpose |
 |---|---|---|
-| `before/audit-all-items-en-320.png` | `after/audit-all-items-en-320.png` | Minimum phone width (320×640) / overflow; first row above bottom bar |
-| `before/audit-all-items-en-390.png` | `after/audit-all-items-en-390.png` | Phone composition at 390×844; search/status and first result above bottom navigation |
-| — | `after/audit-all-items-en-360.png` | Intermediate phone width |
-| — | `after/audit-all-items-filters-expanded-390.png` | Progressive disclosure open; secondary selects remain accessible |
-| — | `after/audit-all-items-filtered-count-390.png` | Active secondary filter remains visible in the disclosure count |
-| `before/audit-all-items-en-768.png` | `after/audit-all-items-en-768.png` | Tablet composition |
-| `before/audit-all-items-en-1024.png` | `after/audit-all-items-en-1024.png` | Desktop breakpoint and split |
-| `before/audit-all-items-en-1440.png` | `after/audit-all-items-en-1440.png` | Wide desktop usage |
-| `before/audit-all-items-cs-390.png` | `after/audit-all-items-cs-390.png` | Czech on phone |
-| `before/audit-all-items-cs-1440.png` | `after/audit-all-items-cs-1440.png` | Czech desktop |
-| — | `after/audit-all-items-dark-{390,1440}.png` | Forced-dark readiness |
-| — | `after/audit-all-items-page2-{390,1440}.png` | Cursor page replacement/navigation |
-| — | `after/audit-all-items-error-{390,1440}.png` | Server failure / Retry |
-| `before/audit-all-items-done-en-390.png` | `after/audit-all-items-done-en-390.png` | Status-filter results |
-| `before/audit-all-items-nomatch-en-390.png` | `after/audit-all-items-nomatch-en-390.png` | No-match state / clear action |
-| — | `after/audit-all-items-search-en-{390,1440}.png` | Accent-insensitive Czech search at 1,000+ stage |
-| — | `after/metrics.json` | Captured audit metrics, including route overflow and page/DOM measures |
+| `before/audit-all-items-en-320.png` | `after/audit-all-items-en-320.png` | Before full page; after viewport fold, 320×640; first result above phone navigation |
+| `before/audit-all-items-en-390.png` | `after/audit-all-items-en-390.png` | Before full page; after viewport fold, 390×844; first result above phone navigation |
+| — | `after/audit-all-items-en-360.png` | Viewport fold, intermediate phone width |
+| — | `after/audit-all-items-filters-expanded-390.png` | Viewport fold, secondary filter disclosure open |
+| — | `after/audit-all-items-filtered-count-390.png` | Viewport fold, active secondary-filter count and visible Clear |
+| `before/audit-all-items-en-768.png` | `after/audit-all-items-en-768.png` | Before full page; after viewport fold, tablet |
+| `before/audit-all-items-en-1024.png` | `after/audit-all-items-en-1024.png` | Before full page; after viewport fold, desktop breakpoint |
+| `before/audit-all-items-en-1440.png` | `after/audit-all-items-en-1440.png` | Before full page; after viewport fold, wide desktop |
+| `before/audit-all-items-cs-390.png` | `after/audit-all-items-cs-390.png` | Full-page pair: before 390×4642; after 390×3451, Czech phone |
+| `before/audit-all-items-cs-1440.png` | `after/audit-all-items-cs-1440.png` | Full-page pair: before 1440×4127; after 1440×2699, Czech desktop |
+| — | `after/audit-all-items-dark-{390,1440}.png` | Viewport fold, forced-dark token readiness |
+| — | `after/audit-all-items-page2-{390,1440}.png` | Viewport fold scrolled to named pager, page 2 |
+| — | `after/audit-all-items-error-{390,1440}.png` | Viewport fold, server failure and Retry |
+| `before/audit-all-items-done-en-390.png` | `after/audit-all-items-done-en-390.png` | Before full page; after viewport fold, filtered status state |
+| `before/audit-all-items-nomatch-en-390.png` | `after/audit-all-items-nomatch-en-390.png` | Before full page; after viewport fold, no-match state / clear recovery |
+| — | `after/audit-all-items-search-unaccented-en-{390,1440}.png` | Viewport fold; ASCII query searches seeded Czech records containing accents |
+| — | `after/audit-all-items-search-accented-en-{390,1440}.png` | Viewport fold; accented query comparison |
+| — | `after/audit-all-items-empty-{390,1440}.png` | Browser render with stubbed empty response; not real-API empty-household evidence |
+| — | `after/metrics.json` | Scripted route, viewport, overflow, target-size, and DOM metrics |
 
-The audit emits additional route and journey artifacts; only focused All items evidence is kept here. Captures are scripted evidence, not user approval.
+Empty state limitation: the audit household has a large staged backlog and is shared with the scale journey. The empty captures deliberately stub summary/list responses in the browser; they prove the frontend presentation only, not an empty real API household. The real API failure/retry captures likewise use a route stub. The curated page-2 images scroll to the pager before viewport capture. The original baseline pair used for English captures is full-page, while the additional Czech before captures were re-run as viewport folds. Do not infer matching dimensions from pair names; use the labeled capture type.

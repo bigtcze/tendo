@@ -40,7 +40,7 @@ function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
   );
 }
 
-export function Layout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
+export function Layout({ actions, children, compactTopPadding = false }: { actions?: ReactNode; children: ReactNode; compactTopPadding?: boolean }) {
   const { t } = useI18n();
   const mainRef = useRef<HTMLElement>(null);
   const navigation = useContext(HouseholdNavigationContext);
@@ -54,7 +54,7 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
         {actions}
       </header>
       {navigation ? <HouseholdNavigation rail={household} /> : null}
-      <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
+      <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''} ${compactTopPadding ? 'pt-0 lg:pt-10' : ''}`}>
         {children}
       </main>
       <footer className={`${FOOTER} ${household ? FOOTER_HOUSEHOLD : ''}`}>

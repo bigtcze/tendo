@@ -47,7 +47,7 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
   draft: Draft; summary: ItemSummary | null; facets: AllItemsFacets; userId: string; actions: AllItemsActions; showClear: boolean;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(() => typeof window.matchMedia !== 'function');
+  const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const { subjects, members } = facets;
   const knownSubject = subjects.values.some((subject) => subject.id === draft.subjectId);
@@ -58,6 +58,9 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
   };
   const activeCount = Number(Boolean(draft.subjectId)) + Number(Boolean(draft.responsible)) + Number(draft.recurring !== '');
   const hasActiveFilters = activeCount > 0 || Boolean(draft.search.trim()) || draft.status !== 'active';
+  const clear = hasActiveFilters && showClear
+    ? <Button type="button" data-all-items-clear variant="quiet" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
+    : null;
   const fields = <div className="space-y-4">
     {subjects.state === 'ready' ? <FilterSelect label={t('items.subject')} value={draft.subjectId}
       onChange={select('subjectId', (value) => ({ subjectId: value || undefined }))}>
@@ -82,26 +85,22 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
       <option value="false">{t('allItems.oneOff')}</option>
     </FilterSelect>
   </div>;
-  const clear = hasActiveFilters && showClear
-    ? <Button type="button" variant="quiet" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
-    : null;
   return <div className="space-y-3">
     <FilterSelect label={t('allItems.status.label')} value={draft.status}
       onChange={select('status', (value) => ({ status: value as AllItemsStatus }))}>
       {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
     </FilterSelect>
-    <div>
-      <div className="lg:hidden">
-        <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
-          className="min-h-11 w-full justify-start border border-line px-3 text-ink"
-          data-all-items-filter-disclosure
-          onClick={() => setExpanded((open) => !open)}>
-          {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
-        </Button>
-      </div>
-      <div id={panelId} className={`${expanded ? 'mt-4' : 'hidden'} space-y-4 lg:mt-0 lg:block`}>
-        {fields}{clear}
-      </div>
+    <div className="lg:hidden">
+      <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
+        className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"
+        data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
+        {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
+        <span aria-hidden="true" className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
+      </Button>
     </div>
+    <div id={panelId} className={`${expanded ? 'mt-4 block' : 'hidden lg:block'} space-y-4`}>
+      {fields}
+    </div>
+    {clear}
   </div>;
 }

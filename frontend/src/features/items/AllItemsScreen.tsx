@@ -23,11 +23,11 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const facets = useAllItemsFacets(householdId, onSignedOut, onNoHousehold);
   const view = resultsView(context, page, buildQuery(context));
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));
-  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle -mt-4 space-y-2 lg:mt-0 lg:space-y-5">
+  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />} compactTopPadding>
+    <section className="settle space-y-1 lg:space-y-5">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
-      <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
-      <div className="grid min-w-0 grid-cols-1 gap-3 lg:gap-6 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
+      <Heading className="font-display text-h1 leading-tight -mb-3 lg:mb-0">{t('allItems.title')}</Heading>
+      <div className="grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
         <aside className="min-w-0 space-y-3 lg:sticky lg:top-6">
           <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
           <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
@@ -36,7 +36,7 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
         <div className="min-w-0 space-y-4">
           {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}
           {page.loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-          {page.error ? <Notice tone="error" className="space-y-3"><p>{t('app.error.body')}</p>
+          {page.error ? <Notice tone="error" role={null} className="space-y-3"><p>{t('app.error.body')}</p>
             <Button data-all-items-retry type="button" variant="secondary" onClick={actions.retry}>{t('app.error.retry')}</Button></Notice> : null}
           <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} members={facets.members.values}
             actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />

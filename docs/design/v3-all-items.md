@@ -21,17 +21,17 @@
 
 ## Desktop and phone composition
 
-On desktop, the sticky filter rail stays narrow, uses a single column with consistent field spacing, and results take the remaining width. At phone and tablet widths, search and status remain visible while the secondary filters start collapsed behind a 44px disclosure control. Its label reports the active secondary-filter count; clear remains visible when the search, status, or any other filter is active. The loaded first result appears above the phone navigation bar at 390×844 and 320×640 in the production UX audit. The disclosure uses `aria-expanded` and `aria-controls`; no filter depends on hover.
+On desktop, the sticky filter rail stays narrow, uses a single column with consistent field spacing, and results take the remaining width. At phone and tablet widths, search and status remain visible while secondary filters start collapsed behind a 44px disclosure control. Its label reports the active secondary-filter count; one Clear action remains visible when search or any filter is active, including while the disclosure is closed. The loaded first result appears above phone navigation at 390×844 and 320×640. An explicit search/status/secondary criterion keeps one visible Clear action outside the collapsed panel; the no-match state instead owns exactly one Clear action in its EmptyState. The disclosure uses `aria-expanded` and `aria-controls`; no filter depends on hover.
 
 ## Screenshot critique
 
-The before/after production captures are indexed in [`v3-all-items/CAPTURES.md`](v3-all-items/CAPTURES.md). Review the named viewport at each capture rather than assuming the filename proves dimensions. Desktop makes effective use of the rail/results composition; the phone fold keeps search and status calm and leaves a full result row visible above bottom navigation. A separate expanded-filter capture confirms the secondary controls remain reachable, and an active-filter capture shows their count in the disclosure label. The long Czech search fixture wraps naturally, though it creates an unusually tall first row; this is realistic content density rather than clipping. Captures are scripted evidence only; no human usability testing is claimed.
+The before/after captures and their actual viewport/full-page types are indexed in [`v3-all-items/CAPTURES.md`](v3-all-items/CAPTURES.md). The 320×640 and 390×844 viewport folds keep a full first row above bottom navigation while item title links retain a 44px target. The desktop rail is single-column and spaced; expanded and active-filter phone captures verify disclosure access, count, and visible Clear. Czech phone and desktop viewport captures are included. The unaccented ASCII search query returns accented Czech records; a separate accented-query capture is comparison evidence. Long Czech title wrapping remains tall but unclipped. Empty/error UI snapshots are browser-stubbed presentation evidence, not real-API empty/offline evidence. No human usability testing is claimed.
 
 ## States and behavior
 
 - Initial load retains a screen-level loading status and decorative/list-free state until current results settle.
-- Empty household uses EmptyState and the existing Home action.
-- No match uses EmptyState and clear search/filters.
+- Empty household uses the shared EmptyState heading and existing Home action.
+- No match uses the shared EmptyState heading and one contextual Clear action; the filter-rail Clear is suppressed while the no-match action is shown.
 - Request failure uses an error Notice and Retry; stale cursor recovery uses a neutral Notice.
 - Settled outcomes stay announced through the persistent polite live region.
 - Search and filters retain URL/back restoration and accent-insensitive API behavior.
@@ -39,7 +39,7 @@ The before/after production captures are indexed in [`v3-all-items/CAPTURES.md`]
 
 ## Dark readiness
 
-Surfaces use `bg-raised`, borders use `line`, text uses `ink`/`muted`, and errors use semantic Notice tones. No All items control or row uses a hard-coded white surface. Forced-dark captures are readiness evidence; V3-14 owns theme preference and broader dark-mode behavior.
+Surfaces use `bg-raised`, borders use `line`, text uses `ink`/`muted`, and errors use semantic Notice tones. The visible error notice is presentational and the persistent polite outcome region remains the screen's only error announcer. No All items control or row uses a hard-coded white surface. Forced-dark captures are readiness evidence; V3-14 owns theme preference and broader dark-mode behavior.
 
 ## Evidence
 

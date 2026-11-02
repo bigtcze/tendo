@@ -12,7 +12,7 @@ import { countFor, countKey, cursorStack, hasFilters, type Context } from './all
 import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const titleLink = `inline-flex min-h-10 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-medium text-ink hover:text-accent ${focusRing}`;
+const titleLink = `inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-medium text-ink hover:text-accent ${focusRing}`;
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
@@ -71,10 +71,10 @@ function ItemRow({ item, subjectName, members, onOpenItem }: {
     subjectName ?? t('items.subject.unknown'), status,
     item.responsibleUserId ? t('items.responsible.read', { name: responsible }) : null,
   ].filter(Boolean);
-  return <li data-item-id={item.id} className="px-4 py-1">
+  return <li data-item-id={item.id} className="px-4 py-0">
     <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
       className={titleLink}>{item.title}</NavLink>
-    <p className="-mt-1 pb-2 text-meta leading-relaxed text-muted">{context.map((part, index) => <span key={`${index}-${part}`}>
+    <p className="mt-1 pb-2 text-meta leading-relaxed text-muted">{context.map((part, index) => <span key={`${index}-${part}`}>
       {index ? <span aria-hidden="true"> · </span> : null}{part}
     </span>)}</p>
     {item.recurrence ? <p className="pb-2 text-meta text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
@@ -106,11 +106,12 @@ export function AllItemsResults({ view, context, page, subjectNames, members, ac
   resultRef: RefObject<HTMLElement | null>; onBack: () => void; onOpenItem: (itemId: string, returnTo: string) => void;
 }) {
   const { t, locale } = useI18n();
-  if (view === 'none') return <EmptyState title={t('allItems.none')} titleAs="p">
+  if (view === 'none') return <EmptyState title={t('allItems.none')}>
     <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
   </EmptyState>;
-  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')} titleAs="p">
-    <Button type="button" variant="quiet" className="mt-2" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
+  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')}>
+    {hasFilters(context) ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
+      onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null}
   </EmptyState>;
   if (view !== 'rows') return null;
   const range = rangeLabel(context, page, t, locale);
