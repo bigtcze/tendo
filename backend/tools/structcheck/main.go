@@ -1,9 +1,7 @@
-// Command funcmetrics reports Go function and literal control-flow metrics.
+// Command structcheck rejects new or worsened structural debt in authored Go code.
 package main
 
 import (
-	"encoding/json"
-	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -16,96 +14,121 @@ import (
 )
 
 type metric struct {
-	Path       string `json:"path"`
-	Name       string `json:"name"`
-	Lines      int    `json:"lines"`
-	Complexity int    `json:"complexity"`
-	Nesting    int    `json:"nesting"`
+	Path, Name                 string
+	Lines, Complexity, Nesting int
+}
+
+type exception struct {
+	path, name, metric string
+	allowed            int
+	reason             string
+}
+
+var limits = map[string]int{"file_lines": 500, "function_lines": 80, "complexity": 15, "nesting": 4}
+
+// Exceptions are reviewed debt, with rationale and an explicit ceiling.
+var exceptions = map[string]exception{
+	"backend/internal/item/itemtest/repo.go|Repo.List|complexity":           {"backend/internal/item/itemtest/repo.go", "Repo.List", "complexity", 21, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
+	"backend/internal/item/itemtest/repo.go|Repo.UndoCompletion|complexity": {"backend/internal/item/itemtest/repo.go", "Repo.UndoCompletion", "complexity", 19, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
+	"backend/internal/item/itemtest/repo.go|matchesCollection|complexity":   {"backend/internal/item/itemtest/repo.go", "matchesCollection", "complexity", 23, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
+	"backend/internal/testoidc/provider.go|Provider.authorize|complexity":   {"backend/internal/testoidc/provider.go", "Provider.authorize", "complexity", 17, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests."},
+	"backend/internal/testoidc/provider.go|Provider.idToken|complexity":     {"backend/internal/testoidc/provider.go", "Provider.idToken", "complexity", 17, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests."},
+	"backend/internal/testoidc/provider.go|Provider.token|complexity":       {"backend/internal/testoidc/provider.go", "Provider.token", "complexity", 19, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests."},
+	"backend/test/oidc-provider/main.go|main|complexity":                    {"backend/test/oidc-provider/main.go", "main", "complexity", 18, "Standalone test OIDC provider fixture serves deterministic test protocol endpoints; retain its role as test support, not production code."},
+	"backend/internal/item/itemtest/repo.go|Repo.Complete|nesting":          {"backend/internal/item/itemtest/repo.go", "Repo.Complete", "nesting", 6, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
 }
 
 func main() {
-	prefix := flag.String("prefix", "backend", "repository-relative output path prefix")
-	repoRoot := flag.String("repo-root", "", "repository root for file-list paths")
-	files := flag.String("files", "", "newline-delimited repository-relative Go file list")
-	flag.Parse()
-	var results []metric
-	var err error
-	if *files != "" {
-		data, readErr := os.ReadFile(*files)
-		if readErr != nil {
-			fail(readErr)
-		}
-		results, err = collectFiles(strings.Split(strings.TrimSpace(string(data)), "\n"), *repoRoot, *prefix)
-	} else {
-		roots := flag.Args()
-		if len(roots) == 0 {
-			roots = []string{"."}
-		}
-		results, err = collect(roots, *prefix)
-	}
+	metrics, err := collect(".")
 	if err != nil {
 		fail(err)
 	}
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(results); err != nil {
+	if err := check(metrics); err != nil {
 		fail(err)
 	}
 }
 
 func fail(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
 
-func collectFiles(paths []string, root, prefix string) ([]metric, error) {
-	var results []metric
-	for _, relativePath := range paths {
-		path := filepath.Join(root, relativePath)
+func collect(root string) (map[string]int, error) {
+	values := make(map[string]int)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && (entry.Name() == "dbgen" || entry.Name() == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".gen.go") {
+			return nil
+		}
+		text, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		fileLines := 0
+		for _, line := range strings.Split(string(text), "\n") {
+			if strings.TrimSpace(line) != "" {
+				fileLines++
+			}
+		}
+		values[key("backend/"+rel, "", "file_lines")] = fileLines
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", path, err)
+			return fmt.Errorf("parse %s: %w", rel, err)
 		}
-		name := filepath.ToSlash(filepath.Join(prefix, relativePath))
-		results = append(results, declarations(fset, name, file)...)
-	}
-	sortMetrics(results)
-	return results, nil
+		for _, item := range declarations(fset, strings.TrimPrefix(rel, "./"), file) {
+			values[key("backend/"+strings.TrimPrefix(rel, "./"), item.Name, "function_lines")] = item.Lines
+			values[key("backend/"+strings.TrimPrefix(rel, "./"), item.Name, "complexity")] = item.Complexity
+			values[key("backend/"+strings.TrimPrefix(rel, "./"), item.Name, "nesting")] = item.Nesting
+		}
+		return nil
+	})
+	return values, err
 }
 
-func collect(roots []string, prefix string) ([]metric, error) {
-	var results []metric
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() {
-				if path != root && excludedPath(path) {
-					return filepath.SkipDir
+func key(path, name, metric string) string { return path + "|" + name + "|" + metric }
+
+func check(values map[string]int) error {
+	var failures []string
+	used := make(map[string]bool)
+	for id, value := range values {
+		parts := strings.Split(id, "|")
+		path, name, kind := parts[0], parts[1], parts[2]
+		allowed := limits[kind]
+		for _, item := range exceptions {
+			if item.path == path && item.name == name && item.metric == kind {
+				allowed = item.allowed
+				used[id] = true
+				if value < allowed {
+					failures = append(failures, fmt.Sprintf("%s:%s %s=%d<exception=%d (stale; tighten; %s)", path, name, kind, value, allowed, item.reason))
 				}
-				return nil
 			}
-			if entry.Name() == "" || strings.HasSuffix(path, "_test.go") || excludedPath(path) || filepath.Ext(path) != ".go" {
-				return nil
-			}
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, path, nil, 0)
-			if err != nil {
-				return fmt.Errorf("parse %s: %w", path, err)
-			}
-			rel, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			output := filepath.ToSlash(filepath.Join(prefix, rel))
-			results = append(results, declarations(fset, output, file)...)
-			return nil
-		})
-		if err != nil {
-			return nil, err
+		}
+		if value > allowed {
+			failures = append(failures, fmt.Sprintf("%s:%s %s=%d>limit=%d", path, name, kind, value, allowed))
 		}
 	}
-	sortMetrics(results)
-	return results, nil
+	for _, item := range exceptions {
+		id := key(item.path, item.name, item.metric)
+		if !used[id] {
+			failures = append(failures, item.path+":"+item.name+" "+item.metric+" exception is stale (not measured); "+item.reason)
+		}
+	}
+	sort.Strings(failures)
+	if len(failures) > 0 {
+		return fmt.Errorf("%s", strings.Join(failures, "\n"))
+	}
+	return nil
 }
 
 func declarations(fset *token.FileSet, path string, file *ast.File) []metric {

@@ -13,10 +13,16 @@ export default tseslint.config(
     ignores: ['src/**/*.test.{ts,tsx}', 'src/test/**'],
     linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
-      complexity: 'off',
-      'max-depth': 'off',
-      'max-lines-per-function': 'off',
+      complexity: ['error', 15],
+      'max-depth': ['error', 4],
+      'max-lines-per-function': ['error', { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true }],
+      'max-lines': ['error', { max: 350, skipBlankLines: true, skipComments: false }],
     },
+  },
+  {
+    files: ['src/i18n/{cs,en}.ts'],
+    // Flat translation tables stay together for translators; owner: frontend-localization.
+    rules: { 'max-lines': 'off' },
   },
   {
     files: ['**/*.{ts,tsx}'],
