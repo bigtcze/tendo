@@ -58,7 +58,6 @@ export function useHomeItems({ householdId, mounted, onSignedOut }: HomeItemsOpt
     return () => { generationRef.current++; inFlightRef.current.clear(); };
   }, []);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- start async loading; state updates follow network responses.
     void loadHome({ allowStaleRestart: true });
   }, [loadHome]);
 

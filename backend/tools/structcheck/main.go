@@ -19,26 +19,44 @@ type metric struct {
 }
 
 type exception struct {
-	path, name, metric string
-	allowed            int
-	reason             string
+	allowed int
+	reason  string
+	owner   string
 }
 
 var limits = map[string]int{"file_lines": 500, "function_lines": 80, "complexity": 15, "nesting": 4}
 
-// Exceptions are reviewed debt, with rationale and an explicit ceiling.
+// Exception keys are path|function|metric. Each ceiling has a documented owner and rationale.
 var exceptions = map[string]exception{
-	"backend/internal/item/itemtest/repo.go|Repo.List|complexity":           {"backend/internal/item/itemtest/repo.go", "Repo.List", "complexity", 21, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
-	"backend/internal/item/itemtest/repo.go|Repo.UndoCompletion|complexity": {"backend/internal/item/itemtest/repo.go", "Repo.UndoCompletion", "complexity", 19, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
-	"backend/internal/item/itemtest/repo.go|matchesCollection|complexity":   {"backend/internal/item/itemtest/repo.go", "matchesCollection", "complexity", 23, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
-	"backend/internal/testoidc/provider.go|Provider.authorize|complexity":   {"backend/internal/testoidc/provider.go", "Provider.authorize", "complexity", 17, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests."},
-	"backend/internal/testoidc/provider.go|Provider.idToken|complexity":     {"backend/internal/testoidc/provider.go", "Provider.idToken", "complexity", 17, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests."},
-	"backend/internal/testoidc/provider.go|Provider.token|complexity":       {"backend/internal/testoidc/provider.go", "Provider.token", "complexity", 19, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests."},
-	"backend/test/oidc-provider/main.go|main|complexity":                    {"backend/test/oidc-provider/main.go", "main", "complexity", 18, "Standalone test OIDC provider fixture serves deterministic test protocol endpoints; retain its role as test support, not production code."},
-	"backend/internal/item/itemtest/repo.go|Repo.Complete|nesting":          {"backend/internal/item/itemtest/repo.go", "Repo.Complete", "nesting", 6, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics."},
+	"backend/internal/item/itemtest/repo.go|Repo.List|complexity":           {21, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.", "test-support"},
+	"backend/internal/item/itemtest/repo.go|Repo.UndoCompletion|complexity": {19, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.", "test-support"},
+	"backend/internal/item/itemtest/repo.go|matchesCollection|complexity":   {23, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.", "test-support"},
+	"backend/internal/testoidc/provider.go|Provider.authorize|complexity":   {17, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.", "test-support"},
+	"backend/internal/testoidc/provider.go|Provider.idToken|complexity":     {17, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.", "test-support"},
+	"backend/internal/testoidc/provider.go|Provider.token|complexity":       {19, "Test OIDC provider double supplies deterministic authorize, token, and ID-token responses; keep behavior aligned with provider contract tests.", "test-support"},
+	"backend/test/oidc-provider/main.go|main|complexity":                    {18, "Standalone test OIDC provider fixture serves deterministic test protocol endpoints; retain its role as test support, not production code.", "test-support"},
+	"backend/internal/item/itemtest/repo.go|Repo.Complete|nesting":          {6, "In-memory item repository is a behavioral test double for item service tests; keep parity with tested repository semantics.", "test-support"},
+}
+
+var generatedFiles = map[string]bool{
+	"internal/identity/httpapi/setup.gen.go":      true,
+	"internal/household/httpapi/household.gen.go": true,
+	"internal/item/httpapi/item.gen.go":           true,
+	"internal/subject/httpapi/subject.gen.go":     true,
+	"internal/platform/httpx/health.gen.go":       true,
+}
+
+var generatedDirs = map[string]bool{
+	"internal/household/postgres/dbgen": true,
+	"internal/identity/postgres/dbgen":  true,
+	"internal/item/postgres/dbgen":      true,
+	"internal/subject/postgres/dbgen":   true,
 }
 
 func main() {
+	if err := validateExceptions(); err != nil {
+		fail(err)
+	}
 	metrics, err := collect(".")
 	if err != nil {
 		fail(err)
@@ -50,53 +68,101 @@ func main() {
 
 func fail(err error) { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
 
+func identity(path, name, kind string) string { return path + "|" + name + "|" + kind }
+
+func validateExceptions() error {
+	for id, item := range exceptions {
+		parts := strings.Split(id, "|")
+		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+			return fmt.Errorf("invalid exception identity %q", id)
+		}
+		if strings.TrimSpace(item.reason) == "" || strings.TrimSpace(item.owner) == "" {
+			return fmt.Errorf("%s exception requires a reason and owner", id)
+		}
+		limit, ok := limits[parts[2]]
+		if !ok || item.allowed <= limit {
+			return fmt.Errorf("%s exception allowed=%d must exceed its metric limit", id, item.allowed)
+		}
+	}
+	return nil
+}
+
 func collect(root string) (map[string]int, error) {
 	values := make(map[string]int)
+	add := func(id string, value int) error {
+		if _, exists := values[id]; exists {
+			return fmt.Errorf("duplicate metric identity: %s", id)
+		}
+		values[id] = value
+		return nil
+	}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
-		}
-		if entry.IsDir() {
-			if path != root && (entry.Name() == "dbgen" || entry.Name() == "testdata") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".gen.go") {
-			return nil
-		}
-		text, err := os.ReadFile(path)
-		if err != nil {
-			return err
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		fileLines := 0
-		for _, line := range strings.Split(string(text), "\n") {
-			if strings.TrimSpace(line) != "" {
-				fileLines++
-			}
+		if entry.IsDir() {
+			return skipDirectory(rel)
 		}
-		values[key("backend/"+rel, "", "file_lines")] = fileLines
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			return fmt.Errorf("parse %s: %w", rel, err)
+		if !authoredGoFile(path, rel) {
+			return nil
 		}
-		for _, item := range declarations(fset, strings.TrimPrefix(rel, "./"), file) {
-			values[key("backend/"+strings.TrimPrefix(rel, "./"), item.Name, "function_lines")] = item.Lines
-			values[key("backend/"+strings.TrimPrefix(rel, "./"), item.Name, "complexity")] = item.Complexity
-			values[key("backend/"+strings.TrimPrefix(rel, "./"), item.Name, "nesting")] = item.Nesting
-		}
-		return nil
+		return collectFile(path, rel, add)
 	})
 	return values, err
 }
 
-func key(path, name, metric string) string { return path + "|" + name + "|" + metric }
+func skipDirectory(rel string) error {
+	if rel != "." && (rel == "testdata" || strings.HasPrefix(rel, "testdata/")) {
+		return filepath.SkipDir
+	}
+	if generatedDirs[rel] {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+func authoredGoFile(path, rel string) bool {
+	return filepath.Ext(path) == ".go" && !strings.HasSuffix(path, "_test.go") && !generatedFiles[rel]
+}
+
+func collectFile(path, rel string, add func(string, int) error) error {
+	text, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	fileLines := 0
+	for _, line := range strings.Split(string(text), "\n") {
+		if strings.TrimSpace(line) != "" {
+			fileLines++
+		}
+	}
+	output := "backend/" + rel
+	if err := add(identity(output, "", "file_lines"), fileLines); err != nil {
+		return err
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", output, err)
+	}
+	for _, item := range declarations(fset, output, file) {
+		if err := add(identity(output, item.Name, "function_lines"), item.Lines); err != nil {
+			return err
+		}
+		if err := add(identity(output, item.Name, "complexity"), item.Complexity); err != nil {
+			return err
+		}
+		if err := add(identity(output, item.Name, "nesting"), item.Nesting); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func check(values map[string]int) error {
 	var failures []string
@@ -105,23 +171,20 @@ func check(values map[string]int) error {
 		parts := strings.Split(id, "|")
 		path, name, kind := parts[0], parts[1], parts[2]
 		allowed := limits[kind]
-		for _, item := range exceptions {
-			if item.path == path && item.name == name && item.metric == kind {
-				allowed = item.allowed
-				used[id] = true
-				if value < allowed {
-					failures = append(failures, fmt.Sprintf("%s:%s %s=%d<exception=%d (stale; tighten; %s)", path, name, kind, value, allowed, item.reason))
-				}
+		if item, ok := exceptions[id]; ok {
+			allowed = item.allowed
+			used[id] = true
+			if value < allowed {
+				failures = append(failures, fmt.Sprintf("%s:%s %s=%d<exception=%d (stale; tighten; %s)", path, name, kind, value, allowed, item.reason))
 			}
 		}
 		if value > allowed {
 			failures = append(failures, fmt.Sprintf("%s:%s %s=%d>limit=%d", path, name, kind, value, allowed))
 		}
 	}
-	for _, item := range exceptions {
-		id := key(item.path, item.name, item.metric)
+	for id, item := range exceptions {
 		if !used[id] {
-			failures = append(failures, item.path+":"+item.name+" "+item.metric+" exception is stale (not measured); "+item.reason)
+			failures = append(failures, fmt.Sprintf("%s exception is stale (not measured); %s", id, item.reason))
 		}
 	}
 	sort.Strings(failures)
@@ -174,17 +237,17 @@ func functionMetricsNamed(fset *token.FileSet, path string, function *ast.FuncDe
 
 func packageLiteralMetrics(fset *token.FileSet, path string, declaration *ast.GenDecl) []metric {
 	var results []metric
-	for specIndex, specification := range declaration.Specs {
+	for _, specification := range declaration.Specs {
 		value, ok := specification.(*ast.ValueSpec)
 		if !ok {
 			continue
 		}
-		results = append(results, valueLiterals(fset, path, value, specIndex+1)...)
+		results = append(results, valueLiterals(fset, path, value)...)
 	}
 	return results
 }
 
-func valueLiterals(fset *token.FileSet, path string, value *ast.ValueSpec, specOrdinal int) []metric {
+func valueLiterals(fset *token.FileSet, path string, value *ast.ValueSpec) []metric {
 	var results []metric
 	blankOrdinal := 0
 	for index, expression := range value.Values {
@@ -236,15 +299,6 @@ func literalMetrics(fset *token.FileSet, path, parent string, body *ast.BlockStm
 		return false
 	})
 	return results
-}
-
-func excludedPath(path string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
-		if part == "testdata" {
-			return true
-		}
-	}
-	return false
 }
 
 func receiverName(expr ast.Expr) string {
@@ -356,13 +410,4 @@ func childBlocks(statement ast.Stmt) ([]ast.Stmt, bool) {
 	default:
 		return nil, false
 	}
-}
-
-func sortMetrics(items []metric) {
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Path != items[j].Path {
-			return items[i].Path < items[j].Path
-		}
-		return items[i].Name < items[j].Name
-	})
 }

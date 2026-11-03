@@ -77,7 +77,7 @@ The gate runs formatting, Go vet/maintainability/unit-race/integration/sqlc/buil
 
 CI runs ESLint structural thresholds for authored frontend `src/**/*.ts(x)` files (complexity 15, nesting 4, functions 80 lines, files 350 non-blank lines) and `backend/tools/structcheck` for authored Go (complexity 15, nesting 4, functions 80 lines, files 500 non-blank lines). Generated code and tests are excluded. The two locale catalogs are exempt from the file-size rule because they are flat translation tables; the ESLint config documents the rationale and owner.
 
-Go exceptions live beside the checker as named path/function/metric entries with explicit allowed maxima and rationales. Exceptions only shrink: measured debt below its allowance or no longer present fails until the exception is reduced or removed. Changes to thresholds and exceptions must be reviewed; inline ESLint directives remain subject to ordinary lint review and unused directives fail.
+Go exceptions live beside the checker as named path/function/metric entries with explicit allowed maxima, rationales, and owners. Exceptions only shrink: measured debt below its allowance or no longer present fails until the exception is reduced or removed. Changes to thresholds and exceptions must be reviewed. Inline ESLint configuration is disabled for authored source; rule exceptions are exact-file overrides in `frontend/eslint.config.js` with a rationale and owner. Test files and non-`src` files retain their normal inline-config behavior.
 
 ## CI job map
 
@@ -85,7 +85,7 @@ The required workflow retains one stable branch-protection aggregate check named
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.3/setup-go; gofmt, `go vet ./...`, unit race tests excluding four PostgreSQL adapters, maintainability check and `go build ./...` |
+| `backend` | Go 1.27.3/setup-go; gofmt, `go vet ./...`, unit race tests excluding four PostgreSQL adapters, `go run ./tools/structcheck`, and `go build ./...` |
 | `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |

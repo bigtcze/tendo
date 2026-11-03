@@ -11,13 +11,23 @@ export default tseslint.config(
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/**/*.test.{ts,tsx}', 'src/test/**'],
-    linterOptions: { reportUnusedDisableDirectives: 'error' },
+    linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' },
     rules: {
       complexity: ['error', 15],
       'max-depth': ['error', 4],
       'max-lines-per-function': ['error', { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true }],
       'max-lines': ['error', { max: 350, skipBlankLines: true, skipComments: false }],
     },
+  },
+  {
+    files: ['src/features/items/useHomeItems.ts'],
+    // Effect starts async loading; resulting state updates follow network responses. Owner: frontend-items.
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
+  },
+  {
+    files: ['src/features/items/useLabelRetryFocus.ts'],
+    // Effect settles the retry once its batch completes. Owner: frontend-items.
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
   },
   {
     files: ['src/i18n/{cs,en}.ts'],
