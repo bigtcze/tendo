@@ -91,7 +91,7 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Renew passport' })).toBeVisible();
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.getByText('Bring old passport')).toBeVisible();
-    expect(screen.getByText(/Repeats every 2 years/)).toBeVisible();
+    expect(screen.getByText(/2 years/)).toBeVisible();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Renew passport' })).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
@@ -103,13 +103,167 @@ describe('item details', () => {
     expect(await screen.findByText('Item updated.')).toHaveFocus();
   });
 
+  it('shows dates, repeat, responsible and notes in the agreed detail order using plain copy', async () => {
+    const fixture = item({ responsibleUserId: secondMember.userId, attention: 'needs_attention', attentionOn: '2026-10-10', lastCompletedOn: '2025-10-10' });
+    const fake = installFakeServer(common({ [`GET ${path}`]: json(200, fixture, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    app();
+    await screen.findByRole('heading', { name: fixture.title });
+    await screen.findByText('Looked after by petr');
+    expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(1);
+    const main = within(screen.getByRole('main'));
+    const card = main.getByText('Bring old passport').closest('div.rounded-2xl')!;
+    const text = card.textContent!;
+    expect(text.indexOf('Needs attention')).toBeLessThan(text.indexOf('Due Oct 10, 2026'));
+    expect(text.indexOf('Due Oct 10, 2026')).toBeLessThan(text.indexOf('Last done Oct 10, 2025'));
+    expect(text.indexOf('Last done Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
+    expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('Looked after by petr'));
+    expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Bring old passport'));
+    expect(text).not.toMatch(/attentionOn|workflow|ETag|fluid/i);
+  });
+
+  it('completes and undoes from detail through shared outcomes with fresh ETags', async () => {
+    let reads = 0;
+    let done = false;
+    let current: Completion | null = null;
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => json(200, item({ done, workflowState: 'open' }), { ETag: `"${++reads}"` }),
+      [`GET ${historyPath}`]: () => json(200, { items: current ? [current] : [], nextCursor: null }),
+      [`POST ${historyPath}`]: (request) => {
+        expect(request.headers.get('If-Match')).toBe(`"${reads}"`);
+        expect(request.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{32}$/);
+        done = true;
+        current = completion('detail-completion', '2026-05-14', { nextAttentionOn: null });
+        return json(201, current);
+      },
+      [`PATCH ${path}/completions/detail-completion`]: (request) => {
+        expect(request.headers.get('If-Match')).toBe(`"${reads}"`);
+        expect(JSON.parse(request.body)).toEqual({ undone: true });
+        done = false;
+        current = { ...current!, undoneAt: '2026-05-14T12:00:00Z' };
+        return json(200, current);
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    app();
+    const doneButton = await screen.findByRole('button', { name: 'Done: Renew passport' });
+    expect(doneButton).toHaveAttribute('data-variant', 'primary');
+    const actionRow = doneButton.parentElement!;
+    expect(actionRow.firstElementChild).toBe(doneButton);
+    expect(within(actionRow).getByRole('button', { name: 'Start' })).toHaveAttribute('data-variant', 'secondary');
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', path).length).toBeGreaterThanOrEqual(1));
+    await userEvent.click(doneButton);
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));
+    expect(await screen.findByText('This item is complete. Its history is below.')).toBeVisible();
+    expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
+    expect(screen.getByText('“Renew passport” is done.').closest('[role="status"]')).toHaveFocus();
+    expect(screen.queryByText(/Next attention date|Due Oct/)).not.toBeInTheDocument();
+    const historySection = screen.getByRole('heading', { name: 'History' }).closest('section')!;
+    expect(await within(historySection).findByText('Done May 14, 2026')).toBeVisible();
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    await userEvent.click(undo);
+    expect(await screen.findByText('Completion undone. This item is open again.')).toBeVisible();
+    expect(await within(historySection).findByText('Done May 14, 2026 · Undone')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Done: Renew passport' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Done: Renew passport' })).toHaveFocus();
+    expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1);
+    expect(requestsOf(fake.requests, 'PATCH', `${path}/completions/detail-completion`)).toHaveLength(1);
+  });
+
+  it('focuses the outcome after a failed completion and after its retry succeeds', async () => {
+    let posts = 0;
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => json(200, item(), { ETag: '"1"' }),
+      [`POST ${historyPath}`]: () => ++posts === 1 ? json(503) : json(201, completion('retry-focus', '2026-05-14', { nextAttentionOn: null })),
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    const failure = await screen.findByText('That didn’t work. Check your connection and try again.');
+    await waitFor(() => expect(failure.closest('[role="status"]')).toHaveFocus());
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    const success = await screen.findByText('“Renew passport” is done.');
+    await waitFor(() => expect(success.closest('[role="status"]')).toHaveFocus());
+    const posted = requestsOf(fake.requests, 'POST', historyPath);
+    expect(posted).toHaveLength(2);
+    expect(posted[1]!.headers.get('Idempotency-Key')).toBe(posted[0]!.headers.get('Idempotency-Key'));
+  });
+
+  it('does not move focus to a retry outcome after the user moved focus elsewhere', async () => {
+    let posts = 0;
+    let releasePost!: (response: Response) => void;
+    installFakeServer(common({
+      [`GET ${path}`]: () => json(200, item(), { ETag: '"1"' }),
+      [`POST ${historyPath}`]: () => ++posts === 1 ? json(503) : new Promise<Response>((resolve) => { releasePost = resolve; }),
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await screen.findByText('That didn’t work. Check your connection and try again.');
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(posts).toBe(2));
+    const elsewhere = screen.getAllByRole('link')[0]!;
+    act(() => elsewhere.focus());
+    await act(async () => releasePost(json(201, completion('retry-moved', '2026-05-14', { nextAttentionOn: null }))));
+    expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
+    expect(elsewhere).toHaveFocus();
+  });
+
+  it('keeps completion success after a failed refresh and requires reloading before another completion', async () => {
+    let detailReads = 0;
+    const latest = item({ title: 'Updated passport', done: false });
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => ++detailReads === 3 ? json(503) : json(200, detailReads > 3 ? latest : item(), { ETag: `"${detailReads}"` }),
+      [`POST ${historyPath}`]: () => json(201, completion('refresh-failure', '2026-05-14', { nextAttentionOn: null })),
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done: Renew passport' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+    expect(screen.getByText('The item could not be refreshed. Reload before making another change.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(await screen.findByRole('heading', { name: 'Updated passport' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done: Updated passport' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+    expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1);
+  });
+
+  it('keeps completion busy across the prerequisite read and blocks a second Done attempt', async () => {
+    let releaseRead!: (response: Response) => void;
+    let reads = 0;
+    const fake = installFakeServer(common({
+      [`GET ${path}`]: () => ++reads === 1 ? json(200, item(), { ETag: '"initial"' }) : reads === 2 ? new Promise<Response>((resolve) => { releaseRead = resolve; }) : json(200, item({ done: true }), { ETag: '"after"' }),
+      [`POST ${historyPath}`]: (request) => {
+        expect(request.headers.get('If-Match')).toBe('"fresh"');
+        return json(201, completion('busy-completion', '2026-05-14', { nextAttentionOn: null }));
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`);
+    app();
+    const done = await screen.findByRole('button', { name: 'Done: Renew passport' });
+    await userEvent.click(done);
+    await waitFor(() => expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(2));
+    expect(done).toBeDisabled();
+    await userEvent.click(done);
+    expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(0);
+    await act(async () => releaseRead(json(200, item(), { ETag: '"fresh"' })));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));
+    expect(await screen.findByText('“Renew passport” is done.')).toBeVisible();
+    expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1);
+  });
+
   it('pauses, resumes, and waits with only workflow state changes', async () => {
     let state: Item['workflowState'] = 'open';
     const fake = installFakeServer(common({ [`GET ${path}`]: () => json(200, item({ workflowState: state }), { ETag: `"${state === 'open' ? 1 : 2}"` }), [`PATCH ${path}`]: (req) => { const body = JSON.parse(req.body); state = body.workflowState; return json(200, item({ workflowState: state }), { ETag: '"3"' }); } }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     await userEvent.click(await screen.findByRole('button', { name: 'Pause' }));
     expect(await screen.findByText('Paused')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    const resume = screen.getByRole('button', { name: 'Resume' });
+    expect(resume).toHaveAttribute('data-variant', 'secondary');
+    await userEvent.click(resume);
     await userEvent.click(await screen.findByRole('button', { name: 'Waiting' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(3));
     expect(requestsOf(fake.requests, 'PATCH', path).map((request) => JSON.parse(request.body))).toEqual([{ workflowState: 'paused' }, { workflowState: 'open' }, { workflowState: 'waiting' }]);
@@ -656,7 +810,7 @@ describe('item details', () => {
     await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.click(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    expect(await screen.findByText(/Latest saved repeat setting: Repeats every 2 years · Keeps the planned dates\./)).toBeVisible();
+    expect(await screen.findByText(/Latest saved repeat setting: 2 years · Keeps the planned dates\./)).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Count the next repeat from when I complete this' })).toBeChecked();
     expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1); expect(writes).toBe(1);
   });
@@ -937,7 +1091,7 @@ describe('item details', () => {
     await screen.findByText('That didn’t work. Check your connection and try again.');
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await screen.findByRole('form', { name: 'Edit item' });
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('dialog').querySelector('header button[aria-label="Cancel"]')!);
     await userEvent.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(1));
   });

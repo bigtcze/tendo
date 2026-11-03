@@ -47,6 +47,7 @@ type AddItemPanelProps = {
   members: Member[];
   initialValues?: ItemFormValues;
   noSubjectsRef: RefObject<HTMLButtonElement | null>;
+  initialFocusRef: RefObject<HTMLElement | null>;
   onSubmit: (values: ItemFormValues) => Promise<SubmitOutcome>;
   onCancel: () => void;
   onOpenPeople: () => void;
@@ -55,7 +56,7 @@ type AddItemPanelProps = {
 /** Add-item form, empty-catalogue prompt and loading cancel action. */
 export function AddItemPanel(props: AddItemPanelProps) {
   const { adding, busy, subjectLoading, subjectState, recovering, recoveryEditable, createUncertain } = props;
-  const { selectable, recoverySubjects, members, initialValues, noSubjectsRef, onSubmit, onCancel, onOpenPeople } = props;
+  const { selectable, recoverySubjects, members, initialValues, noSubjectsRef, initialFocusRef, onSubmit, onCancel, onOpenPeople } = props;
   const { t } = useI18n();
   if (!adding) return null;
   const showForm = recovering || recoveryEditable || (subjectState === 'ready' && selectable.length > 0);
@@ -66,6 +67,7 @@ export function AddItemPanel(props: AddItemPanelProps) {
       members={members}
       subjects={recovering || recoveryEditable ? recoverySubjects : selectable}
       initialValues={initialValues}
+      initialFocusRef={initialFocusRef}
       locked={recovering}
       preserveDraftOnUnlock={recoveryEditable}
       retryLabel={t('items.create.checkAgain')}
@@ -74,7 +76,7 @@ export function AddItemPanel(props: AddItemPanelProps) {
       onSubmit={onSubmit}
       onCancel={onCancel}
     /> : null}
-    {showEmpty ? <div className="rounded-2xl border border-line bg-white/70 p-5">
+    {showEmpty ? <div className="rounded-2xl border border-line bg-paper p-5">
       <p>{t('items.noSubjects')}</p>
       <Button ref={noSubjectsRef} type="button" variant="quiet" className="mt-3" onClick={onOpenPeople}>
         {t('home.people')}

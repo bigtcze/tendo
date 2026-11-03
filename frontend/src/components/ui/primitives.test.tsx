@@ -16,23 +16,6 @@ import { EmptyState } from './empty-state';
 import { GroupHeader } from './group-header';
 import { Notice, NoticeRegion } from './notice';
 
-Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
-  configurable: true,
-  value(this: HTMLDialogElement) {
-    this.open = true;
-    this.setAttribute('open', '');
-    const initial = this.querySelector<HTMLElement>('[autofocus]') ?? this.querySelector<HTMLElement>('[data-dialog-content] button, [data-dialog-content] input, [data-dialog-content] select, [data-dialog-content] textarea');
-    (initial ?? this.querySelector<HTMLElement>('h2'))?.focus();
-  },
-});
-Object.defineProperty(HTMLDialogElement.prototype, 'close', {
-  configurable: true,
-  value(this: HTMLDialogElement) {
-    this.open = false;
-    this.removeAttribute('open');
-    queueMicrotask(() => this.dispatchEvent(new Event('close')));
-  },
-});
 
 describe('UI primitive behavior', () => {
   it('dialog uses native modal activation, Escape handling, focus return, and busy dismissal lock', async () => {
@@ -69,7 +52,25 @@ describe('UI primitive behavior', () => {
     const ids = dialogs.map((dialog) => dialog.getAttribute('aria-labelledby'));
     expect(new Set(ids).size).toBe(2);
     expect(dialogs[0].className).toContain('w-full');
+    expect(dialogs[0].className).toContain('md:top-1/2');
+    expect(dialogs[0].className).toContain('md:mx-auto');
+    expect(dialogs[0].className).toContain('md:-translate-y-1/2');
     expect(dialogs[0].className).not.toContain('max-w-xl rounded-2xl');
+  });
+  it('dialog honors an explicit initial focus target over generic autofocus/default focus and lets the form replace it after mount', async () => {
+    const initialFocusRef: { current: HTMLElement | null } = { current: null };
+    function RecoveryContent() {
+      return <><input aria-label="Ordinary field" /><div ref={(node) => { initialFocusRef.current = node; }} tabIndex={-1} role="status">Please check again</div></>;
+    }
+    const view = render(<Dialog open title="Recovery" closeLabel="Close" initialFocusRef={initialFocusRef} onOpenChange={() => undefined}><RecoveryContent /></Dialog>);
+    const dialog = screen.getByRole('dialog', { name: 'Recovery' });
+    const target = dialog.querySelector('[role="status"]') as HTMLElement;
+    await waitFor(() => expect(target).toHaveFocus());
+    const laterFormFocus = document.createElement('input');
+    dialog.append(laterFormFocus);
+    laterFormFocus.focus();
+    expect(laterFormFocus).toHaveFocus();
+    view.unmount();
   });
   it('dialog initializes focus to fallback and returns focus only to an external ref', async () => {
     const external = document.createElement('button');

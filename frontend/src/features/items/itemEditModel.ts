@@ -56,11 +56,6 @@ export function invalidEditField(field: string): ItemField | null {
   return EDITABLE_FIELDS.find((editable) => editable === field) ?? null;
 }
 
-export function pluralKey(unit: Recurrence['intervalUnit'], count: number, locale: string): MessageKey {
-  const category = new Intl.PluralRules(locale).select(count);
-  const supported: Record<string, readonly string[]> = { en: ['one', 'other'], cs: ['one', 'few', 'other'] };
-  return `items.every.${unit}.${supported[locale]?.includes(category) ? category : 'other'}` as MessageKey;
-}
 
 export function detailStatusKey(item: Item): MessageKey {
   if (item.done) return 'itemDetail.state.done';

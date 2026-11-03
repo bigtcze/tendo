@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type RefObject } from 'react';
 import { Button } from '../../components/ui/button';
+import { Dialog } from '../../components/ui/dialog';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
 import type { ItemGroup } from './itemsApi';
@@ -41,6 +42,7 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
   const homeMembers = useHomeMembers(householdId, onSignedOut);
   const noticeRef = useRef<HTMLDivElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
+  const addInitialFocusRef = useRef<HTMLElement | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const visibleSubjectIDs = useMemo(
     () => [...new Set(Object.values(groupData).flatMap((group) => group.items.map((item) => item.subjectId)))],
@@ -78,7 +80,7 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
   const emptyHome = showHome && !error && groups.every((group) => summary[group.count] === 0) && !adding;
 
   return {
-    t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
+    t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
     cancelAddAndFocus, subjectName, emptyHome,
   };
 }
@@ -87,7 +89,10 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
 export function ItemsScreen(props: ItemsScreenProps) {
   const { userId, onOpenPeople, onOpenItem, onOpenAllItems } = props;
   const screen = useItemsScreen(props);
-  const { t, busy, home, homeMembers, noticeRef, addRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion } = screen;
+  const {
+    t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice,
+    visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
+  } = screen;
   const { cancelAddAndFocus, subjectName } = screen;
   const emptyHome = Boolean(screen.emptyHome);
   const homeReady = home.itemsRequestComplete;
@@ -105,15 +110,6 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onRetryFocus={completion.markRetryFocused}
     />
     <HomeLoadState loading={loading} error={error} onRetry={() => void refresh()} />
-    <AddItemCatalogueStatus
-      adding={adding}
-      subjectLoading={add.subjectLoading}
-      subjectState={add.subjectState}
-      editingRecovery={recoveryEditable && !!pendingCreate}
-      retryRef={add.catalogueRetryRef}
-      onRetry={add.retryCatalogue}
-      onCancel={cancelAddAndFocus}
-    />
     {labels.loading && visibleSubjectIDs.some((id) => !names.has(id))
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
@@ -122,6 +118,10 @@ export function ItemsScreen(props: ItemsScreenProps) {
       ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
     <HomeActions empty={emptyHome} ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
+    <Dialog open={adding} onOpenChange={(open) => { if (!open) cancelAddAndFocus(); }} title={t('items.add.formLabel')} closeLabel={t('items.cancel')}
+      busy={busy || recovering} sheet triggerRef={addRef} initialFocusRef={addInitialFocusRef}>
+    <AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState}
+      editingRecovery={recoveryEditable && !!pendingCreate} retryRef={add.catalogueRetryRef} onRetry={add.retryCatalogue} onCancel={cancelAddAndFocus} />
     <AddItemPanel
       adding={adding}
       busy={busy}
@@ -135,10 +135,12 @@ export function ItemsScreen(props: ItemsScreenProps) {
       members={add.members}
       initialValues={recovering ? add.pendingValues : add.retryDraft}
       noSubjectsRef={add.noSubjectsRef}
+       initialFocusRef={addInitialFocusRef}
       onSubmit={add.create}
       onCancel={cancelAddAndFocus}
       onOpenPeople={() => { add.cancelForPeople(); onOpenPeople(); }}
     />
+    </Dialog>
     {!loading && summary ? <HomeGroupList
       summary={summary}
       groupData={groupData}

@@ -92,7 +92,7 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
       await repeat.check(); recorder.interaction();
       await form.getByRole('spinbutton').fill('2'); recorder.interaction(1);
       await form.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption('week'); recorder.interaction();
-      if (fluid) { await form.getByRole('switch', { name: en['items.fluid'] }).check(); recorder.interaction(); }
+      if (fluid) { await form.getByRole('switch', { name: en['items.repeat.afterCompletion'] }).check(); recorder.interaction(); }
       recorder.step();
       await click(form.getByRole('button', { name: en['items.add.submit'] }), recorder);
       await expect(page.getByRole('main').getByText(title)).toBeVisible();

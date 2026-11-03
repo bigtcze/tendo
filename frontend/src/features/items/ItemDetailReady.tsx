@@ -1,0 +1,75 @@
+import type { Ref } from 'react';
+import { Heading } from '../../app/Heading';
+import type { Translate } from '../../i18n';
+import type { Item } from './itemsApi';
+import { ItemDetailActions } from './ItemDetailActions';
+import { ItemDetailHistory } from './ItemDetailHistory';
+import { ItemDetailNotice } from './ItemDetailNotice';
+import { ItemDetailReadView } from './ItemDetailReadView';
+import { ItemEditSection } from './ItemEditSection';
+import type { ItemDetailBusy } from './useItemDetailBusy';
+import type { ItemDetailHistoryState } from './useItemDetailHistory';
+import type { ItemDetailState } from './useItemDetail';
+import type { WorkflowState } from './useItemDetailActions';
+import type { useItemDetailEdit } from './useItemDetailEdit';
+
+export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, onReload, actions }: {
+  item: Item;
+  subjectOverride: string | null;
+  subjectName: string;
+  detail: ItemDetailState;
+  busy: ItemDetailBusy;
+  edit: ReturnType<typeof useItemDetailEdit>;
+  history: ItemDetailHistoryState;
+  locale: string;
+  t: Translate;
+  refs: {
+    notice: Ref<HTMLParagraphElement>;
+    completionNotice: Ref<HTMLDivElement>;
+    editButton: Ref<HTMLButtonElement>;
+    historySection: Ref<HTMLElement>;
+    historyHeading: Ref<HTMLHeadingElement>;
+  };
+  onReload: () => void;
+  actions: {
+    onEdit: () => void;
+    onWorkflow: (state: WorkflowState) => void;
+    onArchive: () => void;
+    onRestore: () => void;
+    onDone: () => void;
+    onUndo: () => void;
+    onRetry: () => void;
+  };
+}) {
+  const { notice, undoArchive, members, editing, editLoading, completionNotice } = detail;
+  const responsibleMember = item.responsibleUserId
+    ? members.find((member) => member.userId === item.responsibleUserId)
+    : undefined;
+  const responsible = responsibleMember
+    ? t('items.responsible.read', { name: responsibleMember.login })
+    : item.responsibleUserId ? t('items.responsible.read', { name: t('items.responsible.unknown') }) : null;
+
+  return <>
+    <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>
+    <p className="mt-2 text-muted">{subjectOverride ?? (subjectName || t('items.subject.unknown'))}</p>
+    <ItemDetailNotice notice={notice} undoArchive={undoArchive} busy={busy.busy} t={t} focusRef={refs.notice} onUndo={actions.onRestore} />
+    {item.archived ? <p className="mt-4 rounded-xl bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
+    {editing
+      ? <ItemEditSection editing={editing} subjects={edit.subjects} members={edit.members} busy={busy.busy} locale={locale} t={t}
+        onSubmit={edit.saveEdit} onCancel={edit.cancelEdit} />
+      : <>
+        <ItemDetailReadView item={item} t={t} locale={locale} responsible={responsible} />
+        <ItemDetailActions
+          item={item} busy={busy.busy} editLoading={editLoading} editRef={refs.editButton} t={t}
+          stale={detail.stale} onReload={onReload}
+          onEdit={actions.onEdit} onWorkflow={actions.onWorkflow} onArchive={actions.onArchive} onRestore={actions.onRestore}
+          onDone={actions.onDone}
+          completionNotice={completionNotice?.text ?? null}
+          undoAvailable={Boolean(completionNotice?.undoAvailable && completionNotice.completion?.id)}
+          retryAvailable={Boolean(completionNotice?.retryKind)}
+          completionNoticeRef={refs.completionNotice} onUndo={actions.onUndo} onRetry={actions.onRetry}
+        />
+        <ItemDetailHistory history={history} sectionRef={refs.historySection} headingRef={refs.historyHeading} t={t} locale={locale} />
+      </>}
+  </>;
+}

@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach } from 'vitest';
+import { installDialogPolyfill } from './dialogPolyfill';
+
+installDialogPolyfill();
 
 function describeDom(): string {
   const active = document.activeElement;

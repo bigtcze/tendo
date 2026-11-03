@@ -102,6 +102,7 @@ function renderHouseholdScreens(
             householdId={householdId}
             itemId={route.itemId}
             login={session.login}
+            userId={session.userId}
             onBack={navigation.goBackFromItem}
             onSignedOut={sessionActions.sessionEnded}
           />
@@ -111,6 +112,7 @@ function renderHouseholdScreens(
             householdId={householdId}
             itemId="invalid"
             login={session.login}
+            userId={session.userId}
             onBack={navigation.goHome}
             onSignedOut={sessionActions.sessionEnded}
           />

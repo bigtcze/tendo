@@ -578,13 +578,13 @@ test.describe('Tendo production journey', () => {
     await expect(form.getByLabel(en['items.title'])).toBeFocused();
     const repeat = form.getByRole('switch', { name: en['items.repeat'], exact: true });
     await expect(repeat).not.toBeChecked();
-    await expect(form.getByRole('switch', { name: en['items.fluid'] })).toHaveCount(0);
+    await expect(form.getByRole('switch', { name: /Count the next/ })).toHaveCount(0);
     await form.getByLabel(en['items.title']).fill(options.title);
     await form.getByLabel(en['items.subject'], { exact: true }).selectOption({ label: options.subject });
     if (options.attentionOn) await form.getByLabel(en['items.attentionDate']).fill(options.attentionOn);
     if (options.repeat) {
       await repeat.check();
-      const fluid = form.getByRole('switch', { name: en['items.fluid'] });
+      const fluid = form.getByRole('switch', { name: /Count the next/ });
       await expect(fluid).not.toBeChecked();
       await form.getByRole('spinbutton').fill(options.repeat.value);
       await form.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption(options.repeat.unit);
@@ -790,7 +790,7 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow, `${viewport.width}px horizontal overflow with the item form open`).toBeLessThanOrEqual(0);
-        await page.getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
+        await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
       }
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
@@ -1038,7 +1038,7 @@ test.describe('Tendo production journey', () => {
 
     await saveEdit(async (form) => {
       await expect(form.getByRole('switch', { name: en['items.repeat'], exact: true })).toBeChecked();
-      const fluid = form.getByRole('switch', { name: en['items.fluid'] });
+      const fluid = form.getByRole('switch', { name: /Count the next/ });
       await expect(fluid).not.toBeChecked();
       await fluid.check();
       await form.getByRole('button', { name: en['items.notes.show'] }).click();
@@ -1049,7 +1049,7 @@ test.describe('Tendo production journey', () => {
 
     await saveEdit(async (form) => {
       await form.getByRole('switch', { name: en['items.repeat'], exact: true }).uncheck();
-      await expect(form.getByRole('switch', { name: en['items.fluid'] })).toHaveCount(0);
+      await expect(form.getByRole('switch', { name: /Count the next/ })).toHaveCount(0);
     });
     expect(await detailItem()).toMatchObject({ attentionOn: next, recurrence: null, done: false });
     expect(await serverCompletions(itemId)).toEqual(history);
@@ -1094,7 +1094,7 @@ test.describe('Tendo production journey', () => {
     expect(await serverCompletions(fixed.id)).toHaveLength(1);
     expect(await serverCompletions(fixed.id)).toMatchObject([{ completedOn: '2025-10-31', cycleAttentionOn: null, nextAttentionOn: '2025-11-30', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'fixed' }, undoneAt: null }]);
     await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: fixedTitle })).toBeVisible();
-    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: fixedTitle })).toContainText(`${en['items.every.month.one'].replace('{count}', '1')} · ${en['items.repeatMode.fixed']}`);
+    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: fixedTitle })).toContainText(`1 month · ${en['items.repeatMode.fixed']}`);
 
     await page.getByRole('link', { name: en['itemDetail.open'].replace('{title}', fixedTitle) }).click();
     await expect(page.getByRole('heading', { level: 1, name: fixedTitle })).toBeVisible();
@@ -1120,7 +1120,7 @@ test.describe('Tendo production journey', () => {
     const fluid = await serverItem(fluidTitle);
     expect(fluid).toMatchObject({ attentionOn: '2025-11-30', lastCompletedOn: '2025-10-31', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'after_completion' } });
     expect(await serverCompletions(fluid.id)).toHaveLength(1);
-    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: fluidTitle })).toContainText(`${en['items.every.month.one'].replace('{count}', '1')} · ${en['items.repeatMode.fluid']}`);
+    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: fluidTitle })).toContainText(`1 month · ${en['items.repeatMode.fluid']}`);
     await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: fixedTitle })).not.toContainText(en['items.repeatMode.fluid']);
     await row(fluidTitle).getByRole('button', { name: en['items.done'] }).click();
     await expect.poll(async () => (await serverCompletions(fluid.id)).length).toBe(2);
@@ -1292,10 +1292,13 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toBeVisible();
     const created = await serverItem(title);
     expect(created.responsibleUserId).toBe(member!.userId);
-    await page.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+    await page.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
     const edit = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
     await edit.getByLabel(en['items.responsible.label']).selectOption('');
     await edit.getByRole('button', { name: en['itemDetail.save'] }).click();
+    // The read view is unmounted while the edit dialog is open: wait for the saved read view before asserting absence.
+    await expect(edit).toHaveCount(0);
+    await expect(page.getByText(en['itemDetail.updated'], { exact: true })).toBeVisible();
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toHaveCount(0);
     expect((await serverItem(title)).responsibleUserId).toBeNull();
     await page.setViewportSize({ width: 360, height: 740 });
@@ -1937,7 +1940,7 @@ test.describe('Tendo production journey', () => {
       const chooser = page.getByRole('form', { name: en['items.add.formLabel'] }).getByLabel(en['items.subject'], { exact: true });
       const chooserIDs = await chooser.locator('option').evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
       expect([...chooserIDs].sort()).toEqual([...expectedActiveIDs].sort());
-      await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
     } catch (error) { primaryFailure = error; }
     finally {
       page.off('request', onSubjectRequest);
@@ -2102,7 +2105,7 @@ test.describe('Tendo production journey', () => {
       await expect(addForm.getByLabel(en['items.historical.label'])).toBeVisible();
       const addSnapshot = await snapshot('add-item-repeat-and-previous-completion');
       expect(addSnapshot).toContain(en['items.repeat']);
-      expect(addSnapshot).toContain(en['items.fluid']);
+      expect(addSnapshot).toContain(en['items.repeat.afterCompletion']);
       await checkTargets('add-item-repeat-and-previous-completion');
       await expectNoAxeViolations(page, 'add-item-repeat-and-previous-completion');
       const addFormControls = async (where: string) => {
@@ -3993,7 +3996,7 @@ test.describe('Tendo production journey', () => {
       await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
       await addForm.getByRole('spinbutton').fill('3');
       await addForm.getByRole('combobox', { name: en['items.intervalUnit'] }).selectOption('week');
-      await addForm.getByRole('switch', { name: en['items.fluid'] }).check();
+      await addForm.getByRole('switch', { name: en['items.repeat.afterCompletion'] }).check();
       await measure(zoomed, 200, 'home add form with Repeat and Fluid on');
       await inView(addForm.getByRole('button', { name: en['items.add.submit'], exact: true }), 'Add item submit at 200%');
       await inView(addForm.getByRole('button', { name: en['items.cancel'], exact: true }), 'Cancel at 200%');
@@ -4602,8 +4605,8 @@ test.describe('Tendo production journey', () => {
       const first = await actorContext();
       const second = await actorContext();
       // Both item detail forms load version 1 (asynchronous GET + choices) before session A commits.
-      await first.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
-      await second.actor.getByRole('button', { name: en['itemDetail.edit.button'] }).click();
+      await first.actor.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      await second.actor.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
       const formA = first.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       const formB = second.actor.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       await expect(formA.getByLabel(en['items.title'])).toHaveValue(title);
@@ -4719,7 +4722,7 @@ test.describe('Tendo production journey', () => {
       const addItemButton = page.getByRole('button', { name: en['items.add'], exact: true });
       await addItemButton.click();
       await expect(page.getByText(en['items.subjects.error'], { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
       await expect(page.getByText(en['items.subjects.error'], { exact: true })).toHaveCount(0);
       await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
       await expect(addItemButton).toBeFocused();
