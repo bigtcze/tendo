@@ -16,9 +16,11 @@ def readiness_timeout(environ: dict[str, str]) -> int:
     return int(value)
 
 
-def wait_until_ready(proc, ready: Path, timeout: int) -> None:
+def wait_until_ready(proc, ready: Path, timeout: int, cancelled=lambda: False) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline and not ready.exists():
+        if cancelled():
+            raise KeyboardInterrupt("Orca session startup cancelled")
         if proc.poll() is not None:
             raise RuntimeError("Orca session exited before startup (check host prerequisites)")
         time.sleep(.1)

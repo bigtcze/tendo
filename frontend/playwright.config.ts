@@ -16,18 +16,34 @@ const projects = [
   },
 ];
 
+// Playwright merges webServer.env over its own environment, which also carries browser-only credentials
+// (owner passwords, setup token copies, fixture logins). Each server instead receives exactly the base process
+// variables plus its own configuration; every other inherited key is unset (Node omits undefined values).
+const BASE_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG'];
+function serverEnv(own: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string | undefined> = Object.fromEntries(Object.keys(process.env).map((key) => [key, undefined]));
+  for (const key of BASE_KEYS) env[key] = process.env[key];
+  return { ...env, ...own } as Record<string, string>;
+}
+const APP_KEYS = [
+  'DATABASE_URL', 'TENDO_LISTEN_ADDR', 'TENDO_PUBLIC_URL', 'TENDO_TRUSTED_PROXY_CIDRS', 'TENDO_DB_TIMEOUT',
+  'TENDO_SHUTDOWN_TIMEOUT', 'TENDO_SETUP_TOKEN', 'TENDO_TEST_CLOCK_ACK', 'TENDO_TEST_CLOCK_NOW', 'TENDO_OIDC_ISSUER',
+  'TENDO_OIDC_CLIENT_ID', 'TENDO_OIDC_CLIENT_SECRET', 'TENDO_OIDC_CLIENT_SECRET_FILE', 'TENDO_OIDC_DISPLAY_NAME',
+];
+const appConfig = Object.fromEntries(APP_KEYS.map((key) => [key, process.env[key]]));
+
 const webServer = process.env.E2E_APP_BINARY ? [
   ...(process.env.E2E_OIDC_PROVIDER_BINARY ? [{
     command: `"${process.env.E2E_OIDC_PROVIDER_BINARY}"`,
     url: `${process.env.E2E_OIDC_ISSUER}/healthz`,
-    env: {
-      LISTEN_ADDR: process.env.E2E_OIDC_LISTEN_ADDR!,
-      ISSUER_URL: process.env.E2E_OIDC_ISSUER!,
-      CLIENT_ID: process.env.E2E_OIDC_CLIENT_ID!,
-      CLIENT_SECRET: process.env.E2E_OIDC_CLIENT_SECRET!,
-      REDIRECT_URI: process.env.E2E_OIDC_REDIRECT_URI!,
-      SUBJECTS: process.env.E2E_OIDC_SUBJECTS!,
-    },
+    env: serverEnv({
+      LISTEN_ADDR: process.env.E2E_OIDC_LISTEN_ADDR,
+      ISSUER_URL: process.env.E2E_OIDC_ISSUER,
+      CLIENT_ID: process.env.E2E_OIDC_CLIENT_ID,
+      CLIENT_SECRET: process.env.E2E_OIDC_CLIENT_SECRET,
+      REDIRECT_URI: process.env.E2E_OIDC_REDIRECT_URI,
+      SUBJECTS: process.env.E2E_OIDC_SUBJECTS,
+    }),
     reuseExistingServer: false,
     stdout: 'pipe' as const,
     stderr: 'pipe' as const,
@@ -37,6 +53,7 @@ const webServer = process.env.E2E_APP_BINARY ? [
   {
     command: `"${process.env.E2E_APP_BINARY}"`,
     url: `http://127.0.0.1:${process.env.E2E_APP_PORT}/health/ready`,
+    env: serverEnv(appConfig),
     reuseExistingServer: false,
     stdout: 'pipe' as const,
     stderr: 'pipe' as const,

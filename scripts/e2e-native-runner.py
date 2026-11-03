@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import signal
@@ -23,15 +24,30 @@ import e2e_orca_session as orca_session
 
 SENSITIVE_VALUES = diagnostics.SENSITIVE_VALUES
 EXPECTED_DIAGNOSTICS_FINGERPRINT = diagnostics.EXPECTED_DIAGNOSTICS_FINGERPRINT
-CANCELLED_STAGING_BUDGET = diagnostics.CANCELLED_STAGING_BUDGET
 register_sensitive_value = diagnostics.register_sensitive_value
 generated_secret = diagnostics.generated_secret
 register_database_url = diagnostics.register_database_url
-ACTIVE_PROCESS = None
 CANCELLED = False
-# Playwright tears down its webServer process groups only on SIGINT or normal
-# exit (SIGTERM kills Node without cleanup), so children are stopped with SIGINT.
-STOP_SIGNAL = signal.SIGINT
+CANCEL_STARTED: float | None = None
+LIVE_TREES: list["ChildTree"] = []
+DEFERRED = 0
+STOP_GRACE = 20
+# The PostgreSQL wrapper SIGKILLs the runner 25 s after forwarding a cancellation. Stopping children (at most
+# CANCEL_STOP_GRACE, then KILL_BUDGET of SIGKILL) and staging diagnostics finish within CANCEL_TOTAL_BUDGET of it.
+CANCEL_STOP_GRACE = 6
+KILL_BUDGET = 2
+CANCEL_TOTAL_BUDGET = 22
+
+
+@contextlib.contextmanager
+def deferred_cancellation():
+    """Inside this block a cancellation is only recorded; it never interrupts the code with KeyboardInterrupt."""
+    global DEFERRED
+    DEFERRED += 1
+    try:
+        yield
+    finally:
+        DEFERRED -= 1
 
 
 def port():
@@ -40,41 +56,105 @@ def port():
         return sock.getsockname()[1]
 
 
-def run_process(args, env, label, cwd, log, timeout):
-    global ACTIVE_PROCESS
-    if CANCELLED:
-        raise KeyboardInterrupt("E2E run cancelled")
-    proc = subprocess.Popen(args, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    ACTIVE_PROCESS = proc
+def process_table():
+    """pid -> (state, parent pid, process group) for every visible process."""
+    table = {}
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = Path(entry.path, "stat").read_text()
+        except OSError:
+            continue
+        fields = stat[stat.rindex(")") + 2:].split()
+        table[int(entry.name)] = (fields[0], int(fields[1]), int(fields[2]))
+    return table
+
+
+def signal_group(pgid, signum):
     try:
-        result = proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        stop_process(proc)
-        raise TimeoutError(f"{label} exceeded {timeout}s") from exc
-    except BaseException:
-        stop_process(proc)
-        raise
-    finally:
-        ACTIVE_PROCESS = None
+        os.killpg(pgid, signum)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+class ChildTree:
+    """A child in its own session plus every process group its descendants open. Playwright starts web servers and
+    browsers detached, so they would outlive a Playwright that dies or ignores its stop signal unless their groups
+    are recorded and stopped too. Every started tree stays in LIVE_TREES until stopped; main stops leftovers."""
+
+    def __init__(self, args, env, cwd, log, stop_signal):
+        if CANCELLED:
+            raise KeyboardInterrupt("E2E run cancelled")
+        self.stop_signal = stop_signal
+        with deferred_cancellation():
+            self.proc = subprocess.Popen(args, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            self.groups = {self.proc.pid}
+            LIVE_TREES.append(self)
+
+    def live_groups(self):
+        """Record the groups of current descendants while the parent links exist, then return the recorded groups
+        that still have a runnable member. An emptied group is forgotten, so a reused group ID is never signalled."""
+        table = process_table()
+        if self.proc.poll() is None:
+            children = {}
+            for pid, (_, parent, _) in table.items():
+                children.setdefault(parent, []).append(pid)
+            pending = [self.proc.pid]
+            while pending:
+                for pid in children.get(pending.pop(), ()):
+                    self.groups.add(table[pid][2])
+                    pending.append(pid)
+        live = {pgid for state, _, pgid in table.values() if pgid in self.groups and state not in ("Z", "X")}
+        self.groups = live | ({self.proc.pid} if self.proc.returncode is None else set())
+        return live
+
+    def wait(self, label, timeout):
+        deadline = time.monotonic() + timeout
+        try:
+            while self.proc.poll() is None:
+                if CANCELLED:
+                    raise KeyboardInterrupt(f"{label} cancelled")
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"{label} exceeded {timeout}s")
+                self.live_groups()
+                time.sleep(0.5)
+        finally:
+            self.stop()
+        return self.proc.returncode
+
+    def stop(self):
+        """Send the stop signal once, wait for the leader and every recorded group, then SIGKILL survivors. After a
+        cancellation the graceful wait ends CANCEL_STOP_GRACE after the signal (at least one second)."""
+        if self.proc.poll() is None:
+            signal_group(self.proc.pid, self.stop_signal)
+        started = time.monotonic()
+        orphans_signalled = False
+        while (live := self.live_groups()) or self.proc.poll() is None:
+            if self.proc.returncode is not None and not orphans_signalled:
+                for pgid in live:  # the leader is gone, so nothing else will stop the groups it opened
+                    signal_group(pgid, signal.SIGTERM)
+                orphans_signalled = True
+            grace = STOP_GRACE if CANCEL_STARTED is None else max(1.0, CANCEL_STARTED + CANCEL_STOP_GRACE - started)
+            if time.monotonic() - started >= grace:
+                break
+            time.sleep(0.05)
+        kill_deadline = time.monotonic() + KILL_BUDGET
+        while (live := self.live_groups()) or self.proc.poll() is None:
+            if time.monotonic() >= kill_deadline:
+                print(f"E2E process groups {sorted(live)} survived SIGKILL", file=sys.stderr)
+                break
+            for pgid in live:
+                signal_group(pgid, signal.SIGKILL)
+            time.sleep(0.01)
+        if self in LIVE_TREES:
+            LIVE_TREES.remove(self)
+
+
+def run_process(args, env, label, cwd, log, timeout, stop_signal=signal.SIGTERM):
+    result = ChildTree(args, env, cwd, log, stop_signal).wait(label, timeout)
     if result:
         raise RuntimeError(f"{label} exited with status {result}")
-
-
-def stop_process(proc, grace=20):
-    try:
-        os.killpg(proc.pid, STOP_SIGNAL)
-    except ProcessLookupError:
-        return
-    if proc.poll() is not None:
-        return
-    try:
-        proc.wait(timeout=grace)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        proc.wait()
 
 
 def playwright(root, env, log, project, timeout=600):
@@ -83,10 +163,11 @@ def playwright(root, env, log, project, timeout=600):
     env["PLAYWRIGHT_HTML_OUTPUT_DIR"] = str(report_dir / f"html-report-{invocation}")
     env["PLAYWRIGHT_JSON_OUTPUT_FILE"] = str(report_dir / f"report-{invocation}.json")
     cmd = [str(root / "frontend/node_modules/.bin/playwright"), "test", f"--project={project}"]
-    run_process(cmd, env, "Playwright", root / "frontend", log, timeout)
+    # Playwright stops its webServer processes only on SIGINT or a normal exit; SIGTERM kills Node without cleanup.
+    run_process(cmd, env, "Playwright", root / "frontend", log, timeout, signal.SIGINT)
 
 
-def process_env(inherited, artifact_dir, clock):
+def process_env(inherited, clock):
     env = {key: inherited[key] for key in ("PATH", "HOME", "TMPDIR", "LANG", "CI", "PLAYWRIGHT_BROWSERS_PATH", "TENDO_E2E_READ_DELAY_MS") if key in inherited}
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(Path.home() / ".cache/ms-playwright"))
     env.update({
@@ -96,7 +177,6 @@ def process_env(inherited, artifact_dir, clock):
         "TENDO_TRUSTED_PROXY_CIDRS": "",
         "TENDO_DB_TIMEOUT": "2",
         "TENDO_SHUTDOWN_TIMEOUT": "10",
-        "TENDO_RESTART_POLICY": "no",
     })
     return env
 
@@ -107,7 +187,7 @@ def run_migration(root, app_path, inherited, env, log):
     run_process([str(app_path), "migrate"], migration_env, "production migration", root / "backend", log, 150)
 
 
-def run_screen_reader(root, env, log, artifact_dir, audit_dir):
+def run_screen_reader(root, env, log, audit_dir):
     audit_dir = audit_dir.resolve()
     audit_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(audit_dir, 0o700)
@@ -132,39 +212,31 @@ def run_screen_reader(root, env, log, artifact_dir, audit_dir):
     session = root / "scripts/sr-orca-session.sh"
     readiness_seconds = orca_session.readiness_timeout(os.environ)
     env["TENDO_SR_READY_TIMEOUT_SECONDS"] = str(readiness_seconds)
-    global ACTIVE_PROCESS
-    if CANCELLED:
-        raise KeyboardInterrupt("E2E run cancelled")
-    proc = subprocess.Popen([str(session), str(runtime), str(debug), str(logs)], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    ACTIVE_PROCESS = proc
+    session_tree = ChildTree([str(session), str(runtime), str(debug), str(logs)], env, None, log, signal.SIGTERM)
     try:
-        ready = logs / "ready"
-        orca_session.wait_until_ready(proc, ready, readiness_seconds + 15)
-        bus_address = orca_session.validate_bus_address((logs / "bus-address").read_text(encoding="utf-8").removesuffix("\n"))
-        env.update({
-            "HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"),
-            "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"),
-            "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"),
-            "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(),
-            "DBUS_SESSION_BUS_ADDRESS": bus_address, "E2E_SR_AUDIT_DIR": str(audit_dir),
-            "E2E_SR_HEADFUL": "1",
-            "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-            "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false",
-            "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"),
-        })
-        display_file = runtime / "display"
-        if display_file.exists():
-            env["DISPLAY"] = display_file.read_text(encoding="utf-8").strip()
-        orca_session.verify_transport(env)
-        playwright(root, env, log, "screen-reader", 1800)
+        try:
+            orca_session.wait_until_ready(session_tree.proc, logs / "ready", readiness_seconds + 15, lambda: CANCELLED)
+            bus_address = orca_session.validate_bus_address((logs / "bus-address").read_text(encoding="utf-8").removesuffix("\n"))
+            env.update({
+                "HOME": str(runtime / "home"), "XDG_RUNTIME_DIR": str(runtime / "xdg-runtime"),
+                "XDG_CONFIG_HOME": str(runtime / "xdg-config"), "XDG_DATA_HOME": str(runtime / "xdg-data"),
+                "TENDO_SR_ORCA_NO_START": os.environ.get("TENDO_SR_ORCA_NO_START", "0"),
+                "DISPLAY": (runtime / "display").read_text(encoding="utf-8").strip(),
+                "DBUS_SESSION_BUS_ADDRESS": bus_address, "E2E_SR_AUDIT_DIR": str(audit_dir),
+                "GIT_COMMIT": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
+                "GIT_DIRTY": "true" if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() else "false",
+            })
+            orca_session.verify_transport(env)
+            playwright(root, env, log, "screen-reader", 1800)
+        finally:
+            session_tree.stop()
     finally:
-        stop_process(proc)
-        ACTIVE_PROCESS = None
-        orca_session.cleanup_private_runtime(runtime)
+        with deferred_cancellation():
+            orca_session.cleanup_private_runtime(runtime)
 
 
 def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=None, audit_dir=None, sr_audit_dir=None):
-    env = process_env(inherited, artifact_dir, "2026-05-14T08:00:00Z")
+    env = process_env(inherited, "2026-05-14T08:00:00Z")
     env.update({"DATABASE_URL": inherited["TEST_DATABASE_URL"], "TENDO_TEST_CLOCK_NOW": "2026-05-14T08:00:00Z"})
     run_migration(root, app_path, inherited, env, log)
     app_port = port()
@@ -186,7 +258,7 @@ def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=Non
         command = ["bash", "scripts/dev-exec.sh", "--", "bash", "scripts/e2e-smoke.sh"]
         env["TENDO_SR_COMMAND"] = " ".join(f"{key}={value}" for key, value in sorted(os.environ.items()) if key in {"TENDO_SR_AUDIT_DIR", "TENDO_SR_ITEM_PROBE"} and value) + " " + " ".join(command)
         env["TENDO_SR_COMMAND"] = env["TENDO_SR_COMMAND"].strip()
-        run_screen_reader(root, env, log, artifact_dir, sr_audit_dir)
+        run_screen_reader(root, env, log, sr_audit_dir)
     elif audit_dir is not None:
         env["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
         playwright(root, env, log, "ux-audit", 1800)
@@ -198,10 +270,11 @@ def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=Non
 
 
 def run_suite(root, app_path, provider_path, inherited, log, artifact_dir):
-    env = process_env(inherited, artifact_dir, "2026-01-15T22:59:59Z")
+    env = process_env(inherited, "2026-01-15T22:59:59Z")
     run_migration(root, app_path, inherited, env, log)
     fixture_env = db_fixtures.seed_suite_fixtures(inherited, register_sensitive_value)
-    with db_fixtures.large_paging_household_cleanup(inherited, fixture_env["E2E_LARGE_HOUSEHOLD_ID"]):
+    # After a cancellation the wrapper drops the whole isolated database, so the fixture cleanup is skipped.
+    with db_fixtures.large_paging_household_cleanup(inherited, fixture_env["E2E_LARGE_HOUSEHOLD_ID"], lambda: CANCELLED):
         run_seeded_suite(root, app_path, provider_path, inherited, log, artifact_dir, env, fixture_env)
 
 
@@ -211,8 +284,6 @@ def run_seeded_suite(root, app_path, provider_path, inherited, log, artifact_dir
     issuer = f"http://127.0.0.1:{issuer_port}"
     client, secret = "tendo-oidc-smoke", "tendo-oidc-smoke-secret"
     SENSITIVE_VALUES.add(secret)
-    if "INTERRUPT_MARKERS" in inherited:
-        env["INTERRUPT_MARKERS"] = inherited["INTERRUPT_MARKERS"]
     env.update({
         "DATABASE_URL": inherited["TEST_DATABASE_URL"], "TENDO_PUBLIC_URL": app_origin,
         "TENDO_LISTEN_ADDR": f"127.0.0.1:{host_port}", "TENDO_SETUP_TOKEN": generated_secret(32),
@@ -272,16 +343,17 @@ def main():
     previous_handlers = {}
     result_error = None
     def handle_signal(signum, _frame):
-        global CANCELLED
+        # While a child runs, its wait loop polls CANCELLED and stops it within budget; other runner work (database
+        # fixtures) is interrupted directly. Repeated signals and cleanup paths are never interrupted.
+        global CANCELLED, CANCEL_STARTED
         nonlocal signal_seen
         signal_seen = signum
-        CANCELLED = True
-        diagnostics._cancel_deadline = time.monotonic() + CANCELLED_STAGING_BUDGET
-        if ACTIVE_PROCESS is not None and ACTIVE_PROCESS.poll() is None:
-            try:
-                os.killpg(ACTIVE_PROCESS.pid, STOP_SIGNAL)
-            except ProcessLookupError:
-                pass
+        if CANCELLED:
+            return
+        CANCELLED, CANCEL_STARTED = True, time.monotonic()
+        diagnostics._cancel_deadline = CANCEL_STARTED + CANCEL_TOTAL_BUDGET
+        if not LIVE_TREES and not DEFERRED:
+            raise KeyboardInterrupt("E2E run cancelled")
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_handlers[signum] = signal.signal(signum, handle_signal)
     try:
@@ -303,14 +375,15 @@ def main():
                 result_error = exc
                 raise
             finally:
-                if result_error is not None or signal_seen is not None:
-                    if signal_seen is not None:
-                        diagnostics._cancel_deadline = time.monotonic() + CANCELLED_STAGING_BUDGET
-                    diagnostics.write_redacted_process_log(artifact_dir / "process.log")
-                    if upload_destination is not None:
-                        diagnostics.stage_ci_upload(upload_destination, artifact_dir)
-                    diagnostics.print_failure_log_tail(artifact_dir / "process.log")
-                    print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
+                with deferred_cancellation():
+                    for tree in list(LIVE_TREES):
+                        tree.stop()
+                    if result_error is not None or signal_seen is not None:
+                        diagnostics.write_redacted_process_log(artifact_dir / "process.log")
+                        if upload_destination is not None:
+                            diagnostics.stage_ci_upload(upload_destination, artifact_dir)
+                        diagnostics.print_failure_log_tail(artifact_dir / "process.log")
+                        print(f"E2E failure artifacts retained at {artifact_dir}", file=sys.stderr)
                 if signal_seen is not None:
                     raise SystemExit(128 + signal_seen)
     finally:
