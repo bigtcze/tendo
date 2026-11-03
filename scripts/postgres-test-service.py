@@ -38,8 +38,7 @@ def parse_url(value: str) -> dict[str, str]:
 # template0; on a shared CI runner it outlived the 10 s guard by ~2 s (run
 # 40148690838), so it gets its own bound. A signal does not interrupt an
 # in-flight psql call, so CREATE plus the ownership readback that follows must
-# leave cleanup headroom inside the 35 s signal watchdog in e2e-smoke.sh
-# (asserted by test_postgres_test_service.py).
+# leave cleanup headroom inside the 35 s signal watchdog in e2e-smoke.sh.
 PSQL_DEADLINE_SECONDS = 10
 CREATE_DATABASE_DEADLINE_SECONDS = 20
 
