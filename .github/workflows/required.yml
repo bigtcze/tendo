@@ -259,13 +259,26 @@ jobs:
           include-hidden-files: false
 
   deployment:
-    name: deployment (${{ matrix.smoke }})
+    name: deployment (${{ matrix.smoke }}${{ matrix.from && format(' {0}', matrix.from) || '' }})
     timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        smoke: [runtime-smoke, setup-smoke, oidc-smoke, proxy-smoke, backup-restore-smoke, household-backup-smoke, upgrade-smoke, quickstart-smoke]
+        include:
+          - smoke: setup-smoke
+          - smoke: oidc-smoke
+          - smoke: proxy-smoke
+            timeout: 720
+          - smoke: household-backup-smoke
+            timeout: 900
+          - smoke: upgrade-smoke
+            from: v1.0.0
+            timeout: 900
+          - smoke: upgrade-smoke
+            from: v2.1.0
+            timeout: 900
+          - smoke: quickstart-smoke
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -281,19 +294,11 @@ jobs:
       - name: Install API Node dependencies for response contract checks
         working-directory: api
         run: npm ci
-      - name: Run unchanged Docker deployment smoke
+      - name: Run Docker deployment smoke
         timeout-minutes: 20
-        shell: bash
         env:
-          SMOKE: ${{ matrix.smoke }}
-        run: |
-          set -euo pipefail
-          case "$SMOKE" in
-            proxy-smoke) timeout_seconds=720 ;;
-            household-backup-smoke|upgrade-smoke) timeout_seconds=900 ;;
-            *) timeout_seconds=1200 ;;
-          esac
-          timeout "$timeout_seconds" bash "scripts/${SMOKE}.sh"
+          TENDO_UPGRADE_FROM: ${{ matrix.from }}
+        run: timeout ${{ matrix.timeout || 1200 }} bash scripts/${{ matrix.smoke }}.sh
 
   required:
     name: required

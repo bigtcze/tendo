@@ -3,7 +3,7 @@
   "scripts": {
     "generate": "make generate",
     "check": "make check",
-    "test": "node --test check-health.test.mjs check-contract.test.mjs dependency-overrides.test.mjs"
+    "test": "node --test check-health.test.mjs check-contract.test.mjs oidc-middleware.test.mjs dependency-overrides.test.mjs"
   },
   "devDependencies": {
     "@redocly/cli": "2.72.1",

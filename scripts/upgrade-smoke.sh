@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Prove a published v1.0.0 installation upgrades in place without losing data.
+# Prove a published release installation upgrades in place to this checkout without losing data.
+# TENDO_UPGRADE_FROM selects the published source release (default v1.0.0); CI runs v1.0.0 and v2.1.0.
 set -Eeuo pipefail
 umask 077
 
@@ -9,7 +10,7 @@ project="tendo-upgrade-${suffix}"
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/tendo-upgrade.XXXXXX")
 export POSTGRES_PASSWORD TENDO_DATABASE_PASSWORD TENDO_HOST_PORT TENDO_RESTART_POLICY TENDO_DB_TIMEOUT TENDO_SHUTDOWN_TIMEOUT TENDO_PUBLIC_URL TENDO_TRUSTED_PROXY_CIDRS TENDO_SETUP_TOKEN TENDO_OIDC_ISSUER TENDO_OIDC_CLIENT_ID TENDO_OIDC_CLIENT_SECRET TENDO_OIDC_CLIENT_SECRET_FILE TENDO_OIDC_DISPLAY_NAME TENDO_VERSION
 TENDO_OIDC_ISSUER= TENDO_OIDC_CLIENT_ID= TENDO_OIDC_CLIENT_SECRET= TENDO_OIDC_CLIENT_SECRET_FILE= TENDO_OIDC_DISPLAY_NAME= TENDO_TRUSTED_PROXY_CIDRS=
-TENDO_RESTART_POLICY=no TENDO_DB_TIMEOUT=2 TENDO_SHUTDOWN_TIMEOUT=10 TENDO_VERSION=v1.0.0
+TENDO_RESTART_POLICY=no TENDO_DB_TIMEOUT=2 TENDO_SHUTDOWN_TIMEOUT=10
 TENDO_HOST_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 TENDO_PUBLIC_URL="http://localhost:${TENDO_HOST_PORT}"
 origin=$TENDO_PUBLIC_URL
@@ -44,11 +45,17 @@ wait_ready() {
 migration_max() {
   find "$root/backend/internal/platform/database" -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9]+_.*[.]sql' -printf '%f\n' | sed -E 's/^([0-9]+)_.*/\1/' | sort -n | tail -1
 }
-# Published v1.0.0 shipped migration 14 (asserted against its live ledger below). CI checkouts are shallow
-# and tagless, so the expectation is pinned here rather than read from the v1.0.0 tag.
-expected_v1=14
+# Last migration shipped by each published source release (asserted against its live ledger below). CI
+# checkouts are shallow and tagless, so the expectations are pinned here rather than read from tags.
+source_version=${TENDO_UPGRADE_FROM:-v1.0.0}
+TENDO_VERSION=$source_version
+case "$TENDO_VERSION" in
+  v1.0.0) expected_source=14 ;;
+  v2.1.0) expected_source=16 ;;
+  *) printf 'Unsupported TENDO_UPGRADE_FROM=%s (supported: v1.0.0, v2.1.0)\n' "$TENDO_VERSION" >&2; exit 2 ;;
+esac
 expected_current=$(migration_max)
-(( 10#$expected_current > expected_v1 )) || { printf 'Expected checkout migrations beyond v1.0.0 (%s); found %s\n' "$expected_v1" "$expected_current" >&2; exit 1; }
+(( 10#$expected_current >= expected_source )) || { printf 'Checkout migrations (%s) are older than %s (%s)\n' "$expected_current" "$TENDO_VERSION" "$expected_source" >&2; exit 1; }
 
 # Row counts for every application table; ledger versions are checked separately.
 snapshot_counts() {
@@ -149,12 +156,12 @@ def populate():
     s={'ownerSession':owner,'ownerPassword':op,'memberPassword':mp,'householdId':hid,'personId':person['id'],'memberId':member,'items':items,'itemKeys':keys,'fluidReceipt':receipt,'pendingToken':pending['token'],'v1Session':owner}
     s['before']=capture(s)
     with open(state_path,'w',encoding='utf-8') as f: json.dump(s,f,ensure_ascii=False)
-    print(f'Populated V1 with {len(items)} items; captured public V1 representations.')
+    print(f'Populated source release with {len(items)} items; captured public API representations.')
 def verify():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
     after=capture(s); assert after.keys()==s['before'].keys()
-    for k in s['before']: assert after[k]==s['before'][k],('V1 API snapshot differs (body or ETag)',k,s['before'][k],after[k])
-    print(f'{len(after)} V1 API response groups identical after upgrade (bodies and ETags).')
+    for k in s['before']: assert after[k]==s['before'][k],('source-release API snapshot differs (body or ETag)',k,s['before'][k],after[k])
+    print(f'{len(after)} source-release API response groups identical after upgrade (bodies and ETags).')
 def exercise():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
     owner=s['v1Session']; base=f'/api/v1/households/{s["householdId"]}'
@@ -201,26 +208,26 @@ def exercise():
     _,oldmembers=ok(200,'GET',base+'/members',cookie=owner)
     ok(201,'POST','/api/v1/auth/invitations/accept',{'token':s['pendingToken'],'login':'late_upgrade','password':os.urandom(18).hex()})
     _,newmembers=ok(200,'GET',base+'/members',cookie=owner); assert len(newmembers['items'])==len(oldmembers['items'])+1
-    print('V2 summaries, search, attention pagination, V1 session, password login, completion replay/undo, create/search, and pending invitation passed.')
+    print('Summaries, search, attention pagination, source-release session, password login, completion replay/undo, create/search, and pending invitation passed.')
 {'populate':populate,'verify':verify,'exercise':exercise}[phase]()
 PY
 
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 TENDO_DATABASE_PASSWORD=$(openssl rand -hex 32)
 TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
-v1_image=ghcr.io/bigtcze/tendo:v1.0.0
-docker pull "$v1_image"
-pulled_image_id=$(docker image inspect "$v1_image" --format '{{.Id}}')
+source_image="ghcr.io/bigtcze/tendo:${TENDO_VERSION}"
+docker pull "$source_image"
+pulled_image_id=$(docker image inspect "$source_image" --format '{{.Id}}')
 "${compose[@]}" up -d --wait --wait-timeout 120
 wait_ready
 app_container=$(docker compose --project-name "$project" -f "$root/compose.yaml" ps -q app)
 [[ -n "$app_container" ]]
 configured_image=$(docker inspect "$app_container" --format '{{.Config.Image}}')
 running_image_id=$(docker inspect "$app_container" --format '{{.Image}}')
-[[ "$configured_image" == "$v1_image" ]] || { printf 'V1 app configured image is %s, expected exactly %s\n' "$configured_image" "$v1_image" >&2; exit 1; }
-[[ "$running_image_id" == "$pulled_image_id" ]] || { printf 'V1 app image ID %s differs from pulled image ID %s\n' "$running_image_id" "$pulled_image_id" >&2; exit 1; }
+[[ "$configured_image" == "$source_image" ]] || { printf 'Source app configured image is %s, expected exactly %s\n' "$configured_image" "$source_image" >&2; exit 1; }
+[[ "$running_image_id" == "$pulled_image_id" ]] || { printf 'Source app image ID %s differs from pulled image ID %s\n' "$running_image_id" "$pulled_image_id" >&2; exit 1; }
 ledger=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
-[[ "$ledger" == "${expected_v1}:false" ]] || { printf 'Published v1 schema unexpected: %s\n' "$ledger" >&2; exit 1; }
+[[ "$ledger" == "${expected_source}:false" ]] || { printf 'Published %s schema unexpected: %s\n' "$TENDO_VERSION" "$ledger" >&2; exit 1; }
 api populate
 "${compose[@]}" stop app
 snapshot_counts "${compose[@]}" >"$temp_dir/counts-before.txt"
@@ -245,4 +252,4 @@ print(f'{len(before)} pre-existing migration ledger entries preserved; {len(afte
 PY
 api verify
 api exercise
-printf 'Published v1.0.0 in-place upgrade smoke passed.\n'
+printf 'Published %s in-place upgrade smoke passed.\n' "$source_version"

@@ -61,6 +61,10 @@ snapshot_counts() {
 SELECT table_name || '=' || (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', table_schema, table_name), false, true, '')))[1]::text
 FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name;
 SELECT 'migration ' || version || ' dirty=' || dirty FROM tendo_schema_migrations ORDER BY version;
+-- Constraints, table owners and grants must survive restore unchanged. Restore re-parses CHECK
+-- expressions, so compare identity, kind, referenced table and validation rather than deparsed text.
+SELECT 'constraint ' || conrelid::regclass || '.' || conname || ' type=' || contype::text || ' refs=' || coalesce(confrelid::regclass::text, '-') || ' validated=' || convalidated FROM pg_constraint WHERE connamespace = 'public'::regnamespace ORDER BY 1;
+SELECT 'table ' || c.relname || ' owner=' || pg_get_userbyid(c.relowner) || ' acl=' || coalesce(c.relacl::text, '') FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' ORDER BY 1;
 SQL
 }
 
@@ -318,4 +322,40 @@ DO $$ BEGIN
   END;
 END $$;
 SQL
-printf 'Full household backup/restore smoke passed.\n'
+# Restore safety, using the real household dump.
+psql_b=("${compose_b[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres)
+"${psql_b[@]}" -d tendo -At -c "SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls FROM pg_roles WHERE rolname='tendo'" | grep -qx f \
+  || { printf 'Restored runtime role tendo is privileged\n' >&2; exit 1; }
+# Documented side-by-side backup test (docs/admin/backup-restore.md) succeeds into a new database.
+"${compose_b[@]}" exec -T postgres sh -ec 'createdb -U postgres tendo_restore_test && pg_restore --exit-on-error --single-transaction -U postgres -d tendo_restore_test' <"$temp_dir/tendo-backup.dump"
+restored_items=$("${psql_b[@]}" -d tendo_restore_test -At -c 'SELECT count(*) FROM items')
+[[ "$restored_items" == 7 ]] || { printf 'Side-by-side restore item count is %s, expected 7\n' "$restored_items" >&2; exit 1; }
+# The same command refuses an existing database and leaves it unchanged.
+"${psql_b[@]}" -d postgres -c 'CREATE DATABASE tendo_existing_restore;' >/dev/null
+"${psql_b[@]}" -d tendo_existing_restore -c "CREATE TABLE sentinel (value text); INSERT INTO sentinel VALUES ('preserved');" >/dev/null
+if "${compose_b[@]}" exec -T postgres sh -ec 'createdb -U postgres tendo_existing_restore && pg_restore --exit-on-error --single-transaction -U postgres -d tendo_existing_restore' <"$temp_dir/tendo-backup.dump" >"$temp_dir/existing.out" 2>&1; then
+  printf 'Restore unexpectedly proceeded against an existing database\n' >&2
+  exit 1
+fi
+"${psql_b[@]}" -d tendo_existing_restore -c "DO \$\$ BEGIN
+  IF (SELECT value FROM sentinel) <> 'preserved' THEN RAISE EXCEPTION 'sentinel changed'; END IF;
+  IF to_regclass('public.items') IS NOT NULL THEN RAISE EXCEPTION 'refused restore wrote household tables'; END IF;
+END \$\$;" >/dev/null
+# A truncated archive fails as corrupt and leaves nothing behind.
+"${psql_b[@]}" -d postgres -c 'CREATE DATABASE tendo_corrupt_restore;' >/dev/null
+dump_size=$(stat -c %s "$temp_dir/tendo-backup.dump")
+(( dump_size >= 100 )) || { printf 'Backup archive unexpectedly small: %s bytes\n' "$dump_size" >&2; exit 1; }
+head -c "$((dump_size / 2))" "$temp_dir/tendo-backup.dump" >"$temp_dir/corrupt.dump"
+if "${compose_b[@]}" exec -T postgres pg_restore --exit-on-error --single-transaction -U postgres -d tendo_corrupt_restore <"$temp_dir/corrupt.dump" >"$temp_dir/corrupt.out" 2>&1; then
+  printf 'Truncated archive unexpectedly restored successfully\n' >&2
+  exit 1
+fi
+if ! grep -qiE 'unexpected end|could not read|could not find header|truncated|corrupt' "$temp_dir/corrupt.out"; then
+  printf 'Truncated archive failed for an unexpected reason\n' >&2
+  exit 1
+fi
+"${psql_b[@]}" -d tendo_corrupt_restore -c "DO \$\$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public') THEN RAISE EXCEPTION 'failed restore left tables'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname IN ('unaccent','pg_trgm')) OR to_regprocedure('public.tendo_item_search_normalize(text)') IS NOT NULL OR to_regprocedure('public.tendo_item_search_pattern(text)') IS NOT NULL THEN RAISE EXCEPTION 'failed restore left search objects'; END IF;
+END \$\$;" >/dev/null
+printf 'Full household backup/restore smoke passed, including refused existing-target and truncated-archive restores.\n'

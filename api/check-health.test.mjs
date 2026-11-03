@@ -116,7 +116,7 @@ test('smoke coverage scopes partition every OpenAPI operationId', async () => {
   const ids = text => text.match(/[A-Za-z]+/g) ?? []
   const setup = ids((await read('setup_smoke_api_capture.py')).match(/COVERAGE_SCOPE = ','\.join\(\(([\s\S]*?)\)\)/)[1])
   const oidc = ids((await read('oidc-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=([\s\S]*?) \\\n {2}node/)[1].replace(/\\\n/g, ''))
-  const runtime = ids((await read('runtime-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=(\S+)/)[1])
+  const runtime = ids((await read('setup-smoke.sh')).match(/API_OPERATION_COVERAGE_SCOPE=(\S+)/)[1])
   const scoped = [...setup, ...oidc, ...runtime]
   assert.deepEqual([...scoped].sort(), [...new Set(scoped)].sort(), 'an operationId appears in more than one smoke scope')
   assert.deepEqual([...scoped].sort(), [...operationIds].sort(), 'smoke coverage scopes must cover every OpenAPI operationId exactly once')
