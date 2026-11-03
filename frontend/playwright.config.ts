@@ -4,19 +4,69 @@ import { defineConfig } from '@playwright/test';
 const baseURL = process.env.E2E_BASE_URL;
 if (!baseURL) throw new Error('E2E_BASE_URL is required; run scripts/e2e-smoke.sh');
 
+const projects = [
+  { name: 'e2e', testMatch: ['journey.spec.ts', 'primitives-browser.spec.ts'] },
+  { name: 'clock', testMatch: ['attention-clock.spec.ts'] },
+  { name: 'readme-screenshot', testMatch: ['readme-screenshot.spec.ts'] },
+  { name: 'ux-audit', testMatch: ['ux-audit.spec.ts'] },
+  {
+    name: 'screen-reader',
+    testMatch: ['screen-reader.spec.ts'],
+    use: { headless: false, launchOptions: { args: ['--force-renderer-accessibility', '--window-size=1200,850'] } },
+  },
+];
+
+// Playwright merges webServer.env over its own environment, which also carries browser-only credentials
+// (owner passwords, setup token copies, fixture logins). Each server instead receives exactly the base process
+// variables plus its own configuration; every other inherited key is unset (Node omits undefined values).
+const BASE_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG'];
+function serverEnv(own: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string | undefined> = Object.fromEntries(Object.keys(process.env).map((key) => [key, undefined]));
+  for (const key of BASE_KEYS) env[key] = process.env[key];
+  return { ...env, ...own } as Record<string, string>;
+}
+const APP_KEYS = [
+  'DATABASE_URL', 'TENDO_LISTEN_ADDR', 'TENDO_PUBLIC_URL', 'TENDO_TRUSTED_PROXY_CIDRS', 'TENDO_DB_TIMEOUT',
+  'TENDO_SHUTDOWN_TIMEOUT', 'TENDO_SETUP_TOKEN', 'TENDO_TEST_CLOCK_ACK', 'TENDO_TEST_CLOCK_NOW', 'TENDO_OIDC_ISSUER',
+  'TENDO_OIDC_CLIENT_ID', 'TENDO_OIDC_CLIENT_SECRET', 'TENDO_OIDC_CLIENT_SECRET_FILE', 'TENDO_OIDC_DISPLAY_NAME',
+];
+const appConfig = Object.fromEntries(APP_KEYS.map((key) => [key, process.env[key]]));
+
+const webServer = process.env.E2E_APP_BINARY ? [
+  ...(process.env.E2E_OIDC_PROVIDER_BINARY ? [{
+    command: `"${process.env.E2E_OIDC_PROVIDER_BINARY}"`,
+    url: `${process.env.E2E_OIDC_ISSUER}/healthz`,
+    env: serverEnv({
+      LISTEN_ADDR: process.env.E2E_OIDC_LISTEN_ADDR,
+      ISSUER_URL: process.env.E2E_OIDC_ISSUER,
+      CLIENT_ID: process.env.E2E_OIDC_CLIENT_ID,
+      CLIENT_SECRET: process.env.E2E_OIDC_CLIENT_SECRET,
+      REDIRECT_URI: process.env.E2E_OIDC_REDIRECT_URI,
+      SUBJECTS: process.env.E2E_OIDC_SUBJECTS,
+    }),
+    reuseExistingServer: false,
+    stdout: 'pipe' as const,
+    stderr: 'pipe' as const,
+    gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 10_000 },
+    timeout: 60_000,
+  }] : []),
+  {
+    command: `"${process.env.E2E_APP_BINARY}"`,
+    url: `http://127.0.0.1:${process.env.E2E_APP_PORT}/health/ready`,
+    env: serverEnv(appConfig),
+    reuseExistingServer: false,
+    stdout: 'pipe' as const,
+    stderr: 'pipe' as const,
+    gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 10_000 },
+    timeout: 60_000,
+  },
+] : undefined;
+
 export default defineConfig({
   testDir: 'e2e',
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? 'test-results/artifacts',
-  testMatch: process.env.E2E_SR_AUDIT_DIR
-    ? ['e2e/screen-reader.spec.ts']
-    : process.env.E2E_AUDIT_DIR ? ['e2e/ux-audit.spec.ts'] : undefined,
-  testIgnore: process.env.E2E_SR_AUDIT_DIR || process.env.E2E_AUDIT_DIR
-    ? []
-    : process.env.E2E_SCREENSHOT_PATH
-      ? ['e2e/journey.spec.ts', 'e2e/attention-clock.spec.ts', 'e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts', 'e2e/primitives-browser.spec.ts']
-      : process.env.E2E_CLOCK_PHASE
-        ? ['e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts', 'e2e/primitives-browser.spec.ts']
-        : ['e2e/attention-clock.spec.ts', 'e2e/readme-screenshot.spec.ts', 'e2e/ux-audit.spec.ts', 'e2e/screen-reader.spec.ts'],
+  projects,
+  webServer,
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -32,8 +82,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL,
-    headless: process.env.E2E_SR_HEADFUL ? false : true,
-    launchOptions: process.env.E2E_SR_HEADFUL ? { args: ['--force-renderer-accessibility', '--window-size=1200,850'] } : {},
+    headless: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     locale: 'en-US',

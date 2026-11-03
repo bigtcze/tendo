@@ -236,15 +236,19 @@ def cleanup_large_paging_household(inherited: dict[str, str], household_id: str)
 
 
 @contextlib.contextmanager
-def large_paging_household_cleanup(inherited: dict[str, str], household_id: str) -> Iterator[None]:
-    """Always remove the large fixture; a cleanup error never hides the suite's primary failure."""
+def large_paging_household_cleanup(
+    inherited: dict[str, str], household_id: str, cancelled: Callable[[], bool] = lambda: False
+) -> Iterator[None]:
+    """Always remove the large fixture; a cleanup error never hides the suite's primary failure. A cancelled run
+    skips it because the wrapper drops the whole isolated database within its own grace period."""
     try:
         yield
     except BaseException:
-        try:
-            cleanup_large_paging_household(inherited, household_id)
-        except Exception as error:  # noqa: BLE001 - reported, primary failure re-raised
-            print(f"large paging fixture cleanup also failed: {error}", file=sys.stderr)
+        if not cancelled():
+            try:
+                cleanup_large_paging_household(inherited, household_id)
+            except Exception as error:  # noqa: BLE001 - reported, primary failure re-raised
+                print(f"large paging fixture cleanup also failed: {error}", file=sys.stderr)
         raise
     cleanup_large_paging_household(inherited, household_id)
 
