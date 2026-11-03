@@ -342,6 +342,8 @@ export const cs: Record<MessageKey, string> = {
   'itemDetail.attentionDate': 'Termín: {date}',
   'itemDetail.done': 'Tato položka je hotová. Její historie je níže.',
   'itemDetail.completionUndone': 'Dokončení bylo vráceno. Položka je znovu otevřená.',
+  'itemDetail.refreshFailed': 'Položku se nepodařilo obnovit. Před další změnou ji znovu načtěte.',
+  'itemDetail.reload': 'Načíst znovu',
   'itemDetail.updated': 'Položka byla změněna.',
   'itemDetail.edit.button': 'Upravit',
   'itemDetail.edit.loading': 'Načítám…',

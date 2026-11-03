@@ -23,8 +23,8 @@ export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, o
   const { t, locale } = useI18n();
   const loads = useLoadGeneration();
   const screen = useItemDetailScreenState({ householdId, itemId, userId, onSignedOut, t, loads });
-  const { history, detail, busy, edit, actions, focus } = screen;
-  useItemDetailFocus(focus);
+  const { history, detail, busy, edit, actions, completion, focus } = screen;
+  useItemDetailFocus({ ...focus, actions: { ...focus.actions, undoFocusRef: completion.focusAfterUndo } });
   const { state, item, subjectOverride, subjectName } = detail;
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
@@ -32,6 +32,7 @@ export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, o
     <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} />
     {state === 'ready' && item ? <ItemDetailReady
       item={item} subjectOverride={subjectOverride} subjectName={subjectName} detail={detail} busy={busy} edit={edit} history={history} locale={locale} t={t}
+      onReload={screen.actions.reload}
       refs={{
         notice: screen.noticeRef,
         completionNotice: screen.completionNoticeRef,

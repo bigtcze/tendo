@@ -68,7 +68,8 @@ export function Dialog({
   const sheetClasses = sheet
     ? [
       'fixed inset-x-0 bottom-0 top-0 m-0 h-dvh max-h-dvh w-full max-w-none rounded-none',
-      'md:inset-x-0 md:top-1/2 md:bottom-auto md:m-0 md:h-auto md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:-translate-y-1/2 md:rounded-2xl',
+      'md:inset-x-0 md:top-1/2 md:bottom-auto md:mx-auto md:my-0 md:-translate-y-1/2',
+      'md:h-auto md:max-h-[90dvh] md:w-[calc(100%-2rem)] md:max-w-xl md:rounded-2xl',
     ].join(' ')
     : '';
 

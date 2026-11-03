@@ -29,6 +29,7 @@ export function useItemDetail({ householdId, itemId, onSignedOut, loads, history
   const [members, setMembers] = useState<Member[]>([]);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   const [completionNotice, setCompletionNotice] = useState<Notice | null>(null);
+  const [stale, setStale] = useState(false);
   const [undoArchive, setUndoArchive] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -47,7 +48,7 @@ export function useItemDetail({ householdId, itemId, onSignedOut, loads, history
   const load = useCallback(async (token: number, preserveArchiveNotice = false) => {
     if (!ITEM_ID.test(itemId)) { if (current(token)) setState('gone'); return; }
     resetHistory();
-    setState('loading'); setEditing(null); setEditLoading(false);
+    setState('loading'); setEditing(null); setEditLoading(false); setStale(false);
     if (!preserveArchiveNotice) { setNotice(null); setUndoArchive(false); setCompletionNotice(null); }
     const result = await getItem(householdId, itemId);
     if (!current(token)) return;
@@ -75,7 +76,8 @@ export function useItemDetail({ householdId, itemId, onSignedOut, loads, history
   function announce(next: MessageKey) { setNotice(next); focusAfterMutationRef.current = true; }
 
   return {
-    state, item, subjectName, subjectOverride, members, notice, completionNotice, undoArchive, editing, editLoading, focusAfterMutationRef,
+    state, item, subjectName, subjectOverride, members, notice, completionNotice, stale, undoArchive, editing, editLoading, focusAfterMutationRef,
+    setStale,
     load, retry: () => setAttempt((n) => n + 1), setState, setItem, setNotice, setCompletionNotice, announce,
     setUndoArchive, setEditing, setEditLoading, showSubject,
   };

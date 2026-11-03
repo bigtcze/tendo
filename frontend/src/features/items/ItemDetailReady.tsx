@@ -13,7 +13,7 @@ import type { ItemDetailState } from './useItemDetail';
 import type { WorkflowState } from './useItemDetailActions';
 import type { useItemDetailEdit } from './useItemDetailEdit';
 
-export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, actions }: {
+export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, onReload, actions }: {
   item: Item;
   subjectOverride: string | null;
   subjectName: string;
@@ -30,6 +30,7 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
     historySection: Ref<HTMLElement>;
     historyHeading: Ref<HTMLHeadingElement>;
   };
+  onReload: () => void;
   actions: {
     onEdit: () => void;
     onWorkflow: (state: WorkflowState) => void;
@@ -60,6 +61,7 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
         <ItemDetailReadView item={item} t={t} locale={locale} responsible={responsible} />
         <ItemDetailActions
           item={item} busy={busy.busy} editLoading={editLoading} editRef={refs.editButton} t={t}
+          stale={detail.stale} onReload={onReload}
           onEdit={actions.onEdit} onWorkflow={actions.onWorkflow} onArchive={actions.onArchive} onRestore={actions.onRestore}
           onDone={actions.onDone}
           completionNotice={completionNotice?.text ?? null}

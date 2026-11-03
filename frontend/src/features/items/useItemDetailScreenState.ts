@@ -52,6 +52,7 @@ export function useItemDetailScreenState({ householdId, itemId, userId, onSigned
     noticeRef,
     completionNoticeRef,
     edit,
+    completion,
     actions: { ...actions, ...completion },
     focusRefs,
     focus,

@@ -53,6 +53,7 @@ describe('UI primitive behavior', () => {
     expect(new Set(ids).size).toBe(2);
     expect(dialogs[0].className).toContain('w-full');
     expect(dialogs[0].className).toContain('md:top-1/2');
+    expect(dialogs[0].className).toContain('md:mx-auto');
     expect(dialogs[0].className).toContain('md:-translate-y-1/2');
     expect(dialogs[0].className).not.toContain('max-w-xl rounded-2xl');
   });

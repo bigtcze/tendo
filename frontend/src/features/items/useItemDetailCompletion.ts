@@ -33,23 +33,29 @@ export function useItemDetailCompletion({ userId, householdId, itemId, onSignedO
   const undoFocusRef = useRef<{ itemId: string; group: import('./itemsApi').ItemGroup | null } | null>(null);
   const tools: CompletionTools = {
     userId, householdId, t, locale, onSignedOut, focusedRowRef, undoFocusRef, noticeRef,
-    refresh: async () => refreshDetail(),
+    refresh: async () => { await refreshDetail(); },
     setNotice: (notice) => detail.setCompletionNotice(notice),
     undoneText: t('itemDetail.completionUndone'),
   };
 
-  async function refreshDetail() {
+  async function refreshDetail(): Promise<boolean> {
     const token = ++generationRef.current;
     const read = await getItem(householdId, itemId);
-    if (!current(token)) return;
-    if (read.kind === 'unauthenticated') { onSignedOut(); return; }
-    if (read.kind === 'notFound') { detail.setState('gone'); return; }
+    if (!current(token)) return false;
+    if (read.kind === 'unauthenticated') { onSignedOut(); return false; }
+    if (read.kind === 'notFound') { detail.setState('gone'); return false; }
     if (read.kind === 'ok') {
+      detail.setStale(false);
       detail.setItem(read.item);
       // The latest completion (or its undo) belongs at the top of History: return to the newest page.
       history.reset();
       void history.load(token);
-    } else detail.setCompletionNotice({ text: t('items.error.action') });
+      return true;
+    } else {
+      detail.setStale(true);
+      detail.setCompletionNotice((notice) => notice ? { ...notice } : { text: t('items.error.action') });
+      return false;
+    }
   }
 
   function readThenWrite<R>(write: (etag: string) => Promise<R>): Promise<ReadThenWrite<R>> {
@@ -88,12 +94,15 @@ export function useItemDetailCompletion({ userId, householdId, itemId, onSignedO
   }
 
   async function retryNotice() {
+    // The outcome takes focus only if it is still on this control (or nowhere) when it arrives.
+    focusOriginRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    retryHadFocusRef.current = focusOriginRef.current?.dataset.action === 'detail-retry';
     if (detail.completionNotice?.retryKind === 'undo') await undo();
     else await finish();
   }
 
   return {
-    finish, undo, retryNotice,
+    finish, undo, retryNotice, reload: async () => { await refreshDetail(); },
     focusAfterUndo: undoFocusRef,
     focusAfterCompletion: { focusedRowRef, retryHadFocusRef, focusOriginRef },
   };

@@ -1296,6 +1296,9 @@ test.describe('Tendo production journey', () => {
     const edit = page.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
     await edit.getByLabel(en['items.responsible.label']).selectOption('');
     await edit.getByRole('button', { name: en['itemDetail.save'] }).click();
+    // The read view is unmounted while the edit dialog is open: wait for the saved read view before asserting absence.
+    await expect(edit).toHaveCount(0);
+    await expect(page.getByText(en['itemDetail.updated'], { exact: true })).toBeVisible();
     await expect(page.getByText(en['items.responsible.read'].replace('{name}', member!.login))).toHaveCount(0);
     expect((await serverItem(title)).responsibleUserId).toBeNull();
     await page.setViewportSize({ width: 360, height: 740 });

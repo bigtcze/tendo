@@ -339,6 +339,8 @@ export const en = {
   'itemDetail.attentionDate': 'Due {date}',
   'itemDetail.done': 'This item is complete. Its history is below.',
   'itemDetail.completionUndone': 'Completion undone. This item is open again.',
+  'itemDetail.refreshFailed': 'The item could not be refreshed. Reload before making another change.',
+  'itemDetail.reload': 'Reload',
   'itemDetail.updated': 'Item updated.',
   'itemDetail.edit.button': 'Edit',
   'itemDetail.edit.loading': 'Loading…',
