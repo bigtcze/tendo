@@ -1,5 +1,7 @@
 # V2.1 hand-written production code inventory
 
+> Historical V2.1 record. The tooling and baselines referenced below were replaced in #359; current checks: [testing.md](testing.md#maintainability-checks).
+
 Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/production_inventory.py --out docs/development/v2-1-production-inventory.md`.
 Snapshot at Git HEAD `c82f572d81812c06ed9024549f2d562a36d1656b`. The maintainability ratchet (`scripts/maintainability_check.py`) checks the live tree on every PR.
 Go files have function-level metrics. Frontend TypeScript function rules are enforced by ESLint with `frontend/maintainability-baseline.json` (0 entries). Python, shell and SQL are measured at file level only.

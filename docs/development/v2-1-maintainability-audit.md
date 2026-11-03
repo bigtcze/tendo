@@ -1,5 +1,7 @@
 # V2.1 maintainability audit
 
+> Historical V2.1 record. The tooling and baselines referenced below were replaced in #359; current checks: [testing.md](testing.md#maintainability-checks).
+
 Status: all eight P1 hotspots, the ranked P2 items and the subsequent backend/script audit candidates listed in Refactor evidence are refactored and verified. Metrics below are the `efa6635` baseline, not measurements of current main. At `efa6635`, `ci/maintainability-baseline.json` had six `file_lines` exceptions: `frontend/src/i18n/cs.ts`, `frontend/src/i18n/en.ts`, `scripts/dev_toolchain.py`, `scripts/e2e-native-runner.py` (511), `scripts/proxy-smoke.sh` (536), and `scripts/setup-smoke.sh`. The current-main baseline has four `file_lines` exceptions: the two localization catalogs, `scripts/dev_toolchain.py`, and `scripts/setup-smoke.sh`; the `scripts/e2e-native-runner.py` allowance was removed by PR #310 (`ccfe81c`) and the `scripts/proxy-smoke.sh` allowance by PR #309 (`6e0dc2f`), per baseline history. The frontend maintainability baseline is empty. There are no production function-size, complexity or nesting exceptions; remaining function exceptions belong to test support and operational scripts. Ranked items are the pre-refactor baseline ranking; dispositions and after-measurements are in Refactor evidence. They identify review/refactor targets, not a mandate to split cohesive code solely to reduce line counts. Policy: `.autonomous/CODE_QUALITY.md` and `.autonomous/V2_1_SCOPE.md`.
 
 ## Inventory and measurement

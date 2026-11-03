@@ -23,7 +23,6 @@ export function useLabelRetryFocus(
       if (labels.hasFailures) retryRef.current?.focus();
       else sectionHeadingRefs.current.get(groups.find((group) => groupData[group.id].items.length)?.id ?? 'needs')?.focus();
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- settle the retry once its batch completes.
     setPending(false);
   }, [pending, labels.loading, labels.hasFailures, groupData, sectionHeadingRefs]);
   function retry() {
