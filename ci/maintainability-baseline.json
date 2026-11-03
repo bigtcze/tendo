@@ -416,7 +416,7 @@
   {
     "kind": "long_lines",
     "path": "scripts/verify-local.sh",
-    "allowed": 4,
+    "allowed": 2,
     "reason": "Operational script coordinates verify-local.sh process/test behavior; preserve CLI, cleanup, and fail-fast semantics while extracting helpers.",
     "owner": "tooling-scripts"
   }

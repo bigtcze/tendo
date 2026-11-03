@@ -28,9 +28,9 @@ The command replaces the wrapper process, so exit status and signals are the com
 
 **Cache.** Everything lives under `${XDG_CACHE_HOME:-~/.cache}/tendo/toolchain` (override with an absolute `TENDO_TOOLCHAIN_CACHE`; CI uses the runner temp directory). Versions are kept side by side, so switching branches or testing an upgrade branch reuses existing downloads and works offline once provisioned. Expect roughly 2 GB for one set of pins. Old versions are not pruned automatically; deleting the whole directory is always safe and the next run re-downloads. Long-running agent hosts (for example Paperclip/OpenCode workers) should keep this directory on persistent storage, not tmpfs, and must not add it to the controller's own `PATH`.
 
-The existing PostgreSQL service is not managed by the wrapper; set `TENDO_TEST_POSTGRES_ADMIN_URL` as described below. CI jobs keep provisioning via `actions/setup-go`/`setup-node`; the `backend` job additionally provisions through the wrapper to prove it works from a clean cache.
+The existing PostgreSQL service is not managed by the wrapper; set `TENDO_TEST_POSTGRES_ADMIN_URL` as described below. CI jobs provision runtimes with `actions/setup-go`/`setup-node`.
 
-The complete local entrypoint does not use Docker for its native integration or E2E layers. Without the wrapper, install the same versions from trusted sources and run `npx --no-install playwright install chromium` in `frontend/`.
+The local integration and E2E layers use a dedicated native PostgreSQL service; the E2E browser uses Playwright Chromium. Without the wrapper, install the pinned versions from trusted sources.
 
 ## Dedicated PostgreSQL service setup
 
@@ -55,30 +55,23 @@ For a local disposable PostgreSQL instance only, `sslmode=disable` is acceptable
 
 ## Targeted checks and complete pre-PR gate
 
-After the dedicated service and pinned tools are available, targeted commands for debugging are:
+For focused debugging, run the relevant standard check directly:
 
 ```sh
-(cd backend && go vet ./...)
-(cd backend && go test -race $(go list ./... | grep -v -e '/internal/identity/postgres$' -e '/internal/household/postgres$' -e '/internal/subject/postgres$' -e '/internal/item/postgres$'))
-bash scripts/setup-integration.sh
+(cd backend && go test ./path/to/package)
+(cd frontend && npm test -- --run path/to/test)
+bash scripts/setup-integration.sh  # requires the dedicated PostgreSQL service
 bash scripts/check-sqlc.sh
-(cd api && npm ci && npm audit --audit-level=moderate && npm run check)
-(cd frontend && npm ci && npm audit --audit-level=moderate && npm run check)
-python3 -m unittest scripts/test_verify_local.py
-python3 -m unittest scripts/test_postgres_test_service.py scripts/test_e2e_native_runner.py scripts/test_verify_local.py scripts/test_ci_workflow.py scripts/test_toolchain_manifest.py scripts/test_dev_toolchain.py scripts/test_quickstart_docs.py
-python3 scripts/test_postgres_live.py
-python3 -m unittest scripts/test_generation_drift.py
-python3 scripts/test_e2e_interrupt.py
-bash scripts/e2e-smoke.sh
+bash scripts/e2e-smoke.sh          # production-build browser suite
 ```
 
-The mandatory complete pre-PR command has no skip switches:
+Run the complete local gate with the pinned tools:
 
 ```sh
 bash scripts/dev-exec.sh -- bash scripts/verify-local.sh
 ```
 
-It fails fast and reports stage status/duration, primary failure, and downstream NOT RUN. A local pass never replaces required GitHub checks. Do not request review with a known failing required check or use retries to hide a failure.
+The gate runs formatting, Go vet/maintainability/unit-race/integration/sqlc/build, API and frontend checks, then production E2E. A local pass never replaces required GitHub checks.
 
 ## Maintainability ratchet
 
@@ -86,18 +79,18 @@ It fails fast and reports stage status/duration, primary failure, and downstream
 
 Named exceptions are recorded in `ci/maintainability-baseline.json` with the current value, technical rationale, and owner. They may only decrease; worsening fails and stale exceptions must be tightened or removed. `--write-baseline` preserves existing rationales and refuses increases; new entries contain TODO rationale/owner placeholders which the check rejects. `--base-ref REF` (or `MAINTAINABILITY_BASE_REF`) compares baseline entries to the PR base: new exceptions and raised allowances fail. If the base has no baseline file, comparison bootstraps as a no-op.
 
-Frontend production TypeScript maintainability metrics are checked by `frontend/scripts/lint-ratchet.mjs` and named in `frontend/maintainability-baseline.json` as per-function-per-rule entries (`file :: qualified function :: rule`). The metrics plugin uses AST nodes and structured values, so each function's complexity, depth, and length ratchet independently. `frontend/scripts/lint-ratchet-identity.mjs` attributes every core-rule report to its structural code-path owner (function, field initializer or static block) and names it by lexical path: accessors carry their kind (`<get:x>`/`<set:x>`), fields their mode (`<field:x>`/`<static-field:x>`), computed keys a `computed#N` ordinal (never the key expression text), and anonymous functions, decorators and key expressions an ordinal shared by all siblings under one owner. Duplicate identities and unattributable reports fail the ratchet. The normal ESLint pass leaves these three core rules off and `npm run lint` runs the ratchet with base thresholds. The ratchet lints with `noInlineConfig`, so inline directives cannot disable or reconfigure its measurements; it also rejects any directive naming a maintainability rule, and ESLint API tests prove inline disables/overrides cannot hide violations. The ordinary lint pass keeps inline directives only for other rules (for example, the existing justified `react-hooks/set-state-in-effect` suppressions) with `reportUnusedDisableDirectives`. The pure comparison logic is covered by Node built-in tests. Its optional `--base-ref`/`MAINTAINABILITY_BASE_REF` rejects new or raised frontend exceptions relative to base. Never increase allowances to accept worsened debt.
+Frontend production TypeScript maintainability metrics are checked by `frontend/scripts/lint-ratchet.mjs` and named in `frontend/maintainability-baseline.json` as per-function-per-rule entries (`file :: qualified function :: rule`). The metrics plugin uses AST nodes and structured values, so each function's complexity, depth, and length ratchet independently. `frontend/scripts/lint-ratchet-identity.mjs` attributes every core-rule report to its structural code-path owner (function, field initializer or static block) and names it by lexical path: accessors carry their kind (`<get:x>`/`<set:x>`), fields their mode (`<field:x>`/`<static-field:x>`), computed keys a `computed#N` ordinal (never the key expression text), and anonymous functions, decorators and key expressions an ordinal shared by all siblings under one owner. Duplicate identities and unattributable reports fail the ratchet. The normal ESLint pass leaves these three core rules off and `npm run lint` runs the ratchet with base thresholds. The ratchet lints with `noInlineConfig`, so inline directives cannot disable or reconfigure its measurements; it also rejects any directive naming a maintainability rule, and ESLint API tests prove inline disables/overrides cannot hide violations. The ordinary lint pass keeps inline directives only for other rules (for example, the existing justified `react-hooks/set-state-in-effect` suppressions) with `reportUnusedDisableDirectives`. The ratchet runs as part of the normal lint command. Its optional `--base-ref`/`MAINTAINABILITY_BASE_REF` rejects new or raised frontend exceptions relative to base. Never increase allowances to accept worsened debt.
 
 ## CI job map
 
-The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, native E2E and eight deployment-smoke jobs run independently. The aggregate uses `if: always()` and passes only if every dependency result is exactly `success`; failure, cancellation and skipped all fail the gate.
+The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, browser E2E and eight deployment-smoke jobs run independently. The aggregate requires all six job results to succeed.
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.3/setup-go cache; autonomous bootstrap; gofmt, `go vet ./...`, fail-closed package discovery and race unit suite excluding exactly the four PostgreSQL adapters; `go build ./...`; `scripts/test_verify_local.py`, `scripts/test_ci_workflow.py` (workflow structure: mandatory commands, all seven smokes, in-job prerequisite order, aggregate needs/count), and `scripts/test_toolchain_manifest.py` (every pin matches `toolchain.json`), `scripts/test_dev_toolchain.py` (wrapper behavior), `scripts/test_quickstart_docs.py` (shell extraction, section fences, ordered README consistency); real `scripts/dev-exec.sh` provisioning into an empty cache plus a pinned `go build` |
+| `backend` | Go 1.27.3/setup-go; gofmt, `go vet ./...`, unit race tests excluding four PostgreSQL adapters, maintainability check and `go build ./...` |
 | `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
-| `postgres` | PostgreSQL 18.6 service, native psql18, official sqlc 1.31.1 release tarball verified against SHA256 before extraction, fixed `tendo` NOLOGIN bootstrap; exact race/P=1 integration suite, sqlc drift; API npm dependencies, frontend npm dependencies and matching Chromium for generator/process harness cases; PostgreSQL/live/process/generator/verifier tests |
+| `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |
 | `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 26.13.0, frontend `npm ci`, Playwright 1.64.1 Chromium install, full native production-build E2E |
 | `deployment` matrix, `fail-fast: false` | Eight entries: runtime, setup, OIDC, proxy, backup/restore, household backup, V1-to-current upgrade, and quick start. Each checks out and installs Go/Node/API dependencies before running its Docker smoke. The upgrade smoke starts published v1.0.0 with its release image, populates only through the V1 public API, then upgrades the same PostgreSQL volume using the checkout build; it compares table counts and captured response bodies/ETags and exercises V2 APIs. The quick-start smoke extracts and executes the install commands from the documentation. Each matrix job builds its own images; image transfer is YAGNI absent measured evidence for artifact handoff. Proxy and household-backup/upgrade retain their 12/15 minute bounds using per-matrix-step `timeout` values. |
 | `required` aggregate | `if: always()`, `needs` every other job, prints results and jq-requires exactly six job successes (the deployment matrix is one job). |

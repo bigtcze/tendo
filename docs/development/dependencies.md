@@ -1,6 +1,6 @@
 # Dependency and toolchain inventory
 
-Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pins is [`toolchain.json`](../../toolchain.json); `scripts/test_toolchain_manifest.py` (run by the `backend` CI job and the local gate) fails when the workflow, Dockerfiles, Compose file, scripts, generated-code headers, or package manifests drift from it. Update the manifest and every pin in the same change.
+Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pins is [`toolchain.json`](../../toolchain.json). Update the manifest and every repository pin in the same change.
 
 ## Runtimes, images, and native tools
 
@@ -54,7 +54,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 
 ## Upgrading a pin
 
-1. Change `toolchain.json` and every pin it lists in the same branch; `scripts/test_toolchain_manifest.py` names any you missed.
+1. Change `toolchain.json` and every pin it lists in the same branch.
 2. For a release archive (sqlc, mise), take the SHA-256 from the release asset digest (`gh api repos/<owner>/<repo>/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`), never from a local download alone.
 3. Playwright: update `@playwright/test` with npm so `frontend/package-lock.json` and `toolchain.json` agree; the wrapper derives the Chromium revision from the lockfile.
 4. Run `bash scripts/dev-exec.sh --versions`, then the complete gate through the wrapper. Both use the branch's own pins, so a candidate version never replaces what other branches or tools use.
@@ -112,7 +112,7 @@ For extraction/lookup diagnostics, use the official Renovate CLI with `--platfor
 
 ## Node.js 26 LTS migration notes (24.22.2 → 26.13.0)
 
-- **LTS only**: 26.13.0 (2026-10-28) is the first Node 26 LTS release ("Lithium", supported through April 2029) and changes only release metadata from 26.12.1, which was Current. Renovate PR #286 first proposed 26.12.0/26.12.1 and left `toolchain.json` `node` on 24.22.2, so `scripts/test_toolchain_manifest.py` failed; all pins now move together to 26.13.0.
+- **LTS only**: 26.13.0 (2026-10-28) is the first Node 26 LTS release ("Lithium", supported through April 2029) and changes only release metadata from 26.12.1, which was Current. Renovate PR #286 first proposed 26.12.0/26.12.1 and left the `toolchain.json` Node pin on 24.22.2; all pins now move together to 26.13.0.
 - **Bundled tools**: npm 11.19.1 → 11.20.0 (same major, no breaking changes listed); V8 13.6 → 14.6; OpenSSL 3.5.9 unchanged; Undici 8; Temporal enabled by default.
 - **Removed or deprecated APIs** (Node 25/26): `http.ServerResponse.prototype.writeHeader()` (use `writeHead()`), legacy `_stream_*` modules, `--experimental-transform-types`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` aliases and `SlowBuffer` removed; `module.register()` runtime-deprecated; Corepack no longer bundled. Repository scripts use none of these and Tendo does not use Corepack.
 - **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the `dev-exec.sh` provisioned binary all run it; the Docker web build and every deployment smoke pass. Native Linux developer machines without it must install the distribution package (Debian/Ubuntu `libatomic1`).

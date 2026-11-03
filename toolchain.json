@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "Verified developer and CI toolchain pins. scripts/test_toolchain_manifest.py fails when any repository pin drifts from this file.",
+  "description": "Verified developer and CI toolchain pins; keep every repository pin synchronized with this file.",
   "go": "1.27.3",
   "goModuleDirective": "1.26.0",
   "node": "26.13.0",
