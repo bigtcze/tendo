@@ -32,9 +32,9 @@ The historical V1/V2/V2.1 scope and DoD files stay locked and binding on all
 work. They are loaded by concern (triggers above) because many of their
 contracts are specific, e.g. full-dataset search and bounded fetching (V2),
 native no-Docker integration/E2E (V2.1). Adding ordinary tests inside the
-existing harness is governed by the always set (TESTING, GUARDRAILS). If a change crosses concerns, or you
-are unsure whether a trigger applies, read every applicable locked file
-before editing.
+existing harness is governed by the always set (TESTING, GUARDRAILS). If a
+change crosses concerns, or you are unsure whether a trigger applies, read
+every applicable locked file before editing.
 
 ## Tooling
 toolchain=`bash scripts/dev-exec.sh -- <command>` runs with the exact `mise.toml` pins, checksum-verified against `mise.lock`, from a private user cache; needs user-level mise >= `min_version`; do not install or rely on host Go/Node/sqlc.
