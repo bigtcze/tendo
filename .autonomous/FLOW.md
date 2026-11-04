@@ -7,7 +7,7 @@ main=protected
 parallel_PRs=avoid
 
 ## Start each cycle
-1. Read context in AGENTS order.
+1. Read the AGENTS read set (`always` + matching conditional files), each once.
 2. Inspect git status/current branch, origin/main, open PRs, required CI, merge state.
 3. Read locked V3_ISSUES_WORKFLOW. Query open managed Issues with BOTH the
    exact V3 milestone AND label `tendo:v3-autonomous`, e.g.
@@ -81,18 +81,7 @@ For behavior/API/schema changes:
 ## Dependency maintenance
 Dependency PRs (human, Renovate or self-opened) are ordinary open PRs: Start step 4 applies, so finish them before new feature work.
 Exception: routine Renovate PRs never take priority over an open managed `[P0]` Issue or a red `main`. Fix P0 first; leave routine PRs open (or to their native allowlisted automerge) and return to them afterwards. Security-alert PRs (`security` label) are P0 work. Never abandon a PR you already started without reconciling its state.
-1. Run every tool through `scripts/dev-exec.sh`; it installs the checked-out branch's `mise.toml` pins, verified against `mise.lock`, in a private user cache. Never install candidate versions globally, edit shell profiles, or change controller/OpenCode runtimes.
-2. Read the upstream release notes for every bumped version; for a major, read the migration guide and record behavior changes in `docs/development/dependencies.md`.
-3. Keep `mise.toml`, `mise.lock` and the matching image/workflow pins in sync (docs/development/dependencies.md "Upgrading a pin"). Verify new lock or mise checksums against the upstream published digests, never a local download alone.
-4. Diagnose each failing required check to root cause: read the failing job log, reproduce locally through the wrapper, then fix code/tests/generated output. Never weaken tests, pin backwards silently, or retry to green.
-5. Run the complete gate: `scripts/dev-exec.sh -- bash scripts/verify-local.sh`.
-6. Merge only through normal protection; afterwards verify green `main` CI (Work step 15).
-
-Renovate PRs:
-- Patch/minor with green required CI: review the diff and release notes, then merge normally.
-- Renovate stops updating a branch once it has non-Renovate commits. If a migration needs code changes, push fixes to the Renovate branch only when that PR is the single focused change; otherwise close it and open a focused migration PR that supersedes it, and reference it.
-- Do not use rebase/recreate checkboxes or labels to hide failures; a fresh run must pass on its own.
-- Do not create schedulers, bots or Renovate config changes without a separate justified PR.
+Follow `docs/development/dependencies.md` "Dependency PR procedure" for every dependency PR (wrapper-only tooling, release notes, pin sync, root-cause failures, full gate, Renovate branch rules).
 
 ## Dependency/tool failures
 - Identify root cause before workaround.
@@ -102,6 +91,7 @@ Renovate PRs:
 - Preserve primary failure evidence in the owned Issue if cleanup/reporting also fails.
 
 ## Context maintenance
+read_set=AGENTS (always + conditional triggers); map and rationale in docs/development/agent-context.md
 work_status=managed_V3_Issues_only_no_state_file
 issue_body=stable_acceptance_contract_update_when_scope_changes
 issue_comments=claims_decisions_evidence_blockers_PR_links_handoff
@@ -117,47 +107,16 @@ docs_ADR=durable_decisions_only
 - Choose safe independent V3 design/UX validation, UI work or regression repair if available.
 - Never claim unverified success.
 
-## V2.1 release and completion protocol
-Only after every V2_1_DEFINITION_OF_DONE item is proven against current main:
-1. Audit the complete behavior/requirement matrix for untested routes, actions,
-   permission boundaries, state transitions and unresolved defects. Fill gaps
-   or record a strictly justified exclusion; no known release blockers.
-   ALSO independently audit every human-authored production source file for
-   CODE_QUALITY debt, verify high-risk oversized/tangled modules were ACTUALLY
-   refactored via green PRs and the maintainability regression gate is active.
-2. Run and record the exhaustive release qualification, full pinned native
-   local verification, required GitHub CI, independent QA review, mutation
-   evidence, real-browser E2E, production deployment and migration checks.
-3. Merge docs/releases/v2.1.0.md and all release-facing documentation via PR.
-4. On green main, create annotated v2.1.0 tag at that exact verified commit.
-5. Use existing release workflow; verify GitHub Release/assets, public GHCR
-   image both architectures, clean install and upgrade with existing data.
-6. If any gate or external publication step fails, fix it or record the exact
-   blocker; do not claim completion or bypass branch protections.
-7. On fresh main, create FINAL completion branch with V2_1_COMPLETE containing
-   detailed evidence and the released tag; merge using normal protected PR.
-8. Sync clean local main, verify tracked V2_1_COMPLETE and exit successfully.
-Preserve both historical completion markers PROJECT_COMPLETE and V2_COMPLETE.
-Never add the completion marker directly to main.
-
 ## V3 GitHub issue execution (permanent)
-- Every cycle read V3_ISSUES_WORKFLOW. Query ONLY Issues that have BOTH the
-  exact V3 milestone AND ownership label `tendo:v3-autonomous`. Ignore ALL
-  other Issues, even if they are in the V3 milestone or have V3-like titles.
-  Never auto-adopt an outside Issue by applying the ownership label.
-- Only agents creating NEW Issues may attach this label at creation time:
-  `gh issue create --milestone "Tendo v3.0.0 - Everyday Elegance" --label tendo:v3-autonomous --label status:idle`.
-  Reconcile owned comments, claims, dependencies, linked PRs and required CI.
-  Never re-create STATE.md or any substitute state/progress file.
-- Work only on a claimed managed Issue; comment claim with stable identity, change
-  idle -> in-progress, WAIT 3–5 seconds and re-read full issue/comment history.
-  First still-active server-ordered claim wins, otherwise RELEASE and pick
-  another ready issue. One focused PR at a time, no separate coordinator.
-- Record tests/screenshots/decisions/blocked reasons only in owned Issue
-  comments and linked PRs. Before every mutation recheck BOTH ownership
-  label and milestone; close only after green merged main and proof.
-- For release/finish, close V3-18 only after confirmed published public
-  v3.0.0 and both GHCR platforms; then V3-19 covers V3_COMPLETE final PR.
+Locked V3_ISSUES_WORKFLOW is the single canonical rule set (ownership filter,
+new-Issue creation, claim/collision, status labels, closure, V3-18/V3-19
+gates); read it every cycle and apply it exactly. Procedure reminders:
+- Every query and mutation filters BOTH milestone `Tendo v3.0.0 - Everyday Elegance`
+  AND label `tendo:v3-autonomous`; recheck both immediately before each mutation.
+- New Issue: `gh issue create --milestone "Tendo v3.0.0 - Everyday Elegance" --label tendo:v3-autonomous --label status:idle`.
+  Never label an existing Issue.
+- Evidence (tests, screenshots, decisions, blockers) goes only in owned Issue
+  comments and linked PRs; never STATE.md or a substitute.
 
 ## V3 design and visual validation discipline
 - Before changing visuals, capture evidence of the real current UI on actual

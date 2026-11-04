@@ -84,7 +84,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 
 The test-provider Dockerfile under `backend/test/` is explicitly included by overriding the recommended test-directory exclusions. Compose overrides without images still remain supported package-file locations. Documentation versions, shell installer comparisons, PostgreSQL client-major assertions and generated headers are not rewritten automatically. Different datasources may publish at different times, so grouping does **not** promise a complete synchronized upgrade.
 
-Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. Renovate treats `mise lock` as an unsafe execution, so a `mise.toml` proposal may arrive without a refreshed `mise.lock`; required CI then fails at `mise install --locked` until the developer refreshes the lock, which is the intended fail-closed boundary. The autonomous developer finishes incomplete proposals following `.autonomous/FLOW.md` **Dependency maintenance**, which already requires open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI. Agent/controller instructions are unchanged.
+Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. Renovate treats `mise lock` as an unsafe execution, so a `mise.toml` proposal may arrive without a refreshed `mise.lock`; required CI then fails at `mise install --locked` until the developer refreshes the lock, which is the intended fail-closed boundary. The autonomous developer finishes incomplete proposals following `.autonomous/FLOW.md` **Dependency maintenance** and the [Dependency PR procedure](#dependency-pr-procedure) below, which require open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI. Agent/controller instructions are unchanged.
 
 ### Merge policy
 
@@ -101,6 +101,24 @@ bash scripts/dev-exec.sh -- npm exec --yes --package=renovate -- renovate-config
 ```
 
 For extraction/lookup diagnostics, use the official Renovate CLI with `--platform=local --dry-run=extract` or `--dry-run=lookup` in the checkout. Provide `GITHUB_COM_TOKEN` privately for GitHub datasources; local-platform `RENOVATE_TOKEN` alone does not authenticate those lookups. Never print or commit tokens or raw authenticated logs. A local dry run does not prove the hosted app has run; inspect its Dashboard and first actual PR after onboarding.
+
+## Dependency PR procedure
+
+Agent-facing procedure for every dependency PR (human, Renovate or self-opened). Priority rules (when a dependency PR goes first, P0/red `main`/security exceptions) live in `.autonomous/FLOW.md` "Dependency maintenance".
+
+1. Run every tool through `scripts/dev-exec.sh`; it installs the checked-out branch's `mise.toml` pins, verified against `mise.lock`, in a private user cache. Never install candidate versions globally, edit shell profiles, or change controller/OpenCode runtimes.
+2. Read the upstream release notes for every bumped version; for a major, read the migration guide and record behavior changes under a migration-notes heading in this file.
+3. Keep `mise.toml`, `mise.lock` and the matching image/workflow pins in sync ("Upgrading a pin" above). Verify new lock or mise checksums against the upstream published digests, never a local download alone.
+4. Diagnose each failing required check to root cause: read the failing job log, reproduce locally through the wrapper, then fix code/tests/generated output. Never weaken tests, pin backwards silently, or retry to green.
+5. Run the complete gate: `scripts/dev-exec.sh -- bash scripts/verify-local.sh`.
+6. Merge only through normal protection; afterwards verify green `main` CI (`.autonomous/FLOW.md` Work step 15).
+
+### Renovate PRs
+
+- Patch/minor with green required CI: review the diff and release notes, then merge normally.
+- Renovate stops updating a branch once it has non-Renovate commits. If a migration needs code changes, push fixes to the Renovate branch only when that PR is the single focused change; otherwise close it and open a focused migration PR that supersedes it, and reference it.
+- Do not use rebase/recreate checkboxes or labels to hide failures; a fresh run must pass on its own.
+- Do not create schedulers, bots or Renovate config changes without a separate justified PR.
 
 ## Security overrides
 
