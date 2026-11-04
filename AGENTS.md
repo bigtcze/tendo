@@ -10,21 +10,25 @@ human_intervention=routine_not_required
 ## Read set
 OpenCode already injects this file into every session; do not re-read it.
 Paths are `.autonomous/<NAME>.md`. Read each file once per session; re-read
-only after it changes (new branch content, merge, edit). Map and rationale:
-`docs/development/agent-context.md`.
+only after it changes (new branch content, merge, edit). Do not read files
+outside the matching set for routine work (rationale for maintainers of this
+read set only: `docs/development/agent-context.md`).
 
 always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,API,UX,TESTING,CODE_QUALITY,FLOW,LEARNINGS,V3_SCOPE,V3_DESIGN_BRIEF,V3_DEFINITION_OF_DONE,V3_ISSUES_WORKFLOW
 when_docs_or_user_setup=DOCUMENTATION
 when_platform_or_future_seam=ROADMAP
 when_release_or_completion=DOCUMENTATION,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
-when_changing_removing_or_moving_tests_CI_gates_release_qualification_or_V1_V2_V2_1_shipped_behavior=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
+when_removing_skipping_relaxing_or_relocating_existing_tests_CI_gates_or_release_qualification=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
+when_intentionally_changing_documented_V1_V2_V2_1_product_or_API_semantics=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
 when_dependency_or_renovate_PR=FLOW "Dependency maintenance", then `docs/development/dependencies.md` "Dependency PR procedure"
 never_needed_for_routine_work=CYCLE_PROMPT (already the session prompt), V3_ISSUES_MIGRATION_PROMPT (executed one-shot bootstrap), PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE (historical markers; never edit or delete)
 
 The historical V1/V2/V2.1 scope and DoD files stay locked and binding: their
 invariants are already restated in the always set and enforced by the
-required test suite. If a change crosses concerns, or you are unsure whether a
-conditional trigger applies, read every applicable locked file before editing.
+required test suite. Routine V3 UI work, bug fixes that restore documented
+behavior, and adding or repairing tests without relaxing them do not trigger
+them. If a change crosses concerns, or you are unsure whether a conditional
+trigger applies, read every applicable locked file before editing.
 
 ## Tooling
 toolchain=`bash scripts/dev-exec.sh -- <command>` runs with the exact `mise.toml` pins, checksum-verified against `mise.lock`, from a private user cache; needs user-level mise >= `min_version`; do not install or rely on host Go/Node/sqlc.

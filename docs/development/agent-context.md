@@ -1,6 +1,6 @@
 # Agent context map
 
-How the autonomous agent's instructions fit together, which files it loads and why. The read set itself lives in `AGENTS.md`; this page explains it and is not required reading for a cycle.
+How the autonomous agent's instructions fit together, which files it loads and why. The read set itself lives in `AGENTS.md`; this page explains it for whoever maintains the read set; it is not cycle reading.
 
 ## How OpenCode loads context
 
@@ -22,7 +22,7 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | LEARNINGS | agent-maintained durable rules | yes | always |
 | DOCUMENTATION | locked | no | docs/user setup, release |
 | ROADMAP | locked direction | no | platform or future-seam work |
-| DEFINITION_OF_DONE (V1), V2_SCOPE, V2_DEFINITION_OF_DONE, V2_1_SCOPE, V2_1_DEFINITION_OF_DONE | locked, historical | no | release/completion; changing tests, CI gates, release qualification or shipped V1/V2/V2.1 behavior |
+| DEFINITION_OF_DONE (V1), V2_SCOPE, V2_DEFINITION_OF_DONE, V2_1_SCOPE, V2_1_DEFINITION_OF_DONE | locked, historical | no | release/completion; removing, skipping, relaxing or relocating tests, CI gates or release qualification; intentionally changing documented V1/V2/V2.1 product or API semantics |
 | V3_ISSUES_READY | issue identifiers, not status | no (migration output) | when an Issue ID is needed |
 | V3_ISSUES_MIGRATION_PROMPT | executed one-shot bootstrap prompt | no | never for routine work |
 | PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE | historical completion markers | never edit or delete | never for routine work |
@@ -35,7 +35,7 @@ Locked `V3_SCOPE.md` "Execution constraints" requires reading V3_DESIGN_BRIEF, V
 
 ## Why the historical V1/V2/V2.1 specifications are conditional
 
-They remain locked and binding. For ordinary V3 work their invariants are already present in the always set: GUARDRAILS "Scope safety" and "Product invariants", PRODUCT, ARCHITECTURE, API, UX, TESTING and CODE_QUALITY, and they are enforced by the required CI suite that V3 must not weaken (V3_SCOPE, V3_DEFINITION_OF_DONE). The agent reads them when they decide the outcome: release and completion (they show the precedent and preserved gates), and any change that removes, moves or relaxes tests, CI gates or release qualification, or changes behavior shipped in V1/V2/V2.1.
+They remain locked and binding. For ordinary V3 work their invariants are already present in the always set: GUARDRAILS "Scope safety" and "Product invariants", PRODUCT, ARCHITECTURE, API, UX, TESTING and CODE_QUALITY, and they are enforced by the required CI suite that V3 must not weaken (V3_SCOPE, V3_DEFINITION_OF_DONE). The agent reads them when they decide the outcome: release and completion (they show the precedent and preserved gates), any change that removes, skips, relaxes or relocates existing tests, CI gates or release qualification, and any intentional change to documented V1/V2/V2.1 product or API semantics. Routine V3 UI work, bug fixes that restore documented behavior, and adding or repairing tests without relaxing them do not need them. A first version of this trigger ("changing tests or shipped behavior") matched almost every V3 task in the validation runs, so it was narrowed.
 
 ## Consolidated duplicates
 
