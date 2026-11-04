@@ -2,33 +2,27 @@
 
 ## Prerequisites
 
-The complete local gate targets Go 1.27.3, a C compiler (`gcc`) for race-enabled tests, Python 3, curl, tar, sha256sum, Node.js 26.13.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium browser. Repository-pinned generators and test tools include oapi-codegen v2.8.2 (run by `api/Makefile` with `go run`), openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 26.13.0. See [dependency and toolchain inventory](dependencies.md); `toolchain.json` is the canonical pin list.
+The complete local gate targets Go 1.27.3, a C compiler (`gcc`) for race-enabled tests, Python 3, Node.js 26.13.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium browser. Repository-pinned generators and test tools include oapi-codegen v2.8.2 (run by `api/Makefile` with `go run`), openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 26.13.0. See [dependency and toolchain inventory](dependencies.md).
 
-## Pinned toolchain wrapper
+## Pinned toolchain
 
-`scripts/dev-exec.sh` runs any command with the exact Go, Node.js/npm, sqlc and Playwright Chromium versions from the checked-out `toolchain.json`. The host still needs Python 3, `gcc`, `make`, `curl`, `tar`, `psql` 18 and Chromium's system libraries (on Debian/Ubuntu: `sudo npx --no-install playwright install-deps chromium` once from `frontend/`). Nothing is installed system-wide and your shell, global profiles and other mise installations are unchanged.
+[`mise.toml`](../../mise.toml) pins Go, Node.js and sqlc; [`mise.lock`](../../mise.lock) records each tool's official download URL and SHA-256 for Linux and macOS on x64 and arm64. Install [mise](https://mise.jdx.dev/installing-mise.html) 2026.11.0 or newer (`min_version` enforces it) as a user-level binary; verify a manually downloaded archive against the release's `SHASUMS256.txt`. No shell activation, global config or `mise trust` is needed.
+
+`scripts/dev-exec.sh` runs any command with exactly those tools:
 
 ```sh
-bash scripts/dev-exec.sh --versions                         # provision, then print versions and executable paths
+bash scripts/dev-exec.sh -- bash -c 'go version; node --version; sqlc version'
 bash scripts/dev-exec.sh -- bash scripts/verify-local.sh    # complete pre-PR gate with the pins
 bash scripts/dev-exec.sh -- bash -c 'cd backend && go test ./...'
 ```
 
-How it provisions each tool (linux x86_64 only):
+It runs `mise install --locked`, so a tool missing from `mise.lock` or a downloaded archive whose SHA-256 differs is an error, never a fallback to another version. mise checks archives when it installs them and afterwards trusts the install directory, so before running the command the wrapper also confirms that `go`, `node`, `npm` and `sqlc` resolve inside its private install tree (never a host binary) and that `go`, `node` and `sqlc` report the pinned versions. If a cached install is damaged, delete `${XDG_CACHE_HOME:-~/.cache}/tendo/mise/data/installs` to re-download and re-verify it. The wrapper ignores inherited `MISE_*` variables, your user, system and parent-directory mise configuration, system-wide mise installs and Node.js/Go default-package files (`~/.default-npm-packages` and its variants, `~/.default-go-packages`), and keeps installs under `${XDG_CACHE_HOME:-~/.cache}/tendo/mise`, so other mise projects and global installs are neither read nor changed. Cancelling the wrapper while it installs also stops the installer. It sets `GOTOOLCHAIN=local` (Go never downloads another toolchain) and `GOENV=off` (settings saved with `go env -w` are ignored); explicit `GO*` variables in your environment still apply. The command replaces the wrapper process, so exit status and signals are the command's own.
 
-| Tool | Source and verification |
-|---|---|
-| mise (installer only) | Official release archive, SHA-256 from `toolchain.json` checked before extraction. Runs with `MISE_NO_CONFIG=1` and private data/cache/state/config/system directories and no shared install directories, so no `mise.toml`, global config, shims or shared installs are read or changed; an install path outside the private directory is refused. |
-| Go, Node.js | `mise install go@X.Y.Z node@X.Y.Z` from the official mirrors with Go checksum and Node signature/checksum verification forced on and mise's npm reshim hook off; the wrapper then checks `go version`/`node --version` report the exact pin. |
-| sqlc | Official release archive, SHA-256 from `toolchain.json` checked before extraction, then `sqlc version` checked. |
-| oapi-codegen | Not installed: `api/Makefile` runs `go run …@<pin>` with the pinned Go. |
-| Playwright Chromium | `playwright-core` installed (scripts disabled, user/global `.npmrc` and `npm_config_*` ignored) and accepted only with the exact version and integrity of `frontend/package-lock.json`; its `browsers.json` decides the Chromium revision. |
+Playwright Chromium comes from the locked `@playwright/test` package itself: `verify-local.sh` runs `npx --no-install playwright install chromium` in `frontend/`, which installs the matching revision into Playwright's standard cache (`~/.cache/ms-playwright`). Chromium's system libraries are a one-time host step (Debian/Ubuntu: `sudo npx --no-install playwright install-deps chromium` from `frontend/`). The host also needs Python 3, `gcc`, `make` and `psql` 18.
 
-The command replaces the wrapper process, so exit status and signals are the command's own. A missing or mismatched tool is an error; the wrapper never falls back to a system binary. Cached mise and sqlc binaries are re-checked against their recorded SHA-256 before each use. `GOTOOLCHAIN=local` stops Go from downloading another toolchain and `GOENV=off` ignores settings saved with `go env -w`; explicit `GO*` variables in your environment still apply. Interrupting provisioning stops the installer before the cache lock is released.
+CI uses the same `mise.toml`/`mise.lock` through [`.github/actions/toolchain`](../../.github/actions/toolchain/action.yml): `jdx/mise-action` installs a version- and SHA-256-pinned mise, then `mise install --locked`. A wrong lock checksum therefore fails required CI.
 
-**Cache.** Everything lives under `${XDG_CACHE_HOME:-~/.cache}/tendo/toolchain` (override with an absolute `TENDO_TOOLCHAIN_CACHE`; CI uses the runner temp directory). Versions are kept side by side, so switching branches or testing an upgrade branch reuses existing downloads and works offline once provisioned. Expect roughly 2 GB for one set of pins. Old versions are not pruned automatically; deleting the whole directory is always safe and the next run re-downloads. Long-running agent hosts (for example Paperclip/OpenCode workers) should keep this directory on persistent storage, not tmpfs, and must not add it to the controller's own `PATH`.
-
-The existing PostgreSQL service is not managed by the wrapper; set `TENDO_TEST_POSTGRES_ADMIN_URL` as described below. CI jobs provision runtimes with `actions/setup-go`/`setup-node`.
+The existing PostgreSQL service is not managed by the wrapper; set `TENDO_TEST_POSTGRES_ADMIN_URL` as described below.
 
 The local integration and E2E layers use a dedicated native PostgreSQL service; the E2E browser uses Playwright Chromium. Without the wrapper, install the pinned versions from trusted sources.
 
@@ -81,11 +75,11 @@ Go exceptions live beside the checker as named path/function/metric entries with
 
 ## CI job map
 
-The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, browser E2E and seven deployment-smoke jobs run independently. The aggregate requires all six job results to succeed.
+The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, browser E2E and seven deployment-smoke jobs run independently. The aggregate requires all six job results to succeed. Every job installs Go, Node.js and sqlc through `.github/actions/toolchain` (`mise install --locked`), so CI and `dev-exec.sh` use the same verified archives.
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.3/setup-go; gofmt, `go vet ./...`, unit race tests excluding four PostgreSQL adapters, `go run ./tools/structcheck`, and `go build ./...` |
+| `backend` | Go 1.27.3 from `mise.lock`; gofmt, `go vet ./...`, unit race tests excluding four PostgreSQL adapters, `go run ./tools/structcheck`, and `go build ./...` |
 | `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |

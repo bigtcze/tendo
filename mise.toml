@@ -1,0 +1,9 @@
+# Developer and CI toolchain. mise.lock records each tool's per-platform download URL and SHA-256.
+# Change a version here and refresh mise.lock in the same commit (docs/development/dependencies.md).
+# Keep this file to plain [tools] entries: anything else makes mise require `mise trust`.
+min_version = "2026.11.0"
+
+[tools]
+go = "1.27.3"
+node = "26.13.0"
+"aqua:sqlc-dev/sqlc" = "1.31.1"

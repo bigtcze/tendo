@@ -48,26 +48,7 @@ jobs:
           ref: ${{ github.sha }}
       - name: Trust containerized checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.27.3'
-          cache: true
-          cache-dependency-path: backend/go.sum
-      - name: Install pinned Node.js
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Download outside the checkout so the qualified tree stays clean.
-          node_archive="$RUNNER_TEMP/node-v26.13.0-linux-x64.tar.xz"
-          curl -fsSL -o "$node_archive" "https://nodejs.org/dist/v26.13.0/node-v26.13.0-linux-x64.tar.xz"
-          echo "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997  $node_archive" | sha256sum --check
-          install -d /opt/node
-          tar -xJf "$node_archive" --strip-components=1 -C /opt/node
-          rm -f "$node_archive"
-          echo /opt/node/bin >> "$GITHUB_PATH"
-          export PATH="/opt/node/bin:$PATH"
-          node --version | grep -Fx 'v26.13.0'
-          npm --version
+      - uses: ./.github/actions/toolchain
       - name: Install pinned Playwright browser and project dependencies
         working-directory: frontend
         run: |

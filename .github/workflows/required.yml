@@ -20,11 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.27.3'
-          cache: true
-          cache-dependency-path: backend/go.sum
+      - uses: ./.github/actions/toolchain
       - name: Check Go formatting
         shell: bash
         run: |
@@ -58,15 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.27.3'
-          cache: false
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '26.13.0'
-          cache: npm
-          cache-dependency-path: api/package-lock.json
+      - uses: ./.github/actions/toolchain
       - name: Validate, audit, and check generated API artifacts
         shell: bash
         working-directory: api
@@ -82,11 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '26.13.0'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+      - uses: ./.github/actions/toolchain
       - name: Frontend install, audit, and check
         shell: bash
         working-directory: frontend
@@ -116,12 +100,8 @@ jobs:
       TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.27.3'
-          cache: true
-          cache-dependency-path: backend/go.sum
-      - name: Install native PostgreSQL 18 client and sqlc 1.31.1
+      - uses: ./.github/actions/toolchain
+      - name: Install native PostgreSQL 18 client
         shell: bash
         run: |
           set -euo pipefail
@@ -138,13 +118,6 @@ jobs:
             printf 'PostgreSQL client major 18 is required; found %s\n' "$psql_version" >&2
             exit 1
           fi
-          mkdir -p "$RUNNER_TEMP/bin"
-          archive="$RUNNER_TEMP/sqlc_1.31.1_linux_amd64.tar.gz"
-          curl -fsSL --retry 3 -o "$archive" https://github.com/sqlc-dev/sqlc/releases/download/v1.31.1/sqlc_1.31.1_linux_amd64.tar.gz
-          printf '%s  %s\n' '497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354' "$archive" | sha256sum -c -
-          tar -xzf "$archive" -C "$RUNNER_TEMP/bin" sqlc
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/bin/sqlc" version | grep -Fx 'v1.31.1'
       - name: Bootstrap PostgreSQL 18 integration service
         shell: bash
         run: |
@@ -188,11 +161,7 @@ jobs:
       TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.27.3'
-          cache: true
-          cache-dependency-path: backend/go.sum
+      - uses: ./.github/actions/toolchain
       - name: Install native PostgreSQL 18 client
         shell: bash
         run: |
@@ -228,13 +197,6 @@ jobs:
             CREATE ROLE tendo NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
           END $$;
           SQL
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '26.13.0'
-          cache: npm
-          cache-dependency-path: |
-            api/package-lock.json
-            frontend/package-lock.json
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -281,16 +243,7 @@ jobs:
           - smoke: quickstart-smoke
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.27.3'
-          cache: true
-          cache-dependency-path: backend/go.sum
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: '26.13.0'
-          cache: npm
-          cache-dependency-path: api/package-lock.json
+      - uses: ./.github/actions/toolchain
       - name: Install API Node dependencies for response contract checks
         working-directory: api
         run: npm ci

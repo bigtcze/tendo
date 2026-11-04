@@ -29,7 +29,8 @@ output, audio and the D-Bus address are never uploaded. Keep the audit directory
 
 Host prerequisites on Linux: `orca`, `at-spi2-core`, `speech-dispatcher`,
 `espeak-ng`, `xdotool`, `openbox`, `dbus-x11`, `xvfb`, Chromium runtime
-libraries, and a Playwright Chromium installation from the pinned toolchain.
+libraries, and the Playwright Chromium revision for the locked `@playwright/test`
+(`npx --no-install playwright install chromium` in `frontend/`).
 
 ## What it proves and limits
 

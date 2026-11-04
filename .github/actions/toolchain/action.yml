@@ -1,0 +1,22 @@
+name: Pinned toolchain
+description: Install the mise.toml tools verified against mise.lock and restore this job's Go and npm download caches.
+runs:
+  using: composite
+  steps:
+    # mise-action runs `mise install --locked` because mise.lock exists: every Go, Node.js and sqlc
+    # archive must match its recorded SHA-256, exactly as scripts/dev-exec.sh does locally.
+    - uses: jdx/mise-action@v5.2.6
+      with:
+        version: 2026.11.0
+        sha256: 71eb4f1b66b8bd69eb44cedcf0b22205859ea1ae2b2f557e48b35656079a94a9
+    - name: Keep Go on the pinned toolchain
+      shell: bash
+      run: echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+    - uses: actions/cache@v6.1.0
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.npm
+        key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('mise.lock', 'backend/go.sum', 'api/package-lock.json', 'frontend/package-lock.json') }}
+        restore-keys: deps-${{ github.job }}-${{ runner.os }}-
