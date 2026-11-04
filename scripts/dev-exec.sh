@@ -22,7 +22,9 @@ export MISE_DATA_DIR="$private/data" MISE_CACHE_DIR="$private/cache" MISE_STATE_
   MISE_SYSTEM_DATA_DIR="$private/system-data" MISE_SYSTEM_INSTALLS_DIR="$private/system-data/installs" \
   MISE_CEILING_PATHS="$(dirname "$root")"
 # mise installs these into every fresh Node.js/Go runtime; only override when present (overriding prints a deprecation).
-[[ ! -e "$HOME/.default-npm-packages" ]] || export MISE_NODE_DEFAULT_PACKAGES_FILE=/dev/null
+for source in "${NODE_DEFAULT_PACKAGES_FILE:-}" "$HOME/.default-nodejs-packages" "$HOME/.default-node-packages" "$HOME/.default-npm-packages"; do
+  [[ -z "$source" || ! -e "$source" ]] || { export MISE_NODE_DEFAULT_PACKAGES_FILE=/dev/null; break; }
+done
 [[ ! -e "$HOME/.default-go-packages" ]] || export MISE_GO_DEFAULT_PACKAGES_FILE=/dev/null
 
 # Supervise installation so cancelling the wrapper also stops an in-progress download or extraction.
