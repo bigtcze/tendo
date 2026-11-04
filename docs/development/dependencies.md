@@ -12,7 +12,7 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
 | mise (installer used by `scripts/dev-exec.sh`) | 2026.10.25 | 2026.10.25 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
-| oapi-codegen | v2.8.1 | v2.8.1 | Current; see migration notes below |
+| oapi-codegen | v2.8.2 | v2.8.2 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
 | GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0, upload-artifact v7.0.2 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
@@ -117,6 +117,11 @@ For extraction/lookup diagnostics, use the official Renovate CLI with `--platfor
 - **Removed or deprecated APIs** (Node 25/26): `http.ServerResponse.prototype.writeHeader()` (use `writeHead()`), legacy `_stream_*` modules, `--experimental-transform-types`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` aliases and `SlowBuffer` removed; `module.register()` runtime-deprecated; Corepack no longer bundled. Repository scripts use none of these and Tendo does not use Corepack.
 - **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the `dev-exec.sh` provisioned binary all run it; the Docker web build and every deployment smoke pass. Native Linux developer machines without it must install the distribution package (Debian/Ubuntu `libatomic1`).
 - Sources: [v26.0.0](https://nodejs.org/en/blog/release/v26.0.0), [v25.0.0](https://nodejs.org/en/blog/release/v25.0.0), [v26.13.0](https://nodejs.org/en/blog/release/v26.13.0).
+
+## oapi-codegen v2.8.2 notes
+
+- Security release ([GHSA-2vcr-56fq-97rw](https://github.com/oapi-codegen/oapi-codegen/security/advisories/GHSA-2vcr-56fq-97rw), [GHSA-x3wv-qq4q-hj6r](https://github.com/oapi-codegen/oapi-codegen/security/advisories/GHSA-x3wv-qq4q-hj6r)): implicit `oneOf`/`anyOf` discriminator mapping keys and the contents of whole-document external `$ref`s are now validated before reaching generated Go.
+- `api/openapi.yaml` uses only local `#/components` references and no implicit discriminator mappings from untrusted specifications. Regenerated output differs from v2.8.1 only in the `Code generated … version` header.
 
 ## oapi-codegen v2.8.1 notes
 
