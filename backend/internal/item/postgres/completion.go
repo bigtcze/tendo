@@ -159,7 +159,7 @@ func (r *Repository) Complete(ctx context.Context, hid, iid, key string, fingerp
 	if err != nil {
 		return item.Completion{}, false, errPersistence
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbgen.New(tx)
 	current, existing, err := loadCompletionForWrite(ctx, q, h, id, key)
 	if err != nil {
@@ -195,7 +195,7 @@ func (r *Repository) UndoCompletion(ctx context.Context, hid, iid, cid string, d
 	if err != nil {
 		return item.Completion{}, errPersistence
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbgen.New(tx)
 	current, receipt, latest, err := loadCompletionUndo(ctx, q, h, i, c)
 	if err != nil {

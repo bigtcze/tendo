@@ -21,21 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/toolchain
-      - name: Check Go formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          files="$(gofmt -l $(find backend -name '*.go' -type f))"
-          if [[ -n "$files" ]]; then
-            printf 'Go files need formatting:\n%s\n' "$files"
-            exit 1
-          fi
-      - name: Go vet
+      - name: Go lint (gofmt, go vet, staticcheck, structure)
         working-directory: backend
-        run: go vet ./...
-      - name: Go structure
-        working-directory: backend
-        run: go run ./tools/structcheck
+        run: golangci-lint run ./...
       - name: Go unit tests with race detector
         shell: bash
         working-directory: backend

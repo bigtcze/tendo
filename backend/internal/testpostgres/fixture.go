@@ -44,40 +44,7 @@ func CreateDatabase(t *testing.T, ctx context.Context, admin *pgxpool.Pool) stri
 	}
 	adminConfig := admin.Config().Copy()
 	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		cleanupAdmin, err := pgxpool.NewWithConfig(cleanupCtx, adminConfig)
-		if err != nil {
-			t.Errorf("connect for cleanup of owned fixture %s: %v", dbName, err)
-			return
-		}
-		defer cleanupAdmin.Close()
-		var currentRoleOID uint32
-		if err := cleanupAdmin.QueryRow(cleanupCtx, `SELECT oid FROM pg_roles WHERE rolname=current_user`).Scan(&currentRoleOID); err != nil {
-			t.Errorf("verify fixture cleanup migrator: %v", err)
-			return
-		}
-		if currentRoleOID != migratorOID {
-			t.Errorf("refusing cleanup for %s: migrator OID changed from %d to %d", dbName, migratorOID, currentRoleOID)
-			return
-		}
-		var currentOID uint32
-		if err := cleanupAdmin.QueryRow(cleanupCtx, `SELECT oid FROM pg_database WHERE datname=$1`, dbName).Scan(&currentOID); err != nil {
-			t.Errorf("lookup owned fixture %s during cleanup: %v", dbName, err)
-			return
-		}
-		if currentOID != oid {
-			t.Errorf("refusing to drop fixture %s: database OID changed from %d to %d", dbName, oid, currentOID)
-			return
-		}
-		var ownerOID uint32
-		if err := cleanupAdmin.QueryRow(cleanupCtx, `SELECT datdba FROM pg_database WHERE oid=$1`, oid).Scan(&ownerOID); err != nil || ownerOID != migratorOID {
-			t.Errorf("refusing to drop fixture %s: database ownership changed (owner oid %d, expected %d, lookup error %v)", dbName, ownerOID, migratorOID, err)
-			return
-		}
-		if err := dropOwnedDatabase(cleanupCtx, cleanupAdmin, dbName); err != nil {
-			t.Errorf("drop owned fixture %s failed: %v", dbName, err)
-		}
+		dropOwnedFixture(t, adminConfig, dbName, oid, migratorOID)
 	})
 	fixtureConfig := admin.Config().Copy()
 	fixtureConfig.ConnConfig.Database = dbName
@@ -91,6 +58,44 @@ func CreateDatabase(t *testing.T, ctx context.Context, admin *pgxpool.Pool) stri
 	}
 	fixture.Close()
 	return dbName
+}
+
+func dropOwnedFixture(t *testing.T, adminConfig *pgxpool.Config, dbName string, oid, migratorOID uint32) {
+	t.Helper()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cleanupAdmin, err := pgxpool.NewWithConfig(cleanupCtx, adminConfig)
+	if err != nil {
+		t.Errorf("connect for cleanup of owned fixture %s: %v", dbName, err)
+		return
+	}
+	defer cleanupAdmin.Close()
+	var currentRoleOID uint32
+	if err := cleanupAdmin.QueryRow(cleanupCtx, `SELECT oid FROM pg_roles WHERE rolname=current_user`).Scan(&currentRoleOID); err != nil {
+		t.Errorf("verify fixture cleanup migrator: %v", err)
+		return
+	}
+	if currentRoleOID != migratorOID {
+		t.Errorf("refusing cleanup for %s: migrator OID changed from %d to %d", dbName, migratorOID, currentRoleOID)
+		return
+	}
+	var currentOID uint32
+	if err := cleanupAdmin.QueryRow(cleanupCtx, `SELECT oid FROM pg_database WHERE datname=$1`, dbName).Scan(&currentOID); err != nil {
+		t.Errorf("lookup owned fixture %s during cleanup: %v", dbName, err)
+		return
+	}
+	if currentOID != oid {
+		t.Errorf("refusing to drop fixture %s: database OID changed from %d to %d", dbName, oid, currentOID)
+		return
+	}
+	var ownerOID uint32
+	if err := cleanupAdmin.QueryRow(cleanupCtx, `SELECT datdba FROM pg_database WHERE oid=$1`, oid).Scan(&ownerOID); err != nil || ownerOID != migratorOID {
+		t.Errorf("refusing to drop fixture %s: database ownership changed (owner oid %d, expected %d, lookup error %v)", dbName, ownerOID, migratorOID, err)
+		return
+	}
+	if err := dropOwnedDatabase(cleanupCtx, cleanupAdmin, dbName); err != nil {
+		t.Errorf("drop owned fixture %s failed: %v", dbName, err)
+	}
 }
 
 // dropOwnedDatabase drops a fixture database owned by the non-superuser

@@ -95,7 +95,7 @@ func (p *Provider) serve(w http.ResponseWriter, r *http.Request) {
 		if algorithms == nil {
 			algorithms = []string{"RS256"}
 		}
-		json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer(), "authorization_endpoint": auth, "token_endpoint": token, "jwks_uri": jwks, "response_types_supported": responses, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": algorithms, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer(), "authorization_endpoint": auth, "token_endpoint": token, "jwks_uri": jwks, "response_types_supported": responses, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": algorithms, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}})
 	case "/keys":
 		if p.Faults.JWKSUnavailable {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -112,9 +112,9 @@ func (p *Provider) serve(w http.ResponseWriter, r *http.Request) {
 }
 func (p *Provider) keys(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
-	n := p.key.PublicKey.N
-	e := big.NewInt(int64(p.key.PublicKey.E))
-	json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "use": "sig", "alg": "RS256", "kid": "test", "n": base64.RawURLEncoding.EncodeToString(n.Bytes()), "e": base64.RawURLEncoding.EncodeToString(e.Bytes())}}})
+	n := p.key.N
+	e := big.NewInt(int64(p.key.E))
+	_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "use": "sig", "alg": "RS256", "kid": "test", "n": base64.RawURLEncoding.EncodeToString(n.Bytes()), "e": base64.RawURLEncoding.EncodeToString(e.Bytes())}}})
 }
 func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -129,7 +129,7 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 		v.Set("error", "access_denied")
 		v.Set("state", q.Get("state"))
 		u.RawQuery = v.Encode()
-		http.Redirect(w, r, u.String(), 302)
+		http.Redirect(w, r, u.String(), http.StatusFound)
 		return
 	}
 	sub := q.Get("sub")
@@ -163,7 +163,7 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	v.Set("code", codeval)
 	v.Set("state", q.Get("state"))
 	u.RawQuery = v.Encode()
-	http.Redirect(w, r, u.String(), 302)
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -181,13 +181,13 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != "POST" {
-		http.Error(w, "method", 405)
+		http.Error(w, "method", http.StatusMethodNotAllowed)
 		return
 	}
 	_ = r.ParseForm()
 	basicUser, basicSecret, hasBasic := r.BasicAuth()
-	if !((r.Form.Get("client_id") == p.ClientID && r.Form.Get("client_secret") == p.ClientSecret) || (hasBasic && basicUser == p.ClientID && basicSecret == p.ClientSecret)) {
-		http.Error(w, "client", 401)
+	if (r.Form.Get("client_id") != p.ClientID || r.Form.Get("client_secret") != p.ClientSecret) && (!hasBasic || basicUser != p.ClientID || basicSecret != p.ClientSecret) {
+		http.Error(w, "client", http.StatusUnauthorized)
 		return
 	}
 	p.mu.Lock()
@@ -218,7 +218,7 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 	if !p.Faults.MissingIDToken {
 		res["id_token"] = tok
 	}
-	json.NewEncoder(w).Encode(res)
+	_ = json.NewEncoder(w).Encode(res)
 }
 func (p *Provider) idToken(c code) (string, error) {
 	now := time.Now()

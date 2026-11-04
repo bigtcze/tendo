@@ -116,10 +116,13 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		err := <-results
 		if err == nil {
 			wins++
-		} else if err == identity.ErrComplete {
-			completed++
 		} else {
-			t.Fatal(err)
+			switch err {
+			case identity.ErrComplete:
+				completed++
+			default:
+				t.Fatal(err)
+			}
 		}
 	}
 	if wins != 1 || completed != 1 {

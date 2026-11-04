@@ -65,21 +65,30 @@ Run the complete local gate with the pinned tools:
 bash scripts/dev-exec.sh -- bash scripts/verify-local.sh
 ```
 
-The gate runs formatting, Go vet/maintainability/unit-race/integration/sqlc/build, API and frontend checks, then production E2E. A local pass never replaces required GitHub checks.
+The gate runs golangci-lint (formatting, vet, static analysis, structure), Go unit-race/integration/sqlc/build, API and frontend checks, then production E2E. A local pass never replaces required GitHub checks.
 
 ## Maintainability checks
 
-CI runs ESLint structural thresholds for authored frontend `src/**/*.ts(x)` files (complexity 15, nesting 4, functions 80 lines, files 350 non-blank lines) and `backend/tools/structcheck` for authored Go (complexity 15, nesting 4, functions 80 lines, files 500 non-blank lines). Generated code and tests are excluded. The two locale catalogs are exempt from the file-size rule because they are flat translation tables; the ESLint config documents the rationale and owner.
+Structural review triggers from `.autonomous/CODE_QUALITY.md` are enforced with standard, maintained linters; there is no project-specific metrics tool.
 
-Go exceptions live beside the checker as named path/function/metric entries with explicit allowed maxima, rationales, and owners. Exceptions only shrink: measured debt below its allowance or no longer present fails until the exception is reduced or removed. Changes to thresholds and exceptions must be reviewed. Inline ESLint configuration is disabled for authored source; rule exceptions are exact-file overrides in `frontend/eslint.config.js` with a rationale and owner. Test files and non-`src` files retain their normal inline-config behavior.
+| Code | Tool and configuration | Thresholds |
+|---|---|---|
+| Authored frontend `src/**/*.ts(x)` | ESLint core rules in `frontend/eslint.config.js` | `complexity` 15, `max-depth` 4, `max-lines-per-function` 80, `max-lines` 350 non-blank |
+| Authored Go | [golangci-lint](https://golangci-lint.run) v2 in `backend/.golangci.yml` (pinned in `mise.toml`) | `gocyclo` > 15, `funlen` 80 lines, revive `max-control-nesting` 4 and `file-length-limit` 500 non-blank lines |
+
+The Go configuration also runs the golangci-lint `standard` set (`errcheck`, `govet` with all analyzers except `fieldalignment` and `shadow`, `ineffassign`, `staticcheck`, `unused`) and the `gofmt` formatter, so `golangci-lint run ./...` replaces the former separate gofmt, `go vet` and custom structure steps. Generated code (`Code generated ... DO NOT EDIT`: sqlc and oapi-codegen output) and tests are excluded from the structural thresholds; gofmt still checks every file.
+
+Exceptions are explicit and reviewed. The two frontend locale catalogs are exempt from `max-lines` because they are flat translation tables; inline ESLint configuration is disabled for authored source, so rule exceptions are exact-file overrides in `frontend/eslint.config.js` with a rationale and owner. Go exceptions are `exclusions.rules` entries in `backend/.golangci.yml`, each naming one test-support function at its measured complexity: a change to that value no longer matches the entry, so the finding reappears and the entry must be tightened or removed. `warn-unused` reports entries that no longer match anything. There are no production-code exceptions.
+
+History: until #359 the checks used a Python ratchet with JSON baselines, a frontend lint-ratchet framework and a Go `funcmetrics` tool; #359 replaced those with ESLint rules and a 413-line custom Go AST checker (`backend/tools/structcheck`), which #367 replaced with golangci-lint. Thresholds and the named exceptions carried over unchanged; golangci-lint additionally found unchecked transaction rollbacks, dead test code and ineffectual test assignments, which were fixed rather than excluded.
 
 ## CI job map
 
-The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, browser E2E and seven deployment-smoke jobs run independently. The aggregate requires all six job results to succeed. Every job installs Go, Node.js and sqlc through `.github/actions/toolchain` (`mise install --locked`), so CI and `dev-exec.sh` use the same verified archives.
+The required workflow retains one stable branch-protection aggregate check named `required`. Backend, API, frontend, PostgreSQL, browser E2E and seven deployment-smoke jobs run independently. The aggregate requires all six job results to succeed. Every job installs Go, Node.js, sqlc and golangci-lint through `.github/actions/toolchain` (`mise install --locked`), so CI and `dev-exec.sh` use the same verified archives.
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.3 from `mise.lock`; gofmt, `go vet ./...`, unit race tests excluding four PostgreSQL adapters, `go run ./tools/structcheck`, and `go build ./...` |
+| `backend` | Go 1.27.3 from `mise.lock`; `golangci-lint run ./...` (gofmt, go vet, staticcheck, structure), unit race tests excluding four PostgreSQL adapters, and `go build ./...` |
 | `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |

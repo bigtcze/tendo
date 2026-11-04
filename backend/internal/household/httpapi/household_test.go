@@ -43,7 +43,6 @@ type fixture struct {
 	svc      *fakeService
 	handler  http.Handler
 	authHits int
-	inner    int
 }
 
 func newFixture(authorize bool) *fixture {

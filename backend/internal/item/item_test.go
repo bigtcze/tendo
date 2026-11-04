@@ -814,9 +814,10 @@ func TestPatchEvaluationOrderChecksTargetBeforeValidation(t *testing.T) {
 						targetID = foreignID
 					}
 					if target == "existing" && strings.Contains(tc.name, "subjectId") {
-						if tc.name == "subjectId archived" {
+						switch tc.name {
+						case "subjectId archived":
 							e.subjectArchived = true
-						} else if tc.name == "subjectId not found" {
+						case "subjectId not found":
 							e.subjectErr = item.ErrNotFound
 						}
 					}

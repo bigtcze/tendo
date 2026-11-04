@@ -74,9 +74,8 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 		done <- e
 	}()
 	deadline := time.Now().Add(8 * time.Second)
-	observed := false
 	var workerErr error
-	for !observed {
+	for {
 		var active bool
 		err := observer.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND usename=current_user AND application_name='tendo_oidc_cancel_rollback_test' AND state='active' AND query ILIKE '%INSERT INTO user_sessions%' AND wait_event_type='Timeout' AND wait_event='PgSleep')`).Scan(&active)
 		if err != nil {
@@ -84,7 +83,6 @@ func TestOIDCPostgresCancelledLinkRollsBackWithIndependentCleanup(t *testing.T) 
 			t.Fatalf("observe runtime OIDC worker: %v", err)
 		}
 		if active {
-			observed = true
 			break
 		}
 		select {

@@ -1,0 +1,60 @@
+version: "2"
+
+# Structural review triggers from .autonomous/CODE_QUALITY.md plus the standard golangci-lint set.
+# Generated code (sqlc dbgen, oapi-codegen *.gen.go) carries "Code generated ... DO NOT EDIT" and is skipped.
+linters:
+  default: standard
+  enable:
+    - gocyclo
+    - funlen
+    - revive
+  settings:
+    govet:
+      # Every go vet analyzer plus the extra x/tools passes; fieldalignment and shadow are style-only noise here.
+      enable-all: true
+      disable: [fieldalignment, shadow]
+    gocyclo:
+      # Reports functions whose cyclomatic complexity exceeds 15.
+      min-complexity: 15
+    funlen:
+      lines: 80
+      statements: -1
+      ignore-comments: false
+    revive:
+      enable-default-rules: false
+      rules:
+        - name: max-control-nesting
+          arguments: [4]
+        - name: file-length-limit
+          arguments:
+            - max: 500
+              skipComments: false
+              skipBlankLines: true
+  exclusions:
+    generated: strict
+    warn-unused: true
+    presets: [std-error-handling, common-false-positives]
+    rules:
+      # Tests are excluded from structural thresholds; table-driven suites are long by design.
+      - path: _test\.go$
+        linters: [gocyclo, funlen, revive]
+      # Named test-support exceptions (owner: test-support): the in-memory item repository and the test OIDC
+      # provider doubles keep parity with the real repository/provider contracts they stand in for and are not
+      # production code. Each entry pins one function at its measured complexity, so any change to that value
+      # reports again and the entry must be reviewed (tightened or removed); other functions are always checked.
+      - path: ^internal/item/itemtest/repo\.go$
+        linters: [gocyclo]
+        text: "cyclomatic complexity (19 of func `\\(\\*Repo\\)\\.UndoCompletion`|23 of func `matchesCollection`) is high"
+      - path: ^internal/testoidc/provider\.go$
+        linters: [gocyclo]
+        text: "cyclomatic complexity (17 of func `\\(\\*Provider\\)\\.(authorize|idToken)`|19 of func `\\(\\*Provider\\)\\.token`) is high"
+      - path: ^test/oidc-provider/main\.go$
+        linters: [gocyclo]
+        text: "cyclomatic complexity 18 of func `main` is high"
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    # gofmt also covers generated files, as the previous shell gofmt step did.
+    generated: disable

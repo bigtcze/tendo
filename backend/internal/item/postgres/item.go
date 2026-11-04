@@ -126,7 +126,7 @@ func (r *Repository) createInitialized(ctx context.Context, hid pgtype.UUID, d i
 	if err != nil {
 		return item.Item{}, false, errPersistence
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbgen.New(tx)
 	created, err := q.InsertInitializedItem(ctx, initializedItemParams(params))
 	if errors.Is(err, pgx.ErrNoRows) {

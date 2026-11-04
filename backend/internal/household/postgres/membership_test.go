@@ -13,12 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type memberLoginRepo struct{ db *pgxpool.Pool }
-
-func (r memberLoginRepo) LoginsByUserIDs(ctx context.Context, ids []string) (map[string]string, error) {
-	return identitypostgres.New(r.db, nil).LoginsByUserIDs(ctx, ids)
-}
-
 func TestMembershipServiceAgainstPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

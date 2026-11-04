@@ -67,6 +67,20 @@ func (r *Repo) SeedCompletion(c item.Completion) {
 	r.completions = append(r.completions, c)
 }
 
+func replayUndoneCompletion(original item.Completion) item.Completion {
+	if original.CycleAttentionOn == nil {
+		return original
+	}
+	if original.Recurrence == nil {
+		original.NextAttentionOn = nil
+		return original
+	}
+	if next, err := schedule.NextCycle(original.CycleAttentionOn, original.CompletedOn, *original.Recurrence); err == nil {
+		original.NextAttentionOn = next
+	}
+	return original
+}
+
 func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fingerprint [32]byte, decide item.CompletionDecider) (item.Completion, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -78,17 +92,7 @@ func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fing
 	for i := range r.completions {
 		if r.completions[i].ItemID == itemID && r.completions[i].IdempotencyKey == key {
 			if r.completions[i].UndoneAt != nil {
-				original := r.completions[i]
-				if original.CycleAttentionOn != nil {
-					if original.Recurrence != nil {
-						next, e := schedule.NextCycle(original.CycleAttentionOn, original.CompletedOn, *original.Recurrence)
-						if e == nil {
-							original.NextAttentionOn = next
-						}
-					} else {
-						original.NextAttentionOn = nil
-					}
-				}
+				original := replayUndoneCompletion(r.completions[i])
 				existing = &original
 			} else {
 				existing = &r.completions[i]
@@ -309,6 +313,34 @@ func (r *Repo) Summary(_ context.Context, householdID string, opts item.SummaryO
 	return out, nil
 }
 
+func afterListCursor(i item.Item, opts item.ListOptions) bool {
+	if opts.Sort == item.SortCreated {
+		return i.ID > opts.AfterID
+	}
+	if opts.AfterAttentionOn == nil {
+		return i.AttentionOn != nil || i.ID > opts.AfterID
+	}
+	if i.AttentionOn == nil {
+		return false
+	}
+	cmp := i.AttentionOn.Compare(*opts.AfterAttentionOn)
+	return cmp > 0 || cmp == 0 && i.ID > opts.AfterID
+}
+
+func lessByAttention(a, b item.Item) bool {
+	x, y := a.AttentionOn, b.AttentionOn
+	if x == nil && y != nil {
+		return true
+	}
+	if x != nil && y == nil {
+		return false
+	}
+	if x != nil && y != nil && x.Compare(*y) != 0 {
+		return x.Compare(*y) < 0
+	}
+	return a.ID < b.ID
+}
+
 func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions) ([]item.Item, error) {
 	if opts.Sort == "" {
 		opts.Sort = item.SortCreated
@@ -325,38 +357,19 @@ func (r *Repo) List(_ context.Context, householdID string, opts item.ListOptions
 	var all []item.Item
 	for _, i := range r.rows {
 		f := opts.Filters
-		if i.HouseholdID != householdID || i.Archived != f.Archived || i.Done != f.Done || (opts.Sort == item.SortCreated && i.ID <= opts.AfterID) {
+		if i.HouseholdID != householdID || i.Archived != f.Archived || i.Done != f.Done || !afterListCursor(i, opts) {
 			continue
-		}
-		if opts.Sort == item.SortAttention {
-			if opts.AfterAttentionOn == nil {
-				if i.AttentionOn == nil && i.ID <= opts.AfterID {
-					continue
-				}
-			} else if i.AttentionOn == nil || i.AttentionOn.Compare(*opts.AfterAttentionOn) < 0 || (i.AttentionOn.Compare(*opts.AfterAttentionOn) == 0 && i.ID <= opts.AfterID) {
-				continue
-			}
 		}
 		if !matchesCollection(i, item.CollectionFilters{SubjectID: f.SubjectID, ResponsibleUserID: f.ResponsibleUserID, WorkflowState: f.WorkflowState, Attention: f.Attention, Recurring: f.Recurring, Q: f.Q}, opts.Today) {
 			continue
 		}
 		all = append(all, i)
 	}
-	sort.Slice(all, func(a, b int) bool {
-		if opts.Sort == item.SortAttention {
-			x, y := all[a].AttentionOn, all[b].AttentionOn
-			if x == nil && y != nil {
-				return true
-			}
-			if x != nil && y == nil {
-				return false
-			}
-			if x != nil && y != nil && x.Compare(*y) != 0 {
-				return x.Compare(*y) < 0
-			}
-		}
-		return all[a].ID < all[b].ID
-	})
+	less := func(a, b item.Item) bool { return a.ID < b.ID }
+	if opts.Sort == item.SortAttention {
+		less = lessByAttention
+	}
+	sort.Slice(all, func(a, b int) bool { return less(all[a], all[b]) })
 	if len(all) > opts.Limit {
 		all = all[:opts.Limit]
 	}
