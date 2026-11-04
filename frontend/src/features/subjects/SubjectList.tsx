@@ -26,7 +26,7 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
   if (list.kind !== 'ready') return null;
   return <div className="mt-8 space-y-6">
     {!showArchived ? <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled}
-      onClick={onAdd} className="w-full sm:w-auto">{t('subjects.add')}</Button> : null}
+      onClick={onAdd} className="w-full sm:w-auto md:absolute md:right-0 md:top-0 md:w-auto">{t('subjects.add')}</Button> : null}
     <Dialog open={adding} onOpenChange={(open) => { if (!open) onCancelAdd(); }} title={t('subjects.add.formLabel')}
       closeLabel={t('subjects.cancel')} busy={createLocked} sheet triggerRef={addRef}>
       {adding ? <SubjectForm key={String(adding)} label={t('subjects.add.formLabel')} initial={pendingInitial} members={members}
@@ -35,12 +35,12 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
         notice={createUncertain ? t('subjects.notice.uncertain') : undefined} onSubmit={onAddSubmit} onCancel={onCancelAdd} /> : null}
     </Dialog>
     {empty ? <SubjectsEmpty showArchived={showArchived} cursorStackEmpty={cursorStack.length === 0} adding={adding} t={t} /> : null}
-    {items.length > 0 ? <ul className="divide-y divide-line rounded-2xl border border-line bg-raised">
+    {items.length > 0 ? <ul className="grid gap-3 lg:grid-cols-2">
       {items.map((subject) => <SubjectRow key={subject.id} subject={subject} editing={editing} members={members}
         membersLoaded={membersLoaded} showArchived={showArchived} interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
         onStartEditing={onStartEditing} onArchive={onArchive} onRestore={onRestore} onSave={onSave} onCancelEditing={onCancelEditing} />)}
     </ul> : null}
-    {cursorStack.length > 0 || list.nextCursor ? <div className="flex flex-wrap items-center justify-between gap-2">
+    {cursorStack.length > 0 || list.nextCursor ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-raised p-3 sm:p-4">
       {cursorStack.length > 0 ? <Button data-subject-page type="button" variant="quiet" onClick={onPrevious} disabled={interactionLocked}>
         {cursorStack.length > 1 ? t('subjects.page.previous') : t('subjects.page.first')}
       </Button> : <span />}

@@ -27,8 +27,8 @@ export function SubjectsScreenContent({
   previousPage: (event: React.MouseEvent<HTMLButtonElement>) => void; nextPage: (event: React.MouseEvent<HTMLButtonElement>) => void;
   switchView: () => void;
 }) {
-  return <section className="settle min-w-0">
-    <div className="max-w-5xl">
+  return <section className="settle relative min-w-0">
+    <div className="max-w-5xl pr-28 md:pr-32">
       <Heading className="font-display text-h1 leading-tight">{t('subjects.title')}</Heading>
       <p className="mt-2 text-muted">{t('subjects.subtitle')}</p>
     </div>
