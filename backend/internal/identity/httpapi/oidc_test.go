@@ -520,16 +520,6 @@ func newRealOIDCHTTP(t *testing.T, subject string) (*oidcMemRepo, *testoidc.Prov
 	return repo, provider, service, sessions, oidcRouter(service, publicURL, sessions)
 }
 
-type callbackCapturingProvider struct {
-	identity.OIDCProvider
-	params identity.OIDCAuthorizationParams
-}
-
-func (p *callbackCapturingProvider) AuthorizationURL(ctx context.Context, params identity.OIDCAuthorizationParams) (string, error) {
-	p.params = params
-	return p.OIDCProvider.AuthorizationURL(ctx, params)
-}
-
 func doOIDCStart(t *testing.T, mux http.Handler, purpose string, currentSession string) (url.Values, string) {
 	return doOIDCStartWithPrevious(t, mux, purpose, currentSession, "")
 }

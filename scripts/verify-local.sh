@@ -11,8 +11,7 @@ stage() {
 }
 
 stage "Go formatting" bash -c 'set -euo pipefail; files=$(gofmt -l $(find backend -name "*.go" -type f)); if [[ -n "$files" ]]; then printf "Go files need formatting:\n%s\n" "$files" >&2; exit 1; fi'
-stage "Go vet" bash -c 'cd backend && go vet ./...'
-stage "Go structure" bash -c 'cd backend && go run ./tools/structcheck'
+stage "Go lint (go vet, staticcheck, structure)" bash -c 'cd backend && golangci-lint run ./...'
 stage "Go unit tests with race detector" bash -c 'set -euo pipefail; cd backend; packages=$(go list ./... | grep -v -e "/internal/identity/postgres$" -e "/internal/household/postgres$" -e "/internal/subject/postgres$" -e "/internal/item/postgres$"); [[ -n "$packages" ]]; go test -race $packages'
 stage "PostgreSQL integration tests" bash scripts/setup-integration.sh
 stage "sqlc generated output" bash scripts/check-sqlc.sh

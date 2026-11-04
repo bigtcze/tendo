@@ -1,0 +1,51 @@
+version: "2"
+
+# Structural review triggers from .autonomous/CODE_QUALITY.md plus the standard golangci-lint set.
+# Generated code (sqlc dbgen, oapi-codegen *.gen.go) carries "Code generated ... DO NOT EDIT" and is skipped.
+# There are deliberately no per-function exceptions: refactor instead, or add a reviewed exclusions.rules
+# entry with rationale and owner (docs/development/testing.md#maintainability-checks).
+linters:
+  default: standard
+  enable:
+    - gocyclo
+    - gocognit
+    - funlen
+    - revive
+  settings:
+    govet:
+      # Every go vet analyzer plus the extra x/tools passes; fieldalignment and shadow are style-only noise here.
+      enable-all: true
+      disable: [fieldalignment, shadow]
+    gocyclo:
+      # Reports functions whose cyclomatic complexity exceeds 15 (closures count toward their enclosing function).
+      min-complexity: 15
+    gocognit:
+      # Cognitive complexity weights nesting, including range loops that revive's nesting rule does not count.
+      min-complexity: 30
+    funlen:
+      # funlen counts the lines between the braces; 78 keeps the 80-line limit inclusive of signature and closing brace.
+      lines: 78
+      statements: -1
+      ignore-comments: false
+    revive:
+      enable-default-rules: false
+      rules:
+        - name: max-control-nesting
+          arguments: [4]
+        - name: file-length-limit
+          arguments:
+            - max: 500
+              skipComments: false
+              skipBlankLines: true
+  exclusions:
+    generated: strict
+    warn-unused: true
+    rules:
+      # Tests are excluded from structural thresholds; table-driven suites are long by design.
+      - path: _test\.go$
+        linters: [gocyclo, gocognit, funlen, revive]
+      # Routine cleanup of test resources (HTTP bodies, listeners, files). Tests whose correctness depends on a
+      # close result, such as flushing a written fixture, must still check it.
+      - path: _test\.go$
+        linters: [errcheck]
+        text: "Error return value of `[^`]*\\.Close` is not checked"

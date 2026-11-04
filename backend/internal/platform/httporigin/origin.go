@@ -31,7 +31,7 @@ func Parse(raw string, allowRootSlash bool) (Origin, bool) {
 func invalidParsedOrigin(u *url.URL, err error, allowRootSlash bool) bool {
 	return err != nil || u.Opaque != "" || u.User != nil || u.RawQuery != "" ||
 		u.ForceQuery || u.Fragment != "" || u.RawFragment != "" || u.Host == "" ||
-		u.Path != "" && !(allowRootSlash && u.Path == "/")
+		(u.Path != "" && (!allowRootSlash || u.Path != "/"))
 }
 
 func ParseAuthority(scheme, authority string) (Origin, bool) {

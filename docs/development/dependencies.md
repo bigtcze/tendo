@@ -11,6 +11,7 @@ Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../.
 | Node.js (CI, Docker web build) | 26.13.0 | 26.13.0 (LTS "Lithium") | Current; see Node.js 26 migration notes below; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
+| golangci-lint | 2.15.0 | 2.15.0 | Current; GPL-3.0 developer/CI tool, not linked into Tendo; release archive SHA-256 verified against the release's `checksums.txt` |
 | mise (CI via `jdx/mise-action` v5.2.6; local minimum via `min_version`) | 2026.11.0 | 2026.11.0 | CI binary SHA-256 pinned in `.github/actions/toolchain`, verified against the release's `SHASUMS256.txt`; MIT |
 | oapi-codegen | v2.8.2 | v2.8.2 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
@@ -54,7 +55,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 
 ## Upgrading a pin
 
-1. Go, Node.js, sqlc: change the version in `mise.toml`, run `mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64` in the checkout (the wrapper and CI refuse a stale lock), and commit `mise.toml` and `mise.lock` together. Check the new checksums against upstream (Go `https://go.dev/dl/?mode=json&include=all`, Node.js `SHASUMS256.txt`, sqlc release asset digests via `gh api repos/sqlc-dev/sqlc/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`). Go and Node.js version changes also update the Dockerfile images in the same branch.
+1. Go, Node.js, sqlc, golangci-lint: change the version in `mise.toml`, run `mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64` in the checkout (the wrapper and CI refuse a stale lock), and commit `mise.toml` and `mise.lock` together. Check the new checksums against upstream (Go `https://go.dev/dl/?mode=json&include=all`, Node.js `SHASUMS256.txt`, sqlc release asset digests via `gh api repos/sqlc-dev/sqlc/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`). Go and Node.js version changes also update the Dockerfile images in the same branch.
 2. mise in CI: update `version` and `sha256` (the `mise-v<version>-linux-x64` entry of the release's `SHASUMS256.txt`) in `.github/actions/toolchain/action.yml`. Raise `min_version` in `mise.toml` only when the configuration needs a newer mise.
 3. Playwright: update `@playwright/test` with npm; `npx --no-install playwright install chromium` installs the browser revision that the locked package expects.
 4. Run the complete gate through the wrapper. Tools install side by side under the wrapper's private directory, so a candidate version never replaces what other branches or tools use.
@@ -73,6 +74,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 | Go runtime | Native mise manager (`mise.toml`) and Dockerfiles | Grouped proposal; developer refreshes `mise.lock`, synchronizes image pins and runs the gate through `dev-exec.sh`. Go's `1.x` language releases are semver-minor but never automerge. The `go` directive in `backend/go.mod` is a deliberate minimum, not an automatically bumped runtime. |
 | Node.js | Native mise manager (`mise.toml`) and Dockerfile | Node versioning admits LTS, not Current, retaining image suffixes; developer refreshes `mise.lock`. Package engines are compatibility ranges, not authoritative runtime pins. |
 | sqlc | Native mise manager (`mise.toml`, aqua backend) | Developer refreshes `mise.lock`, regenerates code and passes the drift check. |
+| golangci-lint | Native mise manager (`mise.toml`, aqua backend) | Developer refreshes `mise.lock`, reads the release notes for new or changed `standard` checks and fixes findings rather than excluding them. |
 | mise | Native GitHub Actions manager (`jdx/mise-action` `version`/`sha256` inputs) | Renovate proposes the version and checksum together; developer checks release notes and `min_version` compatibility. |
 | oapi-codegen | `api/Makefile` regex against official GitHub releases | Regenerate Go output, migrate behavior and validate contracts. |
 | openapi-typescript / Playwright | Native npm manager | Package and lockfile agree; generator drift or Playwright E2E checks must pass. |

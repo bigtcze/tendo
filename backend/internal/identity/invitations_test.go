@@ -19,7 +19,7 @@ type invitationFake struct {
 	findErr, txFindErr, requireErr, loginErr, userErr error
 	findCalls, txCalls                                int
 	status                                            string
-	created, accepted, revoked                        bool
+	created, accepted                                 bool
 	writes                                            int
 }
 type invitationFakeTx struct{ f *invitationFake }

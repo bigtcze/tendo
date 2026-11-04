@@ -242,11 +242,10 @@ func TestCreateIdempotencyHeaderAndStrictBodyFailures(t *testing.T) {
 }
 func TestInvitationAcceptValidationBodyAndMediaErrors(t *testing.T) {
 	f := &invitationFakeService{}
-	r := makeRouter(f, nilAuth, true)
 	invalidBodies := []struct{ path, body string }{{"/api/v1/auth/invitations/accept", `{"token":null,"login":"valid_login","password":"a long enough password"}`}, {"/api/v1/auth/invitations/accept", `{"token":"x","login":"valid_login","password":null}`}, {"/api/v1/auth/invitations/accept", `{"token":"x","login":"valid_login","password":4}`}, {"/api/v1/auth/invitations/accept", `{"token":"x","login":"valid_login","password":"a long enough password","extra":true}`}, {"/api/v1/auth/invitations/accept", `{"token":"x","login":"valid_login"}`}, {"/api/v1/auth/invitations/accept", `{"token":"x","login":4,"password":"a long enough password"}`}, {"/api/v1/invitations/accept", `{"token":null}`}, {"/api/v1/invitations/accept", `{"token":"x","extra":1}`}}
 	for _, tc := range invalidBodies {
 		f = &invitationFakeService{}
-		r = makeRouter(f, nilAuth, true)
+		r := makeRouter(f, nilAuth, true)
 		before := f.calls
 		w := req(r, "POST", tc.path, tc.body, "application/json", nil)
 		assertInvitationProblem(t, w, 400, "invalid_request")
@@ -256,7 +255,7 @@ func TestInvitationAcceptValidationBodyAndMediaErrors(t *testing.T) {
 	}
 	for _, p := range []string{"/api/v1/auth/invitations/accept", "/api/v1/invitations/accept", "/api/v1/households/h/invitations"} {
 		f = &invitationFakeService{}
-		r = makeRouter(f, nilAuth, true)
+		r := makeRouter(f, nilAuth, true)
 		body := "{}"
 		headers := map[string][]string{}
 		if strings.Contains(p, "/households/") {

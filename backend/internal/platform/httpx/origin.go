@@ -69,9 +69,10 @@ func originMiddlewareConfig(config originConfig, err error) func(http.Handler) h
 			metadata, status := requestOrigin(r, config)
 			if status != 0 {
 				title := "Bad Request"
-				if status == http.StatusMisdirectedRequest {
+				switch status {
+				case http.StatusMisdirectedRequest:
 					title = "Misdirected Request"
-				} else if status == http.StatusForbidden {
+				case http.StatusForbidden:
 					title = "Forbidden"
 				}
 				writeProblem(w, status, title)

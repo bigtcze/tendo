@@ -769,9 +769,10 @@ func TestUpdateInvalidFieldsCheckTargetBeforeValidation(t *testing.T) {
 					row := Subject{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Flat", Version: 1}
 					repo := &memRepo{rows: []Subject{row}}
 					targetID := subjectID
-					if target == "missing" {
+					switch target {
+					case "missing":
 						targetID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
-					} else if target == "foreign" {
+					case "foreign":
 						targetID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b98"
 						foreign := row
 						foreign.ID = targetID

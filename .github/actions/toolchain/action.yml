@@ -3,7 +3,7 @@ description: Install the mise.toml tools verified against mise.lock and restore 
 runs:
   using: composite
   steps:
-    # mise-action runs `mise install --locked` because mise.lock exists: every Go, Node.js and sqlc
+    # mise-action runs `mise install --locked` because mise.lock exists: every Go, Node.js, sqlc and golangci-lint
     # archive must match its recorded SHA-256, exactly as scripts/dev-exec.sh does locally.
     - uses: jdx/mise-action@v5.2.6
       with:

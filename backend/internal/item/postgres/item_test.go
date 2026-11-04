@@ -859,7 +859,7 @@ func TestItemListExplainIndexesAtScale(t *testing.T) {
 	if strings.Join(itemIDs(generic), ",") != strings.Join(customIDs, ",") {
 		t.Errorf("generic page mismatch: generic=%v custom=%v", itemIDs(generic), customIDs)
 	}
-	tx.Rollback(ctx)
+	_ = tx.Rollback(ctx)
 }
 
 // createdOrderIndexes lists the indexes that can each legitimately serve the unchanged
@@ -917,19 +917,6 @@ func planTempWritten(node map[string]any) int {
 		total += planTempWritten(child.(map[string]any))
 	}
 	return total
-}
-
-func planUsesIndex(node map[string]any, index string) bool {
-	if node["Index Name"] == index {
-		return true
-	}
-	children, _ := node["Plans"].([]any)
-	for _, child := range children {
-		if planUsesIndex(child.(map[string]any), index) {
-			return true
-		}
-	}
-	return false
 }
 
 func TestMigrationUpgradeFromV14ToV15PreservesData(t *testing.T) {

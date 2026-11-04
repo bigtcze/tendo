@@ -40,7 +40,7 @@ func TestCompletionHTTPCreateReplayAndEvaluationOrder(t *testing.T) {
 	notFoundPath := base + "/0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b98/completions"
 	req := func(headers map[string]string, body string) *httptest.ResponseRecorder {
 		q := httptest.NewRequest("POST", path, strings.NewReader(body))
-		if _, ok := headers["Content-Type"]; !ok && !(headers["If-Match"] == `"1"` && headers["Idempotency-Key"] == "x") {
+		if _, ok := headers["Content-Type"]; !ok && (headers["If-Match"] != `"1"` || headers["Idempotency-Key"] != "x") {
 			q.Header.Set("Content-Type", "application/json")
 		}
 		for k, v := range headers {
@@ -108,12 +108,12 @@ func TestUndoCompletionHouseholdIsolation(t *testing.T) {
 	allowForeignHouse := true
 	allowForeignMembership := true
 	svc := item.NewService(f.repo, func(_ context.Context, _, house string) (string, error) {
-		if house != hid && !(allowForeignHouse && house == foreignHouse) {
+		if house != hid && (!allowForeignHouse || house != foreignHouse) {
 			return "", item.ErrNotFound
 		}
 		return "UTC", nil
 	}, func(context.Context, string, string, string) (bool, error) { return false, nil }, func(_ context.Context, _, house string) error {
-		if house != hid && !(allowForeignMembership && house == foreignHouse) {
+		if house != hid && (!allowForeignMembership || house != foreignHouse) {
 			return item.ErrNotFound
 		}
 		return nil

@@ -17,7 +17,6 @@ import (
 type invitationRecordingRepo struct {
 	invitationFake
 	calls                                                     []string
-	clock                                                     func() time.Time
 	loginErr, lockedErr, lockUserErr, membershipErr, otherErr error
 	loginExists                                               bool
 	lockedDigest                                              []byte
@@ -106,7 +105,7 @@ func (t *invitationRecordingTx) FindInvitation(_ context.Context, digest []byte,
 	if t.repo.lockedInvitation.ID != "" {
 		return t.repo.lockedInvitation, nil
 	}
-	return t.repo.invitationFake.inv, nil
+	return t.repo.inv, nil
 }
 func (t *invitationRecordingTx) FindLogin(context.Context, string) error {
 	t.repo.record("login.find")

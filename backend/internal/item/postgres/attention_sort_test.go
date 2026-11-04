@@ -28,7 +28,6 @@ type attentionFixture struct {
 	repo                                                                *Repository
 	svc                                                                 *item.Service
 	house, otherHouse, actor, outsider, subject, otherSubject, assignee string
-	seq                                                                 uint64
 }
 
 func newAttentionFixture(t *testing.T) *attentionFixture {
@@ -146,13 +145,6 @@ func attentionWalk(t *testing.T, f *attentionFixture, limit int) []string {
 	t.Fatal("cursor walk exceeded page bound")
 	return nil
 }
-func dateString(d string) *string {
-	if d == "" {
-		return nil
-	}
-	return &d
-}
-
 func TestAttentionSortNullAndDateTiesAcrossPages(t *testing.T) {
 	f := newAttentionFixture(t)
 	type keyed struct{ date, id string }
