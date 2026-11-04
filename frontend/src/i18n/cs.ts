@@ -198,6 +198,8 @@ export const cs: Record<MessageKey, string> = {
   'subjects.error.linkRequiresPerson': 'Účet lze propojit pouze s osobou.',
   'subjects.cancel': 'Zrušit',
   'subjects.edit': 'Upravit',
+  'subjects.seeItems': 'Zobrazit položky',
+  'subjects.seeItems.label': 'Zobrazit položky: {name}',
   'subjects.edit.label': 'Upravit: {name}',
   'subjects.save': 'Uložit',
   'subjects.saving': 'Ukládám…',

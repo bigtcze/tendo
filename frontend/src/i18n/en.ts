@@ -195,6 +195,8 @@ export const en = {
   'subjects.error.linkRequiresPerson': 'An account can only be linked to a person.',
   'subjects.cancel': 'Cancel',
   'subjects.edit': 'Edit',
+  'subjects.seeItems': 'See items',
+  'subjects.seeItems.label': 'See items for {name}',
   'subjects.edit.label': 'Edit {name}',
   'subjects.save': 'Save',
   'subjects.saving': 'Saving…',

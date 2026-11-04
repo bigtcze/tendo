@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { Button } from '../../components/ui/button';
+import { Dialog } from '../../components/ui/dialog';
 import { SubjectForm, type SubjectValues, type SubmitOutcome } from './SubjectForm';
 import { SubjectsEmpty } from './SubjectsEmpty';
 import { SubjectRow } from './SubjectRow';
@@ -20,16 +22,20 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
   onSave: (values: SubjectValues) => Promise<SubmitOutcome>; onCancelEditing: (id: string) => void;
   onPrevious: (event: React.MouseEvent<HTMLButtonElement>) => void; onNext: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
+  const addRef = useRef<HTMLButtonElement>(null);
   if (list.kind !== 'ready') return null;
   return <div className="mt-8 space-y-6">
-    {!showArchived && !adding && !empty ? <Button type="button" data-focus="add" disabled={addDisabled}
+    {!showArchived ? <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled}
       onClick={onAdd} className="w-full sm:w-auto">{t('subjects.add')}</Button> : null}
-    {adding ? <SubjectForm label={t('subjects.add.formLabel')} initial={pendingInitial} members={members}
-      membersLoaded={membersLoaded} submitLabel={t('subjects.add.submit')} pendingLabel={t('subjects.add.submitting')}
-      locked={createLocked} retryLabel={t('subjects.create.checkAgain')}
-      notice={createUncertain ? t('subjects.notice.uncertain') : undefined} onSubmit={onAddSubmit} onCancel={onCancelAdd} /> : null}
-    {empty ? <SubjectsEmpty showArchived={showArchived} cursorStackEmpty={cursorStack.length === 0} adding={adding} t={t} onAdd={onAdd} /> : null}
-    {items.length > 0 ? <ul className="divide-y divide-line rounded-2xl border border-line bg-white/70">
+    <Dialog open={adding} onOpenChange={(open) => { if (!open) onCancelAdd(); }} title={t('subjects.add.formLabel')}
+      closeLabel={t('subjects.cancel')} busy={createLocked} sheet triggerRef={addRef}>
+      {adding ? <SubjectForm key={String(adding)} label={t('subjects.add.formLabel')} initial={pendingInitial} members={members}
+        membersLoaded={membersLoaded} submitLabel={t('subjects.add.submit')} pendingLabel={t('subjects.add.submitting')}
+        locked={createLocked} retryLabel={t('subjects.create.checkAgain')}
+        notice={createUncertain ? t('subjects.notice.uncertain') : undefined} onSubmit={onAddSubmit} onCancel={onCancelAdd} /> : null}
+    </Dialog>
+    {empty ? <SubjectsEmpty showArchived={showArchived} cursorStackEmpty={cursorStack.length === 0} adding={adding} t={t} /> : null}
+    {items.length > 0 ? <ul className="divide-y divide-line rounded-2xl border border-line bg-raised">
       {items.map((subject) => <SubjectRow key={subject.id} subject={subject} editing={editing} members={members}
         membersLoaded={membersLoaded} showArchived={showArchived} interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
         onStartEditing={onStartEditing} onArchive={onArchive} onRestore={onRestore} onSave={onSave} onCancelEditing={onCancelEditing} />)}
