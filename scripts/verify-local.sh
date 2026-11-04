@@ -19,4 +19,5 @@ stage "sqlc generated output" bash scripts/check-sqlc.sh
 stage "Go build" bash -c 'cd backend && go build ./...'
 stage "API checks" bash -c 'cd api && npm ci && npm audit --audit-level=moderate && npm run check'
 stage "Frontend checks" bash -c 'cd frontend && npm ci && npm audit --audit-level=moderate && npm run check'
+stage "Playwright Chromium for the locked @playwright/test" bash -c 'cd frontend && npx --no-install playwright install chromium'
 stage "Production E2E" bash scripts/e2e-smoke.sh

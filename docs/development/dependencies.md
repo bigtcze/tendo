@@ -1,6 +1,6 @@
 # Dependency and toolchain inventory
 
-Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pins is [`toolchain.json`](../../toolchain.json). Update the manifest and every repository pin in the same change.
+Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../../mise.toml) with download checksums in [`mise.lock`](../../mise.lock); image, workflow and generator pins live where they are used. Renovate discovers each of them natively (see below).
 
 ## Runtimes, images, and native tools
 
@@ -11,11 +11,11 @@ Snapshot date: 2026-10-09. The machine-readable source of truth for toolchain pi
 | Node.js (CI, Docker web build) | 26.13.0 | 26.13.0 (LTS "Lithium") | Current; see Node.js 26 migration notes below; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
 | sqlc | 1.31.1 | 1.31.1 | Current; release archive SHA-256 verified against the GitHub release asset digest |
-| mise (installer used by `scripts/dev-exec.sh`) | 2026.10.25 | 2026.10.25 | Patch updates arrive via Renovate; release archive SHA-256 verified against the GitHub release asset digest; MIT |
+| mise (CI via `jdx/mise-action` v5.2.6; local minimum via `min_version`) | 2026.11.0 | 2026.11.0 | CI binary SHA-256 pinned in `.github/actions/toolchain`, verified against the release's `SHASUMS256.txt`; MIT |
 | oapi-codegen | v2.8.2 | v2.8.2 | Current; see migration notes below |
 | Distroless runtime images | `base-debian13`, `static-debian13` (`nonroot`) | same | Current; binaries are static (`CGO_ENABLED=0`) |
 | Proxy smoke images | Caddy 2.11.7, Nginx 1.30.5 (stable), Traefik v3.7.14 | same | Current within supported lines |
-| GitHub Actions | checkout v7.0.1, setup-go v7.0.0, setup-node v7.1.0, upload-artifact v7.0.2 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
+| GitHub Actions | checkout v7.0.1, cache v6.1.0, jdx/mise-action v5.2.6, upload-artifact v7.0.2 | same | Current; exact release tags; actions run on Node 24 (runner ≥ 2.327.1) |
 
 ## Go modules (`backend/go.mod`)
 
@@ -54,10 +54,10 @@ All direct and required indirect modules are at their latest releases. `go list 
 
 ## Upgrading a pin
 
-1. Change `toolchain.json` and every pin it lists in the same branch.
-2. For a release archive (sqlc, mise), take the SHA-256 from the release asset digest (`gh api repos/<owner>/<repo>/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`), never from a local download alone.
-3. Playwright: update `@playwright/test` with npm so `frontend/package-lock.json` and `toolchain.json` agree; the wrapper derives the Chromium revision from the lockfile.
-4. Run `bash scripts/dev-exec.sh --versions`, then the complete gate through the wrapper. Both use the branch's own pins, so a candidate version never replaces what other branches or tools use.
+1. Go, Node.js, sqlc: change the version in `mise.toml`, run `mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64` in the checkout (the wrapper and CI refuse a stale lock), and commit `mise.toml` and `mise.lock` together. Check the new checksums against upstream (Go `https://go.dev/dl/?mode=json&include=all`, Node.js `SHASUMS256.txt`, sqlc release asset digests via `gh api repos/sqlc-dev/sqlc/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`). Go and Node.js version changes also update the Dockerfile images in the same branch.
+2. mise in CI: update `version` and `sha256` (the `mise-v<version>-linux-x64` entry of the release's `SHASUMS256.txt`) in `.github/actions/toolchain/action.yml`. Raise `min_version` in `mise.toml` only when the configuration needs a newer mise.
+3. Playwright: update `@playwright/test` with npm; `npx --no-install playwright install chromium` installs the browser revision that the locked package expects.
+4. Run the complete gate through the wrapper. Tools install side by side under the wrapper's private directory, so a candidate version never replaces what other branches or tools use.
 5. For a major version, read the upstream release notes and migration guide first and record behavior changes under a migration-notes heading in this file.
 
 ## Renovate maintenance
@@ -70,24 +70,25 @@ All direct and required indirect modules are at their latest releases. `go list 
 | --- | --- | --- |
 | npm packages | Native npm manager, both package manifests and lockfiles | Install/audit, API or frontend checks. React/types, Tailwind/compiler integration and ESLint/core configuration have narrow groups. Required indirect Go modules are enabled too. |
 | Go modules | Native gomod manager | Module graph/sums, release notes, race/integration/build checks; dependencies may require a deliberate language-minimum migration. |
-| Go runtime | Manifest regex, Dockerfiles and setup-go inputs | Grouped proposal; developer synchronizes every pin and verifies the candidate through `dev-exec.sh`. Go's `1.x` language releases are semver-minor but never automerge. The `goModuleDirective` is a deliberate minimum, not an automatically bumped runtime. |
-| Node.js | Manifest regex, Dockerfile and setup-node inputs | Node versioning admits LTS, not Current, retaining image suffixes. Package engines are compatibility ranges, not authoritative runtime pins. |
-| sqlc / mise | Manifest regex against official GitHub releases | Version-only proposal. Developer obtains the correct architecture's release-asset SHA-256, updates installer/configuration pins and verifies provisioning. sqlc additionally requires regenerated code and drift checks. |
-| oapi-codegen | Manifest and Makefile regex against official GitHub releases | Regenerate Go output, migrate behavior and validate contracts. |
-| openapi-typescript / Playwright | Manifest regex plus native npm manager | Manifest, package and lockfile agree; generator drift or Playwright smoke/version/browser checks must pass. |
-| PostgreSQL | Manifest version/image regex, Compose and workflow services | Synchronize server/client/configuration pins and integration fixtures. Majors require an explicit data-preserving migration and backup/restore validation. |
-| Docker images | Native Dockerfile/Compose/workflow managers; manifest and proxy-script regex | One image family per PR. Nginx is restricted to even-minor stable releases. Distroless `nonroot` tags are digest-pinned/updated; switching Debian image families is a developer migration, not version discovery. |
-| GitHub Actions | Native workflow manager plus manifest regex | Each action groups its own manifest/workflow references, not unrelated actions. GitHub runner `ubuntu-latest` is intentionally floating, not a version pin. |
+| Go runtime | Native mise manager (`mise.toml`) and Dockerfiles | Grouped proposal; developer refreshes `mise.lock`, synchronizes image pins and runs the gate through `dev-exec.sh`. Go's `1.x` language releases are semver-minor but never automerge. The `go` directive in `backend/go.mod` is a deliberate minimum, not an automatically bumped runtime. |
+| Node.js | Native mise manager (`mise.toml`) and Dockerfile | Node versioning admits LTS, not Current, retaining image suffixes; developer refreshes `mise.lock`. Package engines are compatibility ranges, not authoritative runtime pins. |
+| sqlc | Native mise manager (`mise.toml`, aqua backend) | Developer refreshes `mise.lock`, regenerates code and passes the drift check. |
+| mise | Native GitHub Actions manager (`jdx/mise-action` `version`/`sha256` inputs) | Renovate proposes the version and checksum together; developer checks release notes and `min_version` compatibility. |
+| oapi-codegen | `api/Makefile` regex against official GitHub releases | Regenerate Go output, migrate behavior and validate contracts. |
+| openapi-typescript / Playwright | Native npm manager | Package and lockfile agree; generator drift or Playwright E2E checks must pass. |
+| PostgreSQL | Native Compose and workflow service images | Synchronize server/client/configuration pins and integration fixtures. Majors require an explicit data-preserving migration and backup/restore validation. |
+| Docker images | Native Dockerfile/Compose/workflow managers; proxy-script regex | One image family per PR. Nginx is restricted to even-minor stable releases. Distroless `nonroot` tags are digest-pinned/updated; switching Debian image families is a developer migration, not version discovery. |
+| GitHub Actions | Native workflow manager, including the composite `.github/actions/toolchain` | Each action groups its own workflow references, not unrelated actions. GitHub runner `ubuntu-latest` is intentionally floating, not a version pin. |
 
 The test-provider Dockerfile under `backend/test/` is explicitly included by overriding the recommended test-directory exclusions. Compose overrides without images still remain supported package-file locations. Documentation versions, shell installer comparisons, PostgreSQL client-major assertions and generated headers are not rewritten automatically. Different datasources may publish at different times, so grouping does **not** promise a complete synchronized upgrade.
 
-Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. The autonomous developer finishes incomplete proposals following `.autonomous/FLOW.md` **Dependency maintenance**, which already requires open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI. Agent/controller instructions are unchanged.
+Hosted Renovate cannot safely be assumed to execute arbitrary `postUpgradeTasks`; none are configured. Renovate treats `mise lock` as an unsafe execution, so a `mise.toml` proposal may arrive without a refreshed `mise.lock`; required CI then fails at `mise install --locked` until the developer refreshes the lock, which is the intended fail-closed boundary. The autonomous developer finishes incomplete proposals following `.autonomous/FLOW.md` **Dependency maintenance**, which already requires open-PR triage, candidate-branch toolchain provisioning, migration/release-note review, the complete native local gate, protected merge and green main CI. Agent/controller instructions are unchanged.
 
 ### Merge policy
 
 Automerge is opt-in only for patch/minor updates to `clsx`, `tailwind-merge`, `ajv`, `ajv-formats`, `yaml`, `@testing-library/jest-dom`, `@testing-library/user-event` and `github.com/go-chi/chi/v5`, with current versions at least 1.0.0 and no grouping with other packages. All majors, pre-1.0 updates, runtime/toolchain/images/actions, generators, Playwright, PostgreSQL and security-alert PRs require developer review. Unlisted dependencies do not automerge.
 
-Renovate performs **PR-based** automerge (`automergeType=pr`, `platformAutomerge=false`, `ignoreTests=false`) after checks pass; this works without enabling GitHub's repository-native auto-merge setting. It never uses direct-main/branch automerge. Strict `required` protection, enforced for administrators, still requires an up-to-date branch and resolved conversations. The unchanged `required` aggregate includes manifest consistency, checksum-verified wrapper provisioning, generated-output drift, audits, native integration/E2E and deployment/backup checks. A version-only toolchain proposal is not complete while any of these fail; never merge it merely to test Renovate.
+Renovate performs **PR-based** automerge (`automergeType=pr`, `platformAutomerge=false`, `ignoreTests=false`) after checks pass; this works without enabling GitHub's repository-native auto-merge setting. It never uses direct-main/branch automerge. Strict `required` protection, enforced for administrators, still requires an up-to-date branch and resolved conversations. The `required` aggregate includes lockfile-verified toolchain installation in every job, generated-output drift, audits, native integration/E2E and deployment/backup checks. A version-only toolchain proposal is not complete while any of these fail; never merge it merely to test Renovate.
 
 ### Validate a configuration change
 
@@ -112,10 +113,10 @@ For extraction/lookup diagnostics, use the official Renovate CLI with `--platfor
 
 ## Node.js 26 LTS migration notes (24.22.2 → 26.13.0)
 
-- **LTS only**: 26.13.0 (2026-10-28) is the first Node 26 LTS release ("Lithium", supported through April 2029) and changes only release metadata from 26.12.1, which was Current. Renovate PR #286 first proposed 26.12.0/26.12.1 and left the `toolchain.json` Node pin on 24.22.2; all pins now move together to 26.13.0.
+- **LTS only**: 26.13.0 (2026-10-28) is the first Node 26 LTS release ("Lithium", supported through April 2029) and changes only release metadata from 26.12.1, which was Current. Renovate PR #286 first proposed 26.12.0/26.12.1 and left the former toolchain manifest's Node pin on 24.22.2; all pins now move together to 26.13.0.
 - **Bundled tools**: npm 11.19.1 → 11.20.0 (same major, no breaking changes listed); V8 13.6 → 14.6; OpenSSL 3.5.9 unchanged; Undici 8; Temporal enabled by default.
 - **Removed or deprecated APIs** (Node 25/26): `http.ServerResponse.prototype.writeHeader()` (use `writeHead()`), legacy `_stream_*` modules, `--experimental-transform-types`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` aliases and `SlowBuffer` removed; `module.register()` runtime-deprecated; Corepack no longer bundled. Repository scripts use none of these and Tendo does not use Corepack.
-- **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the `dev-exec.sh` provisioned binary all run it; the Docker web build and every deployment smoke pass. Native Linux developer machines without it must install the distribution package (Debian/Ubuntu `libatomic1`).
+- **libatomic**: since Node 25 official Linux binaries link against `libatomic`. The official `node:*-bookworm-slim` image, GitHub-hosted runners and the mise-installed binary all run it; the Docker web build and every deployment smoke pass. Native Linux developer machines without it must install the distribution package (Debian/Ubuntu `libatomic1`).
 - Sources: [v26.0.0](https://nodejs.org/en/blog/release/v26.0.0), [v25.0.0](https://nodejs.org/en/blog/release/v25.0.0), [v26.13.0](https://nodejs.org/en/blog/release/v26.13.0).
 
 ## oapi-codegen v2.8.2 notes
