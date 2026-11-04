@@ -9,26 +9,31 @@ human_intervention=routine_not_required
 
 ## Read set
 OpenCode already injects this file into every session; do not re-read it.
-Paths are `.autonomous/<NAME>.md`. Read each file once per session; re-read
-only after it changes (new branch content, merge, edit). Do not read files
-outside the matching set for routine work (rationale for maintainers of this
-read set only: `docs/development/agent-context.md`).
+Paths are `.autonomous/<NAME>.md`. Avoid redundant reads: a file already
+read in this session and unchanged since (no checkout, merge or edit) need not
+be read again. DO re-read when context was compacted or truncated, when a
+governing requirement is no longer verbatim in view, or when unsure what it
+says; avoiding redundant reads never overrides having the rules available.
+Do not load files outside the matching set for routine work (rationale, for
+maintainers of this read set only: `docs/development/agent-context.md`).
 
 always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,API,UX,TESTING,CODE_QUALITY,FLOW,LEARNINGS,V3_SCOPE,V3_DESIGN_BRIEF,V3_DEFINITION_OF_DONE,V3_ISSUES_WORKFLOW
 when_docs_or_user_setup=DOCUMENTATION
 when_platform_or_future_seam=ROADMAP
+when_lists_search_filter_sort_pagination_counts_or_large_data_UI_or_API=V2_SCOPE,V2_DEFINITION_OF_DONE
+when_tests_test_harness_CI_local_gate_E2E_infra_release_qualification_or_maintainability_refactoring=V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
+when_deployment_auth_household_onboarding_recurrence_lifecycle_history_or_backup=DEFINITION_OF_DONE
+when_changing_documented_V1_V2_V2_1_product_or_API_semantics=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
 when_release_or_completion=DOCUMENTATION,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
-when_removing_skipping_relaxing_or_relocating_existing_tests_CI_gates_or_release_qualification=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
-when_intentionally_changing_documented_V1_V2_V2_1_product_or_API_semantics=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
 when_dependency_or_renovate_PR=FLOW "Dependency maintenance", then `docs/development/dependencies.md` "Dependency PR procedure"
 never_needed_for_routine_work=CYCLE_PROMPT (already the session prompt), V3_ISSUES_MIGRATION_PROMPT (executed one-shot bootstrap), PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE (historical markers; never edit or delete)
 
-The historical V1/V2/V2.1 scope and DoD files stay locked and binding: their
-invariants are already restated in the always set and enforced by the
-required test suite. Routine V3 UI work, bug fixes that restore documented
-behavior, and adding or repairing tests without relaxing them do not trigger
-them. If a change crosses concerns, or you are unsure whether a conditional
-trigger applies, read every applicable locked file before editing.
+The historical V1/V2/V2.1 scope and DoD files stay locked and binding on all
+work. They are loaded by concern (triggers above) because many of their
+contracts are specific, e.g. full-dataset search and bounded fetching (V2),
+native no-Docker integration/E2E (V2.1). If a change crosses concerns, or you
+are unsure whether a trigger applies, read every applicable locked file
+before editing.
 
 ## Tooling
 toolchain=`bash scripts/dev-exec.sh -- <command>` runs with the exact `mise.toml` pins, checksum-verified against `mise.lock`, from a private user cache; needs user-level mise >= `min_version`; do not install or rely on host Go/Node/sqlc.

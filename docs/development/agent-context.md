@@ -6,8 +6,8 @@ How the autonomous agent's instructions fit together, which files it loads and w
 
 - The systemd unit runs `scripts/autonomous-loop.sh`. Each cycle starts a fresh `opencode run --agent orchestrator` session whose first user message is `.autonomous/CYCLE_PROMPT.md`.
 - OpenCode injects the repository `AGENTS.md` into every session's system prompt (it appears as "Instructions from: …/AGENTS.md"). Reading it again with a tool only duplicates it.
-- Nothing else is injected. Every `.autonomous/*` file is loaded by explicit tool reads that the agent decides on from `AGENTS.md`. Child subagents start without these files; the orchestrator gives them only the requirements their packet needs.
-- Once read, a file stays in the session for every later model call, so each extra KB is paid again on every step of the cycle.
+- In the verified configuration no other repository `.autonomous` document is loaded automatically. OpenCode and the installed plugin also supply their own agent and tool instructions, which this repository does not control. Every `.autonomous/*` file is loaded by explicit tool reads that the agent decides on from `AGENTS.md`. Child subagents do not inherit the parent's read history; they get their own system and project instructions plus whatever requirements the orchestrator puts in the packet.
+- A file read with a tool stays in the model-visible input of every later step of the session, until compaction summarizes it. Prompt caching lowers the price of that repeated input but does not remove it from the context window. After compaction the exact text may be gone, so `AGENTS.md` tells the agent to re-read a governing file rather than rely on a summary.
 - OpenCode Agent Skills (`SKILL.md`) are loaded on demand from global or `.opencode/skills` directories. They were evaluated and not used: locked rules must not be duplicated into skills, and an on-demand skill cannot make a locked rule more reliable than an explicit read-set entry.
 
 ## Authority
@@ -22,7 +22,9 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | LEARNINGS | agent-maintained durable rules | yes | always |
 | DOCUMENTATION | locked | no | docs/user setup, release |
 | ROADMAP | locked direction | no | platform or future-seam work |
-| DEFINITION_OF_DONE (V1), V2_SCOPE, V2_DEFINITION_OF_DONE, V2_1_SCOPE, V2_1_DEFINITION_OF_DONE | locked, historical | no | release/completion; removing, skipping, relaxing or relocating tests, CI gates or release qualification; intentionally changing documented V1/V2/V2.1 product or API semantics |
+| V2_SCOPE, V2_DEFINITION_OF_DONE | locked, historical | no | lists, search, filter, sort, pagination, counts, large data; semantics changes; release/completion |
+| V2_1_SCOPE, V2_1_DEFINITION_OF_DONE | locked, historical | no | tests, harness, CI, local gate, E2E infrastructure, release qualification, maintainability refactoring; semantics changes; release/completion |
+| DEFINITION_OF_DONE (V1) | locked, historical | no | deployment, auth, household, onboarding, recurrence, lifecycle, history, backup; semantics changes; release/completion |
 | V3_ISSUES_READY | issue identifiers, not status | no (migration output) | when an Issue ID is needed |
 | V3_ISSUES_MIGRATION_PROMPT | executed one-shot bootstrap prompt | no | never for routine work |
 | PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE | historical completion markers | never edit or delete | never for routine work |
@@ -33,9 +35,9 @@ Precedence when two sources seem to disagree: locked files over FLOW and AGENTS;
 
 Locked `V3_SCOPE.md` "Execution constraints" requires reading V3_DESIGN_BRIEF, V3_DEFINITION_OF_DONE, CODE_QUALITY, GUARDRAILS, PRODUCT, UX, ARCHITECTURE, API and TESTING for V3 work. They were conditional before; they are now unconditional so that the read set satisfies that locked rule by itself.
 
-## Why the historical V1/V2/V2.1 specifications are conditional
+## Why the historical V1/V2/V2.1 specifications are loaded by concern
 
-They remain locked and binding. For ordinary V3 work their invariants are already present in the always set: GUARDRAILS "Scope safety" and "Product invariants", PRODUCT, ARCHITECTURE, API, UX, TESTING and CODE_QUALITY, and they are enforced by the required CI suite that V3 must not weaken (V3_SCOPE, V3_DEFINITION_OF_DONE). The agent reads them when they decide the outcome: release and completion (they show the precedent and preserved gates), any change that removes, skips, relaxes or relocates existing tests, CI gates or release qualification, and any intentional change to documented V1/V2/V2.1 product or API semantics. Routine V3 UI work, bug fixes that restore documented behavior, and adding or repairing tests without relaxing them do not need them. A first version of this trigger ("changing tests or shipped behavior") matched almost every V3 task in the validation runs, so it was narrowed.
+They remain locked and binding. No locked file requires reading all of them every cycle (V2_1_SCOPE requires discovering the current specifications; V3_SCOPE "Execution constraints" names the current ones, which are in the always set, plus "all applicable existing docs"). Many of their contracts are specific to one concern and are not restated elsewhere, for example full-dataset search/filter and no unbounded fetching or DOM (V2_SCOPE journey 3, V2_DEFINITION_OF_DONE) or native no-Docker integration and E2E (V2_1_SCOPE, V2_1_DEFINITION_OF_DONE). So `AGENTS.md` loads each historical file when the work touches its concern, when documented V1/V2/V2.1 semantics would change, and for release and completion. A first version used only "changing tests or shipped behavior" as the trigger; it matched almost every task in the validation runs and under-specified the concern, so it was replaced by the concern map.
 
 ## Consolidated duplicates
 
