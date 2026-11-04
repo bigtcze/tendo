@@ -80,6 +80,7 @@ For behavior/API/schema changes:
 
 ## Dependency maintenance
 Dependency PRs (human, Renovate or self-opened) are ordinary open PRs: Start step 4 applies, so finish them before new feature work.
+Exception: routine Renovate PRs never take priority over an open managed `[P0]` Issue or a red `main`. Fix P0 first; leave routine PRs open (or to their native allowlisted automerge) and return to them afterwards. Security-alert PRs (`security` label) are P0 work. Never abandon a PR you already started without reconciling its state.
 1. Run every tool through `scripts/dev-exec.sh`; it installs the checked-out branch's `mise.toml` pins, verified against `mise.lock`, in a private user cache. Never install candidate versions globally, edit shell profiles, or change controller/OpenCode runtimes.
 2. Read the upstream release notes for every bumped version; for a major, read the migration guide and record behavior changes in `docs/development/dependencies.md`.
 3. Keep `mise.toml`, `mise.lock` and the matching image/workflow pins in sync (docs/development/dependencies.md "Upgrading a pin"). Verify new lock or mise checksums against the upstream published digests, never a local download alone.
