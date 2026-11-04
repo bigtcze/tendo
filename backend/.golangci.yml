@@ -44,7 +44,8 @@ linters:
       # Tests are excluded from structural thresholds; table-driven suites are long by design.
       - path: _test\.go$
         linters: [gocyclo, gocognit, funlen, revive]
-      # Deferred Close of test HTTP bodies, listeners and files: a close failure cannot change a test verdict.
+      # Routine cleanup of test resources (HTTP bodies, listeners, files). Tests whose correctness depends on a
+      # close result, such as flushing a written fixture, must still check it.
       - path: _test\.go$
         linters: [errcheck]
         text: "Error return value of `[^`]*\\.Close` is not checked"
