@@ -4,7 +4,7 @@ This inventory distinguishes pull-request CI from the release-only qualification
 
 | Verification layer | Where enforced | Command / workflow | Rationale |
 |---|---|---|---|
-| Go formatting, vet, static analysis, structure checks, unit tests with race, build | Required PR CI (`backend`); full local gate | `cd backend && golangci-lint run ./...`, `go test -race`, `go build ./...` | Fast source and regression checks on every PR and main push. |
+| Go formatting, vet, static analysis, structure checks, unit tests with race, build | Required PR CI (`backend`); full local gate | `gofmt`, `cd backend && golangci-lint run ./...`, `go test -race`, `go build ./...` | Fast source and regression checks on every PR and main push. |
 | API generation, OpenAPI/contract, npm audit | Required PR CI (`api`) and full local gate | `cd api && npm ci && npm audit --audit-level=moderate && npm run check` | Generated artifacts and API contract need short feedback. |
 | Frontend lint (including structural rules), typecheck, unit, audit | Required PR CI (`frontend`) and full local gate | `cd frontend && npm ci && npm audit --audit-level=moderate && npm run check` | Fast frontend regressions and structural checks on every PR. |
 | PostgreSQL integration, migrations and sqlc drift | Required PR CI (`postgres`) and full local gate | `bash scripts/setup-integration.sh`; `bash scripts/check-sqlc.sh` | Real PostgreSQL is part of ordinary PR confidence. |

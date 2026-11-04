@@ -116,6 +116,41 @@ func (r *Repo) Complete(_ context.Context, householdID, itemID, key string, fing
 	r.completions = append(r.completions, plan.Receipt)
 	return plan.Receipt, false, nil
 }
+func completionIndex(completions []item.Completion, householdID, itemID, completionID string) int {
+	for i := range completions {
+		c := completions[i]
+		if c.ID == completionID && c.ItemID == itemID && c.HouseholdID == householdID {
+			return i
+		}
+	}
+	return -1
+}
+
+func latestActiveCompletionVersion(completions []item.Completion, itemID string) *int64 {
+	var latest *int64
+	for i := range completions {
+		c := completions[i]
+		if c.ItemID == itemID && c.UndoneAt == nil && (latest == nil || c.ItemVersionBefore > *latest) {
+			version := c.ItemVersionBefore
+			latest = &version
+		}
+	}
+	return latest
+}
+
+func restoreLastCompletion(itemID string, completions []item.Completion, current *item.Item) {
+	current.LastCompletedOn = nil
+	var lastVersion int64
+	for i := range completions {
+		c := completions[i]
+		if c.ItemID == itemID && c.UndoneAt == nil && c.ItemVersionBefore > lastVersion {
+			date := c.CompletedOn
+			current.LastCompletedOn = &date
+			lastVersion = c.ItemVersionBefore
+		}
+	}
+}
+
 func (r *Repo) UndoCompletion(_ context.Context, householdID, itemID, completionID string, decide item.CompletionUndoDecider) (item.Completion, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -123,24 +158,11 @@ func (r *Repo) UndoCompletion(_ context.Context, householdID, itemID, completion
 	if !ok || current.HouseholdID != householdID {
 		return item.Completion{}, item.ErrNotFound
 	}
-	idx := -1
-	for i := range r.completions {
-		if r.completions[i].ID == completionID && r.completions[i].ItemID == itemID && r.completions[i].HouseholdID == householdID {
-			idx = i
-			break
-		}
-	}
+	idx := completionIndex(r.completions, householdID, itemID, completionID)
 	if idx < 0 {
 		return item.Completion{}, item.ErrNotFound
 	}
-	var latest *int64
-	for i := range r.completions {
-		c := r.completions[i]
-		if c.ItemID == itemID && c.UndoneAt == nil && (latest == nil || c.ItemVersionBefore > *latest) {
-			v := c.ItemVersionBefore
-			latest = &v
-		}
-	}
+	latest := latestActiveCompletionVersion(r.completions, itemID)
 	plan, err := decide(current, r.completions[idx], latest)
 	if err != nil {
 		return item.Completion{}, err
@@ -152,16 +174,7 @@ func (r *Repo) UndoCompletion(_ context.Context, householdID, itemID, completion
 		plan.Item.UpdatedAt = r.Clock
 		r.rows[itemID] = plan.Item
 		r.completions[idx] = plan.Receipt
-		current.LastCompletedOn = nil
-		var lastVersion int64
-		for i := range r.completions {
-			c := r.completions[i]
-			if c.ItemID == itemID && c.UndoneAt == nil && c.ItemVersionBefore > lastVersion {
-				date := c.CompletedOn
-				current.LastCompletedOn = &date
-				lastVersion = c.ItemVersionBefore
-			}
-		}
+		restoreLastCompletion(itemID, r.completions, &current)
 		plan.Item.LastCompletedOn = current.LastCompletedOn
 		r.rows[itemID] = plan.Item
 	}
@@ -248,32 +261,54 @@ func (r *Repo) Get(_ context.Context, householdID, itemID string) (item.Item, er
 }
 
 func matchesCollection(i item.Item, f item.CollectionFilters, today schedule.Date) bool {
-	if f.SubjectID != "" && i.SubjectID != f.SubjectID {
+	return matchesSubject(i, f) && matchesResponsibleUser(i, f) && matchesWorkflowState(i, f) &&
+		matchesAttention(i, f, today) && matchesRecurring(i, f) && matchesQuery(i, f)
+}
+
+func matchesSubject(i item.Item, f item.CollectionFilters) bool {
+	return f.SubjectID == "" || i.SubjectID == f.SubjectID
+}
+
+func matchesResponsibleUser(i item.Item, f item.CollectionFilters) bool {
+	if !f.ResponsibleUserID.Set {
+		return true
+	}
+	if f.ResponsibleUserID.Value == nil {
+		return i.ResponsibleUserID == nil
+	}
+	return i.ResponsibleUserID != nil && *f.ResponsibleUserID.Value == *i.ResponsibleUserID
+}
+
+func matchesWorkflowState(i item.Item, f item.CollectionFilters) bool {
+	return f.WorkflowState == "" || i.WorkflowState == f.WorkflowState
+}
+
+func matchesAttention(i item.Item, f item.CollectionFilters, today schedule.Date) bool {
+	switch f.Attention {
+	case "":
+		return true
+	case schedule.NeedsAttention:
+		return i.AttentionOn == nil || i.AttentionOn.Compare(today) <= 0
+	case schedule.Upcoming:
+		return i.AttentionOn != nil && i.AttentionOn.Compare(today) > 0
+	default:
 		return false
 	}
-	if f.ResponsibleUserID.Set && (f.ResponsibleUserID.Value == nil && i.ResponsibleUserID != nil || f.ResponsibleUserID.Value != nil && (i.ResponsibleUserID == nil || *f.ResponsibleUserID.Value != *i.ResponsibleUserID)) {
-		return false
-	}
-	if f.WorkflowState != "" && i.WorkflowState != f.WorkflowState {
-		return false
-	}
-	if f.Attention != "" {
-		match := f.Attention == schedule.NeedsAttention && (i.AttentionOn == nil || i.AttentionOn.Compare(today) <= 0) || f.Attention == schedule.Upcoming && i.AttentionOn != nil && i.AttentionOn.Compare(today) > 0
-		if !match {
-			return false
-		}
-	}
-	if f.Recurring != nil && (i.Recurrence != nil) != *f.Recurring {
-		return false
+}
+
+func matchesRecurring(i item.Item, f item.CollectionFilters) bool {
+	return f.Recurring == nil || (i.Recurrence != nil) == *f.Recurring
+}
+
+func matchesQuery(i item.Item, f item.CollectionFilters) bool {
+	if f.Q == "" {
+		return true
 	}
 	notes := ""
 	if i.Notes != nil {
 		notes = *i.Notes
 	}
-	if f.Q != "" && !strings.Contains(strings.ToLower(i.Title+"\n"+notes), strings.ToLower(f.Q)) {
-		return false
-	}
-	return true
+	return strings.Contains(strings.ToLower(i.Title+"\n"+notes), strings.ToLower(f.Q))
 }
 
 func (r *Repo) Summary(_ context.Context, householdID string, opts item.SummaryOptions) (item.SummaryCounts, error) {

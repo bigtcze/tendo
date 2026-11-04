@@ -116,22 +116,16 @@ func (p *Provider) keys(w http.ResponseWriter) {
 	e := big.NewInt(int64(p.key.E))
 	_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "use": "sig", "alg": "RS256", "kid": "test", "n": base64.RawURLEncoding.EncodeToString(n.Bytes()), "e": base64.RawURLEncoding.EncodeToString(e.Bytes())}}})
 }
-func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
+func validAuthorizationRequest(p *Provider, r *http.Request) bool {
 	q := r.URL.Query()
 	redirect := q.Get("redirect_uri")
-	if q.Get("client_id") != p.ClientID || q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" || redirect == "" || p.RedirectURI != "" && redirect != p.RedirectURI {
-		http.Error(w, "invalid request", 400)
-		return
-	}
-	if p.Faults.Deny || q.Get("deny") == "1" {
-		u, _ := url.Parse(redirect)
-		v := u.Query()
-		v.Set("error", "access_denied")
-		v.Set("state", q.Get("state"))
-		u.RawQuery = v.Encode()
-		http.Redirect(w, r, u.String(), http.StatusFound)
-		return
-	}
+	return q.Get("client_id") == p.ClientID && q.Get("response_type") == "code" &&
+		q.Get("code_challenge_method") == "S256" && q.Get("code_challenge") != "" && redirect != "" &&
+		(p.RedirectURI == "" || redirect == p.RedirectURI)
+}
+
+func authorizationSubject(p *Provider, r *http.Request) (string, bool) {
+	q := r.URL.Query()
 	sub := q.Get("sub")
 	if sub == "" {
 		sub = q.Get("login_hint")
@@ -139,15 +133,35 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	if sub == "" {
 		sub = p.Subject
 	}
-	valid := false
-	for _, x := range p.Subjects {
-		if x == sub {
-			valid = true
+	for _, candidate := range p.Subjects {
+		if candidate == sub {
+			return sub, true
 		}
 	}
-	if len(p.Subjects) == 0 && sub == p.Subject {
-		valid = true
+	return sub, len(p.Subjects) == 0 && sub == p.Subject
+}
+
+func redirectAuthorizationError(w http.ResponseWriter, r *http.Request, redirect string) {
+	u, _ := url.Parse(redirect)
+	v := u.Query()
+	v.Set("error", "access_denied")
+	v.Set("state", r.URL.Query().Get("state"))
+	u.RawQuery = v.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	redirect := q.Get("redirect_uri")
+	if !validAuthorizationRequest(p, r) {
+		http.Error(w, "invalid request", 400)
+		return
 	}
+	if p.Faults.Deny || q.Get("deny") == "1" {
+		redirectAuthorizationError(w, r, redirect)
+		return
+	}
+	sub, valid := authorizationSubject(p, r)
 	if !valid {
 		http.Error(w, "unknown subject", 400)
 		return
@@ -165,6 +179,33 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	u.RawQuery = v.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
+func (p *Provider) validTokenRequest(r *http.Request) (code, bool, string) {
+	if r.Method != "POST" {
+		return code{}, false, "method"
+	}
+	_ = r.ParseForm()
+	basicUser, basicSecret, hasBasic := r.BasicAuth()
+	formAuthorized := r.Form.Get("client_id") == p.ClientID && r.Form.Get("client_secret") == p.ClientSecret
+	basicAuthorized := hasBasic && basicUser == p.ClientID && basicSecret == p.ClientSecret
+	if !formAuthorized && !basicAuthorized {
+		return code{}, false, "client"
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	codeValue := r.Form.Get("code")
+	c, ok := p.codes[codeValue]
+	if !ok || c.used || !time.Now().Before(c.expires) {
+		return code{}, false, "invalid code"
+	}
+	sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+	if r.Form.Get("redirect_uri") != c.redirect || r.Form.Get("code_verifier") == "" || base64.RawURLEncoding.EncodeToString(sum[:]) != c.challenge {
+		return code{}, false, "pkce or redirect"
+	}
+	c.used = true
+	p.codes[codeValue] = c
+	return c, true, ""
+}
+
 func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if p.Faults.Delay > 0 {
@@ -180,33 +221,16 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 		return
 	}
-	if r.Method != "POST" {
-		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
-	}
-	_ = r.ParseForm()
-	basicUser, basicSecret, hasBasic := r.BasicAuth()
-	if (r.Form.Get("client_id") != p.ClientID || r.Form.Get("client_secret") != p.ClientSecret) && (!hasBasic || basicUser != p.ClientID || basicSecret != p.ClientSecret) {
-		http.Error(w, "client", http.StatusUnauthorized)
-		return
-	}
-	p.mu.Lock()
-	c, ok := p.codes[r.Form.Get("code")]
-	if ok && (!c.used) && time.Now().Before(c.expires) {
-		sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
-		if r.Form.Get("redirect_uri") != c.redirect || r.Form.Get("code_verifier") == "" || base64.RawURLEncoding.EncodeToString(sum[:]) != c.challenge {
-			p.mu.Unlock()
-			http.Error(w, "pkce or redirect", 400)
-			return
-		}
-		c.used = true
-		p.codes[r.Form.Get("code")] = c
-	} else {
-		ok = false
-	}
-	p.mu.Unlock()
+	c, ok, failure := p.validTokenRequest(r)
 	if !ok {
-		http.Error(w, "invalid code", 400)
+		status := http.StatusBadRequest
+		switch failure {
+		case "method":
+			status = http.StatusMethodNotAllowed
+		case "client":
+			status = http.StatusUnauthorized
+		}
+		http.Error(w, failure, status)
 		return
 	}
 	tok, e := p.idToken(c)
@@ -220,11 +244,8 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(res)
 }
-func (p *Provider) idToken(c code) (string, error) {
-	now := time.Now()
-	iss := p.Issuer()
-	var aud any = p.ClientID
-	claims := map[string]any{"iss": iss, "sub": c.subject, "aud": aud, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(), "nonce": c.nonce}
+func (p *Provider) idTokenClaims(c code, now time.Time) map[string]any {
+	claims := map[string]any{"iss": p.Issuer(), "sub": c.subject, "aud": p.ClientID, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(), "nonce": c.nonce}
 	if p.Faults.SubjectEmpty {
 		claims["sub"] = ""
 	}
@@ -265,6 +286,12 @@ func (p *Provider) idToken(c code) (string, error) {
 	if p.Faults.NonceMismatch {
 		claims["nonce"] = "wrong"
 	}
+	return claims
+}
+
+func (p *Provider) idToken(c code) (string, error) {
+	now := time.Now()
+	claims := p.idTokenClaims(c, now)
 	alg := "RS256"
 	if p.Faults.DisallowedAlgorithm {
 		alg = "HS256"

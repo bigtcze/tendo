@@ -65,7 +65,7 @@ Run the complete local gate with the pinned tools:
 bash scripts/dev-exec.sh -- bash scripts/verify-local.sh
 ```
 
-The gate runs golangci-lint (formatting, vet, static analysis, structure), Go unit-race/integration/sqlc/build, API and frontend checks, then production E2E. A local pass never replaces required GitHub checks.
+The gate runs gofmt, golangci-lint (vet, static analysis, structure), Go unit-race/integration/sqlc/build, API and frontend checks, then production E2E. A local pass never replaces required GitHub checks.
 
 ## Maintainability checks
 
@@ -74,13 +74,19 @@ Structural review triggers from `.autonomous/CODE_QUALITY.md` are enforced with 
 | Code | Tool and configuration | Thresholds |
 |---|---|---|
 | Authored frontend `src/**/*.ts(x)` | ESLint core rules in `frontend/eslint.config.js` | `complexity` 15, `max-depth` 4, `max-lines-per-function` 80, `max-lines` 350 non-blank |
-| Authored Go | [golangci-lint](https://golangci-lint.run) v2 in `backend/.golangci.yml` (pinned in `mise.toml`) | `gocyclo` > 15, `funlen` 80 lines, revive `max-control-nesting` 4 and `file-length-limit` 500 non-blank lines |
+| Authored Go | [golangci-lint](https://golangci-lint.run) v2 in `backend/.golangci.yml` (pinned in `mise.toml`) | `gocyclo` 15, `gocognit` 30, `funlen` 80 lines including signature and closing brace, revive `max-control-nesting` 4 and `file-length-limit` 500 non-blank lines |
 
-The Go configuration also runs the golangci-lint `standard` set (`errcheck`, `govet` with all analyzers except `fieldalignment` and `shadow`, `ineffassign`, `staticcheck`, `unused`) and the `gofmt` formatter, so `golangci-lint run ./...` replaces the former separate gofmt, `go vet` and custom structure steps. Generated code (`Code generated ... DO NOT EDIT`: sqlc and oapi-codegen output) and tests are excluded from the structural thresholds; gofmt still checks every file.
+Go formatting stays a separate `gofmt -l` step over every `.go` file under `backend/`, generated and build-tagged files included, because golangci-lint skips generated files. golangci-lint also runs its `standard` set: `errcheck`, `govet` with all analyzers except `fieldalignment` and `shadow`, `ineffassign`, `staticcheck` and `unused`. Generated code (`Code generated ... DO NOT EDIT`: sqlc and oapi-codegen output) is not linted. Tests are excluded from the structural thresholds, and unchecked `Close` errors are allowed in tests only.
 
-Exceptions are explicit and reviewed. The two frontend locale catalogs are exempt from `max-lines` because they are flat translation tables; inline ESLint configuration is disabled for authored source, so rule exceptions are exact-file overrides in `frontend/eslint.config.js` with a rationale and owner. Go exceptions are `exclusions.rules` entries in `backend/.golangci.yml`, each naming one test-support function at its measured complexity: a change to that value no longer matches the entry, so the finding reappears and the entry must be tightened or removed. `warn-unused` reports entries that no longer match anything. There are no production-code exceptions.
+Metric semantics, so reviewers know what each check does and does not catch:
 
-History: until #359 the checks used a Python ratchet with JSON baselines, a frontend lint-ratchet framework and a Go `funcmetrics` tool; #359 replaced those with ESLint rules and a 413-line custom Go AST checker (`backend/tools/structcheck`), which #367 replaced with golangci-lint. Thresholds and the named exceptions carried over unchanged; golangci-lint additionally found unchecked transaction rollbacks, dead test code and ineffectual test assignments, which were fixed rather than excluded.
+- `gocyclo` counts the closures in a function toward that function, so a handler with inline callbacks is measured as a whole. Function literals assigned directly to package variables are measured on their own; literals wrapped in a call, such as `http.HandlerFunc(func ...)`, are not.
+- revive's `max-control-nesting` counts `if`/`else`, `for`, `switch` and `select` cases, and counts each `else if` as one level deeper. It does not count `for ... range`, so `gocognit`, which weights every construct by nesting depth, is the backstop for deeply nested loops.
+- `funlen` measures declared functions only, not function literals.
+
+Exceptions are explicit and reviewed. Go has no per-function exceptions; code over a threshold is refactored. A new exception must be an exact `exclusions.rules` entry with a rationale and owner, and `warn-unused` reports entries that no longer match. The two frontend locale catalogs are exempt from `max-lines` because they are flat translation tables. Inline ESLint configuration is disabled for authored source, so frontend rule exceptions are exact-file overrides in `frontend/eslint.config.js` with a rationale and owner.
+
+History: until #359 these checks used a Python ratchet with JSON baselines, a frontend lint-ratchet framework and a Go `funcmetrics` tool. #359 replaced them with ESLint rules and a 413-line custom Go AST checker (`backend/tools/structcheck`), which #367 replaced with golangci-lint. golangci-lint then reported deferred transaction rollbacks whose errors were silently dropped (they now discard the error explicitly, as the other repositories already did), dead test helpers, ineffectual test assignments and staticcheck simplifications; all of these were fixed in code rather than excluded. The eight test-support functions the old checker excepted (the in-memory item repository, the test OIDC provider and its standalone server) were refactored under the default thresholds.
 
 ## CI job map
 
@@ -88,7 +94,7 @@ The required workflow retains one stable branch-protection aggregate check named
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.3 from `mise.lock`; `golangci-lint run ./...` (gofmt, go vet, staticcheck, structure), unit race tests excluding four PostgreSQL adapters, and `go build ./...` |
+| `backend` | Go 1.27.3 from `mise.lock`; gofmt, `golangci-lint run ./...` (go vet, staticcheck, structure), unit race tests excluding four PostgreSQL adapters, and `go build ./...` |
 | `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |
