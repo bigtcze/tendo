@@ -13,7 +13,7 @@
     "version": "2026.10.24",
     "linuxX64Sha256": "9a6c9c55f5c6372d0af70a9979fe6d742aea3793267a929e1738022143c466cc"
   },
-  "oapiCodegen": "v2.8.1",
+  "oapiCodegen": "v2.8.2",
   "openapiTypescript": "7.13.0",
   "playwright": "1.64.1",
   "images": {
