@@ -23,7 +23,7 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | DOCUMENTATION | locked | no | docs/user setup, release |
 | ROADMAP | locked direction | no | platform or future-seam work |
 | V2_SCOPE, V2_DEFINITION_OF_DONE | locked, historical | no | lists, search, filter, sort, pagination, counts, large data; semantics changes; release/completion |
-| V2_1_SCOPE, V2_1_DEFINITION_OF_DONE | locked, historical | no | tests, harness, CI, local gate, E2E infrastructure, release qualification, maintainability refactoring; semantics changes; release/completion |
+| V2_1_SCOPE, V2_1_DEFINITION_OF_DONE | locked, historical | no | test harness, CI, local gate, E2E infrastructure, release qualification, maintainability refactoring, removing/skipping/relaxing existing tests; semantics changes; release/completion |
 | DEFINITION_OF_DONE (V1) | locked, historical | no | item or subject forms, recurrence, lifecycle, history, auth, household, onboarding, security, deployment, backup; semantics changes; release/completion |
 | V3_ISSUES_READY | issue identifiers, not status | no (migration output) | when an Issue ID is needed |
 | V3_ISSUES_MIGRATION_PROMPT | executed one-shot bootstrap prompt | no | never for routine work |

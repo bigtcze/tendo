@@ -21,7 +21,7 @@ always=GUARDRAILS,CHARTER,PRODUCT,ARCHITECTURE,API,UX,TESTING,CODE_QUALITY,FLOW,
 when_docs_or_user_setup=DOCUMENTATION
 when_platform_or_future_seam=ROADMAP
 when_lists_search_filter_sort_pagination_counts_or_large_data_UI_or_API=V2_SCOPE,V2_DEFINITION_OF_DONE
-when_tests_test_harness_CI_local_gate_E2E_infra_release_qualification_or_maintainability_refactoring=V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
+when_test_harness_CI_local_gate_E2E_infrastructure_release_qualification_maintainability_refactoring_or_removing_skipping_relaxing_existing_tests=V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
 when_item_or_subject_forms_recurrence_lifecycle_history_auth_household_onboarding_security_deployment_or_backup=DEFINITION_OF_DONE
 when_changing_documented_V1_V2_V2_1_product_or_API_semantics=DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
 when_release_or_completion=DOCUMENTATION,DEFINITION_OF_DONE,V2_SCOPE,V2_DEFINITION_OF_DONE,V2_1_SCOPE,V2_1_DEFINITION_OF_DONE
@@ -31,7 +31,8 @@ never_needed_for_routine_work=CYCLE_PROMPT (already the session prompt), V3_ISSU
 The historical V1/V2/V2.1 scope and DoD files stay locked and binding on all
 work. They are loaded by concern (triggers above) because many of their
 contracts are specific, e.g. full-dataset search and bounded fetching (V2),
-native no-Docker integration/E2E (V2.1). If a change crosses concerns, or you
+native no-Docker integration/E2E (V2.1). Adding ordinary tests inside the
+existing harness is governed by the always set (TESTING, GUARDRAILS). If a change crosses concerns, or you
 are unsure whether a trigger applies, read every applicable locked file
 before editing.
 
