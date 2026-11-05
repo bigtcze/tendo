@@ -7,6 +7,7 @@ import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
+import { captureMembers } from './audit/members';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
@@ -212,15 +213,24 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await signedOut.goto(`/invite#${auditInvite.token}`);
     await expect(signedOut.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
     await capture(signedOut, join(dir, `audit-invite-accept-en-${width}.png`));
-    if (width === 390) {
+    if (width === 390 || width === 1440) {
       await signedOut.goto('/');
       await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+      await signedOut.reload();
       await signedOut.goto(`/invite#${auditInvite.token}`);
       await expect(signedOut.getByRole('heading', { level: 1, name: cs['invite.title'] })).toBeVisible();
-      await capture(signedOut, join(dir, 'audit-invite-accept-cs-390.png'));
+      await capture(signedOut, join(dir, `audit-invite-accept-cs-${width}.png`));
     }
+    await signedOut.goto('/invite');
+    await expect(signedOut.getByRole('heading', { level: 1, name: en['invite.incomplete'] })).toBeVisible();
+    await capture(signedOut, join(dir, `audit-invite-incomplete-en-${width}.png`));
+    await signedOut.goto(`/invite#${'Z'.repeat(43)}`);
+    await expect(signedOut.getByRole('status')).toContainText(/invite link can’t be used/);
+    await capture(signedOut, join(dir, `audit-invite-invalid-en-${width}.png`));
     await context.close();
   }
+  await captureMembers(page, browser, dir, capture);
+
   const subjects: string[] = [];
   const activeSubjects: string[] = [];
   for (const subject of [

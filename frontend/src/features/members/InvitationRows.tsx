@@ -31,10 +31,12 @@ export function InvitationRows({ invitations, actions, formatDate, t }: {
   formatDate: (date: string) => string;
   t: Translate;
 }) {
-  return <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{invitations.map((inv) => (
-    <li key={inv.id} className="flex flex-wrap items-start justify-between gap-3 p-4">
+  return <ul aria-labelledby="invitations-history-heading" className="mt-4 space-y-2">{invitations.map((inv) => (
+    <li key={inv.id} className={`flex flex-wrap items-start justify-between gap-3 rounded-xl border px-4 py-3 ${
+      inv.status === 'pending' ? 'border-accent bg-raised' : 'border-line bg-sunken'
+    }`}>
       <div className="min-w-0">
-        <p>{t(`members.invitation.status.${inv.status}`)}</p>
+        <p className={inv.status === 'pending' ? 'font-medium text-ink' : 'text-ink'}>{t(`members.invitation.status.${inv.status}`)}</p>
         <p className="mt-1 text-sm text-muted">{t('members.invitation.created', { date: formatDate(inv.createdAt) })} · {
           t('members.invitation.expires', { date: formatDate(inv.expiresAt) })}</p>
       </div>

@@ -24,6 +24,16 @@ beforeEach(() => { window.history.replaceState(null, '', '/'); vi.spyOn(navigato
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('members and invitations', () => {
+  it('renders owner/member explanation alongside the member role list', async () => {
+    const fake = installFakeServer(defaults());
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    expect(await screen.findByText('Owners can invite and manage invitations; members can use the household.')).toBeVisible();
+    const memberList = screen.getByRole('list', { name: 'Members' });
+    expect(within(memberList).getAllByRole('listitem')).toHaveLength(2);
+    expect(fake.requests.some((request) => request.path === `${base}/members`)).toBe(true);
+  });
+
   it('owner discovery makes exactly 20 member requests then one invitations probe', async () => {
     const discoveryCursors: Array<string | null> = [];
     let routeRequests = 0;
@@ -62,9 +72,19 @@ describe('members and invitations', () => {
     const fake = installFakeServer(defaults()); renderApp();
     expect(await screen.findByRole('link', { name: 'Household members' })).toHaveAttribute('href', '/members');
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
-    const rows = within(screen.getByRole('heading', { name: 'Members' }).parentElement!).getAllByRole('listitem');
+    const rows = within(screen.getByRole('list', { name: 'Members' })).getAllByRole('listitem');
     expect(rows.map((row) => row.textContent)).toEqual(['anna (you)Owner', 'petrMember']);
     expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members`)).toBe(true);
+  });
+
+  it('retryable list failure announces the error and keeps Retry adjacent', async () => {
+    installFakeServer({ ...defaults(), [`GET ${base}/members`]: problem(503) });
+    render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={() => {}} /></I18nProvider>);
+    await screen.findByRole('button', { name: 'Try again' });
+    const liveHost = screen.getByText('Members could not be loaded. Check your connection and try again.', { selector: 'p[role="alert"]' });
+    expect(liveHost).toHaveAttribute('aria-atomic', 'true');
+    expect(liveHost).toHaveTextContent('Members could not be loaded. Check your connection and try again.');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
   it('lets the long Czech invite action wrap on a narrow screen', async () => {
@@ -89,7 +109,7 @@ describe('members and invitations', () => {
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     const invite = await screen.findByRole('button', { name: 'Create invite link' });
     await userEvent.click(invite);
-    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    const membersSection = screen.getByRole('region', { name: 'Members' });
     await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
     expect(await within(membersSection).findByText('next_member')).toBeVisible();
     await act(async () => { release(json(201, { id: 'created', token: 'x'.repeat(43) })); await pending; });
@@ -119,7 +139,12 @@ describe('members and invitations', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error()) } });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
     await userEvent.click(screen.getByRole('button', { name: 'Copy' }));
-    expect(await screen.findByText('The link could not be copied. It is selected so you can copy it manually.')).toBeVisible();
+    const copyFeedback = await screen.findByText('The link could not be copied. It is selected so you can copy it manually.', { selector: '.rounded-xl' });
+    expect(copyFeedback).toBeVisible();
+    expect(screen.getByLabelText('Invitation link').closest('div')?.parentElement).toContainElement(copyFeedback);
+    const politeHost = within(screen.getByRole('region', { name: 'Invite someone' })).getByText('The link could not be copied. It is selected so you can copy it manually.', { selector: 'p[aria-live="polite"]' });
+    expect(politeHost).toBeInTheDocument();
+    expect(screen.getByLabelText('Invitation link')).toHaveFocus();
     await waitFor(() => expect(screen.getByLabelText('Invitation link')).toHaveFocus());
     const input = screen.getByLabelText('Invitation link') as HTMLInputElement;
     expect(input).toHaveValue(`${location.origin}/invite#${token}`);
@@ -145,14 +170,15 @@ describe('members and invitations', () => {
     expect(await screen.findByText('Pending')).toBeVisible(); expect(screen.getByText('Accepted')).toBeVisible(); expect(screen.getByText('Revoked')).toBeVisible();
     const invite = await screen.findByRole('button', { name: 'Create invite link' });
     await userEvent.click(invite); expect(await screen.findByLabelText('Invitation link')).toHaveValue(`${location.origin}/invite#${'c'.repeat(43)}`);
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    const invitationsRegion = screen.getByRole('region', { name: 'Invite someone' });
+    const invitations = within(invitationsRegion).getByRole('list', { name: 'Invitations' });
     const rows = within(invitations).getAllByRole('listitem');
     expect(within(rows[1]!).queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument(); expect(within(rows[2]!).queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
     const originalRow = rows[0]!;
     const originalRevokeButton = within(originalRow).getByRole('button', { name: 'Revoke' });
     await userEvent.click(originalRevokeButton); expect(within(rows[0]!).getByRole('button', { name: 'Yes' })).toHaveFocus();
     await userEvent.click(within(originalRow).getByRole('button', { name: 'Cancel' })); await waitFor(() => expect(within(originalRow).getByRole('button', { name: 'Revoke' })).toHaveFocus());
-    const currentRow = screen.getByRole('heading', { name: 'Invitations' }).parentElement!.querySelector('li')!;
+    const currentRow = invitations.querySelector('li')!;
     await userEvent.click(within(currentRow).getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(within(currentRow).getByRole('button', { name: 'Yes' })).toHaveFocus());
     await userEvent.click(within(currentRow).getByRole('button', { name: 'Yes' }));
@@ -160,16 +186,31 @@ describe('members and invitations', () => {
     expect(screen.getByRole('status')).toHaveFocus();
     await waitFor(() => expect(fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/invitations`)).toHaveLength(3));
     expect(screen.queryByLabelText('Invitation link')).not.toBeInTheDocument();
-    const updatedRow = screen.getByRole('heading', { name: 'Invitations' }).parentElement!.querySelector('li')!;
+    const updatedRow = invitations.querySelector('li')!;
     expect(updatedRow).toHaveTextContent('Revoked'); expect(within(updatedRow).queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
     expect(fake.requests.find((r) => r.method === 'DELETE')!.path).toBe(`${base}/invitations/one`);
+  });
+
+  it('owner-required after a permission change calmly removes controls and explains why', async () => {
+    const fake = installFakeServer({
+      ...defaults(),
+      [`GET ${base}/invitations`]: page([]),
+      [`POST ${base}/invitations`]: problem(403, { code: 'owner_required' }),
+    });
+    renderApp();
+    await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
+    expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
+    expect(fake.requests.some((request) => request.path === `${base}/invitations` && request.method === 'POST')).toBe(true);
   });
 
   it('Origin rejection keeps owner controls and explains the refusal', async () => {
     installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(403) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
-    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.')).toBeVisible();
+    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.', { selector: '.rounded-xl' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
   });
 
@@ -177,12 +218,15 @@ describe('members and invitations', () => {
     installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(403, { code: 'owner_required' }) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
     expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
   });
 
   it('member never requests invitations or sees invite controls', async () => {
     const routes = defaults(); routes[`GET ${base}/members`] = page(members('member')); const fake = installFakeServer(routes);
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('Only household owners can invite someone.')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument(); expect(fake.requests.some((r) => r.path === `${base}/invitations`)).toBe(false);
+    expect(await screen.findByText('Ask a household owner to send them an invite link.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument(); expect(fake.requests.some((r) => r.path === `${base}/invitations`)).toBe(false);
   });
 
   it('finds the viewer on page three but renders only first-page rows', async () => {
@@ -196,10 +240,10 @@ describe('members and invitations', () => {
     } });
     renderApp(); await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
-    const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
-    expect(within(memberSection).getByText('first_page')).toBeVisible();
-    expect(within(memberSection).queryByText('second_page')).not.toBeInTheDocument();
-    expect(within(memberSection).queryByText('anna')).not.toBeInTheDocument();
+    const memberList = screen.getByRole('list', { name: 'Members' });
+    expect(within(memberList).getByText('first_page')).toBeVisible();
+    expect(within(memberList).queryByText('second_page')).not.toBeInTheDocument();
+    expect(within(memberList).queryByText('anna')).not.toBeInTheDocument();
     expect(requests.filter((cursor) => cursor === null || cursor === 'p2' || cursor === 'p3').slice(0, 3)).toEqual([null, 'p2', 'p3']);
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
@@ -221,7 +265,8 @@ describe('members and invitations', () => {
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(routeCursors).toHaveLength(20);
     expect(routeCursors.filter((cursor) => cursor !== null)).toHaveLength(19);
-    expect(screen.queryByText('Only household owners can invite someone.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Invitations' })).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
 
@@ -239,7 +284,8 @@ describe('members and invitations', () => {
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Only household owners can invite someone.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeEnabled();
@@ -311,9 +357,10 @@ describe('members and invitations', () => {
     await userEvent.click(screen.getByRole('link', { name: 'Home' }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     await openMembersAfterHomeRead(fake);
-    expect(await screen.findByText('Only household owners can invite someone.')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
+    expect(await screen.findByText('Ask a household owner to send them an invite link.')).toBeVisible();
     expect(initialMemberCalls).toBe(20);
-    expect(within(screen.getByRole('heading', { name: 'Members' }).parentElement!).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(screen.getByRole('list', { name: 'Members' })).getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByText('page_1')).toBeVisible();
     expect(screen.queryByText('page_20')).not.toBeInTheDocument();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
@@ -330,10 +377,10 @@ describe('members and invitations', () => {
     const beforeMembersPage = membersRequestsBeforeNavigation.length;
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
-    const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
-    expect(within(memberSection).getByText('petr')).toBeVisible();
-    expect(within(memberSection).queryByText('anna')).not.toBeInTheDocument();
-    expect(within(memberSection).getAllByRole('listitem')).toHaveLength(1);
+    const memberList = screen.getByRole('list', { name: 'Members' });
+    expect(within(memberList).getByText('petr')).toBeVisible();
+    expect(within(memberList).queryByText('anna')).not.toBeInTheDocument();
+    expect(within(memberList).getAllByRole('listitem')).toHaveLength(1);
     const membersPageRequests = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`);
     expect(membersPageRequests.slice(beforeMembersPage).map((r) => r.query.get('cursor'))).toEqual([null, 'next']);
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
@@ -344,18 +391,18 @@ describe('members and invitations', () => {
     const fake = installFakeServer({ ...defaults(), [`GET ${base}/members`]: () => failing ? problem(403, { code }) : page(members()) });
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.')).toBeVisible();
+    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.', { selector: '.rounded-xl' })).toBeVisible();
     failing = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('heading', { name: 'Members' })).toBeVisible();
-    expect(within(screen.getByRole('main')).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(screen.getByRole('list', { name: 'Members' })).getAllByRole('listitem')).toHaveLength(2);
     expect(fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/members`).length).toBeGreaterThanOrEqual(2);
   });
 
   it('a list 404 shows the household-specific not-found message', async () => {
     installFakeServer({ ...defaults(), [`GET ${base}/members`]: problem(404) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent('This household isn’t available to your account.');
     expect(screen.queryByText('Members could not be loaded. Check your connection and try again.')).not.toBeInTheDocument();
   });
 
@@ -418,18 +465,25 @@ describe('members and invitations', () => {
       },
     });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
-    const next = within(invitations).getByRole('button', { name: 'Next page' });
+    const invitationsRegion = screen.getByRole('region', { name: 'Invite someone' });
+    const invitations = () => within(invitationsRegion).getByRole('list', { name: 'Invitations' });
+    const pager = within(invitationsRegion).getByRole('navigation', { name: 'Invitations' });
+    const next = within(pager).getByRole('button', { name: 'Next page' });
     await userEvent.click(next);
     expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible();
-    expect(within(invitations).getByText('Page 1')).toBeVisible();
-    expect(within(invitations).queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
-    expect(await within(invitations).findByText('Accepted')).toBeVisible();
-    expect(within(invitations).getByText('Page 2')).toBeVisible();
-    await userEvent.click(within(invitations).getByRole('button', { name: 'First page' }));
-    expect(await within(invitations).findByText('Pending')).toBeVisible();
-    expect(within(invitations).getByText('Page 1')).toBeVisible();
+    expect(within(invitationsRegion).getByText('Page 1')).toBeVisible();
+    expect(within(invitationsRegion).queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+    expect(within(pager).getByRole('button', { name: 'Next page' })).toBeEnabled();
+    await userEvent.click(within(pager).getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(within(pager).getByText('Page 2')).toBeVisible());
+    await waitFor(() => expect(fake.requests.filter((r) => r.path === `${base}/invitations` && r.query.get('cursor') === 'p2')).toHaveLength(2));
+    await waitFor(() => expect(within(invitations()).getByRole('listitem')).toHaveTextContent('Accepted'));
+    expect(within(pager).getByText('Page 2')).toBeVisible();
+    expect(fake.requests.filter((r) => r.path === `${base}/invitations` && r.query.get('cursor') === 'p2')).toHaveLength(2);
+    expect(within(invitationsRegion).getByText('Page 2')).toBeVisible();
+    await userEvent.click(within(pager).getByRole('button', { name: 'First page' }));
+    expect(await within(invitations()).findByText('Pending')).toBeVisible();
+    expect(within(pager).getByText('Page 1')).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations` && r.query.get('cursor') === 'p2')).toHaveLength(2);
   });
 
@@ -449,10 +503,10 @@ describe('members and invitations', () => {
     });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create invite link' })).toBeEnabled());
-    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    const membersSection = screen.getByRole('region', { name: 'Members' });
+    const invitations = screen.getByRole('list', { name: 'Invitations' });
     const memberNext = within(membersSection).getByRole('button', { name: 'Next page' });
-    const invitationNext = within(invitations).getByRole('button', { name: 'Next page' });
+    const invitationNext = within(screen.getByRole('region', { name: 'Invite someone' })).getByRole('button', { name: 'Next page' });
     // Both requests are in flight at once; the user last activated invitation paging.
     await userEvent.click(memberNext);
     await userEvent.click(invitationNext);
@@ -478,17 +532,18 @@ describe('members and invitations', () => {
         ? page([secondInvitation]) : json(200, { items: [firstInvitation], nextCursor: 'i2' }),
     });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    const membersSection = screen.getByRole('region', { name: 'Members' });
     await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
     expect(await within(membersSection).findByText('next_member')).toBeVisible();
     expect(within(membersSection).queryByText('anna')).not.toBeInTheDocument();
     expect(within(membersSection).queryByText('petr')).not.toBeInTheDocument();
     expect(within(membersSection).getAllByRole('listitem')).toHaveLength(1);
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    const invitationsRegion = screen.getByRole('region', { name: 'Invite someone' });
+    const invitations = within(invitationsRegion).getByRole('list', { name: 'Invitations' });
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Next page' }));
     expect(await within(invitations).findByText('Accepted')).toBeVisible();
     expect(within(invitations).getAllByRole('listitem')).toHaveLength(1);
-    expect(within(within(invitations).getByRole('list')).queryByText('Pending')).not.toBeInTheDocument();
+    expect(within(invitations).queryByText('Pending')).not.toBeInTheDocument();
     expect(fake.requests.filter((r) => r.path === `${base}/members`).map((r) => r.query.get('cursor'))).toContain('m2');
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`).map((r) => r.query.get('cursor'))).toContain('i2');
   });
@@ -506,17 +561,18 @@ describe('members and invitations', () => {
         : req.query.get('cursor') === 'i3' ? page([invitation('three', 'revoked')]) : json(200, { items: [invitation('one')], nextCursor: 'i2' }),
     });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    const membersSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
+    const membersSection = screen.getByRole('region', { name: 'Members' });
     await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
     expect(await within(membersSection).findByText('next_member')).toBeVisible();
     expect(within(membersSection).queryByText('anna')).not.toBeInTheDocument();
     expect(within(membersSection).queryByText('petr')).not.toBeInTheDocument();
     expect(within(membersSection).getAllByRole('listitem')).toHaveLength(1);
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    const invitationsRegion = screen.getByRole('region', { name: 'Invite someone' });
+    const invitations = within(invitationsRegion).getByRole('list', { name: 'Invitations' });
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Next page' }));
     expect(await within(invitations).findByText('Accepted')).toBeVisible();
     expect(within(invitations).getAllByRole('listitem')).toHaveLength(1);
-    expect(within(within(invitations).getByRole('list')).queryByText('Pending')).not.toBeInTheDocument();
+    expect(within(invitations).queryByText('Pending')).not.toBeInTheDocument();
     await userEvent.click(within(membersSection).getByRole('button', { name: 'Next page' }));
     expect(await within(membersSection).findByText('last_member')).toBeVisible();
     await userEvent.click(within(membersSection).getByRole('button', { name: 'Previous page' }));
@@ -524,11 +580,11 @@ describe('members and invitations', () => {
     await userEvent.click(within(membersSection).getByRole('button', { name: 'First page' }));
     expect(await within(membersSection).findByText('anna (you)')).toBeVisible();
     expect(within(membersSection).queryByText('next_member')).not.toBeInTheDocument();
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Next page' }));
     expect(await within(invitations).findByText('Revoked')).toBeVisible();
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Previous page' }));
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Previous page' }));
     expect(await within(invitations).findByText('Accepted')).toBeVisible();
-    await userEvent.click(within(invitations).getByRole('button', { name: 'First page' }));
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'First page' }));
     expect(await within(invitations).findByText('Pending')).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/members`).map((r) => r.query.get('cursor'))).toContain('m3');
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`).map((r) => r.query.get('cursor'))).toContain('i3');
@@ -558,16 +614,17 @@ describe('members and invitations', () => {
       await more;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
+    const invitationsRegion = screen.getByRole('region', { name: 'Invite someone' });
+    const invitations = within(invitationsRegion).getByRole('list', { name: 'Invitations' });
     const rows = within(invitations).getAllByRole('listitem');
     expect(rows.map((row) => row.textContent?.startsWith('Revoked'))).toEqual([true]);
-    expect(within(invitations).queryByText('Page 2')).not.toBeInTheDocument();
-    expect(within(invitations).queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Invite someone' }).querySelector('nav')!).queryByText('Page 2')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Invite someone' })).queryByRole('button', { name: 'First page' })).not.toBeInTheDocument();
     const cursorCount = fake.requests.filter((request) => request.path === `${base}/invitations` && request.query.get('cursor') === 'p2').length;
     expect(cursorCount).toBe(1);
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Next page' }));
     expect(await within(invitations).findByText('Accepted')).toBeVisible();
-    expect(within(invitations).getByText('Page 2')).toBeVisible();
+    expect(within(screen.getByRole('region', { name: 'Invite someone' })).getByText('Page 2')).toBeVisible();
   });
 
   it('revoking an unrelated invitation keeps the unresolved create key for Check again', async () => {
@@ -594,7 +651,7 @@ describe('members and invitations', () => {
     installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(404, { code: 'not_found' }) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
-    expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
+    expect(await screen.findByText('This household isn’t available to your account.', { selector: '.rounded-xl' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
   });
 
@@ -612,7 +669,7 @@ describe('members and invitations', () => {
   it('an invitation-list 404 identifies the unavailable household', async () => {
     installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: problem(404) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
+    expect(await screen.findByText('This household isn’t available to your account.', { selector: '.rounded-xl' })).toBeVisible();
   });
 
   it('create 401 signs out', async () => {
@@ -635,9 +692,9 @@ describe('members and invitations', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Yes' }));
     if (outcome === 'signed-out') expect(await screen.findByLabelText('Password')).toBeVisible();
     if (outcome === 'owner') expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
-    if (outcome === 'refused') expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.')).toBeVisible();
-    if (outcome === 'not-found') expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
-    if (typeof outcome === 'string' && outcome.includes('didn’t work')) expect(await screen.findByText(outcome)).toBeVisible();
+    if (outcome === 'refused') expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.', { selector: '.rounded-xl' })).toBeVisible();
+    if (outcome === 'not-found') expect((await screen.findAllByText('This household isn’t available to your account.', { selector: '.rounded-xl' })).length).toBeGreaterThanOrEqual(1);
+    if (typeof outcome === 'string' && outcome.includes('didn’t work')) expect(await screen.findByText(outcome, { selector: '.rounded-xl' })).toBeVisible();
   });
 
   it('ignores late create and revoke results after unmount', async () => {
@@ -682,8 +739,8 @@ describe('members and invitations', () => {
     });
     render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={() => {}} /></I18nProvider>);
     await screen.findByText('Pending');
-    const invitations = screen.getByRole('heading', { name: 'Invitations' }).parentElement!;
-    await userEvent.click(within(invitations).getByRole('button', { name: 'Next page' }));
+    const invitations = screen.getByRole('list', { name: 'Invitations' });
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(pageTwoCalls).toBe(1));
     await userEvent.click(within(invitations).getByRole('button', { name: 'Revoke' }));
     await userEvent.click(within(invitations).getByRole('button', { name: 'Yes' }));
@@ -701,12 +758,11 @@ describe('members and invitations', () => {
     installFakeServer({ ...defaults(), [`GET ${base}/members`]: (req: RecordedRequest) => req.query.get('cursor') === 'p2'
       ? pending : json(200, { items: members(), nextCursor: 'p2' }) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    const memberSection = screen.getByRole('heading', { name: 'Members' }).parentElement!;
-    const next = within(memberSection).getByRole('button', { name: 'Next page' });
+    const next = within(screen.getByRole('navigation', { name: 'Members' })).getByRole('button', { name: 'Next page' });
     await userEvent.click(next);
     screen.getByRole('button', { name: 'Create invite link' }).focus();
     await act(async () => { release(problem(503)); await pending; });
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(await screen.findByText('That didn’t work. Check your connection and try again.', { selector: '.rounded-xl' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Members' })).not.toHaveFocus();
   });
 
@@ -722,8 +778,8 @@ describe('members and invitations', () => {
     renderApp(); await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(fake.requests.filter((request) => request.documentPath === '/members' && request.path === `${base}/members`)).toHaveLength(20);
-    const section = screen.getByRole('heading', { name: 'Members' }).parentElement!;
-    expect(within(section).getByText('page_1')).toBeVisible();
-    expect(within(section).queryByText('page_20')).not.toBeInTheDocument();
+    const memberList = screen.getByRole('list', { name: 'Members' });
+    expect(within(memberList).getByText('page_1')).toBeVisible();
+    expect(within(memberList).queryByText('page_20')).not.toBeInTheDocument();
   });
 });

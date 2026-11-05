@@ -14,13 +14,14 @@ export function MemberListSection({ members, userId, headingRef, stack, cursor, 
   onNext: (event: MouseEvent<HTMLButtonElement>) => void;
   t: Translate;
 }) {
-  return <section>
-    <h2 ref={headingRef} tabIndex={-1} className="font-display text-2xl outline-none">{t('members.list.title')}</h2>
-    <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-white/70">{members.map((member) => (
-      <li key={member.userId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-        <span className="min-w-0 break-all">{member.login}{member.userId === userId ? ` (${t('members.you')})` : ''}</span>
-        <span className="text-sm text-muted">{t(member.role === 'owner' ? 'members.role.owner' : 'members.role.member')}</span>
+  return <section role="region" aria-labelledby="members-list-heading">
+    <h2 id="members-list-heading" ref={headingRef} tabIndex={-1} className="font-display text-h2 outline-none">{t('members.list.title')}</h2>
+    <ul aria-labelledby="members-list-heading" className="mt-3 grid gap-2 sm:grid-cols-2">{members.map((member) => (
+      <li key={member.userId} className="flex min-h-16 items-center justify-between gap-4 rounded-xl border border-line bg-raised px-4 py-2">
+        <span className="min-w-0 break-words text-row-title text-ink">{member.login}{member.userId === userId ? ` (${t('members.you')})` : ''}</span>
+        <span className="shrink-0 rounded-md bg-sand px-2 py-1 text-sm text-ink">{t(member.role === 'owner' ? 'members.role.owner' : 'members.role.member')}</span>
       </li>))}</ul>
+    <p className="mt-2 max-w-prose text-meta text-muted">{t('members.roles.explained')}</p>
     {stack.length > 0 || cursor
       ? <MembersPager kind="member" stack={stack} cursor={cursor} busy={busy} onPrevious={onPrevious} onNext={onNext} t={t} />
       : null}

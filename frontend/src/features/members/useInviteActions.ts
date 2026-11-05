@@ -18,7 +18,7 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
   const yesButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const revokeButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const restoreFocusIdRef = useRef<string | null>(null);
-  const inviteLink = useInviteLink(t, setNotice);
+  const inviteLink = useInviteLink(t);
 
   function loseOwnership() { setOwner(false); inv.setInvitations([]); setNotice(t('members.invite.ownerRequired')); unresolvedCreateKey.current = null; }
   function settleKey() { unresolvedCreateKey.current = null; setCanCheckAgain(false); }
@@ -35,7 +35,7 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
       setRecoveryInvitationId(null);
       settleKey();
       inviteLink.showLink(result.invitation.token, result.invitation.id);
-      setNotice(t('members.invite.created'));
+      setNotice(t('members.invite.created'), 'success');
     } else if (result.kind === 'existing') {
       setRecoveryInvitationId(result.invitation.id);
       settleKey();
@@ -68,7 +68,7 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
     if (result !== 'ok') { setNotice(t('members.error.action')); return; }
     if (inviteLink.linkInvitationId === id) inviteLink.clearLink();
     if (recoveryInvitationId === id) setRecoveryInvitationId(null);
-    setNotice(t('members.invite.revoked'));
+    setNotice(t('members.invite.revoked'), 'success');
     restoreFocusIdRef.current = null;
     noticeRef.current?.focus();
     inv.refreshInvitations();
@@ -85,7 +85,7 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
   }
 
   return {
-    busy, link: inviteLink.link, copied: inviteLink.copied, canCheckAgain, revokeId, setRevokeId, recoveryInvitationId,
+    busy, link: inviteLink.link, copied: inviteLink.copied, copyMessage: inviteLink.copyMessage, canCheckAgain, revokeId, setRevokeId, recoveryInvitationId,
     linkRef: inviteLink.linkRef, pendingLinkFocusRef: inviteLink.pendingLinkFocusRef, copyLink: inviteLink.copyLink,
     yesButtonsRef, revokeButtonsRef, restoreFocusIdRef, invite, revoke,
   };
