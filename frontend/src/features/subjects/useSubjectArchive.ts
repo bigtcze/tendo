@@ -43,6 +43,8 @@ export function useSubjectArchive(ctx: {
             await ctx.reloadPage(ctx.currentCursor, ctx.cursorStack, subject.id);
           }
         } else {
+          // The row is gone; drop the editor's pending row-focus request so it cannot steal focus later.
+          if (ctx.focusKey.current === `row:${subject.id}`) ctx.focusKey.current = null;
           ctx.setList((current) => current.kind === 'ready'
             ? { ...current, items: current.items.filter((s) => s.id !== subject.id) } : current);
           ctx.setNotice(archived ? { kind: 'archived', subject } : { kind: 'restored', subject });
@@ -52,6 +54,7 @@ export function useSubjectArchive(ctx: {
       else {
         ctx.setActionFailed(true);
         if (isUndo) ctx.noticeRef.current?.focus();
+        else if (fromEditor) ctx.focusKey.current = `row:${subject.id}`;
       }
     });
   }

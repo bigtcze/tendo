@@ -207,7 +207,6 @@ describe('list', () => {
     await userEvent.click(next);
     expect(main.getByRole('button', { name: 'Add' })).toBeDisabled();
     expect(main.getByRole('button', { name: 'Edit Anna' })).toBeDisabled();
-    expect(main.getByRole('button', { name: 'Edit Anna' })).toBeDisabled();
     await act(async () => { release(page([octavia])); await pending; });
     expect(await main.findByText('Octavia')).toBeVisible();
   });
@@ -654,6 +653,33 @@ describe('add', () => {
     await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+
+  it('keeps the Add dialog open while the POST is pending, then allows dismissal after failure', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: page([]), [createKey]: () => pending });
+    renderApp();
+    const form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    const dialog = screen.getByRole('dialog');
+    const headerCancel = dialog.querySelector<HTMLButtonElement>('header button')!;
+    expect(headerCancel).toBeDisabled();
+    dialog.dispatchEvent(new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(dialog).toBeInTheDocument();
+    await act(async () => { release(problem(503)); await pending; });
+    expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
+    expect(headerCancel).toBeEnabled();
+    await userEvent.click(headerCancel);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('focuses the Name field when the Add dialog opens', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([]) });
+    renderApp();
+    const form = await openAddForm();
+    expect(within(form).getByLabelText('Name')).toHaveFocus();
   });
 
   it('cannot be submitted twice while pending', async () => {
@@ -1121,7 +1147,7 @@ describe('archive and restore', () => {
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([anna, octavia]),
-      [itemKey('s-2')]: () => etagged(current, etag),
+      [itemKey('s-2')]: editorThen(() => etagged(current, '"5"'), () => etagged(current, '"6"')),
       [itemKey('s-2', 'PATCH')]: (req) => {
         current = { ...current, archived: JSON.parse(req.body).archived };
         etag = `"${Number(etag.replaceAll('"', '')) + 1}"`;
@@ -1133,16 +1159,16 @@ describe('archive and restore', () => {
     await archiveSubject(within(screen.getByRole('main')), 'Octavia');
 
     expect(await screen.findByText('Octavia was archived.')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Archive Octavia' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByRole('button', { name: 'Edit Octavia' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('main')).queryByText('Octavia')).not.toBeInTheDocument();
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     let patch = sent(fake.requests, 'PATCH')[0]!;
-    expect(patch.headers.get('If-Match')).toBe('"5"');
+    expect(patch.headers.get('If-Match')).toBe('"6"');
     expect(JSON.parse(patch.body)).toEqual({ archived: true });
-    expect(fake.requests.indexOf(patch)).toBeGreaterThan(
-      fake.requests.findIndex((r) => r.method === 'GET' && r.path === `${base}/subjects/s-2`),
-    );
+    const subjectReads = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects/s-2`);
+    expect(subjectReads).toHaveLength(2);
+    expect(fake.requests.indexOf(patch)).toBeGreaterThan(fake.requests.indexOf(subjectReads[1]!));
 
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(await screen.findByRole('button', { name: 'Edit Octavia' })).toBeVisible();
@@ -1189,6 +1215,28 @@ describe('archive and restore', () => {
     await waitFor(() => expect(main.getByRole('button', { name: 'Edit Row 03' })).toHaveFocus());
     const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('cursor') === null && r.query.get('archived') !== 'true');
     expect(lists.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('returns focus to the row Edit button when archive from the dialog fails', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({
+      ...signedIn,
+      [listKey]: page([octavia]),
+      [itemKey('s-2')]: editorThen(() => etagged(octavia, '"5"'), () => etagged(octavia, '"6"')),
+      [itemKey('s-2', 'PATCH')]: () => pending,
+    });
+    renderApp();
+    await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Edit Octavia' }));
+    const form = await main.findByRole('form', { name: 'Edit Octavia' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Archive' }));
+    await act(async () => { release(problem(503)); await pending; });
+    expect(await main.findByRole('alert')).toBeVisible();
+    const edit = await main.findByRole('button', { name: 'Edit Octavia' });
+    await waitFor(() => expect(edit).toHaveFocus());
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it('skips the PATCH when the fresh read already shows the wanted archived state', async () => {

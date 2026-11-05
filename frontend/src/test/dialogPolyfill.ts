@@ -4,13 +4,14 @@ export function installDialogPolyfill() {
     value(this: HTMLDialogElement) {
       this.open = true;
       this.setAttribute('open', '');
-      const focusable = this.querySelector<HTMLElement>(
+      const focusable = this.querySelector<HTMLElement>('[autofocus]') ?? this.querySelector<HTMLElement>(
         [
-          '[data-dialog-content] button:not([disabled])',
-          '[data-dialog-content] input:not([disabled])',
-          '[data-dialog-content] select:not([disabled])',
-          '[data-dialog-content] textarea:not([disabled])',
-          '[data-dialog-content] [tabindex]:not([tabindex="-1"])',
+          'a[href]',
+          'button:not([disabled])',
+          'input:not([disabled])',
+          'select:not([disabled])',
+          'textarea:not([disabled])',
+          '[tabindex]:not([tabindex="-1"])',
         ].join(', '),
       );
       (focusable ?? this.querySelector<HTMLElement>('h2'))?.focus();

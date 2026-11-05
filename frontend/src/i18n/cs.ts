@@ -204,7 +204,6 @@ export const cs: Record<MessageKey, string> = {
   'subjects.save': 'Uložit',
   'subjects.saving': 'Ukládám…',
   'subjects.archive': 'Archivovat',
-  'subjects.archive.label': 'Archivovat: {name}',
   'subjects.restore': 'Obnovit',
   'subjects.restore.label': 'Obnovit: {name}',
   'subjects.undo': 'Vrátit zpět',

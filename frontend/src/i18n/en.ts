@@ -201,7 +201,6 @@ export const en = {
   'subjects.save': 'Save',
   'subjects.saving': 'Saving…',
   'subjects.archive': 'Archive',
-  'subjects.archive.label': 'Archive {name}',
   'subjects.restore': 'Restore',
   'subjects.restore.label': 'Restore {name}',
   'subjects.undo': 'Undo',

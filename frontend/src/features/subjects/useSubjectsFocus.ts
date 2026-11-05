@@ -30,7 +30,7 @@ export function useSubjectsFocus(
     const el = document.querySelector<HTMLElement>(`[data-focus="${key}"]`);
     if (el) {
       el.focus();
-      focusKeyRef.current = null;
+      if (document.activeElement === el) focusKeyRef.current = null;
     }
   });
 }
