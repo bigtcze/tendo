@@ -511,9 +511,18 @@ test.describe('Tendo production journey', () => {
     }
     await expectNoAxeViolations(page, 'people-add-form');
 
+    // Add is a modal dialog (V3-11): the page behind it, including the language switch, is inert until it closes.
+    await page.getByRole('form', { name: en['subjects.add.formLabel'] })
+      .getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: en['subjects.add'], exact: true })).toBeFocused();
     await page.getByRole('button', { name: 'Čeština' }).click();
     await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
+    await page.getByRole('button', { name: cs['subjects.add'], exact: true }).click();
     await expect(page.getByRole('form', { name: cs['subjects.add.formLabel'] })).toBeVisible();
+    await page.getByRole('form', { name: cs['subjects.add.formLabel'] })
+      .getByRole('button', { name: cs['subjects.cancel'], exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: 'English' }).click();
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
 

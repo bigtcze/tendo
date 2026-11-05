@@ -23,16 +23,17 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
   onPrevious: (event: React.MouseEvent<HTMLButtonElement>) => void; onNext: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const addRef = useRef<HTMLButtonElement>(null);
+  const addNameRef = useRef<HTMLInputElement | null>(null);
   if (list.kind !== 'ready') return null;
   return <div className="mt-8 space-y-6">
     {!showArchived ? <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled}
       onClick={onAdd} className="w-full sm:w-auto md:absolute md:right-0 md:top-0 md:w-auto">{t('subjects.add')}</Button> : null}
     <Dialog open={adding} onOpenChange={(open) => { if (!open) onCancelAdd(); }} title={t('subjects.add.formLabel')}
-      closeLabel={t('subjects.cancel')} busy={createLocked} sheet triggerRef={addRef}>
+      closeLabel={t('subjects.cancel')} busy={createLocked} sheet triggerRef={addRef} initialFocusRef={addNameRef}>
       {adding ? <SubjectForm key={String(adding)} label={t('subjects.add.formLabel')} initial={pendingInitial} members={members}
         membersLoaded={membersLoaded} submitLabel={t('subjects.add.submit')} pendingLabel={t('subjects.add.submitting')}
         locked={createLocked} retryLabel={t('subjects.create.checkAgain')}
-        notice={createUncertain ? t('subjects.notice.uncertain') : undefined} onSubmit={onAddSubmit} onCancel={onCancelAdd} /> : null}
+        notice={createUncertain ? t('subjects.notice.uncertain') : undefined} initialFocusRef={addNameRef} onSubmit={onAddSubmit} onCancel={onCancelAdd} /> : null}
     </Dialog>
     {empty ? <SubjectsEmpty showArchived={showArchived} cursorStackEmpty={cursorStack.length === 0} adding={adding} t={t} /> : null}
     {items.length > 0 ? <ul className="grid gap-3 lg:grid-cols-2">
