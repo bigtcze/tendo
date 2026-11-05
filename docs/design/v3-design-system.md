@@ -127,7 +127,7 @@ Dialog tests install a minimal asynchronous `HTMLDialogElement.showModal`/`close
 
 Existing `Button`, `Input`, and `Label` remain shadcn/ui-derived copied primitives; Button/Input now use role tokens and shared focus color. Added cohesive presentation primitives without a runtime dependency. Login's existing notice is the first migrated real use; layout and authentication behavior are unchanged. Existing global `.app-frame`/screen layout stays owned by later slices; this foundation does not replace shell structure. `settle` remains with the global reduced-motion rule. ADR 0003 records shadcn/ui source and MIT license; new copied/adapted files identify origin in their headers. No new font, icon or npm dependency.
 
-Home composition and row decisions are documented with production-build evidence in [v3-home.md](v3-home.md). Item add/edit decisions and capture status are documented in [v3-item-form.md](v3-item-form.md).
+Home composition and row decisions are documented with production-build evidence in [v3-home.md](v3-home.md). Item add/edit decisions and capture status are documented in [v3-item-form.md](v3-item-form.md). People and things decisions and evidence are documented in [v3-people.md](v3-people.md).
 
 ## Sample screen evidence
 
