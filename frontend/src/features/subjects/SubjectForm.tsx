@@ -75,7 +75,7 @@ function SubjectFormActions({ pending, pendingAttempt, locked, submitLabel, pend
     ? (pending && pendingAttempt ? pendingLabel : retryLabel ?? submitLabel)
     : (pending ? pendingLabel : submitLabel);
   return <div className="flex flex-wrap gap-2">
-    {onArchive && archiveLabel ? <div className="mr-auto border-r border-line pr-3">
+    {onArchive && archiveLabel ? <div className="mr-auto">
       <Button type="button" variant="quiet" onClick={onArchive} disabled={pending || locked}>
         {archiveLabel}
       </Button>

@@ -308,6 +308,24 @@ describe('list', () => {
     expect(await screen.findByText('Anna')).toBeVisible();
   });
 
+  it('announces a failed load through a persistent polite host and clears it after a successful retry', async () => {
+    let calls = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++calls === 1 ? problem(503) : page([anna])),
+    });
+    renderApp();
+    await openPeople();
+    const host = document.querySelector<HTMLElement>('main p.sr-only[aria-live="polite"][aria-atomic="true"]');
+    expect(host).not.toBeNull();
+    await waitFor(() => expect(host).toHaveTextContent('Tendo can’t be reached right now. Check your connection and try again.'));
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Anna')).toBeVisible();
+    // Same mounted node: the host persists across states and is emptied, never remounted pre-populated.
+    expect(document.querySelector('main p.sr-only[aria-live="polite"][aria-atomic="true"]')).toBe(host);
+    expect(host).toHaveTextContent('');
+  });
+
   it('401 returns to sign-in', async () => {
     installFakeServer({
       ...signedIn,

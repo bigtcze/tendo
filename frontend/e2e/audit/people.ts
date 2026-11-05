@@ -118,6 +118,14 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
     await openPeople(csPage, cs, width);
     await expect(csPage.getByRole('main').getByText(LONG_PLACE, { exact: true })).toBeVisible();
     await capture(csPage, join(dir, `audit-people-cs-${width}.png`), false);
+    if (width === 320 || width === 1024) {
+      // Long Czech names are near the end of the seeded list; frame them in the viewport above the phone bar.
+      const longRow = rows(csPage).filter({ hasText: LONG_PLACE });
+      await longRow.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await expect(longRow).toBeInViewport();
+      await capture(csPage, join(dir, `audit-people-cs-${width}-long-names.png`), false);
+      await csPage.evaluate(() => window.scrollTo(0, 0));
+    }
     if (width === 320) evidence['endClearance-cs-320'] = await assertEndClearsBar(csPage, cs, 'cs 320px');
     await context.close();
   }
@@ -202,6 +210,18 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
   return evidence;
 }
 
+/** Scroll the People pager into the viewport (above the phone bar) and assert its controls before capturing. */
+async function pagerInView(page: Page, path: string, capture: Capture, hasNext: boolean) {
+  const pager = page.getByRole('main').getByRole('navigation', { name: en['subjects.pages'] });
+  const previous = pager.getByRole('button', { name: en['subjects.page.previous'], exact: true })
+    .or(pager.getByRole('button', { name: en['subjects.page.first'], exact: true }));
+  await pager.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  await expect(previous).toBeInViewport();
+  await expect(pager.getByRole('button', { name: en['subjects.page.next'], exact: true })).toHaveCount(hasNext ? 1 : 0);
+  await capture(page, path, false);
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
 export async function capturePeopleScale(page: Page, dir: string, capture: Capture, api: Api, root: string) {
   const target = 1000;
   const pending: Array<Promise<void>> = [];
@@ -236,6 +256,7 @@ export async function capturePeopleScale(page: Page, dir: string, capture: Captu
     await expect(main.getByText(en['subjects.page.number'].replace('{n}', '2'), { exact: true })).toBeVisible();
     await expect(rows(page)).toHaveCount(PAGE_SIZE);
     await capture(page, join(dir, `audit-people-1000-page2-en-${width}.png`), false);
+    await pagerInView(page, join(dir, `audit-people-1000-page2-pager-en-${width}.png`), capture, true);
     if (width === 1440) {
       const visited: string[] = []; let pages = 0; let maxRows = 0; let maxDom = 0;
       await main.getByRole('button', { name: en['subjects.page.first'], exact: true }).click();
@@ -269,6 +290,7 @@ export async function capturePeopleScale(page: Page, dir: string, capture: Captu
       expect(listRequests.every((url) => Number(url.searchParams.get('limit')) === PAGE_SIZE && url.searchParams.get('cursor')),
         'every walk request is a cursor page of PAGE_SIZE').toBe(true);
       await capture(page, join(dir, 'audit-people-1000-last-page-en-1440.png'), false);
+      await pagerInView(page, join(dir, 'audit-people-1000-last-page-pager-en-1440.png'), capture, false);
       Object.assign(evidence, { pagesWalked: pages, maxRowsPerPage: maxRows, maxDomElements: maxDom, walkListRequests: listRequests.length });
     }
   }
