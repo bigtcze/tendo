@@ -14,7 +14,7 @@
   },
   "overrides": {
     "@redocly/openapi-core": {
-      "minimatch": "11.0.3"
+      "minimatch": "11.0.4"
     }
   }
 }
