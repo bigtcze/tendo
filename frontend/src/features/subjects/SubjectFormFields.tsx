@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { cn } from '../../lib/cn';
@@ -9,6 +10,7 @@ import {
 } from './subjectFormModel';
 
 type FieldProps = {
+  initialFocusRef?: RefObject<HTMLInputElement | null>;
   uid: string; nameId: string; linkedId: string; errorId: string; target: ErrorTarget; name: string; changeName: (name: string) => void;
   type: SubjectType; changeType: (type: SubjectType) => void; linkedUserId: string | null;
   changeLinkedUserId: (id: string | null) => void; locked: boolean;
@@ -17,10 +19,10 @@ type FieldProps = {
 
 export function SubjectFormFields(props: FieldProps) {
   const { t } = useI18n();
-  const { name, changeName, errorId, target, type, changeType, linkedUserId, changeLinkedUserId, uid, nameId, linkedId, locked,
+  const { initialFocusRef, name, changeName, errorId, target, type, changeType, linkedUserId, changeLinkedUserId, uid, nameId, linkedId, locked,
     members, membersLoaded, initial } = props;
   return <>
-    <NameField {...{ name, changeName, errorId, target, locked }} id={nameId} />
+    <NameField {...{ name, changeName, errorId, target, locked }} id={nameId} inputRef={initialFocusRef} />
     <TypeField {...{ uid, type, changeType, target, errorId, locked }} />
     {shouldShowLinkedAccount(type, membersLoaded, members.length, linkedUserId) ? (
       <LinkedAccountField {...{ linkedUserId, changeLinkedUserId, members, locked, target, errorId }} id={linkedId} />
@@ -30,14 +32,14 @@ export function SubjectFormFields(props: FieldProps) {
   </>;
 }
 
-function NameField({ id, name, changeName, target, errorId, locked }: {
+function NameField({ id, name, changeName, target, errorId, locked, inputRef }: {
   id: string; name: string; changeName: (name: string) => void; target: ErrorTarget;
-  errorId: string; locked: boolean;
+  errorId: string; locked: boolean; inputRef?: RefObject<HTMLInputElement | null>;
 }) {
   const { t } = useI18n();
   return <div className="space-y-2">
     <Label htmlFor={id}>{t('subjects.name')}</Label>
-    <Input id={id} name="name" type="text" autoComplete="off" required value={name}
+    <Input ref={inputRef} id={id} name="name" type="text" autoComplete="off" required value={name}
       onChange={(event) => changeName(event.target.value)} disabled={locked}
       aria-invalid={target === 'name'} aria-describedby={target === 'name' ? errorId : undefined} />
   </div>;
@@ -57,8 +59,8 @@ function TypeField({ uid, type, changeType, target, errorId, locked }: {
           onChange={() => changeType(option)} disabled={locked}
           className="peer absolute inset-0 size-full cursor-pointer opacity-0" />
         <span className={cn(
-          'inline-flex min-h-11 items-center rounded-xl border border-field bg-white px-4 text-base text-ink transition-colors',
-          'peer-hover:bg-sand peer-checked:border-accent peer-checked:bg-accent peer-checked:text-white',
+          'inline-flex min-h-11 items-center rounded-xl border border-field bg-raised px-4 text-base text-ink transition-colors',
+          'peer-hover:bg-sand peer-checked:border-accent peer-checked:bg-accent peer-checked:text-on-accent',
           'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
         )}>{t(typeLabelKey(option))}</span>
       </label>)}
@@ -79,7 +81,7 @@ function LinkedAccountField({ id, linkedUserId, changeLinkedUserId, members, loc
       onChange={(event) => changeLinkedUserId(event.target.value || null)} disabled={locked}
       aria-invalid={target === 'linkedUserId'} aria-describedby={target === 'linkedUserId' ? errorId : hintId}
       className={cn(
-        'min-h-11 w-full rounded-xl border border-field bg-white px-3 text-ink',
+        'min-h-11 w-full rounded-xl border border-field bg-raised px-3 text-ink',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
       )}>
       <option value="">{t('subjects.link.none')}</option>

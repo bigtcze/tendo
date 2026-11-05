@@ -27,10 +27,13 @@ export function SubjectsScreenContent({
   previousPage: (event: React.MouseEvent<HTMLButtonElement>) => void; nextPage: (event: React.MouseEvent<HTMLButtonElement>) => void;
   switchView: () => void;
 }) {
-  return <section className="settle">
-    <Heading className="font-display text-h1 leading-tight">{t('subjects.title')}</Heading>
-    <p className="mt-2 text-muted">{t('subjects.subtitle')}</p>
-    {showArchived && list.kind !== 'noHousehold' ? <div className="mt-8">
+  return <section className="settle relative min-w-0">
+    <div className="max-w-5xl md:pr-32">
+      <Heading className="font-display text-h1 leading-tight">{t('subjects.title')}</Heading>
+      <p className="mt-2 text-muted">{t('subjects.subtitle')}</p>
+    </div>
+    <div className="mt-8 max-w-5xl">
+    {showArchived && list.kind !== 'noHousehold' ? <div className="space-y-1">
       <h2 className="font-display text-2xl leading-snug">{t('subjects.archived.title')}</h2>
       <p className="mt-1 text-muted">{t('subjects.archived.body')}</p>
     </div> : null}
@@ -46,5 +49,6 @@ export function SubjectsScreenContent({
       onAddSubmit={add} onStartEditing={startEditing} onArchive={changeArchived} onRestore={changeArchived}
       onSave={save} onCancelEditing={closeEditing} onPrevious={previousPage} onNext={nextPage} />
     <SubjectsViewToggle showArchived={showArchived} listKind={list.kind} t={t} onSwitchView={switchView} />
+    </div>
   </section>;
 }

@@ -34,6 +34,11 @@ const membersKey = `GET ${base}/members`;
 const memberId = '0198a2f0-0000-7000-8000-000000000099';
 const membersResponse = () => json(200, { items: [{ userId: memberId, login: 'member_one', role: 'member' }], nextCursor: null });
 const itemKey = (id: string, method = 'GET') => `${method} ${base}/subjects/${id}`;
+/** Archive starts from the edit dialog: the first GET opens the editor, later GETs are archive's fresh read. */
+const editorThen = (opened: Response | (() => Response), later: () => Response | Promise<Response>) => {
+  let reads = 0;
+  return () => { reads += 1; return reads === 1 ? (typeof opened === 'function' ? opened() : opened) : later(); };
+};
 
 const subject = (id: string, name: string, type: Subject['type'] = 'person', archived = false): Subject => ({
   id,
@@ -72,6 +77,12 @@ afterEach(() => {
 async function openPeople() {
   await userEvent.click(await screen.findByRole('link', { name: 'People and things' }));
   return screen.findByRole('heading', { level: 1, name: 'People and things' });
+}
+
+async function archiveSubject(main: ReturnType<typeof within>, name: string) {
+  await userEvent.click(main.getByRole('button', { name: `Edit ${name}` }));
+  const form = await main.findByRole('form', { name: `Edit ${name}` });
+  await userEvent.click(within(form).getByRole('button', { name: 'Archive' }));
 }
 
 async function openAddForm() {
@@ -196,7 +207,6 @@ describe('list', () => {
     await userEvent.click(next);
     expect(main.getByRole('button', { name: 'Add' })).toBeDisabled();
     expect(main.getByRole('button', { name: 'Edit Anna' })).toBeDisabled();
-    expect(main.getByRole('button', { name: 'Archive Anna' })).toBeDisabled();
     await act(async () => { release(page([octavia])); await pending; });
     expect(await main.findByText('Octavia')).toBeVisible();
   });
@@ -272,7 +282,7 @@ describe('list', () => {
     const main = within(screen.getByRole('main'));
     await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     await main.findByText('Octavia');
-    await userEvent.click(main.getByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(main, 'Octavia');
     expect(await main.findByText('That changed just now. The list is up to date.')).toBeVisible();
     expect(await main.findByText('Anna')).toBeVisible();
     expect(main.getByText('Page 1')).toBeVisible();
@@ -296,6 +306,24 @@ describe('list', () => {
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Anna')).toBeVisible();
+  });
+
+  it('announces a failed load through a persistent polite host and clears it after a successful retry', async () => {
+    let calls = 0;
+    installFakeServer({
+      ...signedIn,
+      [listKey]: (req) => req.query.get('limit') === '100' ? page([]) : (++calls === 1 ? problem(503) : page([anna])),
+    });
+    renderApp();
+    await openPeople();
+    const host = document.querySelector<HTMLElement>('main p.sr-only[aria-live="polite"][aria-atomic="true"]');
+    expect(host).not.toBeNull();
+    await waitFor(() => expect(host).toHaveTextContent('Tendo can’t be reached right now. Check your connection and try again.'));
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Anna')).toBeVisible();
+    // Same mounted node: the host persists across states and is emptied, never remounted pre-populated.
+    expect(document.querySelector('main p.sr-only[aria-live="polite"][aria-atomic="true"]')).toBe(host);
+    expect(host).toHaveTextContent('');
   });
 
   it('401 returns to sign-in', async () => {
@@ -643,6 +671,33 @@ describe('add', () => {
     await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+
+  it('keeps the Add dialog open while the POST is pending, then allows dismissal after failure', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({ ...signedIn, [listKey]: page([]), [createKey]: () => pending });
+    renderApp();
+    const form = await openAddForm();
+    await userEvent.type(within(form).getByLabelText('Name'), 'Zuzka');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    const dialog = screen.getByRole('dialog');
+    const headerCancel = dialog.querySelector<HTMLButtonElement>('header button')!;
+    expect(headerCancel).toBeDisabled();
+    dialog.dispatchEvent(new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(dialog).toBeInTheDocument();
+    await act(async () => { release(problem(503)); await pending; });
+    expect(await within(form).findByText('We couldn’t confirm this was saved.')).toBeVisible();
+    expect(headerCancel).toBeEnabled();
+    await userEvent.click(headerCancel);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('focuses the Name field when the Add dialog opens', async () => {
+    installFakeServer({ ...signedIn, [listKey]: page([]) });
+    renderApp();
+    const form = await openAddForm();
+    expect(within(form).getByLabelText('Name')).toHaveFocus();
   });
 
   it('cannot be submitted twice while pending', async () => {
@@ -1097,7 +1152,7 @@ describe('edit', () => {
     renderApp();
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await userEvent.click(within(await screen.findByRole('form', { name: 'Edit Anna' })).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
     expect(sent(fake.requests, 'PATCH')).toHaveLength(0);
   });
@@ -1110,7 +1165,7 @@ describe('archive and restore', () => {
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([anna, octavia]),
-      [itemKey('s-2')]: () => etagged(current, etag),
+      [itemKey('s-2')]: editorThen(() => etagged(current, '"5"'), () => etagged(current, '"6"')),
       [itemKey('s-2', 'PATCH')]: (req) => {
         current = { ...current, archived: JSON.parse(req.body).archived };
         etag = `"${Number(etag.replaceAll('"', '')) + 1}"`;
@@ -1119,19 +1174,19 @@ describe('archive and restore', () => {
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(within(screen.getByRole('main')), 'Octavia');
 
     expect(await screen.findByText('Octavia was archived.')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Archive Octavia' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByRole('button', { name: 'Edit Octavia' })).not.toBeInTheDocument();
     expect(within(screen.getByRole('main')).queryByText('Octavia')).not.toBeInTheDocument();
     expect(screen.getByText('Anna')).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     let patch = sent(fake.requests, 'PATCH')[0]!;
-    expect(patch.headers.get('If-Match')).toBe('"5"');
+    expect(patch.headers.get('If-Match')).toBe('"6"');
     expect(JSON.parse(patch.body)).toEqual({ archived: true });
-    expect(fake.requests.indexOf(patch)).toBeGreaterThan(
-      fake.requests.findIndex((r) => r.method === 'GET' && r.path === `${base}/subjects/s-2`),
-    );
+    const subjectReads = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects/s-2`);
+    expect(subjectReads).toHaveLength(2);
+    expect(fake.requests.indexOf(patch)).toBeGreaterThan(fake.requests.indexOf(subjectReads[1]!));
 
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(await screen.findByRole('button', { name: 'Edit Octavia' })).toBeVisible();
@@ -1164,7 +1219,7 @@ describe('archive and restore', () => {
     });
     renderApp(); await openPeople();
     const main = within(screen.getByRole('main'));
-    await userEvent.click(await main.findByRole('button', { name: 'Archive Row 03' }));
+    await archiveSubject(main, 'Row 03');
     expect(await main.findByText('Row 03 was archived.')).toBeVisible();
     await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     expect(await main.findByText('Zeta')).toBeVisible();
@@ -1180,15 +1235,37 @@ describe('archive and restore', () => {
     expect(lists.length).toBeGreaterThanOrEqual(3);
   });
 
+  it('returns focus to the row Edit button when archive from the dialog fails', async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    installFakeServer({
+      ...signedIn,
+      [listKey]: page([octavia]),
+      [itemKey('s-2')]: editorThen(() => etagged(octavia, '"5"'), () => etagged(octavia, '"6"')),
+      [itemKey('s-2', 'PATCH')]: () => pending,
+    });
+    renderApp();
+    await openPeople();
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Edit Octavia' }));
+    const form = await main.findByRole('form', { name: 'Edit Octavia' });
+    await userEvent.click(within(form).getByRole('button', { name: 'Archive' }));
+    await act(async () => { release(problem(503)); await pending; });
+    expect(await main.findByRole('alert')).toBeVisible();
+    const edit = await main.findByRole('button', { name: 'Edit Octavia' });
+    await waitFor(() => expect(edit).toHaveFocus());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   it('skips the PATCH when the fresh read already shows the wanted archived state', async () => {
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([octavia]),
-      [itemKey('s-2')]: etagged({ ...octavia, archived: true }, '"5"'),
+      [itemKey('s-2')]: editorThen(() => etagged(octavia, '"4"'), () => etagged({ ...octavia, archived: true }, '"5"')),
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(within(screen.getByRole('main')), 'Octavia');
     expect(await screen.findByText('Octavia was archived.')).toBeVisible();
     expect(sent(fake.requests, 'PATCH')).toHaveLength(0);
   });
@@ -1245,7 +1322,7 @@ describe('archive and restore', () => {
     await waitFor(() => expect(main.getByRole('button', { name: 'Edit Octavia' })).toHaveFocus());
   });
 
-  it('a pending edit PATCH disables paging and still handles a 412 conflict', async () => {
+  it('a pending edit save disables archive and paging and still handles a 412 conflict', async () => {
     let releasePatch!: (response: Response) => void;
     const pendingPatch = new Promise<Response>((resolve) => { releasePatch = resolve; });
     let reads = 0;
@@ -1264,6 +1341,7 @@ describe('archive and restore', () => {
     await userEvent.type(within(form).getByLabelText('Name'), ' RS');
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(within(form).getByRole('button', { name: 'Saving…' })).toBeDisabled());
+    expect(within(form).getByRole('button', { name: 'Archive' })).toBeDisabled();
     expect(main.getByRole('button', { name: 'First page' })).toBeDisabled();
     await act(async () => { releasePatch(problem(412)); await pendingPatch; });
     expect(await main.findByText(/Someone else changed this just now/)).toBeVisible();
@@ -1283,7 +1361,7 @@ describe('archive and restore', () => {
     const main = within(screen.getByRole('main'));
     await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     await main.findByText('Octavia');
-    await userEvent.click(main.getByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(main, 'Octavia');
     expect(main.getByRole('button', { name: 'First page' })).toBeDisabled();
     await act(async () => { release(json(200, { ...octavia, archived: true }, { ETag: '"2"' })); await pending; });
     expect(await main.findByText('Octavia was archived.')).toBeVisible();
@@ -1301,7 +1379,7 @@ describe('archive and restore', () => {
     const main = within(screen.getByRole('main'));
     await userEvent.click(main.getByRole('button', { name: 'Next page' }));
     await main.findByText('Octavia');
-    await userEvent.click(main.getByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(main, 'Octavia');
     expect(await main.findByText('Octavia was archived.')).toBeVisible();
     expect(main.getByRole('button', { name: 'First page' })).toBeVisible();
     expect(main.queryByText('Nothing here yet.')).not.toBeInTheDocument();
@@ -1351,13 +1429,13 @@ describe('archive and restore', () => {
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(within(screen.getByRole('main')), 'Octavia');
     const notice = await screen.findByText('That changed just now. The list is up to date.');
     expect(notice).toBeVisible();
     expect(screen.queryByText(/no longer exists/)).not.toBeInTheDocument();
     await waitFor(() => expect(lists).toBe(2));
     expect(sent(fake.requests, 'PATCH')).toHaveLength(1);
-    expect(await screen.findByRole('button', { name: 'Archive Octavia' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Edit Octavia' })).toBeVisible();
     expect(screen.getByText('Octavia')).toBeVisible();
   });
 
@@ -1365,11 +1443,11 @@ describe('archive and restore', () => {
     installFakeServer({
       ...signedIn,
       [listKey]: page([octavia]),
-      [itemKey('s-2')]: problem(503),
+      [itemKey('s-2')]: editorThen(() => etagged(octavia, '"4"'), () => problem(503)),
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(within(screen.getByRole('main')), 'Octavia');
     expect(await screen.findByRole('alert')).toHaveTextContent('That didn’t work.');
     expect(screen.getByText('Octavia')).toBeVisible();
   });
@@ -1378,13 +1456,38 @@ describe('archive and restore', () => {
     installFakeServer({
       ...signedIn,
       [listKey]: page([octavia]),
-      [itemKey('s-2')]: problem(401),
+      [itemKey('s-2')]: editorThen(() => etagged(octavia, '"4"'), () => problem(401)),
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(within(screen.getByRole('main')), 'Octavia');
     expect(await screen.findByLabelText('Password')).toBeVisible();
+  });
+});
+
+describe('see items', () => {
+  it('opens All items filtered to that person or thing and asks the API for only their items', async () => {
+    const fake = installFakeServer({ ...signedIn, [listKey]: page([anna, octavia]) });
+    renderApp();
+    await openPeople();
+    const link = await screen.findByRole('link', { name: 'See items for Octavia' });
+    expect(link).toHaveAttribute('href', '/items?subject=s-2');
+    await userEvent.click(link);
+    expect(await screen.findByRole('heading', { level: 1, name: 'All items' })).toBeVisible();
+    expect(window.location.pathname).toBe('/items');
+    expect(new URLSearchParams(window.location.search).get('subject')).toBe('s-2');
+    await waitFor(() => expect(fake.requests.some((r) => r.method === 'GET' && r.path.startsWith(`${base}/items`)
+      && r.query.get('subjectId') === 's-2')).toBe(true));
+  });
+
+  it('is not offered in the archived view', async () => {
+    installFakeServer({ ...signedIn, [listKey]: (req) => page(req.query.get('archived') === 'true' ? [subject('s-9', 'Old car', 'vehicle', true)] : [anna]) });
+    renderApp();
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Show archived' }));
+    expect(await screen.findByRole('button', { name: 'Restore Old car' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'See items for Old car' })).not.toBeInTheDocument();
   });
 });
 
@@ -1399,6 +1502,8 @@ describe('refactor regressions', () => {
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     expect(await screen.findByRole('form', { name: 'Edit Anna' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Edit Anna' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Edit Anna' }).querySelector('button[aria-label="Cancel"]')).toBeEnabled();
 
     const addButton = screen.getByRole('button', { name: 'Add' });
     expect(addButton).toBeEnabled();
@@ -1425,7 +1530,7 @@ describe('refactor regressions', () => {
     renderApp();
     await openPeople();
     const main = within(screen.getByRole('main'));
-    await userEvent.click(await main.findByRole('button', { name: 'Archive Anna' }));
+    await archiveSubject(main, 'Anna');
     expect(await main.findByText('Anna was archived.')).toBeVisible();
     await userEvent.click(main.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(sent(fake.requests, 'PATCH')).toHaveLength(2));
@@ -1457,20 +1562,28 @@ describe('Czech', () => {
     await userEvent.click(await screen.findByRole('link', { name: 'Lidé a věci' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Přidat' }));
     await userEvent.type(screen.getByLabelText('Jméno nebo název'), 'Anna');
-    await userEvent.click(screen.getByRole('button', { name: 'Přidat' }));
+    await userEvent.click(within(screen.getByRole('form', { name: 'Přidat osobu nebo věc' })).getByRole('button', { name: 'Přidat' }));
     expect(await screen.findByText('Nepodařilo se ověřit, že se to uložilo.')).toBeVisible();
   });
 
   it('renders the screen, types and actions in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
-    installFakeServer({ ...signedIn, [listKey]: page([anna, octavia]) });
+    installFakeServer({ ...signedIn, [listKey]: page([anna, octavia]), [itemKey('s-1')]: etagged(anna, '"1"') });
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Lidé a věci' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Lidé a věci' })).toBeVisible();
     expect(await screen.findByText('Osoba')).toBeVisible();
     expect(screen.getByText('Vozidlo')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Upravit: Anna' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Archivovat: Anna' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Archivovat: Anna' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Zobrazit položky: Anna' })).toHaveAttribute('href', '/items?subject=s-1');
+    expect(screen.getByRole('link', { name: 'Zobrazit položky: Octavia' })).toHaveAttribute('href', '/items?subject=s-2');
+    await userEvent.click(screen.getByRole('button', { name: 'Upravit: Anna' }));
+    const editDialog = await screen.findByRole('dialog', { name: 'Upravit: Anna' });
+    expect(editDialog).toBeVisible();
+    expect(within(editDialog).getByRole('button', { name: 'Archivovat' })).toBeVisible();
+    await userEvent.click(within(within(editDialog).getByRole('form', { name: 'Upravit: Anna' })).getByRole('button', { name: 'Zrušit' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Upravit: Anna' })).not.toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'Domů' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Přidat' }));
     const form = screen.getByRole('form', { name: 'Přidat osobu nebo věc' });
@@ -1640,7 +1753,7 @@ describe('focus', () => {
     renderApp();
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(within(await screen.findByRole('form', { name: 'Add a person or thing' })).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add' })).toHaveFocus());
   });
 
@@ -1724,7 +1837,7 @@ describe('other failures and edge cases', () => {
     renderApp();
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await userEvent.click(within(await screen.findByRole('form', { name: 'Edit Anna Nová' })).getByRole('button', { name: 'Cancel' }));
     expect(await screen.findByRole('button', { name: 'Edit Anna Nová' })).toBeVisible();
   });
 
@@ -1871,7 +1984,7 @@ describe('failed undo', () => {
     });
     renderApp();
     await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Archive Octavia' }));
+    await archiveSubject(within(screen.getByRole('main')), 'Octavia');
     await screen.findByText('Octavia was archived.');
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
 

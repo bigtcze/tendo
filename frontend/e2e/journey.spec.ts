@@ -450,7 +450,12 @@ test.describe('Tendo production journey', () => {
   });
 
   test('l. archiving hides a subject, and Show archived lets you restore it', async () => {
-    await page.getByRole('button', { name: en['subjects.archive.label'].replace('{name}', 'Octavia RS') }).click();
+    // Archive lives inside the edit dialog (V3-11), never as a twin of Edit on every row.
+    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', 'Octavia RS') }).click();
+    const archiveForm = page.getByRole('dialog', { name: en['subjects.edit.label'].replace('{name}', 'Octavia RS') })
+      .getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Octavia RS') });
+    await archiveForm.getByRole('button', { name: en['subjects.archive'], exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(
       page.getByRole('status').filter({ hasText: en['subjects.notice.archived'].replace('{name}', 'Octavia RS') }),
     ).toBeVisible();
@@ -506,9 +511,18 @@ test.describe('Tendo production journey', () => {
     }
     await expectNoAxeViolations(page, 'people-add-form');
 
+    // Add is a modal dialog (V3-11): the page behind it, including the language switch, is inert until it closes.
+    await page.getByRole('form', { name: en['subjects.add.formLabel'] })
+      .getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: en['subjects.add'], exact: true })).toBeFocused();
     await page.getByRole('button', { name: 'Čeština' }).click();
     await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
+    await page.getByRole('button', { name: cs['subjects.add'], exact: true }).click();
     await expect(page.getByRole('form', { name: cs['subjects.add.formLabel'] })).toBeVisible();
+    await page.getByRole('form', { name: cs['subjects.add.formLabel'] })
+      .getByRole('button', { name: cs['subjects.cancel'], exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: 'English' }).click();
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
 
@@ -2201,7 +2215,7 @@ test.describe('Tendo production journey', () => {
       const peopleForm = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', 'Anička') });
       const peopleControls = async (where: string) => {
         await expect(peopleForm.getByLabel(en['subjects.name']), `name field ${where}`).toBeVisible();
-        for (const name of [en['subjects.save'], en['subjects.cancel']]) {
+        for (const name of [en['subjects.save'], en['subjects.cancel'], en['subjects.archive']]) {
           const control = peopleForm.getByRole('button', { name, exact: true });
           await control.scrollIntoViewIfNeeded();
           await expect(control, `${name} in People edit ${where}`).toBeInViewport();
@@ -2672,7 +2686,11 @@ test.describe('Tendo production journey', () => {
       expect(created, 'n16b keyboard-added subject persisted').toMatchObject({ type: 'home', archived: false });
       subjectId = created!.id;
 
-      await tabTo(main.getByRole('button', { name: en['subjects.archive.label'].replace('{name}', subjectName) }), 'Archive subject');
+      await tabTo(main.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', subjectName) }), 'Edit before archive');
+      await page.keyboard.press('Enter');
+      const archiveDialogForm = main.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', subjectName) });
+      await expect(archiveDialogForm.getByLabel(en['subjects.name']), 'n16b edit dialog focuses the name').toBeFocused();
+      await tabTo(archiveDialogForm.getByRole('button', { name: en['subjects.archive'], exact: true }), 'Archive subject in dialog');
       await page.keyboard.press('Enter');
       await expect(main.getByRole('status')).toContainText(en['subjects.notice.archived'].replace('{name}', subjectName));
       expect((await activeSubjects()).items.some((subject) => subject.id === subjectId), 'n16b archived subject leaves active list').toBe(false);

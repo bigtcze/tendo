@@ -103,15 +103,15 @@ export function Dialog({
         sheetClasses,
       )}
     >
-      <header className="flex items-start justify-between gap-4">
-        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="font-display text-h2">{title}</h2>
+      <header className="flex min-w-0 items-start justify-between gap-4">
+        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words font-display text-h2">{title}</h2>
         <Button
           type="button"
           variant="quiet"
           disabled={busy}
           aria-label={closeLabel}
           onClick={() => onOpenChange(false)}
-          className="shrink-0 !p-2"
+          className="min-h-11 shrink-0 !px-2"
         >
           {closeLabel}
         </Button>

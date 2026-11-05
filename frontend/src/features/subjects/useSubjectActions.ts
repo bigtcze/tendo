@@ -19,6 +19,6 @@ export function useSubjectActions(ctx: {
 }) {
   const shared = useGuardedMutation(ctx);
   const edit = useSubjectEditing({ ...ctx, ...shared });
-  const archive = useSubjectArchive({ ...ctx, ...shared });
+  const archive = useSubjectArchive({ ...ctx, ...shared, closeEditing: edit.closeEditing });
   return { ...shared, ...edit, ...archive };
 }

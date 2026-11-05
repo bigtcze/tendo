@@ -14,9 +14,10 @@ type Options = {
 };
 
 export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, state }: Options) {
-  const openAllItems = useCallback(() => {
+  const openAllItems = useCallback((subjectId?: string) => {
     transitionedRef.current = true;
-    window.history.pushState({ allItemsCursors: [] }, '', '/items');
+    const query = subjectId ? `?subject=${encodeURIComponent(subjectId)}` : '';
+    window.history.pushState({ allItemsCursors: [] }, '', `/items${query}`);
     setAllItemsVisit((visit) => visit + 1);
     setRoute({ kind: 'allItems' });
   }, [setAllItemsVisit, setRoute, transitionedRef]);

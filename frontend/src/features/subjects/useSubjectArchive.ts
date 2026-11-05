@@ -5,6 +5,7 @@ import { insertById, type Editing, type Notice } from './subjectsModel';
 export function useSubjectArchive(ctx: {
   householdId: string; showArchived: boolean; loadingMore: boolean; mutationPending: boolean; adding: boolean;
   editing: Editing | null; busy: MutableRefObject<boolean>; generation: MutableRefObject<number>;
+  closeEditing: (id: string) => void;
   guarded: (id: string, work: () => Promise<void>) => Promise<void>; gone: () => void; changedMeanwhile: () => void;
   archivePage: MutableRefObject<number | null>; pageLoad: MutableRefObject<number>;
   setNotice: Dispatch<SetStateAction<Notice | null | undefined>>; setActionFailed: Dispatch<SetStateAction<boolean>>;
@@ -14,8 +15,12 @@ export function useSubjectArchive(ctx: {
   noticeRef: MutableRefObject<HTMLDivElement | null>; onSignedOut: () => void;
 }) {
   function changeArchived(subject: Subject, archived: boolean, isUndo: boolean) {
-    if (ctx.loadingMore || ctx.mutationPending || ctx.adding || ctx.editing) return;
-    if (ctx.busy.current) return;
+    if (ctx.loadingMore || ctx.mutationPending || ctx.adding || ctx.busy.current) return;
+    // Archiving starts from the open edit dialog of that same subject; Restore (archived view) and Undo
+    // run with no editor open.
+    const fromEditor = archived && !isUndo;
+    if (fromEditor ? ctx.editing?.subject.id !== subject.id : ctx.editing !== null) return;
+    if (fromEditor) ctx.closeEditing(subject.id);
     const started = ctx.generation.current;
     if (!isUndo) ctx.archivePage.current = ctx.pageLoad.current;
     void ctx.guarded(subject.id, async () => {
@@ -38,6 +43,8 @@ export function useSubjectArchive(ctx: {
             await ctx.reloadPage(ctx.currentCursor, ctx.cursorStack, subject.id);
           }
         } else {
+          // The row is gone; drop the editor's pending row-focus request so it cannot steal focus later.
+          if (ctx.focusKey.current === `row:${subject.id}`) ctx.focusKey.current = null;
           ctx.setList((current) => current.kind === 'ready'
             ? { ...current, items: current.items.filter((s) => s.id !== subject.id) } : current);
           ctx.setNotice(archived ? { kind: 'archived', subject } : { kind: 'restored', subject });
@@ -47,6 +54,7 @@ export function useSubjectArchive(ctx: {
       else {
         ctx.setActionFailed(true);
         if (isUndo) ctx.noticeRef.current?.focus();
+        else if (fromEditor) ctx.focusKey.current = `row:${subject.id}`;
       }
     });
   }

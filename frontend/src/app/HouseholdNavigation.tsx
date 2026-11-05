@@ -4,7 +4,7 @@ import { NavIcon } from './NavIcons';
 import { NavLink } from './NavLink';
 
 export type HouseholdRoute = 'home' | 'allItems' | 'people' | 'members' | 'account' | 'item';
-export type NavigationActions = { home: () => void; allItems: () => void; people: () => void; members: () => void; account: () => void };
+export type NavigationActions = { home: () => void; allItems: (subjectId?: string) => void; people: () => void; members: () => void; account: () => void };
 export const HouseholdNavigationContext = createContext<{ route: HouseholdRoute; actions: NavigationActions; household: boolean } | null>(null);
 
 type Destination = Exclude<HouseholdRoute, 'item'>;
