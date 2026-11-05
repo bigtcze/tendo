@@ -123,7 +123,7 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
       const longRow = rows(csPage).filter({ hasText: LONG_PLACE });
       await longRow.evaluate((element) => element.scrollIntoView({ block: 'center' }));
       await expect(longRow).toBeInViewport();
-      await capture(csPage, join(dir, `audit-people-cs-${width}-long-names.png`), false);
+      await framedShot(csPage, join(dir, `audit-people-cs-${width}-long-names.png`));
       await csPage.evaluate(() => window.scrollTo(0, 0));
     }
     if (width === 320) evidence['endClearance-cs-320'] = await assertEndClearsBar(csPage, cs, 'cs 320px');
@@ -210,15 +210,30 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
   return evidence;
 }
 
+/**
+ * Scrolled viewport evidence: the shared capture() measures (tabbing) and scrolls back to the top, so framed shots
+ * assert the viewport and no horizontal overflow themselves and screenshot at the current scroll position.
+ */
+async function framedShot(page: Page, path: string) {
+  const size = page.viewportSize()!;
+  expect(await page.evaluate(() => [window.innerWidth, window.innerHeight]), `viewport for ${path}`).toEqual([size.width, size.height]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${path} has no horizontal overflow`).toBe(true);
+  // Pages taller than the viewport must actually be scrolled to the framed content (the in-viewport assertion precedes this).
+  if (await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1)) {
+    expect(await page.evaluate(() => window.scrollY), `${path} is scrolled to the framed content`).toBeGreaterThan(0);
+  }
+  await page.screenshot({ path });
+}
+
 /** Scroll the People pager into the viewport (above the phone bar) and assert its controls before capturing. */
-async function pagerInView(page: Page, path: string, capture: Capture, hasNext: boolean) {
+async function pagerInView(page: Page, path: string, hasNext: boolean) {
   const pager = page.getByRole('main').getByRole('navigation', { name: en['subjects.pages'] });
   const previous = pager.getByRole('button', { name: en['subjects.page.previous'], exact: true })
     .or(pager.getByRole('button', { name: en['subjects.page.first'], exact: true }));
   await pager.evaluate((element) => element.scrollIntoView({ block: 'center' }));
   await expect(previous).toBeInViewport();
   await expect(pager.getByRole('button', { name: en['subjects.page.next'], exact: true })).toHaveCount(hasNext ? 1 : 0);
-  await capture(page, path, false);
+  await framedShot(page, path);
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
@@ -256,7 +271,7 @@ export async function capturePeopleScale(page: Page, dir: string, capture: Captu
     await expect(main.getByText(en['subjects.page.number'].replace('{n}', '2'), { exact: true })).toBeVisible();
     await expect(rows(page)).toHaveCount(PAGE_SIZE);
     await capture(page, join(dir, `audit-people-1000-page2-en-${width}.png`), false);
-    await pagerInView(page, join(dir, `audit-people-1000-page2-pager-en-${width}.png`), capture, true);
+    await pagerInView(page, join(dir, `audit-people-1000-page2-pager-en-${width}.png`), true);
     if (width === 1440) {
       const visited: string[] = []; let pages = 0; let maxRows = 0; let maxDom = 0;
       await main.getByRole('button', { name: en['subjects.page.first'], exact: true }).click();
@@ -290,7 +305,7 @@ export async function capturePeopleScale(page: Page, dir: string, capture: Captu
       expect(listRequests.every((url) => Number(url.searchParams.get('limit')) === PAGE_SIZE && url.searchParams.get('cursor')),
         'every walk request is a cursor page of PAGE_SIZE').toBe(true);
       await capture(page, join(dir, 'audit-people-1000-last-page-en-1440.png'), false);
-      await pagerInView(page, join(dir, 'audit-people-1000-last-page-pager-en-1440.png'), capture, false);
+      await pagerInView(page, join(dir, 'audit-people-1000-last-page-pager-en-1440.png'), false);
       Object.assign(evidence, { pagesWalked: pages, maxRowsPerPage: maxRows, maxDomElements: maxDom, walkListRequests: listRequests.length });
     }
   }
