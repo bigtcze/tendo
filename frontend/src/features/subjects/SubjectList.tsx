@@ -43,13 +43,14 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
         membersLoaded={membersLoaded} showArchived={showArchived} interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
         onStartEditing={onStartEditing} onArchive={onArchive} onRestore={onRestore} onSave={onSave} onCancelEditing={onCancelEditing} />)}
     </ul> : null}
-    {cursorStack.length > 0 || list.nextCursor ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-raised p-3 sm:p-4">
+    {cursorStack.length > 0 || list.nextCursor ? <nav aria-label={t('subjects.pages')}
+      className="flex flex-wrap items-center justify-between gap-2">
       {cursorStack.length > 0 ? <Button data-subject-page type="button" variant="quiet" onClick={onPrevious} disabled={interactionLocked}>
         {cursorStack.length > 1 ? t('subjects.page.previous') : t('subjects.page.first')}
       </Button> : <span />}
+      <p aria-live="polite" aria-atomic="true" className="text-meta text-muted">{t('subjects.page.number', { n: String(cursorStack.length + 1) })}</p>
       {list.nextCursor ? <Button data-subject-page type="button" variant="quiet" onClick={onNext}
         disabled={interactionLocked}>{t('subjects.page.next')}</Button> : null}
-      <p aria-live="polite" className="w-full text-center text-sm text-muted">{t('subjects.page.number', { n: String(cursorStack.length + 1) })}</p>
-    </div> : null}
+    </nav> : null}
   </div>;
 }

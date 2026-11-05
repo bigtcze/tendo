@@ -215,6 +215,7 @@ export const cs: Record<MessageKey, string> = {
   'subjects.page.first': 'První stránka',
   'subjects.page.next': 'Další stránka',
   'subjects.page.number': 'Strana {n}',
+  'subjects.pages': 'Stránky lidí a věcí',
   'subjects.notice.added': '{name}: přidáno.',
   'subjects.notice.archived': '{name}: archivováno.',
   'subjects.notice.restored': '{name}: obnoveno.',

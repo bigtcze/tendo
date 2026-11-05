@@ -212,6 +212,7 @@ export const en = {
   'subjects.page.first': 'First page',
   'subjects.page.next': 'Next page',
   'subjects.page.number': 'Page {n}',
+  'subjects.pages': 'People and things pages',
   'subjects.notice.added': '{name} was added.',
   'subjects.notice.archived': '{name} was archived.',
   'subjects.notice.restored': '{name} was restored.',
