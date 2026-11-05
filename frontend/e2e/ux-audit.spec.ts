@@ -6,6 +6,7 @@ import { cs } from '../src/i18n/cs';
 import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
+import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
@@ -168,6 +169,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await page.setViewportSize({ width, height });
     await capture(page, join(dir, `audit-all-items-empty-${width}.png`), false);
   }
+  await capturePeopleEmpty(page, browser, dir, capture);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
@@ -236,6 +238,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       expect(archive.status(), `archive subject ${subject.name}`).toBe(200);
     }
   }
+  await seedPeopleExtras(page, api, root, invited.userId);
   const createdItems: Array<{ generatorIndex: number; id: string; title: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
   async function verifyList(done: boolean, archived: boolean) {
     const all: Array<{ workflowState: string; done: boolean; archived: boolean }> = [];
@@ -972,6 +975,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
   const serverStates = activeItems.reduce<Record<string, number>>((counts, item) => { counts[item.workflowState] = (counts[item.workflowState] ?? 0) + 1; return counts; }, {});
   metrics.seededStateCounts = { ...serverStates, done: doneItems.length, archived: archivedItems.length, activeUndone: activeItems.length };
   expect(activeItems.length + doneItems.length + archivedItems.length).toBe(1200);
+  // V3-11: People states run before the household journeys; the 1,000+ subject walk runs last among People evidence.
+  metrics.stages.people = { ...(await capturePeopleStates(page, browser, dir, capture, api, root)), ...(await capturePeopleScale(page, dir, capture, api, root)) };
   Object.assign(journeyMetrics, await runHouseholdJourneys(page, browser, householdId, process.env.E2E_OWNER_PASSWORD!));
   metrics.journeys = journeyMetrics;
   metrics.routes = routeMetrics;
