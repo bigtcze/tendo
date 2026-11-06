@@ -20,7 +20,7 @@ const FRAME: Record<Shell, string> = {
   household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh flex-col lg:mx-auto lg:grid lg:w-full lg:max-w-[90rem]`
     + ' lg:grid-cols-[15rem_minmax(0,1fr)] lg:grid-rows-[auto_1fr_auto]',
   householdLess: 'mx-auto flex min-h-dvh max-w-3xl flex-col',
-  centered: 'mx-auto flex min-h-dvh max-w-3xl flex-col',
+  centered: 'mx-auto flex min-h-dvh w-full max-w-6xl flex-col',
 };
 const HEADER = 'flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3 sm:px-8';
 const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:px-8';

@@ -9,6 +9,8 @@ import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { ScreenTransitionContext } from './Heading';
+import { Layout } from './Layout';
+import { NotFoundScreen } from './StatusScreens';
 import { SignOutContext } from './SignOutContext';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
@@ -38,6 +40,7 @@ export function SignedInApp(props: Props) {
     account: navigation.openAccount,
   };
   if (route.kind === 'invite') return renderInvite(props);
+  if (route.kind === 'notFound') return <Layout><NotFoundScreen /></Layout>;
   return renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions);
 }
 

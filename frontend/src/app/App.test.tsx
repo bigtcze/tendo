@@ -42,10 +42,10 @@ describe('signed out', () => {
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
-    const loginField = await screen.findByLabelText('Login');
+    const loginField = await screen.findByLabelText('Username');
     expect(loginField).toHaveAttribute('autocomplete', 'username');
     expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Sign in to Tendo');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back');
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   });
 
@@ -56,13 +56,15 @@ describe('signed out', () => {
       'POST /api/v1/session': problem(401),
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'wrong-password{Enter}');
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Login or password is incorrect.');
+    expect(alert).toHaveTextContent('That username or password isn’t right. Check them and try again. If you’ve forgotten your password, ask whoever looks after Tendo to help you recover access.');
     expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveAttribute('aria-describedby', alert.id);
-    expect(screen.getByLabelText('Login')).toHaveValue('anna');
+    expect(screen.getByLabelText('Password')).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Username')).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Username')).toHaveValue('anna');
   });
 
   it('429 shows the rate-limit message', async () => {
@@ -72,10 +74,10 @@ describe('signed out', () => {
       'POST /api/v1/session': problem(429),
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'pw');
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts. Try again in a moment.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('There have been too many sign-in attempts. Wait a little, then try again.');
   });
 
   it('other failures show the unreachable message', async () => {
@@ -85,9 +87,9 @@ describe('signed out', () => {
       'POST /api/v1/session': problem(403),
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'pw{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent('Tendo can’t be reached right now. Try again.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tendo can’t be reached right now. Check your connection and try again; your account is safe.');
   });
 
   it('disables submit while the request is in flight', async () => {
@@ -102,7 +104,7 @@ describe('signed out', () => {
       },
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'pw{Enter}');
     expect(await screen.findByRole('button', { name: 'Signing in…' })).toBeDisabled();
     release();
@@ -120,7 +122,7 @@ describe('signed in', () => {
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
@@ -294,7 +296,7 @@ describe('signed in', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
     expect(fake.requests.some((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toBe(true);
     expect(screen.queryByText('Veselí')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
@@ -326,11 +328,11 @@ describe('signed in', () => {
     });
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
-    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue.');
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Your changes are safe.' );
     expect(screen.queryByRole('heading', { name: 'Veselí' })).not.toBeInTheDocument();
 
-    await userEvent.type(screen.getByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -361,7 +363,7 @@ describe('signed in', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
     release(problem(401));
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus());
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
@@ -388,7 +390,7 @@ describe('localization', () => {
     vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['cs-CZ', 'en']);
     installFakeServer(signedOut);
     renderApp();
-    expect(await screen.findByLabelText('Přihlašovací jméno')).toBeVisible();
+    expect(await screen.findByLabelText('Uživatelské jméno')).toBeVisible();
     expect(screen.getByLabelText('Heslo')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Přihlásit se' })).toBeVisible();
     expect(document.documentElement.lang).toBe('cs');

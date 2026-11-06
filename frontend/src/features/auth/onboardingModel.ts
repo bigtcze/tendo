@@ -50,6 +50,20 @@ export function firstEmptyField(
   return null;
 }
 
+export function formatTimezoneLabel(timeZone: string, locale: string): string {
+  const place = timeZone.split('/').at(-1)?.replaceAll('_', ' ') ?? timeZone;
+  const city = place.replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase(locale));
+  try {
+    const zoneName = new Intl.DateTimeFormat(locale, {
+      timeZone,
+      timeZoneName: 'longGeneric',
+    }).formatToParts(new Date('2026-01-15T12:00:00Z')).find((part) => part.type === 'timeZoneName')?.value;
+    return zoneName ? `${city} · ${zoneName}` : city;
+  } catch {
+    return city;
+  }
+}
+
 export function detectTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { errorKey, errorTarget, firstEmptyField, timezoneOptions } from './onboardingModel';
+import { errorKey, errorTarget, firstEmptyField, formatTimezoneLabel, timezoneOptions } from './onboardingModel';
 
 describe('onboarding model', () => {
   it.each([
@@ -40,6 +40,12 @@ describe('onboarding model', () => {
     expect(firstEmptyField('token', 'Home', 'login', '')).toBe('password');
     expect(firstEmptyField('token', 'Home', 'login', ' \t ')).toBeNull();
     expect(firstEmptyField('token', 'Home', 'login', 'password')).toBeNull();
+  });
+
+  it('shows a readable time-zone label without changing its submitted IANA value', () => {
+    expect(formatTimezoneLabel('America/New_York', 'en')).toMatch(/^New York · /);
+    expect(formatTimezoneLabel('Europe/Prague', 'cs-CZ')).toMatch(/^Prague · /);
+    expect(formatTimezoneLabel('UTC', 'en')).toMatch(/^UTC/);
   });
 
   it('deduplicates and sorts supported zones while including UTC and the detected zone', () => {

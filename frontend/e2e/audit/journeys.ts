@@ -192,7 +192,7 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await loginPage.goto('/login');
     await expect(loginPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
     loginRecorder.step();
-    await loginPage.getByLabel(en['login.login'], { exact: true }).fill('audit_owner'); loginRecorder.interaction('audit_owner'.length);
+    await loginPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_owner'); loginRecorder.interaction('audit_owner'.length);
     await loginPage.getByLabel(en['login.password'], { exact: true }).fill(ownerPassword); loginRecorder.interaction(ownerPassword.length);
     await loginPage.getByRole('button', { name: en['login.submit'], exact: true }).click(); loginRecorder.interaction();
     await expect(loginPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();

@@ -337,7 +337,7 @@ describe('list', () => {
     await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toHaveFocus();
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
     expect(window.location.pathname).toBe('/');
   });
 });
@@ -1927,7 +1927,7 @@ describe('other failures and edge cases', () => {
       [`GET ${base}`]: json(200, household),
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     expect(window.location.pathname).toBe('/');

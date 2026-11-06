@@ -195,7 +195,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await capture(signedOut, join(dir, 'audit-login-dark-en-390.png'));
       await signedOut.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
     }
-    await signedOut.getByLabel(en['login.login'], { exact: true }).fill('audit_missing_user');
+    await signedOut.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_missing_user');
     await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-audit-password');
     await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();
     await expect(signedOut.getByRole('alert')).toHaveText(en['login.error.invalid']);
@@ -237,7 +237,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await invalidPage.reload();
     await invalidPage.goto(`/invite#${'Z'.repeat(43)}`);
     await expect(invalidPage.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
-    await invalidPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_invalid_invite');
+    await invalidPage.getByLabel(en['invite.login'], { exact: true }).fill('audit_invalid_invite');
     await invalidPage.getByLabel(en['onboarding.password'], { exact: true }).fill('audit-member-password-long-enough');
     await invalidPage.getByRole('button', { name: en['invite.create'], exact: true }).click();
     await expect(invalidPage.getByRole('status')).toContainText(/invite link can’t be used/);
@@ -825,7 +825,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await capture(page, join(dir, `audit-members-en-${width}.png`));
         const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
         const memberPage = await memberContext.newPage(); await memberPage.goto('/login');
-        await memberPage.getByLabel(en['login.login'], { exact: true }).fill('audit_member');
+        await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
         await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
         await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
         await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();

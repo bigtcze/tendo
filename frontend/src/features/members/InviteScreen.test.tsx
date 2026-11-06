@@ -137,14 +137,14 @@ describe('invitation acceptance', () => {
     await userEvent.type(await screen.findByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'a sufficiently long password'); await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
     await waitFor(() => expect(fake.requests.some((r) => r.method === 'POST' && r.path === '/api/v1/auth/invitations/accept')).toBe(true));
     window.history.pushState(null, '', '/'); window.dispatchEvent(new PopStateEvent('popstate'));
-    await screen.findByRole('heading', { level: 1, name: 'Sign in to Tendo' });
+    await screen.findByRole('heading', { level: 1, name: 'Welcome back' });
     await act(async () => {
       release(json(201, {}));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await waitFor(() => expect(fake.requests.some((r) => r.method === 'POST' && r.path === '/api/v1/auth/invitations/accept')).toBe(true));
     expect(fake.requests.some((r) => r.method === 'POST' && r.path === '/api/v1/session')).toBe(false);
-    expect(screen.getByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible();
     rendered.unmount();
   });
 
@@ -175,7 +175,7 @@ describe('invitation acceptance', () => {
   it('failed auto-login navigates to sign-in with one account-ready notice and one heading', async () => {
     window.history.replaceState(null, '', `/invite#${token}`); installFakeServer(signedOutRoutes({ 'POST /api/v1/auth/invitations/accept': json(201, {}), 'POST /api/v1/session': problem(401) })); renderApp();
     await userEvent.type(await screen.findByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'long enough password'); await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toBeVisible(); expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1); expect(screen.getByText('Your account is ready. Sign in.')).toBeVisible(); expect(location.pathname).toBe('/');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible(); expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1); expect(screen.getByText('Your account is ready. Sign in.')).toBeVisible(); expect(location.pathname).toBe('/');
   });
 
   it('lets the Czech join button wrap on a narrow screen', async () => {

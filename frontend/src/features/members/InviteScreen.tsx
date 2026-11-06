@@ -47,7 +47,7 @@ function NewAccountForm(props: FormProps & { onSubmit: (event: FormEvent) => voi
   const passwordInvalid = isPasswordError(error);
   const message = error && isFieldError(error) ? t(inviteErrorMessageKey(error)) : '';
   return <form onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
-    <div className="space-y-2"><Label htmlFor="invite-login">{t('onboarding.login')}</Label>
+    <div className="space-y-2"><Label htmlFor="invite-login">{t('invite.login')}</Label>
       <Input ref={loginRef} id="invite-login" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={loginName}
         onChange={(event) => setLoginName(event.target.value)} aria-invalid={loginInvalid}
         aria-describedby={`invite-login-hint${loginInvalid ? ' invite-error' : ''}`} />

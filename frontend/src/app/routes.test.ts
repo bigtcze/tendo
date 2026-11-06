@@ -14,7 +14,7 @@ describe('readRoute', () => {
     ['/invite', { kind: 'invite' }],
     ['/login', { kind: 'login' }],
     ['/account', { kind: 'account' }],
-    ['/unknown', { kind: 'home' }],
+    ['/unknown', { kind: 'notFound' }],
   ] as const)('parses %s', (path, route) => {
     expect(readRoute(path)).toEqual(route);
   });
@@ -28,6 +28,7 @@ describe('householdNavRoute', () => {
     [{ kind: 'members' }, true, 'members'],
     [{ kind: 'account' }, true, 'account'],
     [{ kind: 'login' }, true, 'home'],
+    [{ kind: 'notFound' }, true, 'home'],
     [{ kind: 'invite' }, true, 'home'],
     [{ kind: 'item', itemId: 'x' }, true, 'item'],
     [{ kind: 'invalidItem' }, true, 'item'],

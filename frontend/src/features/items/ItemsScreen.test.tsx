@@ -418,7 +418,7 @@ describe('item creation', () => {
 
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: json(401), [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
   });
 
   it('ignores a stale 401 member response after add is cancelled', async () => {
@@ -433,7 +433,7 @@ describe('item creation', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
     await act(async () => resolveMembers(json(401)));
     expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
   });
 
@@ -1013,7 +1013,7 @@ describe('Home items', () => {
   it('signs out when the home members request is unauthorized', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [memberList]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
   });
 
@@ -1027,7 +1027,7 @@ describe('Home items', () => {
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
     await act(async () => { release(json(401)); });
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(2);
   });
 
@@ -1275,7 +1275,7 @@ describe('Home items', () => {
 
     app();
 
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
     expect(sessionStorage.getItem(storedKey)).toBeNull();
   });
 
@@ -1285,7 +1285,7 @@ describe('Home items', () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, 'DELETE /api/v1/session': json(204), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
     expect(sessionStorage.getItem(`tendo.pendingCompletion:${session().userId}:${HOUSEHOLD_ID}:i-1`)).toBeNull();
     expect(requestsOf(fake.requests, 'DELETE', '/api/v1/session')).toHaveLength(1);
   });
@@ -1682,7 +1682,7 @@ describe('Home items', () => {
     await screen.findByRole('button', { name: 'Check again' });
     expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).not.toBeNull();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
-    await screen.findByRole('heading', { name: 'Sign in to Tendo' });
+    await screen.findByRole('heading', { name: 'Welcome back' });
     expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
     expect(requestsOf(fake.requests, 'DELETE', '/api/v1/session')).toHaveLength(1);
   });
@@ -1693,7 +1693,7 @@ describe('Home items', () => {
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Expired session');
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
-    await screen.findByRole('heading', { name: 'Sign in to Tendo' });
+    await screen.findByRole('heading', { name: 'Welcome back' });
     expect(sessionStorage.getItem(`tendo.pendingItemCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
   });
 
@@ -1701,7 +1701,7 @@ describe('Home items', () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [`GET ${base}/items/i-1`]: json(401), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
     await userEvent.click(await screen.findByRole('button', { name: /Done:/ }));
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
   });
 
   it('a terminal 422 shows a calm notice without a retry action', async () => {
@@ -2119,7 +2119,7 @@ describe('Home items', () => {
     vi.spyOn(unsigned, 'fetchSession').mockResolvedValue({ kind: 'signedIn', session: session() });
     render(<I18nProvider><App /></I18nProvider>);
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items`)).toHaveLength(2));
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible());
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeVisible());
     expect(summaries).toBe(1);
     expect(lists).toBe(2);
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(1);
@@ -2188,7 +2188,7 @@ describe('Home items', () => {
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await act(async () => resolveSummary(json(401)));
     expect(await screen.findByRole('heading', { level: 1, name: 'People and things' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', `${base}/items`)).toHaveLength(0);
   });
 
@@ -2200,7 +2200,7 @@ describe('Home items', () => {
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await act(async () => resolveItems(json(401)));
     expect(await screen.findByRole('heading', { level: 1, name: 'People and things' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(1);
   });
 
@@ -2244,7 +2244,7 @@ describe('Home items', () => {
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await act(async () => resolveMore(json(401)));
     expect(await screen.findByRole('heading', { level: 1, name: 'People and things' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(requestsOf(fake.requests, 'GET', `${base}/items`)).toHaveLength(2);
   });
 
@@ -2275,7 +2275,7 @@ describe('Home items', () => {
     const sessionApi = await import('../../features/auth/sessionApi');
     vi.spyOn(sessionApi, 'fetchSession').mockResolvedValue({ kind: 'signedIn', session: session() });
     app();
-    await screen.findByRole('heading', { name: 'Sign in to Tendo' });
+    await screen.findByRole('heading', { name: 'Welcome back' });
     expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(1);
   });
 

@@ -156,7 +156,7 @@ async function waitForSettledHome(page: Page, name: string) {
 }
 
 async function signIn(page: Page, password: string) {
-  await page.getByLabel(en['login.login']).fill(ownerLogin);
+  await page.getByLabel(en['onboarding.login'], { exact: true }).fill(ownerLogin);
   await page.getByLabel(en['login.password']).fill(password);
   await page.getByRole('button', { name: en['login.submit'], exact: true }).click();
 }
@@ -3220,7 +3220,7 @@ test.describe('Tendo production journey', () => {
 
   test('q. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
     await page.goto('/');
-    const login = page.getByLabel(en['login.login']);
+    const login = page.getByLabel(en['onboarding.login'], { exact: true });
     await expect(login).toBeVisible();
     await expect(page.locator('body')).toBeFocused();
     await page.keyboard.press('Tab');
@@ -4428,7 +4428,7 @@ test.describe('Tendo production journey', () => {
     };
     const signIntoExisting = async (actor: Page, loginName: string) => {
       await actor.goto('/');
-      await actor.getByLabel(en['login.login']).fill(loginName);
+      await actor.getByLabel(en['onboarding.login'], { exact: true }).fill(loginName);
       await actor.getByLabel(en['login.password']).fill(existingAccountPassword);
       const loginResponsePromise = actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/session');
       await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
@@ -4615,7 +4615,7 @@ test.describe('Tendo production journey', () => {
       const actor = await context.newPage();
       await trackInFlightApiFetches(actor);
       await actor.goto('/');
-      await actor.getByLabel(en['login.login']).fill(ownerLogin);
+      await actor.getByLabel(en['onboarding.login'], { exact: true }).fill(ownerLogin);
       await actor.getByLabel(en['login.password']).fill(ownerPassword);
       await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
       await expect(actor.getByRole('button', { name: en['header.signOut'] })).toBeVisible();

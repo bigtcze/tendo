@@ -39,7 +39,7 @@ export function LoginProviderOptions({
           className="mt-2"
           onClick={retry}
         >
-          {t('app.error.retry')}
+          {statusPending ? t('login.oidc.retrying') : t('app.error.retry')}
         </Button>
       </div>
     );

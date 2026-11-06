@@ -7,7 +7,7 @@ export const LOGIN_PATH = '/login';
 export const ACCOUNT_PATH = '/account';
 
 export type Route =
-  | { kind: 'home' | 'people' | 'members' | 'invite' | 'login' | 'account' | 'allItems' }
+  | { kind: 'home' | 'people' | 'members' | 'invite' | 'login' | 'account' | 'allItems' | 'notFound' }
   | { kind: 'item'; itemId: string }
   | { kind: 'invalidItem' };
 
@@ -26,10 +26,11 @@ export function readRoute(path = window.location.pathname): Route {
       ? { kind: 'item', itemId }
       : { kind: 'invalidItem' };
   }
-  return { kind: 'home' };
+  return path.startsWith('/items/') ? { kind: 'home' } : { kind: 'notFound' };
 }
 
 export function householdNavRoute(route: Route, hasHousehold: boolean): HouseholdRoute {
+  if (route.kind === 'notFound') return 'home';
   if (route.kind === 'account') return 'account';
   if (!hasHousehold) return 'home';
   if (route.kind === 'allItems') return 'allItems';

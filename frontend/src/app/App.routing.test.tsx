@@ -38,8 +38,8 @@ const signedInRoutes = (extra: Record<string, unknown> = {}) => ({
 describe('App route characterization', () => {
   it.each([
     ['/', 'Veselí'], ['/items', 'All items'], ['/items/a/b', 'Veselí'],
-    ['/unknown', 'Veselí'], ['/people', 'People and things'],
-    ['/members', 'Household members'], ['/account', 'Your account'],
+    ['/people', 'People and things'],
+    ['/members', 'Household members'], ['/account', 'Your account'], ['/unknown', 'We couldn’t find that page.'],
   ])('routes %s as expected', async (path, heading) => {
     window.history.replaceState(null, '', path);
     installFakeServer(signedInRoutes({
@@ -91,7 +91,7 @@ describe('App route characterization', () => {
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
-    expect(await screen.findByLabelText('Login')).toBeVisible();
+    expect(await screen.findByLabelText('Username')).toBeVisible();
     assertPendingStoresCleared();
   });
 
@@ -112,7 +112,7 @@ describe('App route characterization', () => {
     }));
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue.');
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Your changes are safe.');
     assertPendingStoresCleared();
   });
 
@@ -124,6 +124,15 @@ describe('App route characterization', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
+  });
+
+  it('shows an explicit not-found screen for unknown paths instead of silently showing home', async () => {
+    window.history.replaceState(null, '', '/unknown');
+    installFakeServer(signedInRoutes());
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Go to your household' })).toHaveAttribute('href', '/');
+    expect(screen.queryByRole('navigation', { name: 'Household navigation' })).not.toBeInTheDocument();
   });
 
   it('signed-in visitor at /people without household replaces URL with home', async () => {

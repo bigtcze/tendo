@@ -22,20 +22,27 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
     <Layout
       actions={<AccountActions login={login} onSignedOut={onSignedOut} />}
     >
-      <section className="settle">
+      <section className="settle mx-auto w-full max-w-6xl">
         <Heading className="font-display text-h1 leading-tight">{t('account.title')}</Heading>
-        <div role="status" className="mt-5 empty:mt-0">
-          {outcomeText ? <p className="rounded-xl bg-sand px-4 py-3">{outcomeText}</p> : null}
+        <div role="status" className="mt-5 empty:mt-0 max-w-3xl">
+          {outcomeText ? <p className="rounded-xl border border-line bg-sand px-4 py-3 text-base text-ink">{outcomeText}</p> : null}
         </div>
-        <p
-          ref={signedInRef}
-          tabIndex={-1}
-          className="mt-6 break-words text-lg text-muted outline-none"
-        >
-          {t('account.signedInAs', { login })}
-        </p>
-        <AccountOidcSectionView state={sectionState} onSignedOut={onSignedOut} />
-        <AccountPreferences />
+        <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] lg:gap-x-12">
+          <div>
+            <section aria-labelledby="account-identity-heading">
+              <h2 id="account-identity-heading" className="font-display text-h2">{t('account.identity.title')}</h2>
+              <p
+                ref={signedInRef}
+                tabIndex={-1}
+                className="mt-3 break-words text-lg text-ink outline-none"
+              >
+                {t('account.signedInAs', { login })}
+              </p>
+            </section>
+            <AccountOidcSectionView state={sectionState} onSignedOut={onSignedOut} />
+          </div>
+          <AccountPreferences />
+        </div>
       </section>
     </Layout>
   );
