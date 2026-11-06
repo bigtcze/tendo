@@ -21,12 +21,26 @@ async function open(page: Page, width: number, locale: 'en' | 'cs' = 'en') {
   await expect(page.getByRole('main').getByText(strings['members.loading'], { exact: true })).toHaveCount(0);
 }
 
-async function shot(page: Page, path: string) {
+function expectedWidth(path: string) {
+  const match = path.match(/-(\d+)\.png$/);
+  if (!match) throw new Error(`Capture filename must end with a viewport width: ${path}`);
+  return Number(match[1]);
+}
+
+async function assertCaptureWidth(page: Page, path: string) {
+  expect(await page.evaluate(() => window.innerWidth), `filename width for ${path}`).toBe(expectedWidth(path));
+  expect(page.viewportSize()?.width, `configured viewport width for ${path}`).toBe(expectedWidth(path));
+}
+
+async function shot(page: Page, path: string, mask: import('@playwright/test').Locator[] = []) {
   const size = page.viewportSize();
   if (!size) throw new Error(`Missing viewport for ${path}`);
+  const filenameWidth = expectedWidth(path);
+  expect(await page.evaluate(() => window.innerWidth), `filename width for ${path}`).toBe(filenameWidth);
+  expect(size.width, `configured viewport width for ${path}`).toBe(filenameWidth);
   expect(await page.evaluate(() => [window.innerWidth, window.innerHeight]), `viewport for ${path}`).toEqual([size.width, size.height]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${path} has no horizontal overflow`).toBe(true);
-  await page.screenshot({ path });
+  await page.screenshot({ path, mask });
 }
 
 async function assertHistoryMetadataContrast(page: Page, theme: 'light' | 'dark') {
@@ -94,7 +108,9 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
       await expectNoAxeViolations(page, 'members-owner');
       await assertHistoryMetadataContrast(page, 'light');
     }
-    await capture(page, join(dir, `audit-members-owner-en-${width}.png`), false);
+    const ownerCapture = join(dir, `audit-members-owner-en-${width}.png`);
+    await assertCaptureWidth(page, ownerCapture);
+    await capture(page, ownerCapture, false);
     if (width === 320) {
       await pending.scrollIntoViewIfNeeded();
       await expect(pending).toBeInViewport();
@@ -104,15 +120,23 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
       await page.evaluate(() => window.scrollTo(0, 0));
     }
     if (width === 390 || width === 1440) {
-      if (width === 390) await assertHistoryMetadataContrast(page, 'dark');
-      await shot(page, join(dir, `audit-members-owner-forced-dark-en-${width}.png`));
+      await assertHistoryMetadataContrast(page, 'dark');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      const darkCapture = join(dir, `audit-members-owner-forced-dark-en-${width}.png`);
+      await shot(page, darkCapture);
+      const darkPixels = await page.screenshot();
       await page.locator('html').evaluate((html) => { html.removeAttribute('data-theme'); html.removeAttribute('style'); });
+      await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
+      const lightPixels = await page.screenshot();
+      expect(darkPixels.equals(lightPixels), `dark and light captures differ at ${width}px`).toBe(false);
     }
 
     await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
     await page.reload();
     await open(page, width, 'cs');
-    await capture(page, join(dir, `audit-members-owner-cs-${width}.png`), false);
+    const ownerCzechCapture = join(dir, `audit-members-owner-cs-${width}.png`);
+    await assertCaptureWidth(page, ownerCzechCapture);
+    await capture(page, ownerCzechCapture, false);
     await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
     await page.reload();
   }
@@ -124,9 +148,13 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     ? route.fulfill({ status: 403, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Forbidden', status: 403, code: 'owner_required' }) })
     : route.fallback());
   await open(permissionPage, 390);
+  await expect(permissionPage.getByRole('main').getByRole('region', { name: en['members.invite.title'] })).toBeVisible();
   await permissionPage.getByRole('button', { name: en['members.invite.action'], exact: true }).click();
   await expect(permissionPage.getByRole('heading', { name: en['members.help.title'], exact: true })).toBeVisible();
   await expect(permissionPage.getByText(en['members.invite.ownerRequired'], { exact: true })).toBeVisible();
+  await expect(permissionPage.getByRole('status')).toContainText(en['members.invite.ownerRequired']);
+  await expect(permissionPage.getByRole('main').getByRole('button', { name: en['members.invite.action'], exact: true })).toHaveCount(0);
+  await expect(permissionPage.getByRole('main').getByRole('heading', { name: en['members.invitations.title'] })).toHaveCount(0);
   await capture(permissionPage, join(dir, 'audit-members-owner-required-en-390.png'), false);
   await ownerContext.close();
 
@@ -138,30 +166,42 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     else await route.fallback();
   });
   await emptyOwnerPage.route('**/api/v1/households/*/members**', async route => {
-    if (route.request().method() === 'GET') await route.fallback();
-    else await route.fallback();
+    await route.fallback();
   });
   await open(emptyOwnerPage, 390);
   await emptyOwnerPage.evaluate(() => window.scrollTo(0, 0));
   await expect(emptyOwnerPage.getByText(en['members.invitations.empty'], { exact: true })).toBeVisible();
   await capture(emptyOwnerPage, join(dir, 'audit-members-empty-invitations-en-390.png'), false);
   await emptyContext.close();
-  await page.route('**/api/v1/households/*/invitations', route => route.request().method() === 'POST'
+  const linkContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  await linkContext.addCookies(await page.context().cookies());
+  const linkPage = await linkContext.newPage();
+  const shownLinkPath = join(dir, 'audit-members-link-shown-en-390.png');
+  const manualCopyPath = join(dir, 'audit-members-link-manual-copy-en-390.png');
+  await linkPage.route('**/api/v1/households/*/invitations', route => route.request().method() === 'POST'
     ? route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'e0000000-0000-4000-8000-000000000001', token: 'e'.repeat(43) }) })
     : route.fallback());
-  await page.getByRole('button', { name: en['members.invite.action'], exact: true }).click();
-  const link = page.getByLabel(en['members.invite.link'], { exact: true });
+  await open(linkPage, 390);
+  await linkPage.getByRole('button', { name: en['members.invite.action'], exact: true }).click();
+  const link = linkPage.getByLabel(en['members.invite.link'], { exact: true });
   await expect(link).toHaveValue(/\/invite#.+/);
   await link.scrollIntoViewIfNeeded();
   await expect(link).toBeInViewport();
-  await capture(page, join(dir, 'audit-members-link-shown-en-390.png'), false, [link]);
-  await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.getByRole('button', { name: en['members.invite.copy'], exact: true }).click();
-  // Production Chromium has no granted clipboard permission in this audit context; verify the safe manual fallback.
-  await expect(page.locator('div.rounded-xl').filter({ hasText: en['members.invite.manualCopy'] }).last()).toBeVisible();
+  await expect(linkPage.getByRole('status').filter({ hasText: en['members.invite.created'] })).toBeVisible();
+  await expect(linkPage.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
+  await shot(linkPage, shownLinkPath, [link]);
+  await linkPage.getByRole('button', { name: en['members.invite.copy'], exact: true }).click();
+  const fallbackNotice = linkPage.getByRole('region', { name: en['members.invite.title'] }).getByRole('status').filter({ hasText: en['members.invite.manualCopy'] });
+  await expect(fallbackNotice).toBeVisible();
   await expect(link).toBeFocused();
-  await capture(page, join(dir, 'audit-members-link-manual-copy-en-390.png'), false, [link]);
+  await expect(link).toHaveJSProperty('selectionStart', 0);
+  await expect(link).toHaveJSProperty('selectionEnd', (await link.inputValue()).length);
+  await link.scrollIntoViewIfNeeded();
+  await fallbackNotice.scrollIntoViewIfNeeded();
+  await expect(link).toBeInViewport();
+  await expect(fallbackNotice).toBeInViewport();
+  await shot(linkPage, manualCopyPath, [link]);
+  await linkContext.close();
   await page.reload();
   await open(page, 390);
   const cleanPending = page.getByRole('list', { name: en['members.invitations.title'] }).getByRole('listitem').filter({ hasText: en['members.invitation.status.pending'] }).first();
@@ -171,7 +211,7 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
   await expect(cleanPending).toBeInViewport();
   await expect(cleanPending.getByRole('button', { name: en['members.invitation.yes'], exact: true })).toBeInViewport();
   await expect(cleanPending.getByRole('button', { name: en['members.invitation.cancel'], exact: true })).toBeInViewport();
-  await expect(page.locator('div.rounded-xl').filter({ hasText: en['members.invite.manualCopy'] })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: en['members.invite.title'] }).getByRole('status').filter({ hasText: en['members.invite.manualCopy'] })).toHaveCount(0);
   await shot(page, join(dir, 'audit-members-revoke-confirm-en-390.png'));
   await cleanPending.getByRole('button', { name: en['members.invitation.cancel'], exact: true }).click();
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -196,12 +236,13 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     else await route.fallback();
   });
   await page.goto('/members');
+  await expect(page.getByRole('navigation', { name: en['nav.label'] })).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
-  await expect(page.getByText(en['members.loading'], { exact: true })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['members.loading'] })).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
   await capture(page, join(dir, 'audit-members-loading-en-390.png'), false);
   releaseMembers();
-  await expect(page.getByText(en['members.loading'], { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('main').getByRole('status').filter({ hasText: en['members.loading'] })).toHaveCount(0);
   await page.unrouteAll({ behavior: 'wait' });
 
   const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 1440, height: 900 } });

@@ -29,6 +29,9 @@ describe('members and invitations', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     expect(await screen.findByText('Owners can invite and manage invitations; members can use the household.')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
     const memberList = screen.getByRole('list', { name: 'Members' });
     expect(within(memberList).getAllByRole('listitem')).toHaveLength(2);
     expect(fake.requests.some((request) => request.path === `${base}/members`)).toBe(true);
@@ -81,9 +84,9 @@ describe('members and invitations', () => {
     installFakeServer({ ...defaults(), [`GET ${base}/members`]: problem(503) });
     render(<I18nProvider><MembersScreen householdId={HOUSEHOLD_ID} userId={session().userId} login={session().login} onSignedOut={() => {}} /></I18nProvider>);
     await screen.findByRole('button', { name: 'Try again' });
-    const liveHost = screen.getByText('Members could not be loaded. Check your connection and try again.', { selector: 'p[role="alert"]' });
-    expect(liveHost).toHaveAttribute('aria-atomic', 'true');
-    expect(liveHost).toHaveTextContent('Members could not be loaded. Check your connection and try again.');
+    const visibleError = await screen.findByRole('alert');
+    expect(visibleError).toHaveTextContent('Members could not be loaded. Check your connection and try again.');
+    expect(visibleError).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
@@ -114,7 +117,9 @@ describe('members and invitations', () => {
     expect(await within(membersSection).findByText('next_member')).toBeVisible();
     await act(async () => { release(json(201, { id: 'created', token: 'x'.repeat(43) })); await pending; });
     expect(await screen.findByLabelText('Invitation link')).toHaveValue(`${location.origin}/invite#${'x'.repeat(43)}`);
-    expect(screen.getByRole('status')).toHaveTextContent('Your invite link is ready.');
+    const pageStatuses = screen.getAllByRole('status').filter((element) => !screen.getByRole('region', { name: 'Invite someone' }).contains(element));
+    expect(pageStatuses).toHaveLength(1);
+    expect(pageStatuses[0]).toHaveTextContent('Your invite link is ready.');
     expect(screen.getByRole('button', { name: 'Create invite link' })).toBeEnabled();
   });
 
@@ -139,11 +144,11 @@ describe('members and invitations', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error()) } });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
     await userEvent.click(screen.getByRole('button', { name: 'Copy' }));
-    const copyFeedback = await screen.findByText('The link could not be copied. It is selected so you can copy it manually.', { selector: '.rounded-xl' });
-    expect(copyFeedback).toBeVisible();
-    expect(screen.getByLabelText('Invitation link').closest('div')?.parentElement).toContainElement(copyFeedback);
-    const politeHost = within(screen.getByRole('region', { name: 'Invite someone' })).getByText('The link could not be copied. It is selected so you can copy it manually.', { selector: 'p[aria-live="polite"]' });
-    expect(politeHost).toBeInTheDocument();
+    const invitePanel = screen.getByRole('region', { name: 'Invite someone' });
+    const copyNotice = await within(invitePanel).findByText('The link could not be copied. It is selected so you can copy it manually.');
+    expect(copyNotice).toBeVisible();
+    expect(within(invitePanel).getByRole('status')).toContainElement(copyNotice);
+    expect(within(invitePanel).getByLabelText('Invitation link').closest('div')?.parentElement).toContainElement(copyNotice);
     expect(screen.getByLabelText('Invitation link')).toHaveFocus();
     await waitFor(() => expect(screen.getByLabelText('Invitation link')).toHaveFocus());
     const input = screen.getByLabelText('Invitation link') as HTMLInputElement;
@@ -203,6 +208,7 @@ describe('members and invitations', () => {
     expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
+    expect(screen.getByText('Ask a household owner to send them an invite link.')).toBeVisible();
     expect(fake.requests.some((request) => request.path === `${base}/invitations` && request.method === 'POST')).toBe(true);
   });
 
@@ -210,7 +216,9 @@ describe('members and invitations', () => {
     installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(403) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
-    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.', { selector: '.rounded-xl' })).toBeVisible();
+    const notice = await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.');
+    expect(notice).toBeVisible();
+    expect(notice.closest('[role="status"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
   });
 
@@ -219,6 +227,8 @@ describe('members and invitations', () => {
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
     expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
+    expect(screen.getByText('Ask a household owner to send them an invite link.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
   });
 
   it('member never requests invitations or sees invite controls', async () => {
@@ -263,10 +273,15 @@ describe('members and invitations', () => {
     renderApp();
     await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
     expect(routeCursors).toHaveLength(20);
     expect(routeCursors.filter((cursor) => cursor !== null)).toHaveLength(19);
     expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Invitations' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
 
@@ -391,7 +406,9 @@ describe('members and invitations', () => {
     const fake = installFakeServer({ ...defaults(), [`GET ${base}/members`]: () => failing ? problem(403, { code }) : page(members()) });
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.', { selector: '.rounded-xl' })).toBeVisible();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.');
+    expect(alert).toBeVisible();
     failing = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('heading', { name: 'Members' })).toBeVisible();
@@ -402,7 +419,10 @@ describe('members and invitations', () => {
   it('a list 404 shows the household-specific not-found message', async () => {
     installFakeServer({ ...defaults(), [`GET ${base}/members`]: problem(404) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('This household isn’t available to your account.');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('This household isn’t available to your account.');
+    expect(alert).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(screen.queryByText('Members could not be loaded. Check your connection and try again.')).not.toBeInTheDocument();
   });
 
@@ -477,7 +497,9 @@ describe('members and invitations', () => {
     await userEvent.click(within(pager).getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(within(pager).getByText('Page 2')).toBeVisible());
     await waitFor(() => expect(fake.requests.filter((r) => r.path === `${base}/invitations` && r.query.get('cursor') === 'p2')).toHaveLength(2));
-    await waitFor(() => expect(within(invitations()).getByRole('listitem')).toHaveTextContent('Accepted'));
+    const acceptedRow = await within(invitations()).findByRole('listitem');
+    expect(acceptedRow).toBeVisible();
+    expect(acceptedRow).toHaveTextContent('Accepted');
     expect(within(pager).getByText('Page 2')).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations` && r.query.get('cursor') === 'p2')).toHaveLength(2);
     expect(within(invitationsRegion).getByText('Page 2')).toBeVisible();
@@ -651,7 +673,9 @@ describe('members and invitations', () => {
     installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(404, { code: 'not_found' }) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
-    expect(await screen.findByText('This household isn’t available to your account.', { selector: '.rounded-xl' })).toBeVisible();
+    const notice = await screen.findByText('This household isn’t available to your account.');
+    expect(notice).toBeVisible();
+    expect(screen.getByRole('status')).toContainElement(notice);
     expect(screen.queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
   });
 
@@ -669,7 +693,8 @@ describe('members and invitations', () => {
   it('an invitation-list 404 identifies the unavailable household', async () => {
     installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: problem(404) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('This household isn’t available to your account.', { selector: '.rounded-xl' })).toBeVisible();
+    expect(await screen.findByText('This household isn’t available to your account.')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('create 401 signs out', async () => {
@@ -692,9 +717,21 @@ describe('members and invitations', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Yes' }));
     if (outcome === 'signed-out') expect(await screen.findByLabelText('Password')).toBeVisible();
     if (outcome === 'owner') expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
-    if (outcome === 'refused') expect(await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.', { selector: '.rounded-xl' })).toBeVisible();
-    if (outcome === 'not-found') expect((await screen.findAllByText('This household isn’t available to your account.', { selector: '.rounded-xl' })).length).toBeGreaterThanOrEqual(1);
-    if (typeof outcome === 'string' && outcome.includes('didn’t work')) expect(await screen.findByText(outcome, { selector: '.rounded-xl' })).toBeVisible();
+    if (outcome === 'refused') {
+      const notice = await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.');
+      expect(notice).toBeVisible();
+      expect(notice.closest('[role="status"]')).not.toBeNull();
+    }
+    if (outcome === 'not-found') {
+      const notice = await screen.findByText('This household isn’t available to your account.');
+      expect(notice).toBeVisible();
+      expect(notice.closest('[role="status"]')).not.toBeNull();
+    }
+    if (typeof outcome === 'string' && outcome.includes('didn’t work')) {
+      const notice = await screen.findByText(outcome);
+      expect(notice).toBeVisible();
+      expect(notice.closest('[role="status"]')).not.toBeNull();
+    }
   });
 
   it('ignores late create and revoke results after unmount', async () => {
@@ -762,7 +799,9 @@ describe('members and invitations', () => {
     await userEvent.click(next);
     screen.getByRole('button', { name: 'Create invite link' }).focus();
     await act(async () => { release(problem(503)); await pending; });
-    expect(await screen.findByText('That didn’t work. Check your connection and try again.', { selector: '.rounded-xl' })).toBeVisible();
+    const notice = await screen.findByText('That didn’t work. Check your connection and try again.');
+    expect(notice).toBeVisible();
+    expect(notice.closest('[role="status"]')).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'Members' })).not.toHaveFocus();
   });
 

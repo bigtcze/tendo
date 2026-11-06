@@ -181,7 +181,7 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await click(page.getByRole('button', { name: en['members.invite.copy'], exact: true }), recorder);
     // Headless clipboard access may be denied; either outcome is a completed, visible copy result.
     await expect(page.getByRole('button', { name: en['members.invite.copiedButton'], exact: true })
-      .or(page.locator('div.rounded-xl').filter({ hasText: en['members.invite.manualCopy'] }).last())).toBeVisible();
+      .or(page.getByRole('region', { name: en['members.invite.title'] }).getByRole('status').filter({ hasText: en['members.invite.manualCopy'] }))).toBeVisible();
     recorder.step(); recorder.obstacle('Invite creation displays a one-time link and Copy control.');
   });
 

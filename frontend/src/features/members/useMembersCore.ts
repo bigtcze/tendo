@@ -36,7 +36,7 @@ export function useMembersCore(onSignedOut: () => void, t: Translate) {
   }, []);
 
   return {
-    state, setState, owner, setOwner, attempt, setAttempt, notice, setNotice: setTypedNotice, setNoticeRaw: setNotice, noticeTone, noticeRef,
+    state, setState, owner, setOwner, attempt, setAttempt, notice, setNotice: setTypedNotice, noticeTone, noticeRef,
     onSignedOutRef, tRef, mountedRef, memberGenerationRef, memberPageGenerationRef, invitationGenerationRef,
   };
 }

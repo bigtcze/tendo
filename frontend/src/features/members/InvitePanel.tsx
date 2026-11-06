@@ -1,6 +1,6 @@
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty-state';
-import { Notice } from '../../components/ui/notice';
+import { NoticeRegion } from '../../components/ui/notice';
 import type { Translate } from '../../i18n';
 import { InvitationRows } from './InvitationRows';
 import { MembersPager } from './MembersPager';
@@ -18,8 +18,7 @@ function InviteLink({ actions, t }: { actions: InviteActions; t: Translate }) {
       <Button variant="quiet" onClick={copyLink}>{copied ? t('members.invite.copiedButton') : t('members.invite.copy')}</Button>
     </div>
     <p className="mt-3 text-sm text-muted">{t('members.invite.caveat')}</p>
-    <p aria-live="polite" aria-atomic="true" className="sr-only">{copyMessage ?? ''}</p>
-    {copyMessage ? <Notice role={null} className="mt-2">{copyMessage}</Notice> : null}
+    <NoticeRegion message={copyMessage ?? ''} className="mt-2 empty:mt-0" />
   </div>;
 }
 

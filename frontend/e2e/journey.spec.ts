@@ -3771,7 +3771,7 @@ test.describe('Tendo production journey', () => {
       const memberPageOne = await memberRows.allTextContents();
       const invitationHeading = page.getByRole('heading', { name: en['members.invitations.title'] });
       const invitationSection = invitationHeading.locator('..');
-      const invitationRows = invitationSection.locator('ul').last().getByRole('listitem');
+      const invitationRows = invitationSection.getByRole('list', { name: en['members.invitations.title'] }).getByRole('listitem');
       await expect.poll(async () => invitationRows.count()).toBe(50);
       const firstInvitationRows = await invitationRows.allTextContents();
       expect(firstInvitationRows.length).toBe(50);
@@ -3873,8 +3873,11 @@ test.describe('Tendo production journey', () => {
         await actor.goto(name === 'subjects' ? '/people' : '/members');
         const main = actor.getByRole('main');
         const scope = name === 'subjects' ? main
-          : main.getByRole('heading', { name: en[name === 'members' ? 'members.list.title' : 'members.invitations.title'], exact: true }).locator('xpath=ancestor::section[1]');
-        const rows = name === 'subjects' ? scope.locator('[data-focus^="row:"]') : scope.locator('ul').last().locator(':scope > li');
+          : name === 'members' ? main.getByRole('region', { name: en['members.list.title'] })
+            : main.getByRole('region', { name: en['members.invite.title'] });
+        const rows = name === 'subjects' ? scope.locator('[data-focus^="row:"]')
+          : name === 'members' ? scope.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem')
+            : scope.getByRole('list', { name: en['members.invitations.title'] }).getByRole('listitem');
         const pager = scope.locator(`button[data-${kind}-page]`);
         const next = pager.filter({ hasText: en[`${prefix}.page.next`] });
         const visible = async (): Promise<string[]> => name === 'subjects'
@@ -4886,10 +4889,10 @@ test.describe('Tendo production journey', () => {
       await page.getByRole('button', { name: en['members.invite.copy'], exact: true }).click();
       await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shownLink);
       await page.getByRole('button', { name: en['members.invite.copiedButton'] }).click();
-      await expect(page.getByRole('status')).toContainText(en['members.invite.copied']);
+      await expect(page.getByRole('region', { name: en['members.invite.title'] }).getByRole('status')).toContainText(en['members.invite.copied']);
       await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: () => Promise.reject(new Error('clipboard denied')) }));
       await page.getByRole('button', { name: en['members.invite.copiedButton'] }).click();
-      await expect(page.getByRole('status')).toContainText(en['members.invite.manualCopy']);
+      await expect(page.getByRole('region', { name: en['members.invite.title'] }).getByRole('status')).toContainText(en['members.invite.manualCopy']);
       await expect(linkField).toBeFocused();
       await expect(linkField).toHaveJSProperty('selectionStart', 0);
       await expect(linkField).toHaveJSProperty('selectionEnd', shownLink.length);

@@ -12,9 +12,9 @@ import { useMemberList } from './useMemberList';
 import { useMembersCore } from './useMembersCore';
 import { useMembersFocus } from './useMembersFocus';
 
-function LoadError({ notice, onRetry, t }: { notice: string | null; onRetry: () => void; t: Translate }) {
+function LoadError({ notice, onRetry, t }: { notice: string; onRetry: () => void; t: Translate }) {
   return <div className="mt-8 space-y-3">
-    <Notice tone="error" role={null}>{notice ?? t('members.error.load')}</Notice>
+    <Notice tone="error" aria-atomic="true">{notice}</Notice>
     <Button onClick={onRetry}>{t('app.error.retry')}</Button>
   </div>;
 }
@@ -24,8 +24,8 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
   const core = useMembersCore(onSignedOut, t);
   const inv = useInvitationList(householdId, core);
   const members = useMemberList(householdId, userId, onSignedOut, t, core, inv);
-  const { state, owner, notice, noticeTone, setNoticeRaw, setAttempt, noticeRef } = core;
-  const loadErrorMessage = state === 'error' ? notice ?? t('members.error.load') : '';
+  const { state, owner, notice, noticeTone, setNotice, setAttempt, noticeRef } = core;
+  const listErrorNotice = notice ?? t('members.error.load');
   const listReady = state === 'ready' && (owner !== true || inv.invitationsLoaded);
   const actions = useInviteActions(householdId, onSignedOut, t, core, inv, listReady);
   useMembersFocus({
@@ -38,12 +38,11 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
   const formatDate = (date: string) => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
     <Heading className="font-display text-h1 leading-tight">{t('members.title')}</Heading>
-    <p role="alert" aria-atomic="true" className="sr-only">{loadErrorMessage}</p>
-    <div ref={noticeRef} tabIndex={-1} role="status" className="mt-5 outline-none empty:mt-0">
+    <div ref={noticeRef} tabIndex={-1} role="status" aria-atomic="true" className="mt-5 outline-none empty:mt-0">
       {notice && state !== 'error' ? <Notice tone={noticeTone === 'success' ? 'success' : 'neutral'} role={null}>{notice}</Notice> : null}
     </div>
     {state === 'loading' ? <p role="status" className="mt-5 text-muted">{t('members.loading')}</p> : null}
-    {state === 'error' ? <LoadError notice={notice} onRetry={() => { setNoticeRaw(null); setAttempt((n) => n + 1); }} t={t} /> : null}
+    {state === 'error' ? <LoadError notice={listErrorNotice} onRetry={() => { setNotice(null); setAttempt((n) => n + 1); }} t={t} /> : null}
     {state === 'ready' ? <div className="mt-4 space-y-3 sm:mt-8 sm:space-y-8">
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}
         cursor={members.memberCursor} busy={members.memberBusy} onPrevious={members.previousMembers} onNext={members.nextMembers} t={t} />

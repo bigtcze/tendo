@@ -832,12 +832,20 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.list.title'] }).getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.invite.title'] }).getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
+        if (width === 390 || width === 1440) {
+          await expect(memberPage.getByRole('main').getByText(en['members.help.body'], { exact: true })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByRole('button', { name: en['members.invite.action'], exact: true })).toHaveCount(0);
+          await expect(memberPage.getByRole('main').getByRole('heading', { name: en['members.invitations.title'] })).toHaveCount(0);
+        }
         await capture(memberPage, join(dir, `audit-members-non-owner-en-${width}.png`));
         if (width === 390 || width === 1440) {
           await memberPage.goto('/'); await memberPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await memberPage.reload();
           await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: cs['members.title'] })).toBeVisible();
           await expect(memberPage.getByRole('main').getByRole('region', { name: cs['members.list.title'] }).getByRole('list', { name: cs['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
           await expect(memberPage.getByRole('main').getByRole('heading', { name: cs['members.help.title'] })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByText(cs['members.help.body'], { exact: true })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByRole('button', { name: cs['members.invite.action'], exact: true })).toHaveCount(0);
+          await expect(memberPage.getByRole('main').getByRole('heading', { name: cs['members.invitations.title'] })).toHaveCount(0);
           await capture(memberPage, join(dir, `audit-members-non-owner-cs-${width}.png`));
         }
         await memberContext.close();
