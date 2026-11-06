@@ -13,7 +13,7 @@ TENDO_UX_AUDIT_DIR=/tmp/opencode/v312-after bash scripts/dev-exec.sh -- bash scr
 
 ## Captures and critique
 
-Dedicated V3-12 state captures (`audit-members-owner-*`, `-history-`, `-forced-dark-`, `-owner-required-`, `-empty-invitations-`, `-non-owner-*`, `-link-*`, `-revoke-confirm-`, `-check-again-`, `-error-`, `-loading-`) are viewport captures whose filename width is asserted against `window.innerWidth`; the general-route captures (`audit-members-en-*`, `audit-members-cs-*`, `audit-members-invite-*`, `audit-invite-*`) come from the wider UX audit and are full-page. Every capture asserts no horizontal document overflow. Owner desktop/tablet layouts use two columns; phone layouts stack. The forced-dark pair is readiness evidence only, not a saved preference test.
+Dedicated V3-12 state captures (`audit-members-owner-*`, `-history-`, `-forced-dark-`, `-owner-required-`, `-empty-invitations-`, `-non-owner-*`, `-link-*`, `-revoke-confirm-`, `-check-again-`, `-error-`, `-loading-`) are viewport captures taken at explicitly configured viewports (the audit asserts actual width matches the configured viewport; owner captures and direct state screenshots additionally assert the filename width); the general-route captures (`audit-members-en-*`, `audit-members-cs-*`, `audit-members-invite-*`, `audit-invite-*`) come from the wider UX audit and are full-page. Every capture asserts no horizontal document overflow. Owner desktop/tablet layouts use two columns; phone layouts stack. The forced-dark pair is readiness evidence only, not a saved preference test.
 
 | Files | What they show / honest critique |
 |---|---|
