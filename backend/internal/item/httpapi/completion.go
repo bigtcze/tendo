@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 	"net/http"
 	"strings"
@@ -102,14 +103,14 @@ func (h *Handler) listCompletions(w http.ResponseWriter, r *http.Request) {
 		writeCompletionError(w, err)
 		return
 	}
-	out := CompletionList{Items: make([]Completion, 0, len(page.Items)), NextCursor: page.NextCursor}
+	out := apimodel.CompletionList{Items: make([]apimodel.Completion, 0, len(page.Items)), NextCursor: page.NextCursor}
 	for _, c := range page.Items {
 		out.Items = append(out.Items, completionJSON(c))
 	}
 	httpx.WriteJSON(w, 200, out)
 }
-func completionJSON(c item.Completion) Completion {
-	out := Completion{
+func completionJSON(c item.Completion) apimodel.Completion {
+	out := apimodel.Completion{
 		Id:                c.ID,
 		ItemId:            c.ItemID,
 		CompletedByUserId: c.CompletedByUserID,

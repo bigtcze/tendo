@@ -10,6 +10,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
@@ -84,7 +85,7 @@ func (h *InvitationHandler) list(w http.ResponseWriter, r *http.Request) {
 		writeInvitationError(w, e)
 		return
 	}
-	out := InvitationList{Items: make([]Invitation, 0, len(items)), NextCursor: nil}
+	out := apimodel.InvitationList{Items: make([]apimodel.Invitation, 0, len(items)), NextCursor: nil}
 	for _, i := range items {
 		out.Items = append(out.Items, invitationDTO(i))
 	}
@@ -125,7 +126,7 @@ func (h *InvitationHandler) acceptNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/api/v1/households/"+strings.ToLower(u.HouseholdID))
-	httpx.WriteJSON(w, 201, InvitedAccount{UserId: u.UserID, Login: u.Login, HouseholdId: u.HouseholdID, Role: InvitedAccountRoleMember})
+	httpx.WriteJSON(w, 201, apimodel.InvitedAccount{UserId: u.UserID, Login: u.Login, HouseholdId: u.HouseholdID, Role: apimodel.InvitedAccountRoleMember})
 }
 func (h *InvitationHandler) acceptExisting(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)
@@ -151,12 +152,12 @@ func (h *InvitationHandler) acceptExisting(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("Location", "/api/v1/households/"+strings.ToLower(u.HouseholdID))
-	httpx.WriteJSON(w, 201, Membership{UserId: u.UserID, HouseholdId: u.HouseholdID, Role: MembershipRoleMember})
+	httpx.WriteJSON(w, 201, apimodel.Membership{UserId: u.UserID, HouseholdId: u.HouseholdID, Role: apimodel.MembershipRoleMember})
 }
-func invitationDTO(invitation identity.Invitation) Invitation {
-	return Invitation{
-		Id: invitation.ID, Role: InvitationRoleMember,
-		Status:    InvitationStatus(invitation.Status),
+func invitationDTO(invitation identity.Invitation) apimodel.Invitation {
+	return apimodel.Invitation{
+		Id: invitation.ID, Role: apimodel.InvitationRoleMember,
+		Status:    apimodel.InvitationStatus(invitation.Status),
 		CreatedAt: invitation.CreatedAt.UTC(), ExpiresAt: invitation.ExpiresAt.UTC(),
 		AcceptedAt: invitation.AcceptedAt, RevokedAt: invitation.RevokedAt,
 	}
@@ -184,8 +185,8 @@ func writeInvitationCreated(w http.ResponseWriter, result identity.InvitationRes
 		return
 	}
 	invitation := invitationDTO(result.Invitation)
-	response := InvitationCreated{
-		Id: invitation.Id, Role: InvitationCreatedRoleMember,
+	response := apimodel.InvitationCreated{
+		Id: invitation.Id, Role: apimodel.InvitationCreatedRoleMember,
 		Status: invitation.Status, CreatedAt: invitation.CreatedAt,
 		ExpiresAt: invitation.ExpiresAt, AcceptedAt: invitation.AcceptedAt,
 		RevokedAt: invitation.RevokedAt, Token: result.Token,
@@ -197,10 +198,10 @@ func writeInvitationValidationProblem(w http.ResponseWriter, validation *identit
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(422)
-	problem := InvitationValidationProblem{
+	problem := apimodel.InvitationValidationProblem{
 		Type: "about:blank", Title: "Validation Failed", Status: 422,
-		Field: InvitationValidationProblemField(validation.Field),
-		Code:  InvitationValidationProblemCode(validation.Code),
+		Field: apimodel.InvitationValidationProblemField(validation.Field),
+		Code:  apimodel.InvitationValidationProblemCode(validation.Code),
 	}
 	_ = json.NewEncoder(w).Encode(problem)
 }

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"net/http"
 	"reflect"
 	"strings"
@@ -34,7 +35,7 @@ func TestResponsibleMemberHTTPExactRepresentationAssignmentAndFailures(t *testin
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create=%d %s", created.Code, created.Body)
 	}
-	var body Item
+	var body apimodel.Item
 	if err := decodeTestJSON(created.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}

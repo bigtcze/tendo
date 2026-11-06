@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -129,7 +130,7 @@ func assertProblemResponse(t *testing.T, w *httptest.ResponseRecorder) {
 	if w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("X-Request-ID") == "" {
 		t.Fatalf("headers=%v", w.Header())
 	}
-	var problem Problem
+	var problem apimodel.Problem
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil || problem.Status != w.Code || problem.Type != "about:blank" || problem.Title != map[int]string{400: "Bad Request", 403: "Forbidden", 421: "Misdirected Request"}[w.Code] {
 		t.Fatalf("problem=%+v err=%v body=%s", problem, err, w.Body.String())
 	}
@@ -201,7 +202,7 @@ func TestNewAppAndHealthOriginExemption(t *testing.T) {
 			if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("X-Request-ID") == "" {
 				t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
 			}
-			var response StatusResponse
+			var response apimodel.StatusResponse
 			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || response.Status != "ok" {
 				t.Fatalf("response=%+v err=%v", response, err)
 			}
@@ -213,7 +214,7 @@ func TestNewAppAndHealthOriginExemption(t *testing.T) {
 	w := httptest.NewRecorder()
 	NewApp(nil, time.Second, make(chan struct{}), OriginPolicy{PublicURL: "https://example.test"}).ServeHTTP(w, r)
 	assertProblemResponse(t, w)
-	var problem Problem
+	var problem apimodel.Problem
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil || w.Code != http.StatusMisdirectedRequest || problem.Type != "about:blank" || problem.Title != "Misdirected Request" || problem.Status != http.StatusMisdirectedRequest {
 		t.Fatalf("health response status=%d problem=%+v err=%v", w.Code, problem, err)
 	}

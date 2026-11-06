@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -65,7 +66,7 @@ func TestReadiness(t *testing.T) {
 				if w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("Cache-Control") != "no-store" {
 					t.Fatalf("headers=%v", w.Header())
 				}
-				var problem Problem
+				var problem apimodel.Problem
 				if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 					t.Fatal(err)
 				}
@@ -220,7 +221,7 @@ func TestUnknownAndMethodErrorsUseProblem(t *testing.T) {
 		if w.Header().Get("Content-Type") != "application/problem+json" {
 			t.Fatalf("status=%d content-type=%q", w.Code, w.Header().Get("Content-Type"))
 		}
-		var problem Problem
+		var problem apimodel.Problem
 		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 			t.Fatal(err)
 		}

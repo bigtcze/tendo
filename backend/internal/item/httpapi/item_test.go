@@ -18,6 +18,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/item/itemtest"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"github.com/go-chi/chi/v5"
 )
@@ -366,8 +367,8 @@ func TestListStructuredQueryValidationAndFilteredSuccess(t *testing.T) {
 	decodeIDs := func(t *testing.T, w *httptest.ResponseRecorder) []string {
 		t.Helper()
 		var got struct {
-			Items      []Item  `json:"items"`
-			NextCursor *string `json:"nextCursor"`
+			Items      []apimodel.Item `json:"items"`
+			NextCursor *string         `json:"nextCursor"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
@@ -428,8 +429,8 @@ func TestListStructuredQueryValidationAndFilteredSuccess(t *testing.T) {
 			t.Fatalf("unknown subject status=%d body=%s", w.Code, w.Body)
 		}
 		var empty struct {
-			Items      []Item  `json:"items"`
-			NextCursor *string `json:"nextCursor"`
+			Items      []apimodel.Item `json:"items"`
+			NextCursor *string         `json:"nextCursor"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil {
 			t.Fatal(err)
@@ -463,8 +464,8 @@ func TestListQueryPrecedenceUnknownParametersAndLegacyCursor(t *testing.T) {
 		t.Fatalf("unknown params status=%d body=%s", w.Code, w.Body)
 	}
 	var got struct {
-		Items      []Item  `json:"items"`
-		NextCursor *string `json:"nextCursor"`
+		Items      []apimodel.Item `json:"items"`
+		NextCursor *string         `json:"nextCursor"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
@@ -499,8 +500,8 @@ func TestListAttentionSortGuardAndQueryContracts(t *testing.T) {
 	for _, tc := range []struct{ query, prefix string }{{"sort=created&limit=1", "i1:"}, {"sort=attention_on&limit=1", "i2:"}, {"attentionDate=2026-03-01&limit=1", "i2:"}} {
 		w := f.do("GET", base+"?"+tc.query, "", nil)
 		var got struct {
-			Items      []Item  `json:"items"`
-			NextCursor *string `json:"nextCursor"`
+			Items      []apimodel.Item `json:"items"`
+			NextCursor *string         `json:"nextCursor"`
 		}
 		_ = json.Unmarshal(w.Body.Bytes(), &got)
 		if w.Code != 200 || got.NextCursor == nil {
@@ -542,8 +543,8 @@ func TestHTTPAttentionSortPreservesOrderAcrossPages(t *testing.T) {
 	for page := 0; page < 8; page++ {
 		w := f.do("GET", url, "", nil)
 		var body struct {
-			Items []Item  `json:"items"`
-			Next  *string `json:"nextCursor"`
+			Items []apimodel.Item `json:"items"`
+			Next  *string         `json:"nextCursor"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatal(err)
@@ -773,7 +774,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("create fixed: %d %s", w.Code, w.Body)
 	}
-	var fixedBody Item
+	var fixedBody apimodel.Item
 	if err := json.Unmarshal(w.Body.Bytes(), &fixedBody); err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +789,7 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("create fluid: %d %s", w.Code, w.Body)
 	}
-	var fluidBody Item
+	var fluidBody apimodel.Item
 	if err := json.Unmarshal(w.Body.Bytes(), &fluidBody); err != nil {
 		t.Fatal(err)
 	}
@@ -799,13 +800,13 @@ func TestRecurrenceGetListAndClearResponses(t *testing.T) {
 		t.Fatalf("list=%d %s", list.Code, list.Body)
 	}
 	var listBody struct {
-		Items      []Item  `json:"items"`
-		NextCursor *string `json:"nextCursor"`
+		Items      []apimodel.Item `json:"items"`
+		NextCursor *string         `json:"nextCursor"`
 	}
 	if err := json.Unmarshal(list.Body.Bytes(), &listBody); err != nil {
 		t.Fatal(err)
 	}
-	if len(listBody.Items) != 3 || listBody.Items[0].Recurrence == nil || *listBody.Items[0].Recurrence != (ItemRecurrence{IntervalValue: 1, IntervalUnit: Year, Mode: Fixed}) || listBody.Items[1].Recurrence == nil || *listBody.Items[1].Recurrence != (ItemRecurrence{IntervalValue: 2, IntervalUnit: Month, Mode: AfterCompletion}) {
+	if len(listBody.Items) != 3 || listBody.Items[0].Recurrence == nil || *listBody.Items[0].Recurrence != (apimodel.ItemRecurrence{IntervalValue: 1, IntervalUnit: apimodel.Year, Mode: apimodel.Fixed}) || listBody.Items[1].Recurrence == nil || *listBody.Items[1].Recurrence != (apimodel.ItemRecurrence{IntervalValue: 2, IntervalUnit: apimodel.Month, Mode: apimodel.AfterCompletion}) {
 		t.Fatalf("list lost recurrence policies: %s", list.Body)
 	}
 	clear := f.do("PATCH", base+"/"+fixedBody.Id, `{"recurrence":null}`, map[string]string{"If-Match": `"1"`})
@@ -826,7 +827,7 @@ func TestInvalidRecurrencePatchPreservesEnabledPolicyAndCycle(t *testing.T) {
 	if created.Code != 201 {
 		t.Fatalf("create=%d %s", created.Code, created.Body)
 	}
-	var response Item
+	var response apimodel.Item
 	if err := json.Unmarshal(created.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
@@ -856,7 +857,7 @@ func TestBodyLimitAllowsMaximumUnicodeAndRejectsOversize(t *testing.T) {
 			if w.Code != http.StatusCreated {
 				t.Fatalf("status=%d body=%s request bytes=%d", w.Code, w.Body, len(body))
 			}
-			var response Item
+			var response apimodel.Item
 			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}

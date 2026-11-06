@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/subject"
 	"github.com/bigtcze/tendo/backend/internal/subject/subjecttest"
 	"github.com/go-chi/chi/v5"
@@ -216,7 +217,7 @@ func TestCreateReplayReturnsCurrentStateAndReuseProblem(t *testing.T) {
 	if first.Code != 201 {
 		t.Fatalf("first=%d %s", first.Code, first.Body)
 	}
-	var firstBody Subject
+	var firstBody apimodel.Subject
 	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,7 @@ func TestCreateReplayStillRequiresMembership(t *testing.T) {
 	if created.Code != 201 {
 		t.Fatalf("create=%d %s", created.Code, created.Body)
 	}
-	var body Subject
+	var body apimodel.Subject
 	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}

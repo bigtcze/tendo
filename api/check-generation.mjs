@@ -4,18 +4,13 @@ import { parse } from 'yaml'
 
 const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
 const generated = await readFile(new URL('./generated/api.d.ts', import.meta.url), 'utf8')
-const generatedHealth = await readFile(new URL('./generated/health.d.ts', import.meta.url), 'utf8')
-const goSetup = await readFile(new URL('../backend/internal/identity/httpapi/setup.gen.go', import.meta.url), 'utf8')
-const goHealth = await readFile(new URL('../backend/internal/platform/httpx/health.gen.go', import.meta.url), 'utf8')
-const goHousehold = await readFile(new URL('../backend/internal/household/httpapi/household.gen.go', import.meta.url), 'utf8')
-const goSubject = await readFile(new URL('../backend/internal/subject/httpapi/subject.gen.go', import.meta.url), 'utf8')
-const goItem = await readFile(new URL('../backend/internal/item/httpapi/item.gen.go', import.meta.url), 'utf8')
+const goModels = await readFile(new URL('../backend/internal/platform/httpx/apimodel/apimodel.gen.go', import.meta.url), 'utf8')
 
 for (const [path, pathItem] of Object.entries(contract.paths)) {
   assert.ok(generated.includes(JSON.stringify(path)), `TypeScript output missing ${path}`)
   for (const [method, operation] of Object.entries(pathItem)) {
     if (!operation || typeof operation !== 'object' || !operation.operationId) continue
-    for (const output of [generated, generatedHealth]) assert.ok(output.includes(operation.operationId), `TypeScript output missing ${operation.operationId}`)
+    for (const output of [generated]) assert.ok(output.includes(operation.operationId), `TypeScript output missing ${operation.operationId}`)
     for (const [status, response] of Object.entries(operation.responses ?? {})) {
       const responseSchema = response.content?.['application/json']?.schema ?? response.content?.['application/problem+json']?.schema ?? Object.values(response.content ?? {}).map(media => media.schema).find(schema => schema?.$ref)
       if (responseSchema?.$ref) {
@@ -38,10 +33,10 @@ for (const [name, schema] of Object.entries(contract.components.schemas)) {
   assert.ok(generated.includes(`${name}:`), `TypeScript output missing schema ${name}`)
   for (const field of Object.keys(schema.properties ?? {})) assert.ok(generated.includes(field), `TypeScript output missing field ${name}.${field}`)
   for (const value of schema.properties?.status?.enum ?? []) assert.ok(generated.includes(JSON.stringify(value)), `TypeScript output missing status value ${value}`)
-  assert.ok(goSetup.includes(name) || goHealth.includes(name) || goHousehold.includes(name) || goSubject.includes(name) || goItem.includes(name), `Generated Go missing model ${name}`)
+  assert.ok(goModels.includes(name), `Generated Go missing model ${name}`)
 }
-for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goSetup.includes(`type ${name} struct`), `Generated setup Go missing ${name}`)
-assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goSetup), 'Generated Go Session must have optional DefaultHouseholdId')
+for (const name of ['SetupRequest', 'SetupStatus', 'Problem', 'ValidationProblem', 'LoginRequest', 'Session']) assert.ok(goModels.includes(`type ${name} struct`), `Generated Go missing ${name}`)
+assert.ok(/type Session struct \{[^}]*DefaultHouseholdId \*string/s.test(goModels), 'Generated Go Session must have optional DefaultHouseholdId')
 // oapi-codegen v2.8.0 no longer emits SessionCookieScopes/SetupTokenScopes. Those constants never enforced
 // authentication; enforcement is verified against this contract by backend/cmd/tendo/security_contract_test.go.
 assert.deepEqual(Object.keys(contract.components.securitySchemes).sort(), ['SessionCookie', 'SetupToken'], 'Contract security schemes changed; update security_contract_test.go')
@@ -52,41 +47,39 @@ for (const [path, pathItem] of Object.entries(contract.paths)) {
     assert.ok(operation.security.length <= 1 && operation.security.every(requirement => Object.keys(requirement).length === 1 && contract.components.securitySchemes[Object.keys(requirement)[0]]), `${method.toUpperCase()} ${path} must declare [] or exactly one known security scheme`)
   }
 }
-// Required nullable response properties must stay single pointers that always serialize, so null is emitted
-// explicitly rather than omitted. Guards against x-go-type pointer hints stacking on v2.8.0 native nullability.
+// Required nullable response properties stay single pointers and always serialize.
+// The shared model file contains every schema formerly checked in the five byte-identical outputs.
 const isNullable = property => (Array.isArray(property.type) && property.type.includes('null')) || (property.oneOf ?? []).some(branch => branch.type === 'null')
-for (const [file, goModels] of Object.entries({ 'setup.gen.go': goSetup, 'health.gen.go': goHealth, 'household.gen.go': goHousehold, 'subject.gen.go': goSubject, 'item.gen.go': goItem })) {
-  for (const [name, schema] of Object.entries(contract.components.schemas)) {
-    for (const [field, property] of Object.entries(schema.properties ?? {})) {
-      if (!isNullable(property) || !(schema.required ?? []).includes(field) || property.readOnly) continue
-      const struct = goModels.match(new RegExp(`type ${name} struct \\{[^}]*\\}`, 's'))?.[0]
-      assert.ok(struct, `${file}: generated Go missing struct ${name}`)
-      const goField = field[0].toUpperCase() + field.slice(1)
-      assert.match(struct, new RegExp(`\\n\\s*${goField}\\s+\\*[A-Za-z][\\w.]*\\s+\`json:"${field}"\``), `${file}: ${name}.${field} must be a single-pointer, always-serialized nullable field`)
-    }
+for (const [name, schema] of Object.entries(contract.components.schemas)) {
+  for (const [field, property] of Object.entries(schema.properties ?? {})) {
+    if (!isNullable(property) || !(schema.required ?? []).includes(field) || property.readOnly) continue
+    const struct = goModels.match(new RegExp(`type ${name} struct \\{[^}]*\\}`, 's'))?.[0]
+    assert.ok(struct, `${name}: generated Go missing struct`)
+    const goField = field[0].toUpperCase() + field.slice(1)
+    assert.match(struct, new RegExp('\\n\\s*' + goField + '\\s+\\*[A-Za-z][\\w.]*\\s+`json:"' + field + '"`'), `${name}.${field} must be a single-pointer, always-serialized nullable field`)
   }
 }
 for (const operationId of ['createInvitation','listInvitations','revokeInvitation','acceptInvitationWithNewAccount','acceptInvitation','listMembers','createSession','getSession','deleteSession']) assert.ok(generated.includes(`${operationId}:`), `TypeScript output missing operation ${operationId}`)
 assert.ok(/Session: \{[^}]*defaultHouseholdId\?: string/s.test(generated), 'TypeScript Session must have optional defaultHouseholdId')
 assert.ok(/LoginRequest: \{[^}]*login: string[^}]*password: string/s.test(generated), 'TypeScript LoginRequest missing required fields')
-for (const name of ['StatusResponse', 'Problem']) assert.ok(goHealth.includes(`type ${name} struct`), `Generated health Go missing ${name}`)
-for (const name of ['Invitation','InvitationCreated','InvitationList','Member','MemberList','Membership','InvitedAccount','AcceptInvitationRequest','AcceptInvitationNewAccountRequest']) assert.ok(goSetup.includes(`type ${name} struct`) || goHousehold.includes(`type ${name} struct`), `Generated Go missing ${name}`)
-assert.ok(/type Membership struct \{[^}]*HouseholdId string[^}]*Role/s.test(goSetup), 'Membership must omit login')
-assert.ok(/type InvitedAccount struct \{[^}]*HouseholdId string[^}]*Login\s+string/s.test(goSetup), 'InvitedAccount must include login')
+for (const name of ['StatusResponse', 'Problem']) assert.ok(goModels.includes(`type ${name} struct`), `Generated Go missing ${name}`)
+for (const name of ['Invitation','InvitationCreated','InvitationList','Member','MemberList','Membership','InvitedAccount','AcceptInvitationRequest','AcceptInvitationNewAccountRequest']) assert.ok(goModels.includes(`type ${name} struct`), `Generated Go missing ${name}`)
+assert.ok(/type Membership struct \{[^}]*HouseholdId string[^}]*Role/s.test(goModels), 'Membership must omit login')
+assert.ok(/type InvitedAccount struct \{[^}]*HouseholdId string[^}]*Login\s+string/s.test(goModels), 'InvitedAccount must include login')
 const tsMembership = generated.slice(generated.indexOf('Membership: {'), generated.indexOf('\n        };', generated.indexOf('Membership: {')))
 const tsInvitedAccount = generated.slice(generated.indexOf('InvitedAccount: {'), generated.indexOf('\n        };', generated.indexOf('InvitedAccount: {')))
 assert.ok(tsMembership.includes('householdId: string') && tsMembership.includes('role: "member"') && !tsMembership.includes('login:'), 'TS Membership must omit login')
 assert.ok(tsInvitedAccount.includes('login: string') && tsInvitedAccount.includes('householdId: string'), 'TS InvitedAccount must include login')
-assert.ok(/type Household struct \{[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]*Name\s+string[^}]*Timezone\s+string/s.test(goHousehold), 'Generated household Go missing Household model with required fields')
-assert.ok(!/Version/.test(goHousehold.match(/type Household struct \{[^}]*\}/s)?.[0] ?? ''), 'Household response model must not expose the internal version')
+assert.ok(/type Household struct \{[^}]*CreatedAt time\.Time[^}]*Id\s+string[^}]*Name\s+string[^}]*Timezone\s+string/s.test(goModels), 'Generated Go missing Household model with required fields')
+assert.ok(!/Version/.test(goModels.match(/type Household struct \{[^}]*\}/s)?.[0] ?? ''), 'Household response model must not expose the internal version')
 assert.ok(generated.includes('getHousehold:'), 'TypeScript output missing operation getHousehold')
 assert.ok(/Household: \{[^}]*id: string[^}]*name: string[^}]*timezone: string[^}]*createdAt: string/s.test(generated), 'TypeScript Household missing required fields')
-for (const name of ['Subject', 'SubjectList', 'CreateSubjectRequest', 'UpdateSubjectRequest']) if (name !== 'UpdateSubjectRequest') assert.ok(goSubject.includes(`type ${name} struct`), `Generated subject Go missing ${name}`)
-assert.ok(/type Subject struct \{[^}]*Archived\s+bool[^}]*CreatedAt\s+time\.Time[^}]*Id\s+string[^}]*LinkedUserId\s+\*string\s+`json:\"linkedUserId\"`[^}]*Name\s+string[^}]*Type\s+SubjectType[^}]*UpdatedAt\s+time\.Time/s.test(goSubject), 'Generated subject Go missing Subject model with required fields')
-assert.ok(!/Version|HouseholdId/.test(goSubject.match(/type Subject struct \{[^}]*\}/s)?.[0] ?? ''), 'Subject response model must not expose version or householdId')
-assert.ok(/type SubjectList struct \{[^}]*Items \[\]Subject[^}]*NextCursor \*string `json:"nextCursor"`/s.test(goSubject), 'Generated SubjectList must always serialize nextCursor')
-assert.ok(/type UpdateSubjectRequest struct \{[^}]*Archived \*bool[^}]*Name \*string[^}]*Type \*SubjectType/s.test(goSubject), 'Generated UpdateSubjectRequest must have optional fields')
-for (const type of ['person', 'home', 'vehicle', 'pet', 'custom']) assert.ok(goSubject.includes(`"${type}"`), `Generated Go missing subject type ${type}`)
+for (const name of ['Subject', 'SubjectList', 'CreateSubjectRequest', 'UpdateSubjectRequest']) if (name !== 'UpdateSubjectRequest') assert.ok(goModels.includes(`type ${name} struct`), `Generated Go missing ${name}`)
+assert.ok(/type Subject struct \{[^}]*Archived\s+bool[^}]*CreatedAt\s+time\.Time[^}]*Id\s+string[^}]*LinkedUserId\s+\*string\s+`json:\"linkedUserId\"`[^}]*Name\s+string[^}]*Type\s+SubjectType[^}]*UpdatedAt\s+time\.Time/s.test(goModels), 'Generated Go missing Subject model with required fields')
+assert.ok(!/Version|HouseholdId/.test(goModels.match(/type Subject struct \{[^}]*\}/s)?.[0] ?? ''), 'Subject response model must not expose version or householdId')
+assert.ok(/type SubjectList struct \{[^}]*Items \[\]Subject[^}]*NextCursor \*string `json:"nextCursor"`/s.test(goModels), 'Generated SubjectList must always serialize nextCursor')
+assert.ok(/type UpdateSubjectRequest struct \{[^}]*Archived \*bool[^}]*Name \*string[^}]*Type \*SubjectType/s.test(goModels), 'Generated UpdateSubjectRequest must have optional fields')
+for (const type of ['person', 'home', 'vehicle', 'pet', 'custom']) assert.ok(goModels.includes(`"${type}"`), `Generated Go missing subject type ${type}`)
 for (const operationId of ['createSubject', 'listSubjects', 'getSubject', 'updateSubject']) assert.ok(generated.includes(`${operationId}:`), `TypeScript output missing operation ${operationId}`)
 assert.ok(/Subject: \{[^}]*id: string[^}]*type: components\["schemas"\]\["SubjectType"\][^}]*name: string[^}]*archived: boolean[^}]*createdAt: string[^}]*updatedAt: string/s.test(generated), 'TypeScript Subject missing required fields')
 assert.ok(/SubjectList: \{[^}]*nextCursor: string \| null/s.test(generated), 'TypeScript SubjectList must have required nullable nextCursor')

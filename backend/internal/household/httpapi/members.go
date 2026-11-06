@@ -7,6 +7,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -51,13 +52,13 @@ func (h *MembersHandler) list(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	out := MemberList{Items: make([]Member, 0, len(items)), NextCursor: nil}
+	out := apimodel.MemberList{Items: make([]apimodel.Member, 0, len(items)), NextCursor: nil}
 	for _, m := range items {
 		if m.Role != household.RoleOwner && m.Role != household.RoleMember {
 			httpx.ProblemResponse(w, 503, "unavailable")
 			return
 		}
-		out.Items = append(out.Items, Member{UserId: m.UserID, Login: m.Login, Role: MemberRole(m.Role)})
+		out.Items = append(out.Items, apimodel.Member{UserId: m.UserID, Login: m.Login, Role: apimodel.MemberRole(m.Role)})
 	}
 	if next != "" {
 		out.NextCursor = &next

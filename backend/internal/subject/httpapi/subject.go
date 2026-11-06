@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/subject"
 	"github.com/go-chi/chi/v5"
 )
@@ -106,11 +107,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	items := make([]Subject, 0, len(page.Items))
+	items := make([]apimodel.Subject, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, toJSON(item))
 	}
-	httpx.WriteJSON(w, http.StatusOK, SubjectList{Items: items, NextCursor: page.NextCursor})
+	httpx.WriteJSON(w, http.StatusOK, apimodel.SubjectList{Items: items, NextCursor: page.NextCursor})
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -185,9 +186,9 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 }
 
-func toJSON(s subject.Subject) Subject {
-	return Subject{
-		Id: s.ID, Type: SubjectType(s.Type), Name: s.Name,
+func toJSON(s subject.Subject) apimodel.Subject {
+	return apimodel.Subject{
+		Id: s.ID, Type: apimodel.SubjectType(s.Type), Name: s.Name,
 		LinkedUserId: s.LinkedUserID, Archived: s.Archived,
 		CreatedAt: s.CreatedAt.UTC(), UpdatedAt: s.UpdatedAt.UTC(),
 	}

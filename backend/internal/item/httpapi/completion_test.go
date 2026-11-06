@@ -13,6 +13,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/item/itemtest"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 	"github.com/go-chi/chi/v5"
 )
@@ -333,7 +334,7 @@ func TestUndoCompletionHTTP(t *testing.T) {
 	staleSession = false
 	list := httptest.NewRecorder()
 	r.ServeHTTP(list, httptest.NewRequest("GET", base+"/"+other+"/completions", nil))
-	var listed CompletionList
+	var listed apimodel.CompletionList
 	if err := json.Unmarshal(list.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +381,7 @@ func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 	if first.Code != 200 {
 		t.Fatalf("first=%d %s", first.Code, first.Body)
 	}
-	var page1 CompletionList
+	var page1 apimodel.CompletionList
 	if err := json.Unmarshal(first.Body.Bytes(), &page1); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +389,7 @@ func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 		t.Fatalf("page1=%+v want ids=%v", page1, ids)
 	}
 	second := f.do("GET", path+"?limit=2&cursor="+*page1.NextCursor, "", nil)
-	var page2 CompletionList
+	var page2 apimodel.CompletionList
 	if second.Code != 200 {
 		t.Fatalf("second=%d %s", second.Code, second.Body)
 	}
@@ -402,7 +403,7 @@ func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 	if newest.Code != 200 || newest.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("newest=%d headers=%v body=%s", newest.Code, newest.Header(), newest.Body)
 	}
-	var newestPage CompletionList
+	var newestPage apimodel.CompletionList
 	if err := json.Unmarshal(newest.Body.Bytes(), &newestPage); err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +411,7 @@ func TestCompletionHTTPListPaginationAndDoneQuery(t *testing.T) {
 		t.Fatalf("newest page=%+v ids=%v", newestPage, ids)
 	}
 	newestNext := f.do("GET", path+"?limit=2&order=newest&cursor="+*newestPage.NextCursor, "", nil)
-	var newestPage2 CompletionList
+	var newestPage2 apimodel.CompletionList
 	if newestNext.Code != 200 || json.Unmarshal(newestNext.Body.Bytes(), &newestPage2) != nil || len(newestPage2.Items) != 1 || newestPage2.Items[0].Id != ids[0] || newestPage2.NextCursor != nil {
 		t.Fatalf("newest next=%d %s %+v", newestNext.Code, newestNext.Body, newestPage2)
 	}
