@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
+import { createTabRepeatGuard } from './tabRepeatGuard';
 import { measureMotion } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
@@ -3382,15 +3383,15 @@ test.describe('Tendo production journey', () => {
     // between presses resets a native date input to its first segment, so Tab never leaves it (probe: 30+ presses per
     // engine instead of 3-4).
     //
-    // Segment rule: a native date input keeps Tab on its own segments (day/month/year) before leaving. Consecutive
-    // presses on the SAME element are one stop; more than SEGMENT_CAP consecutive presses fails as a keyboard trap.
-    // Non-consecutive revisits keep the loop semantics. Probe without blur/refocus: Chromium 4 presses, Firefox 4,
-    // WebKit 3 (all leave), so the cap has headroom for a segment picker but still fails a real trap.
+    // Segment rule: only a native date input may retain focus while Tab advances day/month/year segments. The cap is
+    // ADDITIONAL presses after first arrival (not total visits): allow at most 3. Probe without blur/refocus: Chromium
+    // and Firefox leave after 4 total presses (3 additional), WebKit after 3; this matches the longest observed behavior.
+    // Non-date repeats trap immediately; non-consecutive revisits retain the sweep's existing loop semantics.
     //
     // dialogMode covers a modal dialog[open] (add or edit form). A modal is expected to cycle: the sweep starts on the
     // first Tab stop inside the dialog and must return to that same element. The loop and footer checks do not apply:
     // a dialog has no footer, and returning to the first stop is the intended end of the cycle, not a trap.
-    const SEGMENT_CAP = 4;
+    const DATE_SEGMENT_ADDITIONAL_PRESS_CAP = 3;
     type Baseline = { id: string; name: string; region: string; inDialog: boolean; unfocused: string };
     type SweepStop = Baseline & { focused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[]; pageSurface: string };
     const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true, dialogMode = false) => {
@@ -3431,8 +3432,7 @@ test.describe('Tendo production journey', () => {
       // 3. Tab loop: measure only; never blur or refocus.
       const stops: SweepStop[] = [];
       const visited = new Set<string>();
-      let lastId = '';
-      let sameElementPresses = 0;
+      const repeatGuard = createTabRepeatGuard(DATE_SEGMENT_ADDITIONAL_PRESS_CAP);
       let loop = '';
       let trap = '';
       let cycled = false;
@@ -3470,7 +3470,7 @@ test.describe('Tendo production journey', () => {
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
           const pageSurface = toRgba(getComputedStyle(document.documentElement).backgroundColor !== 'rgba(0, 0, 0, 0)' ? getComputedStyle(document.documentElement).backgroundColor : getComputedStyle(document.body).backgroundColor);
-          return { id: element.dataset.sweepId, focused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds, pageSurface };
+          return { id: element.dataset.sweepId, isNativeDate: element.matches('input[type="date"]'), focused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds, pageSurface };
         }, index);
         if (!measured) {
           // Focus is on the document body. In a modal dialog this is the browser's end-of-cycle step (Chromium and
@@ -3492,14 +3492,9 @@ test.describe('Tendo production journey', () => {
           if (wrapsThroughDialog) { boundarySeen = true; continue; }
         }
         boundarySeen = false;
-        if (measured.id === lastId) {
-          // Same element again: native date segments. Only a longer run than the cap is a trap.
-          sameElementPresses += 1;
-          if (sameElementPresses > SEGMENT_CAP) { trap = `${measured.id} held focus for more than ${SEGMENT_CAP} consecutive presses`; break; }
-          continue;
-        }
-        sameElementPresses = 0;
-        lastId = measured.id;
+        const repeat = repeatGuard.observe(measured.id, measured.isNativeDate);
+        if (repeat === 'trap') { trap = `${measured.id} retained focus on a non-date element or exceeded the native date segment allowance`; break; }
+        if (repeat === 'segment') continue;
         if (dialogMode && stops.length > 0 && measured.id === stops[0]!.id) { cycled = true; break; }
         if (visited.has(measured.id)) { loop = measured.id; break; }
         visited.add(measured.id);

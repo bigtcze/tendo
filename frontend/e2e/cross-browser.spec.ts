@@ -1,13 +1,27 @@
 import { expect, test, type Page } from '@playwright/test';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
+import { focusIndicatorSignature, hasPaintedFocusIndicator } from './focusIndicator';
 
 const password = process.env.E2E_OWNER_PASSWORD;
 if (!password) throw new Error('E2E_OWNER_PASSWORD is required for cross-browser smoke');
 
-async function ready(page: Page, heading: string) {
+async function ready(page: Page, heading: string, path: string) {
   await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-  await expect(page.getByRole('main')).toBeVisible();
+  const main = page.getByRole('main');
+  await expect(main).toBeVisible();
+  const loadingText = path === '/' ? en['app.loading']
+    : path === '/items' || path.startsWith('/items/') ? en['items.loading']
+      : path === '/people' ? en['subjects.loading']
+        : path === '/members' ? en['members.loading']
+          : path === '/account' ? en['account.oidc.loading'] : undefined;
+  if (loadingText) await expect(main.getByRole('status').filter({ hasText: loadingText })).toBeHidden();
+  await expect(main.locator('[aria-busy="true"]')).toHaveCount(0);
+  if (path === '/people') {
+    await expect(main.getByText(en['subjects.empty.body'], { exact: true }).or(main.getByRole('list'))).toBeVisible();
+  } else if (path === '/members') {
+    await expect(main.getByRole('heading', { name: en['members.invitations.title'], exact: true })).toBeVisible();
+  }
 }
 
 test('owner journeys stay accessible in Firefox and WebKit', async ({ page, browserName }) => {
@@ -23,21 +37,29 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
   const assertViewport = async (path: string, heading: string, width: number, theme: 'light' | 'dark') => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(path);
-    await ready(page, heading);
+    await ready(page, heading, path);
     if (theme === 'dark') await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     else await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${browserName} ${path} ${theme} ${width}px overflow`).toBeLessThanOrEqual(0);
     await expectNoAxeViolations(page, `${browserName}-${path.replaceAll('/', '-')}-${theme}-${width}`);
     await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
-    await page.keyboard.press('Tab');
-    const focus = await page.evaluate(() => {
-      const element = document.activeElement as HTMLElement;
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return { name: element.getAttribute('aria-label') || element.textContent?.trim(), visible: rect.width > 0 && rect.height > 0, indicator: `${style.outlineStyle}/${style.outlineWidth}/${style.outlineColor}/${style.boxShadow}` };
+    // Identify the first Tab target in DOM order and measure it unfocused, before any Tab press.
+    const marked = await page.evaluate(() => {
+      document.querySelectorAll<HTMLElement>('[data-cross-browser-first-tab]').forEach((element) => { delete element.dataset.crossBrowserFirstTab; });
+      const element = Array.from(document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+        .find((candidate) => !candidate.matches(':disabled') && candidate.getClientRects().length > 0 && getComputedStyle(candidate).visibility !== 'hidden');
+      if (!element) return false;
+      element.dataset.crossBrowserFirstTab = 'true';
+      return true;
     });
-    expect(focus.visible, `${browserName} ${path} first tab target visible`).toBe(true);
-    expect(focus.indicator, `${browserName} ${path} first tab changes visible focus`).not.toBe('none/0px/rgb(0, 0, 0)/none');
+    expect(marked, `${browserName} ${path} has a first Tab target`).toBe(true);
+    const target = page.locator('[data-cross-browser-first-tab="true"]');
+    const unfocused = await target.evaluate(focusIndicatorSignature);
+    await page.keyboard.press('Tab');
+    await expect(target, `${browserName} ${path} first Tab focuses the identified target`).toBeFocused();
+    expect(await target.evaluate((element) => { const rect = element.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; }), `${browserName} ${path} first tab target visible`).toBe(true);
+    expect(await target.evaluate(hasPaintedFocusIndicator), `${browserName} ${path} first tab has a painted focus indicator`).toBe(true);
+    expect(await target.evaluate(focusIndicatorSignature), `${browserName} ${path} focused indicator differs from unfocused`).not.toBe(unfocused);
     if (path === '/') {
       const primary = page.getByRole('main').getByRole('button', { name: en['items.add'], exact: true });
       for (let stop = 0; stop < 20 && !(await primary.evaluate((element) => element === document.activeElement)); stop += 1) await page.keyboard.press('Tab');
@@ -56,7 +78,7 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
     for (const route of routeChecks) await assertViewport(route.path, route.heading, width, 'light');
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/items');
-    await ready(page, en['allItems.title']);
+    await ready(page, en['allItems.title'], '/items');
     const search = page.getByRole('searchbox', { name: en['allItems.search'], exact: true });
     await search.fill('Water');
     await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
@@ -85,7 +107,7 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
     // Search immediately after the API confirms the create, without visiting detail or completing first. This
     // reproduces the reported search-after-add path with a fresh All items page and both submit mechanisms.
     await page.goto('/items');
-    await ready(page, en['allItems.title']);
+    await ready(page, en['allItems.title'], '/items');
     const newItemSearch = page.getByRole('searchbox', { name: en['allItems.search'], exact: true });
     await newItemSearch.fill(itemTitle);
     await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
@@ -93,7 +115,7 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
     const searchedItem = results.getByRole('link', { name: itemTitle, exact: true });
     await expect(searchedItem, `${browserName} click submit finds the newly created item`).toBeVisible();
     await page.goto('/items');
-    await ready(page, en['allItems.title']);
+    await ready(page, en['allItems.title'], '/items');
     const enterSearch = page.getByRole('searchbox', { name: en['allItems.search'], exact: true });
     await enterSearch.fill(itemTitle);
     await enterSearch.press('Enter');
@@ -113,7 +135,7 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
   }
   // Change appearance using the actual Account control, then verify all required routes at both widths.
   await page.goto('/account');
-  await ready(page, en['account.title']);
+  await ready(page, en['account.title'], '/account');
   await page.getByRole('main').getByRole('group', { name: en['account.appearance.title'], exact: true }).getByRole('button', { name: en['account.appearance.dark'], exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   for (const width of [390, 1280]) for (const route of routeChecks) await assertViewport(route.path, route.heading, width, 'dark');
