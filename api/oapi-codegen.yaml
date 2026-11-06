@@ -1,5 +1,5 @@
-package: httpapi
-output: ../backend/internal/identity/httpapi/setup.gen.go
+package: apimodel
+output: ../backend/internal/platform/httpx/apimodel/apimodel.gen.go
 generate:
   models: true
   std-http-server: false

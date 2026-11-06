@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -49,7 +50,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", `"`+strconv.FormatInt(found.Version, 10)+`"`)
-	writeJSON(w, http.StatusOK, Household{Id: found.ID, Name: found.Name, Timezone: found.Timezone, CreatedAt: found.CreatedAt.UTC()})
+	writeJSON(w, http.StatusOK, apimodel.Household{Id: found.ID, Name: found.Name, Timezone: found.Timezone, CreatedAt: found.CreatedAt.UTC()})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

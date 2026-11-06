@@ -1,7 +1,7 @@
 version: "2"
 
 # Structural review triggers from .autonomous/CODE_QUALITY.md plus the standard golangci-lint set.
-# Generated code (sqlc dbgen, oapi-codegen *.gen.go) carries "Code generated ... DO NOT EDIT" and is skipped.
+# Generated code (sqlc dbgen, oapi-codegen generated Go) carries "Code generated ... DO NOT EDIT" and is skipped.
 # There are deliberately no per-function exceptions: refactor instead, or add a reviewed exclusions.rules
 # entry with rationale and owner (docs/development/testing.md#maintainability-checks).
 linters:

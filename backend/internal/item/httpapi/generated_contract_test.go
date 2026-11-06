@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
@@ -32,7 +33,7 @@ func TestGeneratedResponseModelsSerializeNullExplicitly(t *testing.T) {
 	// sets the outer pointer, which TestItemResponseNullRoundTrip and
 	// TestToJSONAlwaysEmitsLastCompletedOn cover.
 	itemNulls := []string{"responsibleUserId", "notes", "attentionOn", "recurrence"}
-	empty := marshalMap(t, Item{})
+	empty := marshalMap(t, apimodel.Item{})
 	for _, key := range itemNulls {
 		if v, ok := empty[key]; !ok || v != nil {
 			t.Fatalf("Item.%s: present=%v value=%v, want explicit null", key, ok, v)
@@ -40,7 +41,7 @@ func TestGeneratedResponseModelsSerializeNullExplicitly(t *testing.T) {
 	}
 	user, notes, attention, last := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62", "n", "2026-03-02", "2026-03-01"
 	lastPtr := &last
-	set := marshalMap(t, Item{ResponsibleUserId: &user, Notes: &notes, AttentionOn: &attention, Recurrence: &ItemRecurrence{IntervalValue: 2, IntervalUnit: Week, Mode: Fixed}, LastCompletedOn: &lastPtr})
+	set := marshalMap(t, apimodel.Item{ResponsibleUserId: &user, Notes: &notes, AttentionOn: &attention, Recurrence: &apimodel.ItemRecurrence{IntervalValue: 2, IntervalUnit: apimodel.Week, Mode: apimodel.Fixed}, LastCompletedOn: &lastPtr})
 	want := map[string]any{"responsibleUserId": user, "notes": notes, "attentionOn": attention, "recurrence": map[string]any{"intervalValue": float64(2), "intervalUnit": "week", "mode": "fixed"}, "lastCompletedOn": last}
 	for key, value := range want {
 		if !reflect.DeepEqual(set[key], value) {
@@ -49,19 +50,19 @@ func TestGeneratedResponseModelsSerializeNullExplicitly(t *testing.T) {
 	}
 
 	completionNulls := []string{"cycleAttentionOn", "recurrence", "nextAttentionOn", "undoneAt", "undoneByUserId"}
-	empty = marshalMap(t, Completion{})
+	empty = marshalMap(t, apimodel.Completion{})
 	for _, key := range completionNulls {
 		if v, ok := empty[key]; !ok || v != nil {
 			t.Fatalf("Completion.%s: present=%v value=%v, want explicit null", key, ok, v)
 		}
 	}
 	undone := time.Date(2026, 3, 1, 23, 30, 0, 0, time.UTC)
-	set = marshalMap(t, Completion{UndoneAt: &undone, UndoneByUserId: &user, CycleAttentionOn: &attention, NextAttentionOn: &attention})
+	set = marshalMap(t, apimodel.Completion{UndoneAt: &undone, UndoneByUserId: &user, CycleAttentionOn: &attention, NextAttentionOn: &attention})
 	if set["undoneAt"] != "2026-03-01T23:30:00Z" || set["undoneByUserId"] != user || set["cycleAttentionOn"] != attention || set["nextAttentionOn"] != attention {
 		t.Fatalf("completion=%v", set)
 	}
 
-	for name, v := range map[string]any{"ItemList": ItemList{Items: []Item{}}, "CompletionList": CompletionList{Items: []Completion{}}} {
+	for name, v := range map[string]any{"ItemList": apimodel.ItemList{Items: []apimodel.Item{}}, "CompletionList": apimodel.CompletionList{Items: []apimodel.Completion{}}} {
 		if got := marshalMap(t, v); got["nextCursor"] != nil || len(got) != 2 {
 			t.Fatalf("%s=%v, want explicit null nextCursor", name, got)
 		}
@@ -82,7 +83,7 @@ func TestItemResponseNullRoundTrip(t *testing.T) {
 			t.Fatalf("%s: present=%v value=%v body=%s", key, ok, v, w.Body)
 		}
 	}
-	var got Item
+	var got apimodel.Item
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -32,11 +33,11 @@ func TestListMembersHTTPPaginationAndErrors(t *testing.T) {
 	NewMembers(svc, auth, func(context.Context) (string, bool) { return "u1", true }).Register(r)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/households/h/members?limit=2", nil))
-	var body MemberList
+	var body apimodel.MemberList
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	expected := MemberList{Items: []Member{{UserId: "u1", Login: "owner", Role: MemberRoleOwner}, {UserId: "u2", Login: "member", Role: MemberRoleMember}}, NextCursor: &next}
+	expected := apimodel.MemberList{Items: []apimodel.Member{{UserId: "u1", Login: "owner", Role: apimodel.MemberRoleOwner}, {UserId: "u2", Login: "member", Role: apimodel.MemberRoleMember}}, NextCursor: &next}
 	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || !equalJSON(body, expected) {
 		t.Fatalf("status=%d body=%+v", w.Code, body)
 	}

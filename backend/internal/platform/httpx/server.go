@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -149,14 +150,14 @@ func writeStatus(w http.ResponseWriter, code int, value string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(StatusResponse{Status: value})
+	_ = json.NewEncoder(w).Encode(apimodel.StatusResponse{Status: value})
 }
 
 func writeProblem(w http.ResponseWriter, code int, title string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(Problem{Type: "about:blank", Title: title, Status: code})
+	_ = json.NewEncoder(w).Encode(apimodel.Problem{Type: "about:blank", Title: title, Status: code})
 }
 
 func requestMiddleware(next http.Handler, logger *slog.Logger) http.Handler {

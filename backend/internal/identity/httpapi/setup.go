@@ -10,6 +10,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
@@ -44,7 +45,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		etag = `"setup-v1-required"`
 	}
 	w.Header().Set("ETag", etag)
-	writeJSON(w, 200, SetupStatus{Required: required})
+	writeJSON(w, 200, apimodel.SetupStatus{Required: required})
 }
 func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 	if h.token == "" {
@@ -69,7 +70,7 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	payload := SetupRequest{Login: values.login, Password: values.password, HouseholdName: values.householdName, Timezone: values.timezone}
+	payload := apimodel.SetupRequest{Login: values.login, Password: values.password, HouseholdName: values.householdName, Timezone: values.timezone}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -107,7 +108,7 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/api/v1/auth/setup")
-	writeJSON(w, 201, SetupStatus{Required: false})
+	writeJSON(w, 201, apimodel.SetupStatus{Required: false})
 }
 
 type identityStrings struct {

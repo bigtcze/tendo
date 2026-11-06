@@ -6,6 +6,7 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/item"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/schedule"
 )
 
@@ -32,28 +33,28 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 }
 
-func recurrenceJSON(policy *schedule.Policy) *ItemRecurrence {
+func recurrenceJSON(policy *schedule.Policy) *apimodel.ItemRecurrence {
 	if policy == nil {
 		return nil
 	}
-	return &ItemRecurrence{
+	return &apimodel.ItemRecurrence{
 		IntervalValue: policy.Interval.Value,
-		IntervalUnit:  RecurrenceIntervalUnit(policy.Interval.Unit),
-		Mode:          RecurrenceMode(policy.Mode),
+		IntervalUnit:  apimodel.RecurrenceIntervalUnit(policy.Interval.Unit),
+		Mode:          apimodel.RecurrenceMode(policy.Mode),
 	}
 }
 
-func toJSON(i item.Item) Item {
+func toJSON(i item.Item) apimodel.Item {
 	done := i.Done
-	out := Item{
+	out := apimodel.Item{
 		Id:                i.ID,
 		SubjectId:         i.SubjectID,
 		ResponsibleUserId: i.ResponsibleUserID,
 		Title:             i.Title,
 		Notes:             i.Notes,
 		Recurrence:        recurrenceJSON(i.Recurrence),
-		WorkflowState:     WorkflowState(i.WorkflowState),
-		Attention:         ItemAttention(i.Attention),
+		WorkflowState:     apimodel.WorkflowState(i.WorkflowState),
+		Attention:         apimodel.ItemAttention(i.Attention),
 		Archived:          i.Archived,
 		Done:              &done,
 		CreatedAt:         i.CreatedAt.UTC(),
@@ -73,16 +74,16 @@ func toJSON(i item.Item) Item {
 	return out
 }
 
-func listJSON(page item.Page) ItemList {
-	items := make([]Item, 0, len(page.Items))
+func listJSON(page item.Page) apimodel.ItemList {
+	items := make([]apimodel.Item, 0, len(page.Items))
 	for _, found := range page.Items {
 		items = append(items, toJSON(found))
 	}
-	return ItemList{Items: items, NextCursor: page.NextCursor}
+	return apimodel.ItemList{Items: items, NextCursor: page.NextCursor}
 }
 
-func summaryJSON(s item.Summary) ItemSummary {
-	return ItemSummary{
+func summaryJSON(s item.Summary) apimodel.ItemSummary {
+	return apimodel.ItemSummary{
 		EvaluatedOn:    s.EvaluatedOn.String(),
 		Total:          s.Total,
 		NeedsAttention: s.NeedsAttention,

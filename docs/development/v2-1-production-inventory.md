@@ -355,18 +355,6 @@ Not production source (counts):
 
 - `api/generated/api.d.ts`
 
-### api/generated/health.d.ts: openapi-typescript health declaration; generation tests detect drift.
-
-1 file(s).
-
-- `api/generated/health.d.ts`
-
-### backend/internal/household/httpapi/household.gen.go: oapi-codegen household types; API generation checks detect drift.
-
-1 file(s).
-
-- `backend/internal/household/httpapi/household.gen.go`
-
 ### backend/internal/household/postgres/dbgen/: sqlc generated household code; scripts/check-sqlc.sh checks drift.
 
 6 file(s).
@@ -377,12 +365,6 @@ Not production source (counts):
 - `backend/internal/household/postgres/dbgen/models.go`
 - `backend/internal/household/postgres/dbgen/querier.go`
 - `backend/internal/household/postgres/dbgen/setup.sql.go`
-
-### backend/internal/identity/httpapi/setup.gen.go: oapi-codegen setup types; API generation checks detect drift.
-
-1 file(s).
-
-- `backend/internal/identity/httpapi/setup.gen.go`
 
 ### backend/internal/identity/postgres/dbgen/: sqlc generated identity code; scripts/check-sqlc.sh checks drift.
 
@@ -395,12 +377,6 @@ Not production source (counts):
 - `backend/internal/identity/postgres/dbgen/querier.go`
 - `backend/internal/identity/postgres/dbgen/session.sql.go`
 - `backend/internal/identity/postgres/dbgen/setup.sql.go`
-
-### backend/internal/item/httpapi/item.gen.go: oapi-codegen item types; API generation checks detect drift.
-
-1 file(s).
-
-- `backend/internal/item/httpapi/item.gen.go`
 
 ### backend/internal/item/postgres/dbgen/: sqlc generated item code; scripts/check-sqlc.sh checks drift.
 
@@ -433,17 +409,11 @@ Not production source (counts):
 - `backend/internal/platform/database/015_item_attention_sort.sql`
 - `backend/internal/platform/database/016_item_text_search.sql`
 
-### backend/internal/platform/httpx/health.gen.go: oapi-codegen health types; API generation checks detect drift.
+### backend/internal/platform/httpx/apimodel/apimodel.gen.go: oapi-codegen API models; generation checks detect drift.
 
 1 file(s).
 
-- `backend/internal/platform/httpx/health.gen.go`
-
-### backend/internal/subject/httpapi/subject.gen.go: oapi-codegen subject types; API generation checks detect drift.
-
-1 file(s).
-
-- `backend/internal/subject/httpapi/subject.gen.go`
+- `backend/internal/platform/httpx/apimodel/apimodel.gen.go`
 
 ### backend/internal/subject/postgres/dbgen/: sqlc generated subject code; scripts/check-sqlc.sh checks drift.
 

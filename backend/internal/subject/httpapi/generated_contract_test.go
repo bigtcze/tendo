@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"testing"
 )
 
@@ -12,17 +13,17 @@ import (
 func TestValidationProblemCodesMatchGeneratedEnum(t *testing.T) {
 	for _, tc := range []struct {
 		body string
-		want SubjectValidationProblemCode
+		want apimodel.SubjectValidationProblemCode
 	}{
-		{`{"name":"   ","type":"home"}`, SubjectValidationProblemCodeInvalidLength},
-		{`{"name":"a\u0000b","type":"home"}`, SubjectValidationProblemCodeInvalidCharacters},
-		{`{"name":"ok","type":"robot"}`, SubjectValidationProblemCodeInvalidType},
+		{`{"name":"   ","type":"home"}`, apimodel.SubjectValidationProblemCodeInvalidLength},
+		{`{"name":"a\u0000b","type":"home"}`, apimodel.SubjectValidationProblemCodeInvalidCharacters},
+		{`{"name":"ok","type":"robot"}`, apimodel.SubjectValidationProblemCodeInvalidType},
 	} {
 		if !tc.want.Valid() {
 			t.Fatalf("%q is not a valid generated enum member", tc.want)
 		}
 		w := newFixture(true).do("POST", base, tc.body, map[string]string{"Idempotency-Key": "contract-test"})
-		var problem SubjectValidationProblem
+		var problem apimodel.SubjectValidationProblem
 		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 			t.Fatal(err)
 		}
@@ -30,16 +31,16 @@ func TestValidationProblemCodesMatchGeneratedEnum(t *testing.T) {
 			t.Fatalf("%s: status=%d body=%s", tc.body, w.Code, w.Body)
 		}
 	}
-	for value, want := range map[SubjectValidationProblemCode]string{
-		SubjectValidationProblemCodeInvalidLength:     "invalid_length",
-		SubjectValidationProblemCodeInvalidCharacters: "invalid_characters",
-		SubjectValidationProblemCodeInvalidType:       "invalid_type",
+	for value, want := range map[apimodel.SubjectValidationProblemCode]string{
+		apimodel.SubjectValidationProblemCodeInvalidLength:     "invalid_length",
+		apimodel.SubjectValidationProblemCodeInvalidCharacters: "invalid_characters",
+		apimodel.SubjectValidationProblemCodeInvalidType:       "invalid_type",
 	} {
 		if string(value) != want {
 			t.Fatalf("wire value %q, want %q", value, want)
 		}
 	}
-	if SubjectValidationProblemCode("invalid_value").Valid() {
+	if apimodel.SubjectValidationProblemCode("invalid_value").Valid() {
 		t.Fatal("unknown code accepted by generated enum")
 	}
 }
@@ -50,11 +51,11 @@ func TestValidationProblemCodesMatchGeneratedEnum(t *testing.T) {
 func TestSubjectListNextCursorNullability(t *testing.T) {
 	cursor := "next"
 	for _, tc := range []struct {
-		in   SubjectList
+		in   apimodel.SubjectList
 		want string
 	}{
-		{SubjectList{Items: []Subject{}}, `{"items":[],"nextCursor":null}`},
-		{SubjectList{Items: []Subject{}, NextCursor: &cursor}, `{"items":[],"nextCursor":"next"}`},
+		{apimodel.SubjectList{Items: []apimodel.Subject{}}, `{"items":[],"nextCursor":null}`},
+		{apimodel.SubjectList{Items: []apimodel.Subject{}, NextCursor: &cursor}, `{"items":[],"nextCursor":"next"}`},
 	} {
 		got, err := json.Marshal(tc.in)
 		if err != nil || string(got) != tc.want {

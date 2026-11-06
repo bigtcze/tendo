@@ -124,7 +124,7 @@ The response fields are `evaluatedOn`, `total`, `needsAttention`, `inProgress`, 
 
 ## Regenerating and checking
 
-- `make -C api generate` regenerates the TypeScript types (`api/generated/`) and the Go transport types (`*.gen.go`) using native Go and locked Node dependencies; it does not require Docker.
+- `make -C api generate` regenerates the TypeScript types (`api/generated/`) and the Go API models (`backend/internal/platform/httpx/apimodel/apimodel.gen.go`) using native Go and locked Node dependencies; it does not require Docker.
 - `npm run check` in `api/` lints the contract, runs all three contract/health/OIDC checker test files, and fails if generated files differ from a fresh generation. Run `npm audit --audit-level=moderate` as part of verification.
 - Migration 015 adds the attention-order index in a transaction. Creating it may briefly block writes to `items` while PostgreSQL builds the index. Migration 016 installs `unaccent` and `pg_trgm` in `public`, adds a derived search column populated by an update trigger, and builds a GIN trigram index; extension installation requires a migrator with trusted-extension install privileges. The backfill temporarily writes every item row and holds the migration lock.
 - `bash scripts/setup-smoke.sh` records real responses and validates them against the contract.

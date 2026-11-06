@@ -19,6 +19,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/identity/oidcprovider"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
+	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/bigtcze/tendo/backend/internal/testoidc"
 	"github.com/go-chi/chi/v5"
@@ -765,23 +766,23 @@ func TestOIDCCallbackRequestLogOmitsSecrets(t *testing.T) {
 // the generated model. oapi-codegen v2.8.0 types the `const: 422` status as the
 // OIDCValidationProblemStatus enum; the wire value must remain the integer 422.
 func TestOIDCValidationProblemMatchesGeneratedModel(t *testing.T) {
-	for body, field := range map[string]OIDCValidationProblemField{
-		`{"purpose":"invalid"}`: Purpose,
-		`{"purpose":"link"}`:    CurrentPassword,
+	for body, field := range map[string]apimodel.OIDCValidationProblemField{
+		`{"purpose":"invalid"}`: apimodel.Purpose,
+		`{"purpose":"link"}`:    apimodel.CurrentPassword,
 	} {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oidc/start", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		oidcRouter(&oidcHTTPFake{}, "http://localhost", &fakeSessionService{}).ServeHTTP(w, r)
-		var got OIDCValidationProblem
+		var got apimodel.OIDCValidationProblem
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
-		if w.Code != 422 || got.Status != N422 || !got.Status.Valid() || got.Code != InvalidValue || !got.Code.Valid() || got.Field != field || !strings.Contains(w.Body.String(), `"status":422`) {
+		if w.Code != 422 || got.Status != apimodel.N422 || !got.Status.Valid() || got.Code != apimodel.InvalidValue || !got.Code.Valid() || got.Field != field || !strings.Contains(w.Body.String(), `"status":422`) {
 			t.Fatalf("%s: status=%d body=%s", body, w.Code, w.Body)
 		}
 	}
-	if OIDCValidationProblemStatus(400).Valid() {
+	if apimodel.OIDCValidationProblemStatus(400).Valid() {
 		t.Fatal("generated status enum accepted a non-422 value")
 	}
 }
