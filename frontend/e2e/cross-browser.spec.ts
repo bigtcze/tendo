@@ -82,6 +82,23 @@ test('owner journeys stay accessible in Firefox and WebKit', async ({ page, brow
     const createdItem = ((await activeItems.json()) as { items: Array<{ id: string; title: string; done: boolean }> }).items.find((item) => item.title === itemTitle && !item.done);
     expect(createdItem, `${browserName} created item persists after add`).toBeDefined();
     const itemId = createdItem!.id;
+    // Search immediately after the API confirms the create, without visiting detail or completing first. This
+    // reproduces the reported search-after-add path with a fresh All items page and both submit mechanisms.
+    await page.goto('/items');
+    await ready(page, en['allItems.title']);
+    const newItemSearch = page.getByRole('searchbox', { name: en['allItems.search'], exact: true });
+    await newItemSearch.fill(itemTitle);
+    await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+    const results = page.getByRole('region', { name: en['allItems.results'] });
+    const searchedItem = results.getByRole('link', { name: itemTitle, exact: true });
+    await expect(searchedItem, `${browserName} click submit finds the newly created item`).toBeVisible();
+    await page.goto('/items');
+    await ready(page, en['allItems.title']);
+    const enterSearch = page.getByRole('searchbox', { name: en['allItems.search'], exact: true });
+    await enterSearch.fill(itemTitle);
+    await enterSearch.press('Enter');
+    await expect(page.getByRole('region', { name: en['allItems.results'] }).getByRole('link', { name: itemTitle, exact: true }),
+      `${browserName} Enter submit finds the newly created item`).toBeVisible();
     await page.goto(`/items/${itemId}`);
     await expect(page.getByRole('heading', { level: 1, name: itemTitle })).toBeVisible();
     await page.getByRole('button', { name: en['items.done.label'].replace('{title}', itemTitle), exact: true }).click();
