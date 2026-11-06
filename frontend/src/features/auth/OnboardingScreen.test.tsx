@@ -47,6 +47,15 @@ afterEach(() => {
 });
 
 describe('onboarding', () => {
+  it('shows the timezone hint in Czech when the selected locale is cs-CZ', async () => {
+    localStorage.setItem('tendo.locale', 'cs');
+    stubTimezone('Europe/Prague');
+    installFakeServer(setupRequired);
+    renderApp();
+    expect(await screen.findByText((_, element) => element?.tagName.toLowerCase() === 'p' && element.textContent?.startsWith('Použije se pro data v domácnosti: Prague · ') === true)).toBeVisible();
+    expect(screen.queryByText(/Used for dates in your household:/)).not.toBeInTheDocument();
+  });
+
   it('shows the welcome form with a readable detected time zone and no login form or switcher', async () => {
     installFakeServer(setupRequired);
     renderApp();
@@ -57,6 +66,7 @@ describe('onboarding', () => {
     expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'new-password');
     expect(screen.getByLabelText('Time zone')).toHaveValue('America/New_York');
     expect(screen.getByText(/Used for dates in your household: New York · /)).toBeVisible();
+    expect(screen.getByText('Used for dates in your household: New York · Eastern Time')).toBeVisible();
     expect(screen.getByRole('option', { name: /New York · / })).toHaveValue('America/New_York');
     expect(screen.getByRole('button', { name: 'Create household' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();

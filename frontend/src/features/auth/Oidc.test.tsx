@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
+import { en } from '../../i18n/en';
+import { cs } from '../../i18n/cs';
 import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session } from '../../test/fakeServer';
 import { browserNavigation } from './oidcApi';
 import { LoginScreen } from './LoginScreen';
@@ -50,7 +52,8 @@ describe('sign in with the configured provider', () => {
       ...emptyHome,
     });
     renderApp();
-    const noticeText = await screen.findByText(/Other sign-in options couldn’t be loaded\./);
+    const noticeText = await screen.findByText(en['login.oidc.loadError'], { exact: true });
+    expect(noticeText).toHaveTextContent('Password sign-in is still available.');
     const notice = noticeText.closest('[role="status"]');
     expect(notice).not.toBeNull();
     expect(notice).not.toHaveAttribute('role', 'alert');
@@ -126,7 +129,7 @@ describe('sign in with the configured provider', () => {
     expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
     expect(retry).toHaveFocus();
     await act(async () => { release(problem(503)); });
-    expect(await screen.findByText(/Other sign-in options couldn’t be loaded\./)).toBeInTheDocument();
+    expect(await screen.findByText(en['login.oidc.loadError'], { exact: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
   });
 
@@ -167,14 +170,14 @@ describe('sign in with the configured provider', () => {
     await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
     await act(async () => { release(json(200, { enabled: true, displayName: 'Stale Provider' })); });
     await waitFor(() => expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument());
-    expect(screen.queryByText(/Other sign-in options couldn’t be loaded\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(en['login.oidc.loadError'], { exact: true })).not.toBeInTheDocument();
   });
 
   it('renders the status recovery notice in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': problem(503) });
     renderApp();
-    expect(await screen.findByText(/Další možnosti přihlášení se nepodařilo načíst\./)).toBeInTheDocument();
+    expect(await screen.findByText(cs['login.oidc.loadError'], { exact: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Zkusit znovu' })).toBeInTheDocument();
   });
 
@@ -229,6 +232,7 @@ describe('sign in with the configured provider', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Pocket ID' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Pocket ID can’t be reached right now. You can still use your password.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('You can still use your password.');
     expect(screen.getByRole('button', { name: 'Sign in with Pocket ID' })).toHaveFocus();
     expect(assign).not.toHaveBeenCalled();
   });
@@ -244,7 +248,7 @@ describe('sign in with the configured provider', () => {
 describe('callback results', () => {
   it.each([
     ['identity_not_linked', 'This sign-in isn’t connected to a Tendo account yet. Sign in with your password, then connect it from Account.'],
-    ['cancelled', 'Sign-in was cancelled. You can try again or use your password.'],
+    ['cancelled', en['oidc.error.cancelled']],
     ['session_changed', 'You signed in or out in another tab while this was in progress. Please start again.'],
     ['<script>', 'Something went wrong with that sign-in. Please try again.'],
   ])('/login#oidcError=%s shows a calm notice and scrubs the fragment', async (code, message) => {

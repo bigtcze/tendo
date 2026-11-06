@@ -10,10 +10,6 @@ export function AccountPreferences() {
       <div className="mt-3 inline-flex rounded-xl border border-line bg-raised p-1">
         <LanguageSwitch />
       </div>
-      <section aria-labelledby="account-theme-heading" className="mt-8 border-t border-line pt-6">
-        <h2 id="account-theme-heading" className="font-display text-h2">{t('account.theme.title')}</h2>
-        <p className="mt-2 text-muted">{t('account.theme.comingSoon')}</p>
-      </section>
     </section>
   );
 }

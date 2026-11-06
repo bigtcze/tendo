@@ -40,7 +40,7 @@ export function SignedInApp(props: Props) {
     account: navigation.openAccount,
   };
   if (route.kind === 'invite') return renderInvite(props);
-  if (route.kind === 'notFound') return <Layout><NotFoundScreen /></Layout>;
+  if (route.kind === 'notFound') return <ScreenTransitionContext value={props.transitioned}><Layout><NotFoundScreen /></Layout></ScreenTransitionContext>;
   return renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions);
 }
 

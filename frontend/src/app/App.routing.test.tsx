@@ -32,7 +32,8 @@ const signedInRoutes = (extra: Record<string, unknown> = {}) => ({
   [`GET ${base}/subjects/s-1`]: json(200, { id: 's-1', name: 'Test', type: 'person', linkedUserId: null, archived: false }, { ETag: '"subject"' }),
   [`GET ${base}/items/${validId}/completions`]: json(200, { items: [], nextCursor: null }),
   [`GET ${base}/members`]: json(200, { items: [], nextCursor: null }),
-  'GET /api/v1/auth/oidc': json(200, { enabled: false }), ...extra,
+  'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+  'GET /api/v1/auth/setup': json(200, { required: false }), ...extra,
 });
 
 describe('App route characterization', () => {
@@ -112,7 +113,7 @@ describe('App route characterization', () => {
     }));
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Your changes are safe.');
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
     assertPendingStoresCleared();
   });
 
@@ -134,6 +135,20 @@ describe('App route characterization', () => {
     expect(screen.getByRole('link', { name: 'Go to your household' })).toHaveAttribute('href', '/');
     expect(screen.queryByRole('navigation', { name: 'Household navigation' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/unknown');
+  });
+
+  it('moves focus to the not-found heading after a signed-in popstate route transition', async () => {
+    window.history.replaceState(null, '', '/');
+    installFakeServer(signedInRoutes());
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+
+    act(() => {
+      window.history.pushState(null, '', '/unknown');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toHaveFocus();
   });
 
   it('shows a not-found recovery screen for signed-out visitors with a working sign-in link', async () => {

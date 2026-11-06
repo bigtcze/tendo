@@ -58,7 +58,7 @@ function TimezoneField({ value, onChange, invalid, zones, locale }: {
         {zones.map((zone) => <option key={zone} value={zone}>{formatTimezoneLabel(zone, locale)}</option>)}
       </select>
       <p id="onboarding-timezone-hint" className="text-sm text-muted">
-        {t('onboarding.timezone.hint', { timezone: formatTimezoneLabel(value, locale === 'cs' ? 'cs-CZ' : 'en') })}
+        {t('onboarding.timezone.hint', { timezone: formatTimezoneLabel(value, locale) })}
       </p>
     </div>
   );

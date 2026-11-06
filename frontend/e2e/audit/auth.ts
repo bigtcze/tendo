@@ -57,7 +57,11 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   await validationPage.getByRole('button', { name: en['onboarding.submit'], exact: true }).click();
   await expect(validationPage.getByRole('alert')).toBeVisible();
   await expectNoAxeViolations(validationPage, 'auth-onboarding-validation');
-  await shot(validationPage, dir, 'auth-onboarding-validation-en-390.png', capture, 390);
+  await capture(validationPage, join(dir, 'auth-onboarding-validation-en-390.png'), true);
+  await validationPage.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect(validationPage.getByLabel(en['onboarding.timezone'], { exact: true })).toBeInViewport();
+  await expect(validationPage.getByRole('button', { name: en['onboarding.submit'], exact: true })).toBeInViewport();
+  await capture(validationPage, join(dir, 'auth-onboarding-validation-area-en-390.png'), false);
   await validationContext.close();
 
   const setupErrorContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
@@ -73,7 +77,12 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   await setupError.getByLabel(en['onboarding.password'], { exact: true }).fill('synthetic-password-never-captured');
   await setupError.getByRole('button', { name: en['onboarding.submit'], exact: true }).click();
   await expect(setupError.getByRole('alert')).toBeVisible();
-  await shot(setupError, dir, 'auth-onboarding-server-error-en-390.png', capture, 390);
+  await capture(setupError, join(dir, 'auth-onboarding-server-error-en-390.png'), true);
+  await setupError.evaluate(() => window.scrollTo(0, 0));
+  await expect(setupError.getByRole('alert')).toBeVisible();
+  await expect(setupError.getByLabel(en['onboarding.timezone'], { exact: true })).toBeVisible();
+  await expect(setupError.getByRole('button', { name: en['onboarding.submit'], exact: true })).toBeVisible();
+  await capture(setupError, join(dir, 'auth-onboarding-server-error-area-en-390.png'), true);
   await setupErrorContext.close();
 
   for (const width of widths) {

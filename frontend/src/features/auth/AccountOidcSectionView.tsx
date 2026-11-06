@@ -17,7 +17,7 @@ export function AccountOidcSectionView({
       {section.kind === 'loading' ? <p role="status" className="mt-6 text-muted">{t('account.oidc.loading')}</p> : null}
       {section.kind === 'error' ? <p role="status" className="mt-6 text-muted">{t('account.oidc.loadError')}</p> : null}
       {section.kind === 'error' || (showRetry && section.kind === 'loading') ? (
-        <Button ref={retryRef} type="button" variant="quiet" className="mt-2" aria-disabled={section.kind === 'loading'} onClick={retry}>
+        <Button ref={retryRef} type="button" variant="quiet" className="mt-2" onClick={retry}>
           {t('app.error.retry')}
         </Button>
       ) : null}

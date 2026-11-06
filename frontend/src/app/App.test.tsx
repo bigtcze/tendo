@@ -59,7 +59,7 @@ describe('signed out', () => {
     await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'wrong-password{Enter}');
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('That username or password isn’t right. Check them and try again. If you’ve forgotten your password, ask whoever looks after Tendo to help you recover access.');
+    expect(alert).toHaveTextContent('That username or password isn’t right. Check both and try again. Forgot your password? Ask the person who runs Tendo for your household.');
     expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveAttribute('aria-describedby', alert.id);
     expect(screen.getByLabelText('Password')).not.toHaveAttribute('aria-invalid', 'true');
@@ -329,7 +329,7 @@ describe('signed in', () => {
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
-    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Your changes are safe.' );
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
     expect(screen.queryByRole('heading', { name: 'Veselí' })).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Username'), 'anna');
