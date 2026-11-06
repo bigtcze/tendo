@@ -62,5 +62,5 @@ const LINK_RAIL = [
   FOCUS,
 ].join(' ');
 const NAV_INLINE = 'border-b border-line';
-const LIST_INLINE = 'mx-auto flex max-w-sm gap-1 px-4 py-2';
-const LINK_INLINE = `flex min-h-11 items-center justify-center rounded-xl px-3 text-center text-small transition-colors ${FOCUS}`;
+const LIST_INLINE = 'mx-0 flex w-full gap-1 px-5 py-2 sm:px-8';
+const LINK_INLINE = `flex min-h-11 items-center justify-start rounded-xl px-3 text-left text-small transition-colors ${FOCUS}`;

@@ -93,6 +93,10 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
     await signedOut.route('**/api/v1/auth/oidc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, displayName: 'OIDC Smoke Provider' }) }));
     await signedOut.goto('/login');
     await expect(signedOut.getByRole('heading', { level: 1, name: en['login.welcome'] })).toBeVisible();
+    if (width >= 768) {
+      await expect(signedOut.locator('main section')).toHaveCSS('max-width', '448px');
+      await expect(signedOut.getByRole('form', { name: en['login.heading'] }).locator('button[type="submit"]')).toHaveCSS('width', '382px');
+    }
     await expectNoAxeViolations(signedOut, `auth-login-${width}`);
     await shot(signedOut, dir, `auth-login-en-${width}.png`, capture, width);
     if (width === 390 || width === 1440) {
@@ -172,6 +176,8 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
     const page = accountPage;
     await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
     await expect(page.getByLabel(en['account.oidc.password'], { exact: true })).toBeVisible();
+    await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toHaveClass(/border-t/);
+    await expect(page.getByRole('main').locator('section[aria-labelledby="account-language-heading"]')).toHaveClass(/border-t/);
     await expectNoAxeViolations(page, `auth-account-unlinked-${width}`);
     await shot(page, dir, `auth-account-unlinked-en-${width}.png`, capture, width);
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));

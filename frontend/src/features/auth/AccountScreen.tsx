@@ -29,7 +29,7 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
         </div>
         <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] lg:gap-x-12">
           <div>
-            <section aria-labelledby="account-identity-heading">
+            <section aria-labelledby="account-identity-heading" className="border-t border-line pt-6">
               <h2 id="account-identity-heading" className="font-display text-h2">{t('account.identity.title')}</h2>
               <p
                 ref={signedInRef}

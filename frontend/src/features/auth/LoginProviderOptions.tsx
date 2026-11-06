@@ -58,7 +58,7 @@ export function LoginProviderOptions({
         variant="quiet"
         disabled={passwordPending || oidcPending}
         aria-describedby={oidcError ? 'login-error' : undefined}
-        className="mt-5 w-full border border-line sm:w-auto"
+        className="mt-5 w-full border border-line"
         onClick={signIn}
       >
         {oidcPending ? t('login.oidc.submitting', { provider }) : t('login.oidc.submit', { provider })}

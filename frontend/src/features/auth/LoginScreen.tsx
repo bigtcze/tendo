@@ -46,14 +46,14 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
   const { loginName, setLoginName, password, setPassword, pending, error, oidcPending, oidcError } = actions;
 
   return (
-    <section className="settle mx-auto w-full max-w-3xl">
-      <div className="max-w-2xl">
+    <section className="settle mx-auto w-full max-w-md lg:mt-10">
+      <div className="text-center">
         <Heading className="font-display text-display leading-tight">{t('login.welcome')}</Heading>
         <p className="mt-3 text-lg text-muted">{t('login.subtitle')}</p>
       </div>
-      <div className="mt-8 rounded-2xl border border-line bg-raised p-5 sm:p-8">
+      <div className="mt-8 w-full rounded-2xl border border-line bg-raised p-5 sm:p-8">
         <NoticeRegion message={notice} className={notice ? 'mb-6' : undefined} />
-        <form aria-label={t('login.heading')} onSubmit={(event) => void actions.submit(event)} className="grid gap-5 sm:grid-cols-2" noValidate>
+        <form aria-label={t('login.heading')} onSubmit={(event) => void actions.submit(event)} className="grid gap-5" noValidate>
           <div className="space-y-2">
             <Label htmlFor="login">{t('login.login')}</Label>
             <Input
@@ -83,10 +83,10 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
               aria-describedby={error ? 'login-error' : undefined}
             />
           </div>
-          <div id="login-error" role="alert" className="text-base text-danger sm:col-span-2">
+          <div id="login-error" role="alert" className="text-base text-danger">
             {error ? t(errorKeys[error]) : oidcError ? t(startErrorKeys[oidcError], { provider: provider ?? '' }) : null}
           </div>
-          <Button type="submit" disabled={pending || oidcPending} className="w-full sm:w-auto">
+          <Button type="submit" disabled={pending || oidcPending} className="w-full">
             {pending ? t('login.submitting') : t('login.submit')}
           </Button>
         </form>
