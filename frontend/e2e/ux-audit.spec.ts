@@ -831,7 +831,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
         await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.list.title'] }).getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
-        await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.invite.title'] }).getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
+        await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.help.title'] }).getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
         if (width === 390 || width === 1440) {
           await expect(memberPage.getByRole('main').getByText(en['members.help.body'], { exact: true })).toBeVisible();
           await expect(memberPage.getByRole('main').getByRole('button', { name: en['members.invite.action'], exact: true })).toHaveCount(0);

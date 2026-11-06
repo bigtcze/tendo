@@ -165,9 +165,6 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     if (route.request().method() === 'GET') await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], nextCursor: null }) });
     else await route.fallback();
   });
-  await emptyOwnerPage.route('**/api/v1/households/*/members**', async route => {
-    await route.fallback();
-  });
   await open(emptyOwnerPage, 390);
   await emptyOwnerPage.evaluate(() => window.scrollTo(0, 0));
   await expect(emptyOwnerPage.getByText(en['members.invitations.empty'], { exact: true })).toBeVisible();

@@ -301,6 +301,8 @@ describe('members and invitations', () => {
     expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeEnabled();

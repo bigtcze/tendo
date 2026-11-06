@@ -13,7 +13,7 @@ TENDO_UX_AUDIT_DIR=/tmp/opencode/v312-after bash scripts/dev-exec.sh -- bash scr
 
 ## Captures and critique
 
-Each image is a viewport capture; the audit asserts the actual viewport width and no horizontal document overflow. Owner desktop/tablet layouts use two columns; phone layouts stack. The forced-dark pair is readiness evidence only, not a saved preference test.
+Dedicated V3-12 state captures (`audit-members-owner-*`, `-history-`, `-forced-dark-`, `-owner-required-`, `-empty-invitations-`, `-non-owner-*`, `-link-*`, `-revoke-confirm-`, `-check-again-`, `-error-`, `-loading-`) are viewport captures whose filename width is asserted against `window.innerWidth`; the general-route captures (`audit-members-en-*`, `audit-members-cs-*`, `audit-members-invite-*`, `audit-invite-*`) come from the wider UX audit and are full-page. Every capture asserts no horizontal document overflow. Owner desktop/tablet layouts use two columns; phone layouts stack. The forced-dark pair is readiness evidence only, not a saved preference test.
 
 | Files | What they show / honest critique |
 |---|---|
@@ -28,7 +28,7 @@ Each image is a viewport capture; the audit asserts the actual viewport width an
 | `after/audit-members-empty-invitations-en-390.png` | Actual empty history with “No invitations yet”, beneath the owner action. |
 | `after/audit-members-non-owner-en-390.png`, `after/audit-members-non-owner-en-1440.png`, `after/audit-members-non-owner-cs-390.png`, `after/audit-members-non-owner-cs-1440.png` | Member-only view names the owner as the person to ask. Lower-page whitespace is calm but sparse. English and Czech are shown at the requested 390px and 1440px widths. |
 | `after/audit-members-link-shown-en-390.png` | Successful one-time link with private-sharing guidance and ready notice. The notice moves member content down. The field is masked; its vivid block is an evidence treatment, not product styling. |
-| `after/audit-members-link-manual-copy-en-390.png` | Visible clipboard-denial notice, masked selected link field and Copy action. The selected field and feedback remain within the viewport; the fixed nav crosses the history heading below the form, exposing a genuine density/crowding issue. |
+| `after/audit-members-link-manual-copy-en-390.png` | Clipboard denial: the masked, selected link field, Copy action, sharing caveat and the fallback notice inside the link panel all sit above the fixed navigation. The page-level ready notice stays at the top; invitation history is below the captured area and needs further scrolling. |
 | `after/audit-members-revoke-confirm-en-390.png` | Pending row’s “Revoke?” prompt and both Yes/Cancel controls are visible, with no stale clipboard notice. The controls themselves are unobscured; the fixed bar does cover part of the next history row while this viewport is scrolled. |
 | `after/audit-members-check-again-en-390.png` | Uncertain-creation notice and Check again recovery action. The notice pushes history down; only its upper edge is visible above the fixed bar in this viewport capture, making this a dense state that needs scrolling to review history. |
 | `after/audit-members-error-en-390.png` | Sparse retryable member-load error with direct recovery action. The page is plain because no member data is available. |
