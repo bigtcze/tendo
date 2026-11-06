@@ -44,7 +44,7 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     </div>
     {state === 'loading' ? <p role="status" className="mt-5 text-muted">{t('members.loading')}</p> : null}
     {state === 'error' ? <LoadError notice={notice} onRetry={() => { setNoticeRaw(null); setAttempt((n) => n + 1); }} t={t} /> : null}
-    {state === 'ready' ? <div className="mt-5 space-y-5 sm:mt-8 sm:space-y-8">
+    {state === 'ready' ? <div className="mt-4 space-y-3 sm:mt-8 sm:space-y-8">
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}
         cursor={members.memberCursor} busy={members.memberBusy} onPrevious={members.previousMembers} onNext={members.nextMembers} t={t} />
       {owner === true ? <InvitePanel inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />

@@ -33,7 +33,7 @@ export function InvitationRows({ invitations, actions, formatDate, t }: {
 }) {
   return <ul aria-labelledby="invitations-history-heading" className="mt-4 space-y-2">{invitations.map((inv) => (
     <li key={inv.id} className={`flex flex-wrap items-start justify-between gap-3 rounded-xl border px-4 py-3 ${
-      inv.status === 'pending' ? 'border-accent bg-raised' : 'border-line bg-sunken'
+      inv.status === 'pending' ? 'border-accent bg-raised' : 'border-line bg-sand'
     }`}>
       <div className="min-w-0">
         <p className={inv.status === 'pending' ? 'font-medium text-ink' : 'text-ink'}>{t(`members.invitation.status.${inv.status}`)}</p>

@@ -45,10 +45,10 @@ export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: 
 }) {
   const { busy, recoveryInvitationId, canCheckAgain, link, invite, revoke } = actions;
   const { invitationHeadingRef, invitationStack, invitationCursor, invitationBusy, previousInvitations, nextInvitations } = inv;
-  return <section role="region" aria-labelledby="members-invitations-section" className="border-t border-line pt-4 sm:pt-6">
+  return <section role="region" aria-labelledby="members-invitations-section" className="border-t border-line pt-2 sm:pt-6">
     <h2 id="members-invitations-section" className="font-display text-h2">{t('members.invite.title')}</h2>
-    <p className="mt-1 max-w-prose text-meta text-muted sm:mt-2 sm:text-base">{t('members.invite.intro')}</p>
-    <Button className="mt-2 w-full whitespace-normal text-center sm:mt-4 sm:w-auto" disabled={busy || !listReady} onClick={() => void invite()}>
+    <p className="mt-0.5 max-w-prose text-meta text-muted sm:mt-2 sm:text-base">{t('members.invite.intro')}</p>
+    <Button className="mt-1 w-full whitespace-normal text-center sm:mt-4 sm:w-auto" disabled={busy || !listReady} onClick={() => void invite()}>
       {busy ? t('members.invite.creating') : t('members.invite.action')}
     </Button>
     {recoveryInvitationId
@@ -60,7 +60,7 @@ export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: 
       ? <Button variant="quiet" className="mt-3" disabled={busy || !listReady} onClick={() => void invite(true)}>{t('members.invite.checkAgain')}</Button>
       : null}
     {link ? <InviteLink actions={actions} t={t} /> : null}
-    <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="mt-5 border-t border-line pt-4 font-display text-xl outline-none sm:mt-8 sm:pt-6">{t('members.invitations.title')}</h3>
+    <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="mt-3 border-t border-line pt-2 font-display text-xl outline-none sm:mt-8 sm:pt-6">{t('members.invitations.title')}</h3>
     <InvitationsBody inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
     {listReady && (invitationStack.length > 0 || invitationCursor)
       ? <MembersPager kind="invitation" stack={invitationStack} cursor={invitationCursor} busy={invitationBusy}
