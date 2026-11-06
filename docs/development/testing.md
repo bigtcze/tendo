@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-The complete local gate targets Go 1.27.3, a C compiler (`gcc`) for race-enabled tests, Python 3, Node.js 26.13.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium browser. Repository-pinned generators and test tools include oapi-codegen v2.8.2 (run by `api/Makefile` with `go run`), openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 26.13.0. See [dependency and toolchain inventory](dependencies.md).
+The complete local gate targets Go 1.27.3, a C compiler (`gcc`) for race-enabled tests, Python 3, Node.js 26.13.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium, Firefox and WebKit browsers. Repository-pinned generators and test tools include oapi-codegen v2.8.2 (run by `api/Makefile` with `go run`), openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 26.13.0. See [dependency and toolchain inventory](dependencies.md).
 
 ## Pinned toolchain
 
@@ -18,13 +18,13 @@ bash scripts/dev-exec.sh -- bash -c 'cd backend && go test ./...'
 
 It runs `mise install --locked`, so a tool missing from `mise.lock` or a downloaded archive whose SHA-256 differs is an error, never a fallback to another version. mise checks archives when it installs them and afterwards trusts the install directory, so before running the command the wrapper also confirms that `go`, `node`, `npm` and `sqlc` resolve inside its private install tree (never a host binary) and that `go`, `node` and `sqlc` report the pinned versions. If a cached install is damaged, delete `${XDG_CACHE_HOME:-~/.cache}/tendo/mise/data/installs` to re-download and re-verify it. The wrapper ignores inherited `MISE_*` variables, your user, system and parent-directory mise configuration, system-wide mise installs and Node.js/Go default-package files (`~/.default-npm-packages` and its variants, `~/.default-go-packages`), and keeps installs under `${XDG_CACHE_HOME:-~/.cache}/tendo/mise`, so other mise projects and global installs are neither read nor changed. Cancelling the wrapper while it installs also stops the installer. It sets `GOTOOLCHAIN=local` (Go never downloads another toolchain) and `GOENV=off` (settings saved with `go env -w` are ignored); explicit `GO*` variables in your environment still apply. The command replaces the wrapper process, so exit status and signals are the command's own.
 
-Playwright Chromium comes from the locked `@playwright/test` package itself: `verify-local.sh` runs `npx --no-install playwright install chromium` in `frontend/`, which installs the matching revision into Playwright's standard cache (`~/.cache/ms-playwright`). Chromium's system libraries are a one-time host step (Debian/Ubuntu: `sudo npx --no-install playwright install-deps chromium` from `frontend/`). The host also needs Python 3, `gcc`, `make` and `psql` 18.
+Playwright Chromium, Firefox and WebKit come from the locked `@playwright/test` package itself: `verify-local.sh` runs `npx --no-install playwright install chromium firefox webkit` in `frontend/`, which installs matching revisions into Playwright's standard cache (`~/.cache/ms-playwright`). Their system libraries are a one-time host step (Debian/Ubuntu: `sudo npx --no-install playwright install-deps chromium firefox webkit` from `frontend/`). The host also needs Python 3, `gcc`, `make` and `psql` 18.
 
 CI uses the same `mise.toml`/`mise.lock` through [`.github/actions/toolchain`](../../.github/actions/toolchain/action.yml): `jdx/mise-action` installs a version- and SHA-256-pinned mise, then `mise install --locked`. A wrong lock checksum therefore fails required CI.
 
 The existing PostgreSQL service is not managed by the wrapper; set `TENDO_TEST_POSTGRES_ADMIN_URL` as described below.
 
-The local integration and E2E layers use a dedicated native PostgreSQL service; the E2E browser uses Playwright Chromium. Without the wrapper, install the pinned versions from trusted sources.
+The local integration and E2E layers use a dedicated native PostgreSQL service; Playwright Chromium runs the full journey, with bounded Firefox and WebKit browser smoke projects. Without the wrapper, install the pinned versions from trusted sources.
 
 ## Dedicated PostgreSQL service setup
 
@@ -98,7 +98,7 @@ The required workflow retains one stable branch-protection aggregate check named
 | `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |
-| `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 26.13.0, frontend `npm ci`, Playwright 1.64.1 Chromium install, full native production-build E2E |
+| `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 26.13.0, frontend `npm ci`, Playwright 1.64.1 Chromium/Firefox/WebKit install, full native production-build E2E (Chromium journey plus Firefox/WebKit smoke) |
 | `deployment` matrix, `fail-fast: false` | Seven entries: setup (first-owner/session/API plus runtime health, outage recovery, container hardening and SIGTERM shutdown), OIDC, proxy, household backup (full restore plus refused existing-target and truncated-archive restores), upgrade from v1.0.0, upgrade from v2.1.0, and quick start. Each checks out and installs Go/Node/API dependencies before running its Docker smoke. The upgrade smoke (`TENDO_UPGRADE_FROM`, default `v1.0.0`) starts the published release image, populates only through the public API, then upgrades the same PostgreSQL volume using the checkout build; it compares table counts, the migration ledger and captured response bodies/ETags, and exercises current APIs. The quick-start smoke extracts and executes the install commands from the documentation. Each matrix job builds its own images; image transfer is YAGNI absent measured evidence for artifact handoff. Proxy and household-backup/upgrade retain their 12/15 minute bounds using per-matrix-entry `timeout` values. |
 | `required` aggregate | `if: always()`, `needs` every other job, prints results and jq-requires exactly six job successes (the deployment matrix is one job). |
 

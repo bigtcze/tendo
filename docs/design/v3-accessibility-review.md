@@ -1,0 +1,11 @@
+# V3 accessibility review
+
+## Automated evidence
+
+The production-browser E2E suite runs axe scans (WCAG 2.2 A/AA tags), measured text and control-boundary contrast, keyboard focus sweeps, target-size checks, responsive widths and zoom coverage. The route and measured-state scans run with both the real stored Light/System preference and the persisted Dark preference; tests assert `html[data-theme="dark"]` before accepting dark-mode results. Firefox and WebKit run a bounded owner journey across the primary household routes and widths.
+
+These are automated WCAG-oriented checks, not a certification or a substitute for human testing. The existing release-qualification Orca harness remains the assistive-technology qualification layer; no human screen-reader test is claimed here (G12 limitation). Manual-style checks of landmarks, labels, live regions, touch comfort and long-string wrapping require human review and are not claimed complete by an axe pass.
+
+## Findings and fixes
+
+Automated Chromium accessibility evidence: n21 emits zero measured non-exempt contrast shortfalls and zero focus-ring shortfalls across audited light/dark routes and states; its axe WCAG scans pass. Covered snapshots include dark All items no-results and Home 500 error, plus dark Repeat-on Add form, edit form and undone history. No product-level violations were found in that run. The native-dialog keyboard sweep scopes modal expectations to `<dialog open>`; this corrects test scope, not a product defect. The initial Firefox and WebKit smoke invocations exposed test-fixture race/selector assumptions; the cross-browser flow now reads the created resource from the API, uses its stable ID for detail, and polls the persisted undo state. Two consecutive complete `bash scripts/e2e-smoke.sh` runs passed on the final tree (354s and 355s wall; 62/62 e2e tests, cross-browser-firefox and cross-browser-webkit each passed in about 27–32s, clock phase passed; zero retries, flaky or skipped tests). Axe reports some `incomplete` contrast checks where pseudo-element or overlay backgrounds cannot be resolved; these remain attached for review and are not suppressed. Automated checks are not certification or a substitute for human testing; G12/no-human-screen-reader limitation remains.
