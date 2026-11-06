@@ -304,6 +304,8 @@ def run_seeded_suite(root, app_path, provider_path, inherited, log, artifact_dir
         "PLAYWRIGHT_OUTPUT_DIR": str(artifact_dir / "artifacts"), "E2E_ARTIFACT_DIR": str(artifact_dir), **fixture_env,
     })
     playwright(root, base, log, "e2e")
+    playwright(root, base, log, "cross-browser-firefox", 600)
+    playwright(root, base, log, "cross-browser-webkit", 600)
     before = base.copy()
     before.update({"E2E_CLOCK_PHASE": "before", "E2E_CLOCK_NOW": "2026-01-15T22:59:59Z"})
     playwright(root, before, log, "clock")

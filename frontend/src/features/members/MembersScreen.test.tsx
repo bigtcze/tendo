@@ -182,6 +182,7 @@ describe('members and invitations', () => {
     const originalRow = rows[0]!;
     const originalRevokeButton = within(originalRow).getByRole('button', { name: 'Revoke' });
     await userEvent.click(originalRevokeButton); expect(within(rows[0]!).getByRole('button', { name: 'Yes' })).toHaveFocus();
+    expect(within(rows[0]!).getByRole('button', { name: 'Yes' })).toHaveAccessibleDescription(`Revoke? ${within(rows[0]!).getByText(/^Created /).textContent}`);
     await userEvent.click(within(originalRow).getByRole('button', { name: 'Cancel' })); await waitFor(() => expect(within(originalRow).getByRole('button', { name: 'Revoke' })).toHaveFocus());
     const currentRow = invitations.querySelector('li')!;
     await userEvent.click(within(currentRow).getByRole('button', { name: 'Revoke' }));

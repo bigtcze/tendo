@@ -22,9 +22,14 @@ type FormFieldsProps = FieldProps & {
   onTitleRef?: (node: HTMLInputElement | null) => void;
 };
 
-/** aria-invalid plus the error description for the field the current error points at. */
-function invalidProps(state: ItemFormState, errorId: string, field: FormField) {
-  return { 'aria-invalid': state.field === field, 'aria-describedby': state.field === field ? errorId : undefined };
+/**
+ * aria-invalid plus descriptions: the field's own hint (if any) always, and the
+ * form error only for the field the current error points at.
+ */
+function invalidProps(state: ItemFormState, errorId: string, field: FormField, hintIds?: string) {
+  const invalid = state.field === field;
+  const describedBy = [hintIds, invalid ? errorId : undefined].filter(Boolean).join(' ') || undefined;
+  return { 'aria-invalid': invalid, 'aria-describedby': describedBy };
 }
 
 export function ItemFormFields(props: FormFieldsProps) {
@@ -72,13 +77,16 @@ function DateField({ id, errorId, state, disabled }: FieldProps) {
   const { t, locale } = useI18n();
   return <Field id={controlId(id, 'attentionOn')} label={t('items.attentionDate')} hint={t('items.attentionDate.hint')}>
     {(field) => <Input disabled={disabled} type="date" lang={locale} value={state.draft.attentionOn}
-      onChange={(event) => state.update({ attentionOn: event.target.value })} {...field} {...invalidProps(state, errorId, 'attentionOn')} />}
+      onChange={(event) => state.update({ attentionOn: event.target.value })} {...field}
+      {...invalidProps(state, errorId, 'attentionOn', field['aria-describedby'])} />}
   </Field>;
 }
 
-function Switch({ checked, disabled, onChange, label }: { checked: boolean; disabled: boolean; onChange: (checked: boolean) => void; label: string }) {
+type SwitchProps = { checked: boolean; disabled: boolean; onChange: (checked: boolean) => void; label: string; describedBy?: string };
+
+function Switch({ checked, disabled, onChange, label, describedBy }: SwitchProps) {
   return <label className="flex min-h-11 items-center gap-3 text-ink">
-    <Toggle checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} />
+    <Toggle checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} aria-describedby={describedBy} />
     <span>{label}</span>
   </label>;
 }
@@ -124,12 +132,14 @@ function intervalLabel(
 }
 
 function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisabled: boolean }) {
-  const { state, disabled, withHistory } = props;
+  const { id, state, disabled, withHistory } = props;
   const { t, locale } = useI18n();
+  const exampleId = `${id}-repeat-example`;
   return <div className="space-y-4 border-l-2 border-line pl-4">
     <IntervalFieldset {...props} />
-    <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })} label={t('items.repeat.afterCompletion')} />
-    <p className="text-meta text-muted">
+    <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })}
+      label={t('items.repeat.afterCompletion')} describedBy={exampleId} />
+    <p id={exampleId} className="text-meta text-muted">
       {t(state.draft.fluid ? 'items.repeatExample.after' : 'items.repeatExample.fixed', {
         interval: intervalLabel(t, locale, state.draft.interval, state.draft.unit),
       })}
@@ -153,7 +163,7 @@ function HistoricalCompletion({ id, errorId, state, historyDisabled }: FieldProp
         {(field) => <Input disabled={historyDisabled} type="date" lang={locale}
           value={state.draft.historicalCompletedOn}
           onChange={(event) => state.update({ historicalCompletedOn: event.target.value })}
-          {...field} {...invalidProps(state, errorId, 'historicalCompletedOn')} />}
+          {...field} {...invalidProps(state, errorId, 'historicalCompletedOn', field['aria-describedby'])} />}
       </Field>
     </div> : null}
   </div>;

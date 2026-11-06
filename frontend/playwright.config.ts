@@ -1,11 +1,13 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, type Project } from '@playwright/test';
 
 // Runs against a production-built Tendo with real PostgreSQL (see scripts/e2e-smoke.sh).
 const baseURL = process.env.E2E_BASE_URL;
 if (!baseURL) throw new Error('E2E_BASE_URL is required; run scripts/e2e-smoke.sh');
 
-const projects = [
+const projects: Project[] = [
   { name: 'e2e', testMatch: ['journey.spec.ts', 'primitives-browser.spec.ts', 'theme.spec.ts'] },
+  { name: 'cross-browser-firefox', testMatch: ['cross-browser.spec.ts'], use: { browserName: 'firefox' } },
+  { name: 'cross-browser-webkit', testMatch: ['cross-browser.spec.ts'], use: { browserName: 'webkit' } },
   { name: 'clock', testMatch: ['attention-clock.spec.ts'] },
   { name: 'readme-screenshot', testMatch: ['readme-screenshot.spec.ts'] },
   { name: 'ux-audit', testMatch: ['ux-audit.spec.ts'] },

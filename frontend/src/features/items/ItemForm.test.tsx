@@ -106,6 +106,34 @@ const title = () => screen.getByLabelText('What needs doing?');
     expect(title()).toHaveAttribute('aria-describedby');
   });
 
+  it('keeps date hints described while valid and adds the error only to the invalid field', async () => {
+    const describedText = (element: HTMLElement) => (element.getAttribute('aria-describedby') ?? '')
+      .split(' ').filter(Boolean).map((id) => document.getElementById(id)?.textContent);
+    renderForm();
+    const date = screen.getByLabelText(en['items.attentionDate']);
+    expect(describedText(date)).toEqual([en['items.attentionDate.hint']]);
+    await userEvent.click(screen.getByRole('switch', { name: 'Repeat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add a previous completion' }));
+    const previous = screen.getByLabelText('Last completed on');
+    expect(describedText(previous)).toEqual([en['items.historical.hint']]);
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const alert = await screen.findByRole('alert');
+    expect(describedText(title())).toEqual([alert.textContent]);
+    expect(describedText(date)).toEqual([en['items.attentionDate.hint']]);
+    expect(describedText(previous)).toEqual([en['items.historical.hint']]);
+  });
+
+  it('describes the count-from-completion switch with the current repeat example', async () => {
+    renderForm();
+    await userEvent.click(screen.getByRole('switch', { name: 'Repeat' }));
+    const fluid = screen.getByRole('switch', { name: /Count the next/ });
+    expect(fluid).toHaveAccessibleDescription(en['items.repeatExample.fixed']);
+    const fixedDescription = fluid.getAttribute('aria-describedby');
+    await userEvent.click(fluid);
+    expect(fluid).toHaveAccessibleDescription(/Counts from when you finish/);
+    expect(fluid.getAttribute('aria-describedby')).toBe(fixedDescription);
+  });
+
   it.each(['0', '1000', '1.5'])('validates repeat interval %s and focuses recurrence control', async (interval) => {
     renderForm();
     await userEvent.type(title(), 'Example');

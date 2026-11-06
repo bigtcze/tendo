@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { cs } from '../src/i18n/cs';
 import { en } from '../src/i18n/en';
 import { expectNoAxeViolations } from './a11y';
+import { createTabRepeatGuard } from './tabRepeatGuard';
 import { measureMotion } from './motion';
 import { colorString, composite, contrastRatio, parseColor, passesContrastThreshold, type Color } from './contrast';
 import { auditContrast, contrastShortfalls, type ContrastAuditRow } from './contrastAudit';
@@ -3330,6 +3331,16 @@ test.describe('Tendo production journey', () => {
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
     const contrastEvidence: ContrastAuditRow[] = [];
     const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
+    // WCAG 2.5.8 target-size predicate, shared by every route, dark, empty and signed-out check so the
+    // rule cannot diverge between them. A control's hit area is its enclosing <label> when it has one (the
+    // real click target), otherwise the element itself. Visually hidden (.sr-only) controls are excluded;
+    // no other exemption applies.
+    const targetSizeShortfalls = (target: Page) => target.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
+      if (node.matches('.sr-only')) return false;
+      const rect = node.getBoundingClientRect();
+      const hit = node.closest('label')?.getBoundingClientRect() ?? rect;
+      return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
+    }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim() || node.getAttribute('type'), outerHTML: node.outerHTML, rect: (node.closest('label') ?? node).getBoundingClientRect().toJSON() })));
     const measureContrast = async (target: Page, route: string, expectBoundary = false): Promise<ContrastAuditRow[]> => {
       const rows = await auditContrast(target, route);
       const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);
@@ -3366,50 +3377,81 @@ test.describe('Tendo production journey', () => {
         await zoomContext.close();
       }
     };
-    // Keyboard sweep: Tab through the whole page from the top. Each stop is identified by a
-    // stable per-element id, so reachability compares identities (not counts) and a revisit
-    // before the footer is reported as a loop. A focus indicator counts only if the element's
-    // outline or box shadow differs from its unfocused style, so a permanent shadow does not
-    // pass. Each stop must be unobscured at its centre (2.4.11 proxy), every visible enabled
-    // control in main must be reached, and the sweep must end on the footer language switch
-    // (no keyboard trap, 2.1.2).
-    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true) => {
-      const expectedMain = await target.evaluate(() => {
+    // Keyboard sweep: Tab through the page from the top (or the open dialog). Each stop is identified by a stable
+    // per-element id. Focus and ring checks compare the focused indicator with an unfocused baseline measured for every
+    // focusable element BEFORE the Tab loop, so the loop never blurs or refocuses an element. Calling blur()/focus()
+    // between presses resets a native date input to its first segment, so Tab never leaves it (probe: 30+ presses per
+    // engine instead of 3-4).
+    //
+    // Segment rule: only a native date input may retain focus while Tab advances day/month/year segments. The cap is
+    // ADDITIONAL presses after first arrival (not total visits): allow at most 3. Probe without blur/refocus: Chromium
+    // and Firefox leave after 4 total presses (3 additional), WebKit after 3; this matches the longest observed behavior.
+    // Non-date repeats trap immediately; non-consecutive revisits retain the sweep's existing loop semantics.
+    //
+    // dialogMode covers a modal dialog[open] (add or edit form). A modal is expected to cycle: the sweep starts on the
+    // first Tab stop inside the dialog and must return to that same element. The loop and footer checks do not apply:
+    // a dialog has no footer, and returning to the first stop is the intended end of the cycle, not a trap.
+    const DATE_SEGMENT_ADDITIONAL_PRESS_CAP = 3;
+    type Baseline = { id: string; name: string; region: string; inDialog: boolean; unfocused: string };
+    type SweepStop = Baseline & { focused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[]; pageSurface: string };
+    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true, dialogMode = false) => {
+      // 1. While nothing has focus, assign sweep ids and measure each focusable element's unfocused indicator.
+      // A dialog opens with focus on its first field, so blur first: a baseline taken on a focused control would record its focus ring as "unfocused".
+      await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+      const { expectedMain, baselines } = await target.evaluate((dialog) => {
+        // Ids are per sweep: clear ids left by an earlier sweep so a baseline can only describe its own element.
+        document.querySelectorAll<HTMLElement>('[data-sweep-id]').forEach((element) => { delete element.dataset.sweepId; });
         let next = 0;
+        const scope = dialog ? document.querySelector('dialog[open]') : document.querySelector('main');
+        const indicator = (element: HTMLElement) => {
+          const style = getComputedStyle(element);
+          const outline = style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? 'none' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
+          return `${outline}|${style.boxShadow}`;
+        };
         const ids: string[] = [];
-        for (const element of document.querySelectorAll<HTMLElement>('main a[href], main button:not([disabled]), main input:not([disabled]), main select:not([disabled]), main textarea:not([disabled]), main [tabindex]:not([tabindex="-1"])')) {
+        const baselines: Baseline[] = [];
+        document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])').forEach((element) => {
+          if (element.matches(':disabled')) return;
           const box = element.getBoundingClientRect();
-          if (box.width === 0 || box.height === 0 || element.closest('[inert],[hidden]') || getComputedStyle(element).visibility === 'hidden') continue;
-          if (element.matches('input[type="radio"]') && !(element as HTMLInputElement).checked && document.querySelector(`input[type="radio"][name="${CSS.escape((element as HTMLInputElement).name)}"]:checked`)) continue; // one tab stop per radio group
-          element.dataset.sweepId = `main-${next += 1}`;
-          ids.push(element.dataset.sweepId);
-        }
-        return ids;
-      });
-      await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
-      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[]; pageSurface: string }> = [];
+          if (box.width === 0 || box.height === 0 || element.closest('[inert],[hidden]') || getComputedStyle(element).visibility === 'hidden') return;
+          if (element.matches('input[type="radio"]') && !(element as HTMLInputElement).checked && document.querySelector(`input[type="radio"][name="${CSS.escape((element as HTMLInputElement).name)}"]:checked`)) return; // one tab stop per radio group
+          const inDialog = !!element.closest('dialog[open]');
+          element.dataset.sweepId = `${inDialog ? 'dialog' : 'page'}-${next += 1}`;
+          const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
+          baselines.push({ id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, inDialog, unfocused: indicator(element) });
+          if (dialog ? inDialog : !!scope?.contains(element)) ids.push(element.dataset.sweepId);
+        });
+        return { expectedMain: ids, baselines };
+      }, dialogMode);
+      const baselineById = new Map(baselines.map((baseline) => [baseline.id, baseline] as const));
+
+      // 2. Start with nothing focused (dialog: its heading, so the first Tab enters the dialog's first control).
+      if (dialogMode) await target.getByRole('dialog').getByRole('heading', { level: 2 }).first().focus();
+      else await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+
+      // 3. Tab loop: measure only; never blur or refocus.
+      const stops: SweepStop[] = [];
+      const visited = new Set<string>();
+      const repeatGuard = createTabRepeatGuard(DATE_SEGMENT_ADDITIONAL_PRESS_CAP);
       let loop = '';
+      let trap = '';
+      let cycled = false;
+      let escaped = '';
+      let boundarySeen = false;
       for (let index = 0; index < 150; index += 1) {
         await target.keyboard.press('Tab');
-        // Focus styles transition (transition-colors includes outline-color); measure the settled ring, not a mid-transition colour.
+        // Let focus transitions finish (transition-colors animates the outline) before reading the settled ring.
         await target.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
-        const stop = await target.evaluate((position) => {
+        const measured = await target.evaluate((position) => {
           const element = document.activeElement as HTMLElement | null;
           if (!element || element === document.body) return null;
-          element.dataset.sweepId ??= `other-${position}`;
-          const indicator = () => {
-            const style = getComputedStyle(element);
-            const outline = style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? 'none' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
-            return `${outline}|${style.boxShadow}`;
-          };
-          const focused = indicator();
-          const focusedStyle = getComputedStyle(element);
-          let ringColor = focusedStyle.outlineColor;
-          if (focusedStyle.outlineStyle === 'none' || parseFloat(focusedStyle.outlineWidth) <= 0) {
-            const shadowColor = focusedStyle.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/);
-            ringColor = shadowColor?.[0] ?? 'transparent';
-          }
-          // Normalize every colour (Chromium serializes color-mix() as oklab()) to rgba via canvas; fail closed on unknown values.
+          element.dataset.sweepId ??= `${element.closest('dialog[open]') ? 'dialog' : 'other'}-unlisted-${position}`;
+          const style = getComputedStyle(element);
+          const outline = style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? 'none' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
+          const focused = `${outline}|${style.boxShadow}`;
+          let ringColor = style.outlineColor;
+          if (style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0) ringColor = style.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/)?.[0] ?? 'transparent';
+          // Normalize colours (Chromium serializes color-mix() as oklab()) to rgba via canvas; fail closed on unknown values.
           const canvas = document.createElement('canvas');
           canvas.width = 1;
           canvas.height = 1;
@@ -3422,28 +3464,61 @@ test.describe('Tendo production journey', () => {
             const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
             return `rgba(${r}, ${g}, ${b}, ${alpha / 255})`;
           };
-          // Ancestor backgrounds root-first, composited in Node with the shared contrast module.
           const ringBackgrounds: string[] = [];
           for (let ancestor: Element | null = element.parentElement; ancestor; ancestor = ancestor.parentElement) ringBackgrounds.unshift(toRgba(getComputedStyle(ancestor).backgroundColor));
           const box = element.getBoundingClientRect();
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           const unobscured = !!hit && (hit === element || element.contains(hit) || hit.contains(element));
-          element.blur();
-          const unfocused = indicator();
-          element.focus({ preventScroll: true });
-          const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
           const pageSurface = toRgba(getComputedStyle(document.documentElement).backgroundColor !== 'rgba(0, 0, 0, 0)' ? getComputedStyle(document.documentElement).backgroundColor : getComputedStyle(document.body).backgroundColor);
-          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds, pageSurface };
+          return { id: element.dataset.sweepId, isNativeDate: element.matches('input[type="date"]'), focused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds, pageSurface };
         }, index);
-        if (!stop) break;
-        if (stops.some((entry) => entry.id === stop.id)) { loop = `${stop.region}:${stop.name}`; break; }
-        stops.push(stop);
-        if (stop.region === 'footer' && stops.filter((entry) => entry.region === 'footer').length >= 2) break;
+        if (!measured) {
+          // Focus is on the document body. In a modal dialog this is the browser's end-of-cycle step (Chromium and
+          // WebKit leave the modal for one press before wrapping; measured with a probe), and it is allowed only
+          // directly after the dialog's last control. Anywhere else in a modal, focus escaped the dialog.
+          if (dialogMode && stops.length > 0 && !boundarySeen && stops.length === expectedMain.length) { boundarySeen = true; continue; }
+          if (!dialogMode) break;
+          escaped = `focus left the dialog after ${stops.at(-1)?.name ?? 'the dialog heading'} (${stops.length}/${expectedMain.length} controls)`;
+          break;
+        }
+        // The boundary is valid only when the cycle has already reached every expected control, and the next stop must
+        // be the first dialog control again. Anything else means focus left the dialog before the cycle completed.
+        if (boundarySeen) {
+          // Chromium and WebKit wrap a modal through its scroll container: last control, body, then the <dialog>
+          // element itself (it is focusable because it scrolls), then the first control. Only the dialog element may
+          // appear once between the boundary and the first control; any other element is an escape.
+          const wrapsThroughDialog = await target.evaluate(() => document.activeElement === document.querySelector('dialog[open]'));
+          if (!wrapsThroughDialog && measured.id !== stops[0]?.id) { escaped = `after the modal boundary focus went to ${measured.id}, not the first dialog control`; break; }
+          if (wrapsThroughDialog) { boundarySeen = true; continue; }
+        }
+        boundarySeen = false;
+        const repeat = repeatGuard.observe(measured.id, measured.isNativeDate);
+        if (repeat === 'trap') { trap = `${measured.id} retained focus on a non-date element or exceeded the native date segment allowance`; break; }
+        if (repeat === 'segment') continue;
+        if (dialogMode && stops.length > 0 && measured.id === stops[0]!.id) { cycled = true; break; }
+        if (visited.has(measured.id)) { loop = measured.id; break; }
+        visited.add(measured.id);
+        const baseline = baselineById.get(measured.id);
+        // Fail closed: an element first reached during the loop has no pre-loop baseline.
+        stops.push({
+          id: measured.id,
+          name: baseline?.name ?? `UNMEASURED ${measured.id}`,
+          region: baseline?.region ?? 'unmeasured',
+          inDialog: baseline?.inDialog ?? measured.id.startsWith('dialog'),
+          unfocused: baseline?.unfocused ?? 'UNMEASURED',
+          focused: measured.focused,
+          unobscured: measured.unobscured,
+          ringColor: measured.ringColor,
+          ringBackgrounds: measured.ringBackgrounds,
+          pageSurface: measured.pageSurface,
+        });
+        if (!dialogMode && baseline?.region === 'footer' && stops.filter((stop) => stop.region === 'footer').length >= 2) break;
       }
+
+      // 4. Assertions. Ring contrast is computed against the actual surface behind the focused element.
       const focusRatios = stops.map((stop) => {
         const foreground = parseColor(stop.ringColor);
         const layers = stop.ringBackgrounds.map(parseColor);
-        // Base is the page's own opaque surface (light or dark), never a hard-coded paper colour.
         const base = parseColor(stop.pageSurface);
         const background = layers.every((layer) => layer !== null) && base ? layers.reduce<Color>((backdrop, layer) => composite(layer!, backdrop), base) : null;
         const ratio = foreground && background ? contrastRatio(composite(foreground, background), background) : null;
@@ -3453,17 +3528,29 @@ test.describe('Tendo production journey', () => {
       });
       console.log(`focus-contrast ${label} ${JSON.stringify(focusRatios)}`);
       console.log(`keyboard-sweep ${label} ${JSON.stringify(stops.map((stop) => `${stop.region}:${stop.name}`))}`);
-      expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
+      expect(trap, `${label} keyboard trap: focus held on one element`).toBe('');
+      expect(escaped, `${label} modal focus escaped the dialog`).toBe('');
+      expect(stops.filter((stop) => stop.unfocused === 'UNMEASURED').map((stop) => stop.name), `${label} stops with no pre-loop baseline (fail closed)`).toEqual([]);
       expect(stops.filter((stop) => stop.focused === stop.unfocused || stop.focused === 'none|none').map((stop) => `${stop.name} [${stop.focused}]`), `${label} stops whose focus does not change the outline or shadow`).toEqual([]);
       expect(stops.filter((stop) => !stop.unobscured).map((stop) => stop.name), `${label} obscured focus`).toEqual([]);
-      const reachedMain = stops.filter((stop) => stop.region === 'main').map((stop) => stop.id);
-      // Guards against an empty identity set making reachability vacuous.
-      if (mainControlsExpected) expect(expectedMain.length, `${label} has controls in main`).toBeGreaterThan(0);
-      else expect(expectedMain, `${label} has no controls in main`).toEqual([]);
-      expect([...reachedMain].sort(), `${label} reaches every visible control in main, each once`).toEqual([...expectedMain].sort());
-      expect(stops.filter((stop) => stop.region === 'footer').length, `${label} reaches the footer (no trap)`).toBe(2);
-      const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
-      expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+      expect(focusRatios.filter((row) => row.ratio === null || row.ratio < 3), `${label} focus ring contrast >= 3:1 against the actual surface`).toEqual([]);
+      const reached = stops.map((stop) => stop.id);
+      if (dialogMode) {
+        expect(loop, `${label} modal sweep repeated a stop other than its first control`).toBe('');
+        expect(cycled, `${label} modal Tab cycle returns to its first control`).toBe(true);
+        expect(stops.filter((stop) => !stop.inDialog).map((stop) => stop.name), `${label} modal focus stays inside dialog[open]`).toEqual([]);
+        expect(expectedMain.length, `${label} modal has visible controls`).toBeGreaterThan(0);
+        expect([...reached].sort(), `${label} modal reaches every visible dialog control exactly once`).toEqual([...expectedMain].sort());
+      } else {
+        expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
+        if (mainControlsExpected) expect(expectedMain.length, `${label} has controls in main`).toBeGreaterThan(0);
+        else expect(expectedMain, `${label} has no controls in main`).toEqual([]);
+        const reachedMain = stops.filter((stop) => stop.region === 'main').map((stop) => stop.id);
+        expect([...reachedMain].sort(), `${label} reaches every visible control in main, each once`).toEqual([...expectedMain].sort());
+        expect(stops.filter((stop) => stop.region === 'footer').length, `${label} reaches the footer (no trap)`).toBe(2);
+        const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
+        expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+      }
     };
     try {
       const fixturePage = await context.newPage();
@@ -3516,17 +3603,28 @@ test.describe('Tendo production journey', () => {
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
         expect(aria, `${route.name} has main landmark`).toContain('main');
-        const tooSmall = await auditPage.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
-          if (node.matches('.sr-only')) return false;
-          const rect = node.getBoundingClientRect();
-          const hit = node.closest('label')?.getBoundingClientRect() ?? rect;
-          return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
-        }).map((node) => ({ text: node.textContent?.trim(), label: node.getAttribute('aria-label'), rect: (node.closest('label') ?? node).getBoundingClientRect().toJSON() })));
+        const tooSmall = await targetSizeShortfalls(auditPage);
         await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(tooSmall, null, 2), contentType: 'application/json' });
         expect(tooSmall, `${route.name} WCAG 2.5.8 target-size review`).toEqual([]);
         await runAxe(auditPage, `${route.name}-default`);
         // Account's main now contains the in-page language and Appearance switches, so sweep every visible control.
         await keyboardSweep(auditPage, route.name);
+        // Repeat the full route audit with the real persisted preference; never synthesize data-theme.
+        await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+        await auditPage.goto(route.path);
+        await expectReady(auditPage, route);
+        await expect(auditPage.locator('html'), `${route.name} dark preference applied`).toHaveAttribute('data-theme', 'dark');
+        await measureContrast(auditPage, `${route.name}-dark`, route.name === 'all-items');
+        await runAxe(auditPage, `${route.name}-dark`);
+        await keyboardSweep(auditPage, `${route.name}-dark`);
+        const darkTargets = await targetSizeShortfalls(auditPage);
+        expect(darkTargets, `${route.name} dark WCAG 2.5.8 target-size`).toEqual([]);
+        if (route.name !== 'account') {
+          await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
+          await auditPage.goto(route.path);
+          await expectReady(auditPage, route);
+          await expect(auditPage.locator('html'), `${route.name} restored light/system theme`).not.toHaveAttribute('data-theme', 'dark');
+        }
         if (route.name === 'account') {
           const appearance = auditPage.getByRole('main').getByRole('group', { name: en['account.appearance.title'], exact: true });
           await appearance.getByRole('button', { name: en['account.appearance.dark'], exact: true }).click();
@@ -3552,8 +3650,30 @@ test.describe('Tendo production journey', () => {
       await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
       const addRows = await measureContrast(auditPage, 'home-add-form', true);
       expect(addRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'home-add-form has a measured [value] text row').toBe(true);
-      await addForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
-      await expect(addForm).toHaveCount(0);
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto(routes[0].path);
+      await expectReady(auditPage, routes[0]);
+      await expect(auditPage.locator('html'), 'home add form dark preference applied').toHaveAttribute('data-theme', 'dark');
+      await auditPage.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const darkAddForm = auditPage.getByRole('form', { name: en['items.add.formLabel'] });
+      await expect(darkAddForm).toBeVisible();
+      await darkAddForm.getByLabel(en['items.title'], { exact: true }).fill('Contrast evidence item');
+      await darkAddForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await expect(auditPage.locator('dialog[open]')).toBeVisible();
+      const darkAddRows = await measureContrast(auditPage, 'home-add-form-dark', true);
+      expect(darkAddRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'dark home-add-form has a measured [value] text row').toBe(true);
+      await runAxe(auditPage, 'home-add-form-dark');
+      await keyboardSweep(auditPage, 'home-add-form-dark', true, true);
+      await darkAddForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
+      await auditPage.goto(routes[0].path);
+      await expectReady(auditPage, routes[0]);
+      await auditPage.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const lightAddForm = auditPage.getByRole('form', { name: en['items.add.formLabel'] });
+      await lightAddForm.getByLabel(en['items.title'], { exact: true }).fill('Contrast evidence item');
+      await lightAddForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await lightAddForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(lightAddForm).toHaveCount(0);
 
       await auditPage.goto(routes[1].path);
       await expectReady(auditPage, routes[1]);
@@ -3564,8 +3684,29 @@ test.describe('Tendo production journey', () => {
       await expect(editForm).toBeVisible();
       const editRows = await measureContrast(auditPage, 'item-edit-form', true);
       expect(editRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'item-edit-form has a measured [value] text row').toBe(true);
-      await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
-      await expect(editForm).toHaveCount(0);
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto(routes[1].path);
+      await expectReady(auditPage, routes[1]);
+      await auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('link').first().click();
+      await expect(auditPage.getByRole('heading', { level: 1 })).toBeVisible();
+      await auditPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const darkEditForm = auditPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(darkEditForm).toBeVisible();
+      await expect(auditPage.locator('html'), 'item edit form dark preference applied').toHaveAttribute('data-theme', 'dark');
+      const darkEditRows = await measureContrast(auditPage, 'item-edit-form-dark', true);
+      expect(darkEditRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'dark item-edit-form has measured value text').toBe(true);
+      await runAxe(auditPage, 'item-edit-form-dark');
+      await keyboardSweep(auditPage, 'item-edit-form-dark', true, true);
+      await darkEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
+      await auditPage.goto(routes[1].path);
+      await expectReady(auditPage, routes[1]);
+      await auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('link').first().click();
+      await expect(auditPage.getByRole('heading', { level: 1 })).toBeVisible();
+      await auditPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const lightEditForm = auditPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await lightEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(lightEditForm).toHaveCount(0);
 
       // An undone receipt is readable history, not an inactive control: it must meet 1.4.3 like any text.
       // n1 left "Book dental check" done with one undone and one active receipt.
@@ -3580,12 +3721,59 @@ test.describe('Tendo production journey', () => {
       await expect(historySection.getByText(undoneText, { exact: true }).first()).toBeVisible();
       const historyRows = await measureContrast(auditPage, 'item-detail-undone-history');
       expect(historyRows.filter((row) => row.kind === 'text' && !row.exempt && row.ratio !== null).length, 'undone history text measured').toBeGreaterThan(0);
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto(`/items/${undoneHistoryItem.id}`);
+      await expect(auditPage.getByRole('heading', { level: 1, name: 'Book dental check' })).toBeVisible();
+      await expect(auditPage.locator('html'), 'undone history dark preference applied').toHaveAttribute('data-theme', 'dark');
+      const darkHistoryRows = await measureContrast(auditPage, 'item-detail-undone-history-dark');
+      expect(darkHistoryRows.filter((row) => row.kind === 'text' && !row.exempt && row.ratio !== null).length, 'dark undone history text measured').toBeGreaterThan(0);
+      await runAxe(auditPage, 'item-detail-undone-history-dark');
+      await keyboardSweep(auditPage, 'item-detail-undone-history-dark');
+      await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
 
       // Readiness includes asynchronously loaded content: login's OIDC provider button.
       const signedOutRoutes: Array<{ path: string; name: string; findTitle: string; content: (target: Page) => Locator }> = [
         { path: '/', name: 'login', findTitle: en['login.title'], content: (target) => target.getByRole('button', { name: /^Sign in with / }) },
         { path: '/invite#' + 'A'.repeat(43), name: 'invitation-acceptance', findTitle: en['invite.title'], content: (target) => target.getByRole('button', { name: en['invite.create'], exact: true }) },
       ];
+      // Dark empty and recoverable error states are scanned independently of the populated route baseline.
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto('/items');
+      await expectReady(auditPage, routes[1]);
+      await expect(auditPage.locator('html'), 'All items dark state applied').toHaveAttribute('data-theme', 'dark');
+      // Reach the no-match state by a fresh navigation to its URL (the app's own ?q= route state), not by a search
+      // click: after a click, the browser's sequential focus start sits on the Search button, so the keyboard sweep
+      // would begin past the search field and not measure it.
+      await auditPage.goto('/items?q=' + encodeURIComponent('zz no item matches dark accessibility empty state'));
+      // expectReady() waits for a populated row, which a no-match state never shows; wait for the empty heading instead.
+      await expect(auditPage.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      await expect(auditPage.getByRole('main').getByRole('heading', { level: 2, name: en['allItems.noMatch'], exact: true })).toBeVisible();
+      const darkSearch = auditPage.getByRole('searchbox', { name: en['allItems.search'], exact: true });
+      await expect(darkSearch, 'All items search field present in dark empty state').toBeVisible();
+      await expect(darkSearch).toHaveValue('zz no item matches dark accessibility empty state');
+      await expect(auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem')).toHaveCount(0);
+      // The visible empty-state title; the sr-only live region repeats the same copy by design (announcement).
+      await expect(auditPage.getByRole('main').getByRole('heading', { level: 2, name: en['allItems.noMatch'], exact: true })).toBeVisible();
+      await runAxe(auditPage, 'all-items-empty-dark');
+      const emptyRows = await measureContrast(auditPage, 'all-items-empty-dark');
+      expect(emptyRows.some((row) => row.kind === 'text' && !row.exempt && row.ratio !== null), 'dark empty state has measured text').toBe(true);
+      await keyboardSweep(auditPage, 'all-items-empty-dark');
+      const emptyTargets = await targetSizeShortfalls(auditPage);
+      await test.info().attach('targets-all-items-empty-dark.json', { body: JSON.stringify(emptyTargets, null, 2), contentType: 'application/json' });
+      expect(emptyTargets, 'dark empty state targets >=24').toEqual([]);
+      const failureUrl = `**/api/v1/households/${householdId}/items/summary`;
+      const failure = (route: import('@playwright/test').Route) => route.fulfill({ status: 500, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 500, code: 'unavailable' }) });
+      await auditPage.route(failureUrl, failure);
+      await auditPage.goto('/');
+      await expect(auditPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await expect(auditPage.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+      await expect(auditPage.locator('html'), 'home error dark state applied').toHaveAttribute('data-theme', 'dark');
+      await runAxe(auditPage, 'home-error-dark');
+      const errorRows = await measureContrast(auditPage, 'home-error-dark');
+      expect(errorRows.some((row) => row.kind === 'text' && !row.exempt && row.ratio !== null), 'dark error state has measured text').toBe(true);
+      await keyboardSweep(auditPage, 'home-error-dark');
+      await auditPage.unroute(failureUrl, failure);
+
       for (const route of signedOutRoutes) {
         await signedOut.goto(route.path);
         await expect(signedOut.getByRole('main')).toBeVisible();
@@ -3595,11 +3783,7 @@ test.describe('Tendo production journey', () => {
         const aria = await signedOut.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
-        const targets = await signedOut.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
-          if (node.matches('.sr-only')) return false;
-          const box = node.getBoundingClientRect();
-          return box.width > 0 && box.height > 0 && (box.width < 24 - 1 / 64 || box.height < 24 - 1 / 64);
-        }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim(), rect: node.getBoundingClientRect().toJSON() })));
+        const targets = await targetSizeShortfalls(signedOut);
         await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(targets, null, 2), contentType: 'application/json' });
         expect(targets, `${route.name} target size >=24`).toEqual([]);
         await runAxe(signedOut, `${route.name}-default`);
@@ -3620,6 +3804,53 @@ test.describe('Tendo production journey', () => {
             measured.push({ route: route.name, zoom: percent, ...metrics });
           } finally { await zoomContext.close(); }
         }
+        await signedOut.goto(route.path);
+        if (route.name === 'invitation-acceptance') {
+          // useInviteVisit captures and strips #token with replaceState, so after the first document load the URL is
+          // /invite. Persist the preference on that page, then perform an actual reload (not another hash-only goto).
+          await expect(signedOut).toHaveURL(/\/invite$/);
+          const marker = `invite-document-${Date.now()}`;
+          await signedOut.evaluate((value) => { (window as unknown as { __inviteReloadMarker?: string }).__inviteReloadMarker = value; }, marker);
+          const beforeHash = await signedOut.evaluate(() => performance.getEntriesByType('navigation').length);
+          await signedOut.goto('/invite#' + 'B'.repeat(43));
+          const hashEvidence = await signedOut.evaluate(() => ({
+            marker: (window as unknown as { __inviteReloadMarker?: string }).__inviteReloadMarker ?? null,
+            navigationEntries: performance.getEntriesByType('navigation').length,
+            path: `${location.pathname}${location.hash}`,
+          }));
+          expect(hashEvidence.marker, 'hash-only invite goto retains the current window').toBe(marker);
+          expect(hashEvidence.navigationEntries).toBe(beforeHash);
+          await expect(signedOut).toHaveURL(/\/invite$/); // useInviteVisit strips the new token with replaceState
+          await signedOut.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+          await signedOut.evaluate(() => { (window as unknown as { __inviteReloadMarker?: string }).__inviteReloadMarker = 'before-fresh-load'; });
+          // The app strips #token from history, so page.reload() would lose the invitation. A fresh navigation to
+          // the original token URL through about:blank proves the stored preference on a new document and preserves token.
+          await signedOut.goto('about:blank');
+          await signedOut.goto(route.path);
+          const reloadEvidence = await signedOut.evaluate(() => ({
+            marker: (window as unknown as { __inviteReloadMarker?: string }).__inviteReloadMarker ?? null,
+            navigationEntries: performance.getEntriesByType('navigation').length,
+            navigationType: (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type ?? null,
+            path: `${location.pathname}${location.hash}`,
+          }));
+          expect(reloadEvidence.marker, 'fresh invite document does not retain the previous window marker').toBeNull();
+          expect(reloadEvidence.navigationEntries).toBeGreaterThan(0);
+          expect(reloadEvidence.navigationType).toBe('navigate');
+          expect(reloadEvidence.path).toBe('/invite'); // useInviteVisit strips the token after capturing it
+          await expect(route.content(signedOut), 'fresh token URL still renders the invitation').toBeVisible();
+        } else {
+          await signedOut.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+          await signedOut.goto(route.path);
+        }
+        await expect(signedOut.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
+        await expect(signedOut.locator('html'), `${route.name} dark preference applied`).toHaveAttribute('data-theme', 'dark');
+        await measureContrast(signedOut, `${route.name}-dark`, route.name === 'login' || route.name === 'invitation-acceptance');
+        await runAxe(signedOut, `${route.name}-dark`);
+        const darkTargets = await targetSizeShortfalls(signedOut);
+        expect(darkTargets, `${route.name} dark target size >=24`).toEqual([]);
+        await keyboardSweep(signedOut, `${route.name}-dark`);
+        await signedOut.evaluate(() => localStorage.removeItem('tendo.theme'));
+        await signedOut.goto(route.path);
       }
       const contrastPairs = [...new Set(contrastEvidence.map((row) => `${row.foreground} on ${row.background}`))];
       const contrastSummary = contrastPairs.map((pair) => {

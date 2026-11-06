@@ -1886,7 +1886,10 @@ describe('Home items', () => {
     expect(await within(form).findByRole('alert')).toHaveTextContent(message);
     expect(previousDate).toHaveFocus();
     expect(previousDate).toHaveAttribute('aria-invalid', 'true');
-    expect(previousDate.getAttribute('aria-describedby')).toBe(within(form).getByRole('alert').id);
+    const [hintId, errorId] = previousDate.getAttribute('aria-describedby')!.split(' ');
+    expect(document.getElementById(hintId!)).toHaveTextContent("Only enter a date you know. We'll use it to set the first attention date.");
+    expect(errorId).toBe(within(form).getByRole('alert').id);
+    expect(previousDate).toHaveAccessibleDescription(`Only enter a date you know. We'll use it to set the first attention date. ${message}`);
     expect(previousDate).toHaveValue('2025-06-12');
     if (attention) expect(within(form).getByLabelText('When should this need attention?')).toHaveValue('2026-10-20');
     const body = JSON.parse(requestsOf(fake.requests, 'POST', `${base}/items`)[0]!.body);

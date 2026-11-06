@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { focusIndicatorSignature, hasPaintedFocusIndicator } from './focusIndicator';
+import { createTabRepeatGuard } from './tabRepeatGuard';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -47,6 +49,56 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (outputDirectory) await rm(outputDirectory, { recursive: true, force: true });
+});
+
+test('Tab repeat guard distinguishes trapped controls from native date segments in a real browser', async ({ page }) => {
+  await page.setContent(`<button id="before">Before</button><button id="trapped">Trapped</button><button id="after">After</button>
+    <script>document.querySelector('#trapped').addEventListener('keydown', event => { if (event.key === 'Tab') event.preventDefault(); });</script>`);
+  await page.locator('#before').focus();
+  const trappedGuard = createTabRepeatGuard(3);
+  await page.keyboard.press('Tab');
+  const trappedId = await page.evaluate(() => (document.activeElement as HTMLElement).id);
+  expect(trappedGuard.observe(trappedId, await page.evaluate(() => document.activeElement?.matches('input[type="date"]') ?? false))).toBe('new');
+  await page.keyboard.press('Tab');
+  const stillTrappedId = await page.evaluate(() => (document.activeElement as HTMLElement).id);
+  expect(stillTrappedId).toBe('trapped');
+  expect(trappedGuard.observe(stillTrappedId, false)).toBe('trap');
+
+  await page.setContent('<button id="date-before">Before</button><input id="date" type="date"><button id="date-after">After</button>');
+  await page.locator('#date-before').focus();
+  const dateGuard = createTabRepeatGuard(3);
+  const results: string[] = [];
+  let current = '';
+  for (let i = 0; i < 5 && current !== 'date-after'; i += 1) {
+    await page.keyboard.press('Tab');
+    current = await page.evaluate(() => (document.activeElement as HTMLElement).id);
+    const isDate = await page.evaluate(() => document.activeElement?.matches('input[type="date"]') ?? false);
+    results.push(dateGuard.observe(current, isDate));
+  }
+  expect(results).toContain('segment');
+  expect(results.every((result) => result === 'new' || result === 'segment')).toBe(true);
+  expect(current).toBe('date-after');
+  expect(results).not.toContain('trap');
+
+  // Cap semantics: 3 additional presses on one date input are segments; the 4th additional press is a trap.
+  const capGuard = createTabRepeatGuard(3);
+  expect(Array.from({ length: 5 }, () => capGuard.observe('date', true))).toEqual(['new', 'segment', 'segment', 'segment', 'trap']);
+});
+
+test('focus indicator helper distinguishes visible and absent focus paint in a real browser', async ({ page }) => {
+  await page.setContent(`<style>
+    #invisible:focus { outline: none; box-shadow: none; }
+    #visible:focus { outline: 3px solid rgb(0, 120, 255); }
+  </style><button id="invisible">Invisible</button><button id="visible">Visible</button>`);
+  const invisible = page.locator('#invisible');
+  await invisible.focus();
+  expect(await invisible.evaluate(hasPaintedFocusIndicator)).toBe(false);
+  expect(await invisible.evaluate(focusIndicatorSignature)).toBe(await page.locator('#visible').evaluate(focusIndicatorSignature));
+  const visible = page.locator('#visible');
+  await visible.focus();
+  expect(await visible.evaluate(hasPaintedFocusIndicator)).toBe(true);
+  // The focused signature must differ from the same element's unfocused signature.
+  expect(await visible.evaluate(focusIndicatorSignature)).not.toBe(await invisible.evaluate(focusIndicatorSignature));
 });
 
 test('native dialog close synchronizes controlled state and can reopen', async ({ page }) => {
