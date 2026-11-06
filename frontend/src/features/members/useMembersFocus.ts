@@ -41,7 +41,7 @@ export function useMembersFocus(f: FocusInputs) {
   usePageHeadingFocus(f.memberPageFocusRef, f.memberHeadingRef, f.members, f.memberBusy);
   usePageHeadingFocus(f.invitationPageFocusRef, f.invitationHeadingRef, f.invitations, f.invitationBusy);
   useEffect(() => {
-    if (notice && notice !== t('members.invite.manualCopy')) noticeRef.current?.focus();
+    if (notice) noticeRef.current?.focus();
   }, [notice, t, noticeRef]);
   useEffect(() => {
     if (pendingLinkFocusRef.current && link) {

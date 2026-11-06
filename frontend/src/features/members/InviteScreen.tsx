@@ -105,6 +105,7 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
   return <Layout><section className="settle">
     {flow.valid ? <>
       <Heading className={`font-display text-3xl leading-tight sm:text-4xl ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
+      <p className="mt-3 max-w-prose text-muted">{t(flow.currentSession ? 'invite.signedIn.intro' : 'invite.intro')}</p>
       <InviteNotice error={flow.error} accepted={flow.accepted} noticeRef={flow.noticeRef} t={t} />
       {flow.error === 'alreadyMember' || flow.error === 'invalid'
         ? <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">

@@ -1162,7 +1162,8 @@ test.describe('Tendo production journey', () => {
     await page.getByRole('link', { name: en['home.members'], exact: true }).click();
     await expect(page).toHaveURL(/\/members$/);
     await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
-    const ownerRow = page.getByRole('listitem').filter({ hasText: ownerLogin });
+    const memberList = page.getByRole('main').getByRole('list', { name: en['members.list.title'] });
+    const ownerRow = memberList.getByRole('listitem').filter({ hasText: ownerLogin });
     await expect(ownerRow).toContainText(en['members.role.owner']);
     await expect(ownerRow).toContainText(en['members.you']);
 
@@ -1219,11 +1220,12 @@ test.describe('Tendo production journey', () => {
       await memberPage.getByRole('link', { name: en['home.members'], exact: true }).click();
       await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
       await waitForSettledHouseholdRequests(memberPage);
-      const memberRows = memberPage.getByRole('listitem');
-      await expect(memberRows.filter({ hasText: ownerLogin })).toContainText(en['members.role.owner']);
-      await expect(memberRows.filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
+      const memberRows = memberPage.getByRole('main').getByRole('list', { name: en['members.list.title'] });
+      await expect(memberRows.getByRole('listitem').filter({ hasText: ownerLogin })).toContainText(en['members.role.owner']);
+      await expect(memberRows.getByRole('listitem').filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
       await expect(memberPage.getByRole('button', { name: en['members.invite.action'] })).toHaveCount(0);
-      await expect(memberPage.getByText(en['members.ownerOnly'])).toBeVisible();
+      await expect(memberPage.getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
+      await expect(memberPage.getByText(en['members.help.body'])).toBeVisible();
 
       await memberPage.getByRole('button', { name: en['header.signOut'] }).click();
       await expect(memberPage.getByRole('heading', { name: en['login.title'] })).toBeVisible();
@@ -1254,7 +1256,7 @@ test.describe('Tendo production journey', () => {
       await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
       const refreshedInvitations = page.getByRole('heading', { name: en['members.invitations.title'] }).locator('..');
       await expect(refreshedInvitations).toContainText(en['members.invitation.status.accepted']);
-      await expect(page.getByRole('listitem').filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
+      await expect(page.getByRole('main').getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
 
       await memberPage.goto(firstLink);
       await memberPage.getByRole('button', { name: en['invite.join'] }).click();
@@ -2411,7 +2413,7 @@ test.describe('Tendo production journey', () => {
         await check(`People and things ${width}`, [main.getByRole('button', { name: en['subjects.add'], exact: true })], [main.getByRole('listitem').filter({ hasText: 'Anička' }).first()]);
         await page.goto('/members');
         await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
-        await check(`Members ${width}`, [main.getByRole('button', { name: en['members.invite.action'], exact: true })], [main.getByRole('listitem').filter({ hasText: ownerLogin }).first()]);
+        await check(`Members ${width}`, [main.getByRole('button', { name: en['members.invite.action'], exact: true })], [main.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: ownerLogin }).first()]);
         await page.goto('/account');
         await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
         // n9 already linked the owner, so Account has no primary action: assert the linked section content instead.
@@ -2949,7 +2951,7 @@ test.describe('Tendo production journey', () => {
     await main.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
     await expect(main.getByText(en['members.error.requestRefused'], { exact: true })).toHaveCount(0);
     await expect(main.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
-    await expect(main.getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
+    await expect(main.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
 
     // Repeat the list failure in Czech to verify localized recovery copy, then restore English.
     await page.getByRole('button', { name: 'Čeština', exact: true }).click();
@@ -3098,7 +3100,7 @@ test.describe('Tendo production journey', () => {
       await membersHold.hit;
       await expectLoading(en['members.loading']);
       membersHold.release();
-      await expect(main.getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
+      await expect(main.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
       await page.unroute(membersHold.url, membersHold.handler);
       ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === membersHold.handler), 1);
 
@@ -3769,7 +3771,7 @@ test.describe('Tendo production journey', () => {
       const memberPageOne = await memberRows.allTextContents();
       const invitationHeading = page.getByRole('heading', { name: en['members.invitations.title'] });
       const invitationSection = invitationHeading.locator('..');
-      const invitationRows = invitationSection.locator('ul').getByRole('listitem');
+      const invitationRows = invitationSection.getByRole('list', { name: en['members.invitations.title'] }).getByRole('listitem');
       await expect.poll(async () => invitationRows.count()).toBe(50);
       const firstInvitationRows = await invitationRows.allTextContents();
       expect(firstInvitationRows.length).toBe(50);
@@ -3871,8 +3873,11 @@ test.describe('Tendo production journey', () => {
         await actor.goto(name === 'subjects' ? '/people' : '/members');
         const main = actor.getByRole('main');
         const scope = name === 'subjects' ? main
-          : main.getByRole('heading', { name: en[name === 'members' ? 'members.list.title' : 'members.invitations.title'], exact: true }).locator('xpath=ancestor::section[1]');
-        const rows = name === 'subjects' ? scope.locator('[data-focus^="row:"]') : scope.locator('ul').last().locator(':scope > li');
+          : name === 'members' ? main.getByRole('region', { name: en['members.list.title'] })
+            : main.getByRole('region', { name: en['members.invite.title'] });
+        const rows = name === 'subjects' ? scope.locator('[data-focus^="row:"]')
+          : name === 'members' ? scope.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem')
+            : scope.getByRole('list', { name: en['members.invitations.title'] }).getByRole('listitem');
         const pager = scope.locator(`button[data-${kind}-page]`);
         const next = pager.filter({ hasText: en[`${prefix}.page.next`] });
         const visible = async (): Promise<string[]> => name === 'subjects'
@@ -4108,7 +4113,7 @@ test.describe('Tendo production journey', () => {
         { path: '/items', name: 'All items', heading: en['allItems.title'], ready: deep.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem').first(), action: deepMain.getByRole('button', { name: en['allItems.searchButton'], exact: true }) },
         { path: `/items/${itemId}`, name: 'item detail', heading: renamed, ready: deepMain.getByRole('heading', { level: 2, name: en['itemDetail.history'] }), action: deepMain.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }) },
         { path: '/people', name: 'People and things', heading: en['subjects.title'], ready: deepMain.getByRole('listitem').first(), action: deepMain.getByRole('button', { name: en['subjects.add'], exact: true }) },
-        { path: '/members', name: 'Members', heading: en['members.title'], ready: deepMain.getByRole('listitem').filter({ hasText: ownerLogin }).first(), action: deepMain.getByRole('button', { name: en['members.invite.action'], exact: true }) },
+        { path: '/members', name: 'Members', heading: en['members.title'], ready: deepMain.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: ownerLogin }).first(), action: deepMain.getByRole('button', { name: en['members.invite.action'], exact: true }) },
         { path: '/account', name: 'Account', heading: en['account.title'], ready: deepMain.getByRole('heading', { level: 2, name: en['account.preferences.title'] }) },
       ];
       for (const route of routes) {
@@ -4884,10 +4889,10 @@ test.describe('Tendo production journey', () => {
       await page.getByRole('button', { name: en['members.invite.copy'], exact: true }).click();
       await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shownLink);
       await page.getByRole('button', { name: en['members.invite.copiedButton'] }).click();
-      await expect(page.getByRole('status')).toContainText(en['members.invite.copied']);
+      await expect(page.getByRole('region', { name: en['members.invite.title'] }).getByRole('status')).toContainText(en['members.invite.copied']);
       await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: () => Promise.reject(new Error('clipboard denied')) }));
       await page.getByRole('button', { name: en['members.invite.copiedButton'] }).click();
-      await expect(page.getByRole('status')).toContainText(en['members.invite.manualCopy']);
+      await expect(page.getByRole('region', { name: en['members.invite.title'] }).getByRole('status')).toContainText(en['members.invite.manualCopy']);
       await expect(linkField).toBeFocused();
       await expect(linkField).toHaveJSProperty('selectionStart', 0);
       await expect(linkField).toHaveJSProperty('selectionEnd', shownLink.length);

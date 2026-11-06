@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Translate } from '../../i18n';
 import type { State } from './membersModel';
+
+export type NoticeTone = 'neutral' | 'success';
 
 /**
  * Shared screen state and request guards. Effect order is observable and
@@ -13,6 +15,11 @@ export function useMembersCore(onSignedOut: () => void, t: Translate) {
   const [owner, setOwner] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeTone, setNoticeTone] = useState<NoticeTone>('neutral');
+  const setTypedNotice = useCallback((message: string | null, tone: NoticeTone = 'neutral') => {
+    setNotice(message);
+    setNoticeTone(tone);
+  }, [setNotice, setNoticeTone]);
   const onSignedOutRef = useRef(onSignedOut);
   useEffect(() => { onSignedOutRef.current = onSignedOut; }, [onSignedOut]);
   const mountedRef = useRef(false);
@@ -29,7 +36,7 @@ export function useMembersCore(onSignedOut: () => void, t: Translate) {
   }, []);
 
   return {
-    state, setState, owner, setOwner, attempt, setAttempt, notice, setNotice, noticeRef,
+    state, setState, owner, setOwner, attempt, setAttempt, notice, setNotice: setTypedNotice, noticeTone, noticeRef,
     onSignedOutRef, tRef, mountedRef, memberGenerationRef, memberPageGenerationRef, invitationGenerationRef,
   };
 }

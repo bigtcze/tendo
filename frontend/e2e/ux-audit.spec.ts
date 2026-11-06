@@ -7,6 +7,7 @@ import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
+import { captureMembers } from './audit/members';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
@@ -212,15 +213,38 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await signedOut.goto(`/invite#${auditInvite.token}`);
     await expect(signedOut.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
     await capture(signedOut, join(dir, `audit-invite-accept-en-${width}.png`));
-    if (width === 390) {
+    if (width === 390 || width === 1440) {
       await signedOut.goto('/');
       await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+      await signedOut.reload();
       await signedOut.goto(`/invite#${auditInvite.token}`);
       await expect(signedOut.getByRole('heading', { level: 1, name: cs['invite.title'] })).toBeVisible();
-      await capture(signedOut, join(dir, 'audit-invite-accept-cs-390.png'));
+      await capture(signedOut, join(dir, `audit-invite-accept-cs-${width}.png`));
     }
+    const incompletePage = await context.newPage();
+    await incompletePage.goto('/');
+    await incompletePage.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+    await incompletePage.reload();
+    await incompletePage.goto('/invite');
+    await expect(incompletePage.getByRole('heading', { level: 1, name: en['invite.incomplete'] })).toBeVisible();
+    await capture(incompletePage, join(dir, `audit-invite-incomplete-en-${width}.png`));
+    const invalidPage = await context.newPage();
+    await invalidPage.route('**/api/v1/auth/invitations/accept', route => route.request().method() === 'POST'
+      ? route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Not Found', status: 404, code: 'invalid_invite' }) })
+      : route.fallback());
+    await invalidPage.goto('/');
+    await invalidPage.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+    await invalidPage.reload();
+    await invalidPage.goto(`/invite#${'Z'.repeat(43)}`);
+    await expect(invalidPage.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
+    await invalidPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_invalid_invite');
+    await invalidPage.getByLabel(en['onboarding.password'], { exact: true }).fill('audit-member-password-long-enough');
+    await invalidPage.getByRole('button', { name: en['invite.create'], exact: true }).click();
+    await expect(invalidPage.getByRole('status')).toContainText(/invite link can’t be used/);
+    await capture(invalidPage, join(dir, `audit-invite-invalid-en-${width}.png`));
     await context.close();
   }
+
   const subjects: string[] = [];
   const activeSubjects: string[] = [];
   for (const subject of [
@@ -792,6 +816,12 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(page.getByRole('main').getByText(`audit_owner (${en['members.you']})`, { exact: true })).toBeVisible();
         await expect(page.getByRole('main').getByText('audit_member', { exact: true })).toBeVisible();
         await expect(page.getByRole('heading', { name: en['members.invitations.title'] })).toBeVisible();
+        const memberInvitations = page.getByRole('list', { name: en['members.invitations.title'] });
+        await expect(memberInvitations.getByRole('listitem').first()).toBeVisible();
+        const acceptedInvite = memberInvitations.getByRole('listitem').filter({ hasText: en['members.invitation.status.accepted'] }).first();
+        const pendingInvite = memberInvitations.getByRole('listitem').filter({ hasText: en['members.invitation.status.pending'] }).first();
+        await expect(acceptedInvite.locator('p').nth(1)).toContainText(/Created .+ · Expires .+/);
+        await expect(pendingInvite.getByRole('button', { name: en['members.invitation.revoke'], exact: true })).toBeVisible();
         await capture(page, join(dir, `audit-members-en-${width}.png`));
         const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
         const memberPage = await memberContext.newPage(); await memberPage.goto('/login');
@@ -800,10 +830,22 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
         await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
         await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+        await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.list.title'] }).getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
+        await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.help.title'] }).getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
+        if (width === 390 || width === 1440) {
+          await expect(memberPage.getByRole('main').getByText(en['members.help.body'], { exact: true })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByRole('button', { name: en['members.invite.action'], exact: true })).toHaveCount(0);
+          await expect(memberPage.getByRole('main').getByRole('heading', { name: en['members.invitations.title'] })).toHaveCount(0);
+        }
         await capture(memberPage, join(dir, `audit-members-non-owner-en-${width}.png`));
         if (width === 390 || width === 1440) {
           await memberPage.goto('/'); await memberPage.evaluate(() => localStorage.setItem('tendo.locale', 'cs')); await memberPage.reload();
           await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: cs['members.title'] })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByRole('region', { name: cs['members.list.title'] }).getByRole('list', { name: cs['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
+          await expect(memberPage.getByRole('main').getByRole('heading', { name: cs['members.help.title'] })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByText(cs['members.help.body'], { exact: true })).toBeVisible();
+          await expect(memberPage.getByRole('main').getByRole('button', { name: cs['members.invite.action'], exact: true })).toHaveCount(0);
+          await expect(memberPage.getByRole('main').getByRole('heading', { name: cs['members.invitations.title'] })).toHaveCount(0);
           await capture(memberPage, join(dir, `audit-members-non-owner-cs-${width}.png`));
         }
         await memberContext.close();
@@ -978,6 +1020,9 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
   // V3-11: People states run before the household journeys; the 1,000+ subject walk runs last among People evidence.
   metrics.stages.people = { ...(await capturePeopleStates(page, browser, dir, capture, api, root)), ...(await capturePeopleScale(page, dir, capture, api, root)) };
   Object.assign(journeyMetrics, await runHouseholdJourneys(page, browser, householdId, process.env.E2E_OWNER_PASSWORD!));
+  await page.goto('/members');
+  await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+  await captureMembers(page, browser, dir, capture);
   metrics.journeys = journeyMetrics;
   metrics.routes = routeMetrics;
   metrics.stages.routeOverflow = routeOverflow;

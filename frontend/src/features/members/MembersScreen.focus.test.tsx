@@ -40,7 +40,7 @@ describe('members screen focus ordering', () => {
     const heading = screen.getByRole('heading', { name: 'Members' });
     const headingFocus = vi.fn();
     heading.addEventListener('focus', headingFocus);
-    await userEvent.click(within(heading.parentElement!).getByRole('button', { name: 'Next page' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Members' })).getByRole('button', { name: 'Next page' }));
     await act(async () => { memberPage.release(problem(503)); await memberPage.pending; });
     expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
     expect(headingFocus).not.toHaveBeenCalled();
@@ -58,9 +58,8 @@ describe('members screen focus ordering', () => {
     });
     await openMembers();
     const memberHeading = screen.getByRole('heading', { name: 'Members' });
-    const invitationHeading = screen.getByRole('heading', { name: 'Invitations' });
-    await userEvent.click(within(memberHeading.parentElement!).getByRole('button', { name: 'Next page' }));
-    await userEvent.click(within(invitationHeading.parentElement!).getByRole('button', { name: 'Next page' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Members' })).getByRole('button', { name: 'Next page' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Invite someone' })).getByRole('button', { name: 'Next page' }));
     (document.activeElement as HTMLElement | null)?.blur();
     await act(async () => {
       memberPage.release(json(200, { items: [{ userId: 'member2', login: 'member_two', role: 'member' }], nextCursor: null }));
