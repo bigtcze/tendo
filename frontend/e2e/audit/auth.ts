@@ -1,0 +1,232 @@
+import { expect, type Browser, type Locator, type Page } from '@playwright/test';
+import { join } from 'node:path';
+import { en } from '../../src/i18n/en';
+import { cs } from '../../src/i18n/cs';
+import { expectNoAxeViolations } from '../a11y';
+
+const widths = [320, 390, 768, 1024, 1440] as const;
+const heightFor = (width: number) => width <= 320 ? 640 : width < 768 ? 844 : width < 1440 ? 1024 : 900;
+type Capture = (page: Page, path: string, fullPage?: boolean, mask?: Locator[]) => Promise<void>;
+
+async function shot(page: Page, dir: string, name: string, capture: Capture, width: number, mask: Locator[] = []) {
+  const size = page.viewportSize();
+  expect(size?.width, `${name} configured viewport`).toBe(width);
+  expect(await page.evaluate(() => window.innerWidth), `${name} actual viewport`).toBe(width);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${name} has no horizontal overflow`).toBe(true);
+  await capture(page, join(dir, name), false, mask);
+}
+
+async function setLocale(page: Page, locale: 'en' | 'cs') {
+  await page.evaluate((value) => localStorage.setItem('tendo.locale', value), locale);
+  await page.reload();
+}
+
+/** Auth/first-run capture scenarios. Synthetic password/setup material is only typed into masked fields, never captured. */
+export async function captureAuth(page: Page, browser: Browser, dir: string, capture: Capture) {
+  for (const width of widths) {
+    const setupContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: heightFor(width) } });
+    const setupPage = await setupContext.newPage();
+    await setupPage.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+    await setupPage.route('**/api/v1/auth/setup', route => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: true }) })
+      : route.fallback());
+    await setupPage.goto('/');
+    await expect(setupPage.getByRole('heading', { level: 1, name: en['onboarding.title'] })).toBeVisible();
+    await shot(setupPage, dir, `auth-onboarding-en-${width}.png`, capture, width);
+    await setupContext.close();
+    if (width === 390 || width === 1440) {
+      const csContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: heightFor(width) } });
+      const csPage = await csContext.newPage();
+      await csPage.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+      await csPage.route('**/api/v1/auth/setup', route => route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: true }) })
+        : route.fallback());
+      await csPage.goto('/');
+      await setLocale(csPage, 'cs');
+      await expect(csPage.getByRole('heading', { level: 1, name: cs['onboarding.title'] })).toBeVisible();
+      await shot(csPage, dir, `auth-onboarding-cs-${width}.png`, capture, width);
+      await csContext.close();
+    }
+  }
+  const validationContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  const validationPage = await validationContext.newPage();
+  await validationPage.route('**/api/v1/auth/setup', route => route.request().method() === 'GET'
+    ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: true }) })
+    : route.fallback());
+  await validationPage.goto('/');
+  await validationPage.getByRole('button', { name: en['onboarding.submit'], exact: true }).click();
+  await expect(validationPage.getByRole('alert')).toBeVisible();
+  await expectNoAxeViolations(validationPage, 'auth-onboarding-validation');
+  await shot(validationPage, dir, 'auth-onboarding-validation-en-390.png', capture, 390);
+  await validationContext.close();
+
+  const setupErrorContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  const setupError = await setupErrorContext.newPage();
+  await setupError.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+  await setupError.route('**/api/v1/auth/setup', route => route.request().method() === 'GET'
+    ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: true }) })
+    : route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' }) }));
+  await setupError.goto('/');
+  await setupError.getByLabel(en['onboarding.setupCode'], { exact: true }).fill('auth-audit-code');
+  await setupError.getByLabel(en['onboarding.householdName'], { exact: true }).fill('Audit home');
+  await setupError.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_owner');
+  await setupError.getByLabel(en['onboarding.password'], { exact: true }).fill('synthetic-password-never-captured');
+  await setupError.getByRole('button', { name: en['onboarding.submit'], exact: true }).click();
+  await expect(setupError.getByRole('alert')).toBeVisible();
+  await shot(setupError, dir, 'auth-onboarding-server-error-en-390.png', capture, 390);
+  await setupErrorContext.close();
+
+  for (const width of widths) {
+    const context = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: heightFor(width) } });
+    const signedOut = await context.newPage();
+    await signedOut.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+    await signedOut.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
+    await signedOut.route('**/api/v1/auth/oidc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, displayName: 'OIDC Smoke Provider' }) }));
+    await signedOut.goto('/login');
+    await expect(signedOut.getByRole('heading', { level: 1, name: en['login.welcome'] })).toBeVisible();
+    await expectNoAxeViolations(signedOut, `auth-login-${width}`);
+    await shot(signedOut, dir, `auth-login-en-${width}.png`, capture, width);
+    if (width === 390 || width === 1440) {
+      await signedOut.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+      await shot(signedOut, dir, `auth-login-forced-dark-en-${width}.png`, capture, width);
+      await signedOut.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+      await setLocale(signedOut, 'cs');
+      await expect(signedOut.getByRole('heading', { level: 1, name: cs['login.welcome'] })).toBeVisible();
+      await shot(signedOut, dir, `auth-login-cs-${width}.png`, capture, width);
+      await signedOut.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+      await signedOut.reload();
+    }
+    await signedOut.getByLabel(en['login.login'], { exact: true }).fill('audit_missing_user');
+    await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-synthetic-password');
+    await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();
+    await expect(signedOut.getByRole('alert')).toContainText('username or password');
+    await expect(signedOut.getByLabel(en['login.login'], { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(signedOut.getByLabel(en['login.password'], { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
+    await shot(signedOut, dir, `auth-login-error-en-${width}.png`, capture, width);
+    if (width === 390) {
+      await signedOut.route('**/api/v1/session', route => route.request().method() === 'POST'
+        ? route.fulfill({ status: 429, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Limited', status: 429 }) })
+        : route.fallback());
+      await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-synthetic-password');
+      await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      await expect(signedOut.getByRole('alert')).toContainText(en['login.error.rateLimited']);
+      await shot(signedOut, dir, 'auth-login-rate-limited-en-390.png', capture, 390);
+    }
+    await context.close();
+  }
+
+  const sessionEnded = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  const ended = await sessionEnded.newPage();
+  await ended.route('**/api/v1/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ userId: '0198a2f0-0000-7000-8000-000000000001', login: 'audit_owner', defaultHouseholdId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', expiresAt: '2030-01-01T00:00:00Z' }) }));
+  await ended.route('**/api/v1/households/*', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+  await ended.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
+  await ended.goto('/');
+  await expect(ended.getByRole('heading', { level: 1, name: en['login.welcome'] })).toBeVisible();
+  await expect(ended.getByRole('status')).toContainText(en['login.sessionEnded']);
+  await shot(ended, dir, 'auth-login-session-ended-en-390.png', capture, 390);
+  await sessionEnded.close();
+
+  const oidcContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  const oidc = await oidcContext.newPage();
+  await oidc.route('**/api/v1/auth/oidc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, displayName: 'OIDC Smoke Provider' }) }));
+  await oidc.goto('/login');
+  await expect(oidc.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', 'OIDC Smoke Provider'), exact: true })).toBeVisible();
+  await shot(oidc, dir, 'auth-login-oidc-available-en-390.png', capture, 390);
+  await oidc.unroute('**/api/v1/auth/oidc');
+  let providerChecks = 0;
+  await oidc.route('**/api/v1/auth/oidc', route => {
+    providerChecks += 1;
+    return route.fulfill({ status: providerChecks === 1 ? 503 : 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, displayName: 'OIDC Smoke Provider' }) });
+  });
+  await oidc.reload();
+  await expect(oidc.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+  await shot(oidc, dir, 'auth-login-oidc-provider-error-en-390.png', capture, 390);
+  await oidc.getByRole('button', { name: en['app.error.retry'], exact: true }).click();
+  await expect(oidc.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', 'OIDC Smoke Provider'), exact: true })).toBeVisible();
+  const oidcOutcomePage = await oidcContext.newPage();
+  await oidcOutcomePage.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+  await oidcOutcomePage.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
+  await oidcOutcomePage.goto('/login#oidcError=cancelled');
+  await expect(oidcOutcomePage.getByRole('status')).toContainText(en['oidc.error.cancelled']);
+  expect(new URL(oidcOutcomePage.url()).hash, 'OIDC callback fragment is scrubbed').toBe('');
+  await shot(oidcOutcomePage, dir, 'auth-login-oidc-outcome-en-390.png', capture, 390);
+  await oidcContext.close();
+
+  for (const width of [390, 1440] as const) {
+    const accountContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: heightFor(width) } });
+    const accountPage = await accountContext.newPage();
+    await accountPage.route('**/api/v1/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ userId: '0198a2f0-0000-7000-8000-000000000001', login: 'audit_owner', expiresAt: '2030-01-01T00:00:00Z' }) }));
+    await accountPage.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
+    await accountPage.route('**/api/v1/auth/oidc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, displayName: 'OIDC Smoke Provider' }) }));
+    await accountPage.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: false }) }));
+    await accountPage.goto('/account');
+    const page = accountPage;
+    await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    await expect(page.getByLabel(en['account.oidc.password'], { exact: true })).toBeVisible();
+    await expectNoAxeViolations(page, `auth-account-unlinked-${width}`);
+    await shot(page, dir, `auth-account-unlinked-en-${width}.png`, capture, width);
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    await shot(page, dir, `auth-account-forced-dark-en-${width}.png`, capture, width);
+    await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+    await page.unroute('**/api/v1/auth/oidc/identity');
+    await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: true }) }));
+    await page.reload();
+    await expect(page.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))).toBeVisible();
+    await shot(page, dir, `auth-account-linked-en-${width}.png`, capture, width);
+    if (width === 390) {
+      await page.unroute('**/api/v1/auth/oidc/identity');
+      await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: false }) }));
+      await page.route('**/api/v1/auth/oidc/start', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401, code: 'invalid_credentials' }) }));
+      await page.reload();
+      await page.getByLabel(en['account.oidc.password'], { exact: true }).fill('bad-synthetic-password');
+      await page.getByRole('button', { name: en['account.oidc.connect'].replace('{provider}', 'OIDC Smoke Provider') }).click();
+      await expect(page.getByRole('alert')).toContainText(en['account.oidc.wrongPassword']);
+      await shot(page, dir, 'auth-account-link-error-en-390.png', capture, 390);
+    }
+    if (width === 390) await page.unroute('**/api/v1/auth/oidc/start');
+    if (width === 390) {
+      await page.unroute('**/api/v1/auth/oidc/start');
+      await page.unroute('**/api/v1/auth/oidc/identity');
+      await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: false }) }));
+    }
+    await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1, name: cs['account.title'] })).toBeVisible();
+    await shot(page, dir, `auth-account-cs-${width}.png`, capture, width);
+    await accountContext.close();
+  }
+
+  const bootContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  const boot = await bootContext.newPage();
+  let releaseSession!: () => void;
+  const sessionGate = new Promise<void>(resolve => { releaseSession = resolve; });
+  await boot.route('**/api/v1/session', async route => { await sessionGate; await route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503 }) }); });
+  await boot.goto('/');
+  await expect(boot.getByRole('status').filter({ hasText: en['app.loading'] })).toBeVisible();
+  await shot(boot, dir, 'auth-boot-loading-en-390.png', capture, 390);
+  releaseSession();
+  await expect(boot.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+  await shot(boot, dir, 'auth-boot-unavailable-en-390.png', capture, 390);
+  await bootContext.close();
+
+  const signedInNotFoundContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  await signedInNotFoundContext.addCookies(await page.context().cookies());
+  const signedInNotFound = await signedInNotFoundContext.newPage();
+  await signedInNotFound.goto('/unknown');
+  await expect(signedInNotFound.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+  await expectNoAxeViolations(signedInNotFound, 'auth-not-found-signed-in');
+  await shot(signedInNotFound, dir, 'auth-not-found-signed-in-en-390.png', capture, 390);
+  await signedInNotFoundContext.close();
+
+  const notFoundContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
+  const notFound = await notFoundContext.newPage();
+  await notFound.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
+  await notFound.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
+  await notFound.goto('/unknown');
+  await expect(notFound.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+  await expectNoAxeViolations(notFound, 'auth-not-found');
+  await shot(notFound, dir, 'auth-not-found-signed-out-en-390.png', capture, 390);
+  await notFound.getByRole('link', { name: en['app.notFound.signIn'], exact: true }).click();
+  await expect(notFound.getByRole('heading', { level: 1, name: en['login.welcome'] })).toBeVisible();
+  await notFoundContext.close();
+}

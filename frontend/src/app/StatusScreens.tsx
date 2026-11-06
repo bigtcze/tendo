@@ -2,7 +2,7 @@ import { Button } from '../components/ui/button';
 import { useI18n } from '../i18n';
 import { Heading } from './Heading';
 
-export function NotFoundScreen() {
+export function NotFoundScreen({ signedOut = false }: { signedOut?: boolean }) {
   const { t } = useI18n();
   return (
     <section className="settle mx-auto flex min-h-[40vh] w-full max-w-3xl flex-col justify-center space-y-4">
@@ -11,8 +11,8 @@ export function NotFoundScreen() {
         <p className="max-w-prose text-lg text-muted">{t('app.notFound.body')}</p>
       </div>
       <div>
-        <a href="/" className="inline-flex min-h-11 items-center rounded-xl bg-accent px-5 text-base font-medium text-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-          {t('app.notFound.home')}
+        <a href={signedOut ? '/login' : '/'} onClick={signedOut ? (event) => { event.preventDefault(); window.history.replaceState(null, '', '/login'); window.dispatchEvent(new PopStateEvent('popstate')); } : undefined} className="inline-flex min-h-11 items-center rounded-xl bg-accent px-5 text-base font-medium text-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
+          {t(signedOut ? 'app.notFound.signIn' : 'app.notFound.home')}
         </a>
       </div>
     </section>

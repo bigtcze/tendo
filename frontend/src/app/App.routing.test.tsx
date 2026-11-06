@@ -37,7 +37,7 @@ const signedInRoutes = (extra: Record<string, unknown> = {}) => ({
 
 describe('App route characterization', () => {
   it.each([
-    ['/', 'Veselí'], ['/items', 'All items'], ['/items/a/b', 'Veselí'],
+    ['/', 'Veselí'], ['/items', 'All items'], ['/items/a/b', 'We couldn’t find that page.'],
     ['/people', 'People and things'],
     ['/members', 'Household members'], ['/account', 'Your account'], ['/unknown', 'We couldn’t find that page.'],
   ])('routes %s as expected', async (path, heading) => {
@@ -126,13 +126,30 @@ describe('App route characterization', () => {
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
   });
 
-  it('shows an explicit not-found screen for unknown paths instead of silently showing home', async () => {
+  it('shows an explicit not-found screen for signed-in visitors and gives a working home link', async () => {
     window.history.replaceState(null, '', '/unknown');
     installFakeServer(signedInRoutes());
     renderApp();
     expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Go to your household' })).toHaveAttribute('href', '/');
     expect(screen.queryByRole('navigation', { name: 'Household navigation' })).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/unknown');
+  });
+
+  it('shows a not-found recovery screen for signed-out visitors with a working sign-in link', async () => {
+    window.history.replaceState(null, '', '/unknown');
+    installFakeServer({
+      'GET /api/v1/session': json(401, { type: 'about:blank', title: 'Unauthorized', status: 401 }),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+    });
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
+    const signIn = screen.getByRole('link', { name: 'Sign in' });
+    expect(signIn).toHaveAttribute('href', '/login');
+    await userEvent.click(signIn);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible();
+    expect(await screen.findByLabelText('Username')).toBeVisible();
+    expect(window.location.pathname).toBe('/login');
   });
 
   it('signed-in visitor at /people without household replaces URL with home', async () => {

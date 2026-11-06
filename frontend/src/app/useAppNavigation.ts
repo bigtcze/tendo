@@ -79,7 +79,6 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [setRoute, setOidcOutcome, transitionedRef]);
-  // Unknown URLs are presented consistently to signed-in and signed-out visitors.
   // /people without a household has nothing to show; keep the address bar honest and land on home.
   const noHouseholdOnPeople =
     state.kind === 'signedIn' && route.kind === 'people' && !state.session.defaultHouseholdId;

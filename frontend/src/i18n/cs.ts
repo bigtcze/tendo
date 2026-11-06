@@ -9,6 +9,7 @@ export const cs: Record<MessageKey, string> = {
   'app.notFound.title': 'Tuto stránku jsme nenašli.',
   'app.notFound.body': 'Adresa už nemusí platit. Vraťte se zpět nebo přejděte do své domácnosti.',
   'app.notFound.home': 'Přejít do domácnosti',
+  'app.notFound.signIn': 'Přihlásit se',
   'app.error.retry': 'Zkusit znovu',
   'app.skipToContent': 'Přeskočit na obsah',
   'header.signedInAs': 'Účet: {login}',

@@ -6,6 +6,7 @@ export const en = {
   'app.notFound.title': 'We couldn’t find that page.',
   'app.notFound.body': 'The address may be out of date. Go back or return to your household.',
   'app.notFound.home': 'Go to your household',
+  'app.notFound.signIn': 'Sign in',
   'app.error.retry': 'Try again',
   'app.skipToContent': 'Skip to content',
   'header.signedInAs': 'Signed in as {login}',

@@ -26,7 +26,11 @@ export function readRoute(path = window.location.pathname): Route {
       ? { kind: 'item', itemId }
       : { kind: 'invalidItem' };
   }
-  return path.startsWith('/items/') ? { kind: 'home' } : { kind: 'notFound' };
+  if (path.startsWith('/items/')) {
+    const segments = path.slice('/items/'.length).split('/');
+    return segments.length === 1 ? { kind: 'invalidItem' } : { kind: 'notFound' };
+  }
+  return { kind: 'notFound' };
 }
 
 export function householdNavRoute(route: Route, hasHousehold: boolean): HouseholdRoute {

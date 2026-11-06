@@ -26,7 +26,7 @@ export function SignedOutApp(props: Props) {
     {props.state.kind === 'loading' ? <LoadingScreen message={t('app.loading')} /> : null}
     {props.state.kind === 'error' ? <ErrorScreen onRetry={props.retry} /> : null}
     {props.state.kind === 'setupRequired' ? <OnboardingScreen onSignedIn={props.signedIn} onSetupComplete={props.signedOut} /> : null}
-    {props.state.kind === 'signedOut' && route.kind === 'notFound' ? <NotFoundScreen /> : null}
+    {props.state.kind === 'signedOut' && route.kind === 'notFound' ? <NotFoundScreen signedOut /> : null}
     {props.state.kind === 'signedOut' && route.kind !== 'notFound' ? <LoginScreen onSignedIn={props.signedIn} notice={notice} /> : null}
   </Layout>;
 }

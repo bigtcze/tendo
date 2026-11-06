@@ -8,13 +8,14 @@ import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
 import { captureMembers } from './audit/members';
+import { captureAuth } from './audit/auth';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
 const NOW = '2026-05-14';
 test.describe.configure({ mode: 'serial' });
 test.use({ reducedMotion: 'reduce' });
-test.setTimeout(1_800_000);
+test.setTimeout(3_600_000);
 
 const routeOverflow: Record<string, boolean> = {};
 const routeOverflowElements: Record<string, Array<{ tag: string; text: string; right: number }>> = {};
@@ -28,8 +29,8 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   const height = page.viewportSize()?.height ?? 900;
   await page.setViewportSize({ width, height });
   expect(await page.evaluate(() => window.innerWidth), `viewport width for ${path}`).toBe(width);
-  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   const file = path.split('/').pop()!;
+  if (!file.startsWith('auth-boot-loading-')) await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   const overflow = await page.evaluate(() => {
     const clientWidth = document.documentElement.clientWidth;
     return {
@@ -1023,6 +1024,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
   await page.goto('/members');
   await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
   await captureMembers(page, browser, dir, capture);
+  await page.unrouteAll({ behavior: 'wait' });
+  await captureAuth(page, browser, dir, capture);
   metrics.journeys = journeyMetrics;
   metrics.routes = routeMetrics;
   metrics.stages.routeOverflow = routeOverflow;

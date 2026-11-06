@@ -156,7 +156,7 @@ async function waitForSettledHome(page: Page, name: string) {
 }
 
 async function signIn(page: Page, password: string) {
-  await page.getByLabel(en['onboarding.login'], { exact: true }).fill(ownerLogin);
+  await page.getByLabel(en['login.login'], { exact: true }).fill(ownerLogin);
   await page.getByLabel(en['login.password']).fill(password);
   await page.getByRole('button', { name: en['login.submit'], exact: true }).click();
 }
@@ -281,10 +281,20 @@ test.describe('Tendo production journey', () => {
     expect(again.status()).toBe(409);
   });
 
-  test('e. deep link reload is served the app by the Go binary', async () => {
-    const response = await page.goto('/some/deep/route');
-    expect(response?.status()).toBe(200);
+  test('e. deep link reload is served by Go, and unrecognized app paths offer home recovery', async () => {
+    const deep = await page.goto('/some/deep/route');
+    expect(deep?.status()).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+    await expect(page.getByRole('link', { name: en['app.notFound.home'], exact: true })).toHaveAttribute('href', '/');
+    await page.getByRole('link', { name: en['app.notFound.home'], exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+    const noHouseholdPath = await page.goto('/people');
+    expect(noHouseholdPath?.status()).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    await page.goto(`/items/${'invalid-resource-path'}/detail`);
+    await expect(page.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+    await expect(page.getByRole('link', { name: en['app.notFound.home'], exact: true })).toHaveAttribute('href', '/');
   });
 
   test('f. Czech locale applies, persists across reload, and switches back', async () => {
@@ -2236,13 +2246,13 @@ test.describe('Tendo production journey', () => {
       await expectNoAxeViolations(page, 'account');
       const accountControls = async (where: string) => {
         await expect(page.getByRole('heading', { level: 1, name: en['account.title'] }), `Account heading ${where}`).toBeVisible();
-        const czech = page.getByRole('button', { name: 'Čeština' });
+        const czech = page.getByRole('main').getByRole('button', { name: 'Čeština', exact: true });
         await czech.scrollIntoViewIfNeeded();
         await expect(czech, `language switch ${where}`).toBeInViewport();
       };
       await atPageZoom('Account', (percent) => accountControls(`at ${percent}%`));
       await at320('account', () => accountControls('at 320px'));
-      await page.getByRole('button', { name: 'Čeština' }).click();
+      await page.getByRole('main').getByRole('button', { name: 'Čeština', exact: true }).click();
       try {
         await page.getByRole('link', { name: cs['nav.home'], exact: true }).click();
         await expect(group(cs['items.group.needs'])).toBeVisible();
@@ -3042,12 +3052,12 @@ test.describe('Tendo production journey', () => {
       await page.goto('/account');
       await expect(main.getByRole('heading', { level: 2, name: 'Language', exact: true })).toBeVisible();
       await waitForSettledHouseholdRequests(page);
-      await expect(main.getByText('Switch between English and Czech at the bottom of any page.', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+      await expect(main.getByText('Choose the language you’d like to use in Tendo.', { exact: true })).toBeVisible();
+      await main.getByRole('button', { name: 'Čeština', exact: true }).click();
       switchedToCzech = true;
       await expect(main.getByRole('heading', { level: 2, name: 'Jazyk', exact: true })).toBeVisible();
-      await expect(main.getByText('Mezi češtinou a angličtinou přepnete dole na každé stránce.', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'English', exact: true }).click();
+      await expect(main.getByText('Vyberte si jazyk, ve kterém chcete Tendo používat.', { exact: true })).toBeVisible();
+      await main.getByRole('button', { name: 'English', exact: true }).click();
       switchedToCzech = false;
 
       const waterItem = await serverItem('Water the plants');
@@ -3220,7 +3230,7 @@ test.describe('Tendo production journey', () => {
 
   test('q. keyboard order from the top of the page is skip link, login, password, submit; Enter submits', async () => {
     await page.goto('/');
-    const login = page.getByLabel(en['onboarding.login'], { exact: true });
+    const login = page.getByLabel(en['login.login'], { exact: true });
     await expect(login).toBeVisible();
     await expect(page.locator('body')).toBeFocused();
     await page.keyboard.press('Tab');
@@ -3295,7 +3305,7 @@ test.describe('Tendo production journey', () => {
       { path: '/items', name: 'all-items', heading: en['allItems.title'], content: (target) => target.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem').first() },
       { path: '/people', name: 'people', heading: en['subjects.title'], content: (target) => target.getByRole('main').getByRole('listitem').first() },
       { path: '/members', name: 'members', heading: en['members.title'], content: (target) => target.getByRole('main').getByRole('listitem').first() },
-      { path: '/account', name: 'account', heading: en['account.title'], content: (target) => target.getByRole('main').getByRole('heading', { level: 2, name: en['account.preferences.title'] }) },
+      { path: '/account', name: 'account', heading: en['account.title'], content: (target) => target.getByRole('main').getByRole('heading', { level: 2, name: en['account.identity.title'] }) },
     ];
     // A route is ready when its h1 and route-specific content are shown and no loading status remains.
     const loadingTexts = [...new Set([en['app.loading'], en['home.loading'], en['items.loading'], en['members.loading'], en['subjects.loading'], en['account.oidc.loading']])];
@@ -3499,8 +3509,8 @@ test.describe('Tendo production journey', () => {
         await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(tooSmall, null, 2), contentType: 'application/json' });
         expect(tooSmall, `${route.name} WCAG 2.5.8 target-size review`).toEqual([]);
         await runAxe(auditPage, `${route.name}-default`);
-        // Account's main is read-only for a password-only owner; its language switch lives in the footer.
-        await keyboardSweep(auditPage, route.name, route.name !== 'account');
+        // Account's main now contains the in-page language switch, so all visible controls are keyboard-swept.
+        await keyboardSweep(auditPage, route.name);
         for (const zoom of [200, 400] as const) await auditZoom(route, zoom);
       }
       // Measure form states separately from route-entry evidence, including populated control values.
@@ -4428,7 +4438,7 @@ test.describe('Tendo production journey', () => {
     };
     const signIntoExisting = async (actor: Page, loginName: string) => {
       await actor.goto('/');
-      await actor.getByLabel(en['onboarding.login'], { exact: true }).fill(loginName);
+      await actor.getByLabel(en['login.login'], { exact: true }).fill(loginName);
       await actor.getByLabel(en['login.password']).fill(existingAccountPassword);
       const loginResponsePromise = actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/session');
       await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
@@ -4615,7 +4625,7 @@ test.describe('Tendo production journey', () => {
       const actor = await context.newPage();
       await trackInFlightApiFetches(actor);
       await actor.goto('/');
-      await actor.getByLabel(en['onboarding.login'], { exact: true }).fill(ownerLogin);
+      await actor.getByLabel(en['login.login'], { exact: true }).fill(ownerLogin);
       await actor.getByLabel(en['login.password']).fill(ownerPassword);
       await actor.getByRole('button', { name: en['login.submit'], exact: true }).click();
       await expect(actor.getByRole('button', { name: en['header.signOut'] })).toBeVisible();

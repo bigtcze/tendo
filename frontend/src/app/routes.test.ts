@@ -8,7 +8,7 @@ describe('readRoute', () => {
     ['/items/0198a2f0-0000-7000-8000-000000000002', { kind: 'item', itemId: '0198a2f0-0000-7000-8000-000000000002' }],
     ['/items/0198A2F0-0000-7000-8000-000000000002', { kind: 'item', itemId: '0198A2F0-0000-7000-8000-000000000002' }],
     ['/items/not-a-uuid', { kind: 'invalidItem' }],
-    ['/items/a/b', { kind: 'home' }],
+    ['/items/a/b', { kind: 'notFound' }],
     ['/people', { kind: 'people' }],
     ['/members', { kind: 'members' }],
     ['/invite', { kind: 'invite' }],
