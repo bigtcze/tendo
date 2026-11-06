@@ -197,9 +197,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Install pinned Playwright Chromium prerequisites
+      - name: Install pinned Playwright browser prerequisites
         working-directory: frontend
-        run: npx --no-install playwright install --with-deps chromium
+        run: npx --no-install playwright install --with-deps chromium firefox webkit
       - name: Browser E2E against native production build and PostgreSQL
         id: e2e
         timeout-minutes: 15

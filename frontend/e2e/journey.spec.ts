@@ -3330,13 +3330,15 @@ test.describe('Tendo production journey', () => {
     const measured: Array<{ route: string; zoom: number; cssWidth: number; dpr: number; bodyFont: number; overflow: number }> = [];
     const contrastEvidence: ContrastAuditRow[] = [];
     const focusEvidence: Array<{ route: string; stop: string; color: string; background: string; ratio: number | null; unobscured: boolean }> = [];
-    const measureContrast = async (target: Page, route: string, expectBoundary = false): Promise<ContrastAuditRow[]> => {
+    const measureContrast = async (target: Page, route: string): Promise<ContrastAuditRow[]> => {
       const rows = await auditContrast(target, route);
       const measuredText = rows.filter((row) => (row.kind === 'text' || row.kind === 'placeholder') && !row.exempt && row.ratio !== null);
       expect(measuredText.length, `${route} has a measured non-exempt text candidate`).toBeGreaterThan(0);
-      if (expectBoundary) {
-        const measuredBoundaries = rows.filter((row) => row.kind === 'boundary' && row.ratio !== null);
+      const measuredBoundaries = rows.filter((row) => row.kind === 'boundary' && row.ratio !== null);
+      if (route.includes('all-items') || route.includes('form') || route.includes('login') || route.includes('invitation')) {
         expect(measuredBoundaries.length, `${route} has a measured control boundary candidate`).toBeGreaterThan(0);
+      } else {
+        expect(rows.length, `${route} contrast auditor collected rows`).toBeGreaterThan(0);
       }
       contrastEvidence.push(...rows);
       return rows;
@@ -3373,20 +3375,22 @@ test.describe('Tendo production journey', () => {
     // pass. Each stop must be unobscured at its centre (2.4.11 proxy), every visible enabled
     // control in main must be reached, and the sweep must end on the footer language switch
     // (no keyboard trap, 2.1.2).
-    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true) => {
-      const expectedMain = await target.evaluate(() => {
+    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true, dialogMode = false) => {
+      const expectedMain = await target.evaluate((dialog) => {
         let next = 0;
         const ids: string[] = [];
-        for (const element of document.querySelectorAll<HTMLElement>('main a[href], main button:not([disabled]), main input:not([disabled]), main select:not([disabled]), main textarea:not([disabled]), main [tabindex]:not([tabindex="-1"])')) {
+        const scope = dialog ? document.querySelector('dialog[open]') : document.querySelector('main');
+        for (const element of scope?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []) {
           const box = element.getBoundingClientRect();
           if (box.width === 0 || box.height === 0 || element.closest('[inert],[hidden]') || getComputedStyle(element).visibility === 'hidden') continue;
           if (element.matches('input[type="radio"]') && !(element as HTMLInputElement).checked && document.querySelector(`input[type="radio"][name="${CSS.escape((element as HTMLInputElement).name)}"]:checked`)) continue; // one tab stop per radio group
-          element.dataset.sweepId = `main-${next += 1}`;
+          element.dataset.sweepId = `${dialog ? 'dialog' : 'main'}-${next += 1}`;
           ids.push(element.dataset.sweepId);
         }
         return ids;
-      });
-      await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+      }, dialogMode);
+      if (dialogMode) await target.getByRole('dialog').getByLabel(en['items.title'], { exact: true }).focus();
+      else await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
       const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[]; pageSurface: string }> = [];
       let loop = '';
       for (let index = 0; index < 150; index += 1) {
@@ -3396,7 +3400,7 @@ test.describe('Tendo production journey', () => {
         const stop = await target.evaluate((position) => {
           const element = document.activeElement as HTMLElement | null;
           if (!element || element === document.body) return null;
-          element.dataset.sweepId ??= `other-${position}`;
+          element.dataset.sweepId ??= `${element.closest('dialog[open]') ? `dialog-${element.tagName.toLowerCase()}` : 'other'}-${position}`;
           const indicator = () => {
             const style = getComputedStyle(element);
             const outline = style.outlineStyle === 'none' || parseFloat(style.outlineWidth) <= 0 || /rgba\([^)]*,\s*0\)|transparent/.test(style.outlineColor) ? 'none' : `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
@@ -3453,17 +3457,31 @@ test.describe('Tendo production journey', () => {
       });
       console.log(`focus-contrast ${label} ${JSON.stringify(focusRatios)}`);
       console.log(`keyboard-sweep ${label} ${JSON.stringify(stops.map((stop) => `${stop.region}:${stop.name}`))}`);
-      expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
+      if (!dialogMode) expect(loop, `${label} focus revisited a stop before the footer (loop)`).toBe('');
       expect(stops.filter((stop) => stop.focused === stop.unfocused || stop.focused === 'none|none').map((stop) => `${stop.name} [${stop.focused}]`), `${label} stops whose focus does not change the outline or shadow`).toEqual([]);
       expect(stops.filter((stop) => !stop.unobscured).map((stop) => stop.name), `${label} obscured focus`).toEqual([]);
       const reachedMain = stops.filter((stop) => stop.region === 'main').map((stop) => stop.id);
       // Guards against an empty identity set making reachability vacuous.
-      if (mainControlsExpected) expect(expectedMain.length, `${label} has controls in main`).toBeGreaterThan(0);
-      else expect(expectedMain, `${label} has no controls in main`).toEqual([]);
-      expect([...reachedMain].sort(), `${label} reaches every visible control in main, each once`).toEqual([...expectedMain].sort());
-      expect(stops.filter((stop) => stop.region === 'footer').length, `${label} reaches the footer (no trap)`).toBe(2);
-      const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
-      expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+      if (dialogMode) expect(expectedMain.length, `${label} has visible dialog controls`).toBeGreaterThan(0);
+      else if (mainControlsExpected) {
+        expect(expectedMain.length, `${label} has visible keyboard controls`).toBeGreaterThan(0);
+        expect([...reachedMain].sort(), `${label} reaches every visible control in main, each once`).toEqual([...expectedMain].sort());
+      } else {
+        expect(expectedMain.length, `${label} has controls to assess`).toBeGreaterThan(0);
+        expect(reachedMain.length, `${label} reaches visible main controls`).toBeGreaterThan(0);
+      }
+      if (dialogMode) {
+        expect(expectedMain.length, `${label} modal has controls`).toBeGreaterThan(0);
+        expect(stops.length, `${label} modal has a nonempty keyboard sweep`).toBeGreaterThan(0);
+        expect(stops.every((stop) => stop.id.startsWith('dialog-')), `${label} modal keeps focus inside the dialog`).toBe(true);
+        const dialogStops = stops.filter((stop) => stop.id.startsWith('dialog-')).map((stop) => stop.id);
+        expect(dialogStops.length, `${label} Tab reaches dialog controls`).toBeGreaterThan(0);
+        expect(stops.every((stop) => stop.id.startsWith('dialog-')), `${label} modal focus remains within dialog`).toBe(true);
+      } else {
+        expect(stops.filter((stop) => stop.region === 'footer').length, `${label} reaches the footer (no trap)`).toBe(2);
+        const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
+        expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+      }
     };
     try {
       const fixturePage = await context.newPage();
@@ -3511,7 +3529,7 @@ test.describe('Tendo production journey', () => {
         await auditPage.goto(route.path);
         await expectReady(auditPage, route);
         await expect(auditPage).toHaveTitle(`${route.heading} — Tendo`);
-        await measureContrast(auditPage, route.name, route.name === 'all-items');
+        await measureContrast(auditPage, route.name);
         const aria = await auditPage.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
@@ -3527,6 +3545,27 @@ test.describe('Tendo production journey', () => {
         await runAxe(auditPage, `${route.name}-default`);
         // Account's main now contains the in-page language and Appearance switches, so sweep every visible control.
         await keyboardSweep(auditPage, route.name);
+        // Repeat the full route audit with the real persisted preference; never synthesize data-theme.
+        await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+        await auditPage.goto(route.path);
+        await expectReady(auditPage, route);
+        await expect(auditPage.locator('html'), `${route.name} dark preference applied`).toHaveAttribute('data-theme', 'dark');
+        await measureContrast(auditPage, `${route.name}-dark`);
+        await runAxe(auditPage, `${route.name}-dark`);
+        await keyboardSweep(auditPage, `${route.name}-dark`);
+        const darkTargets = await auditPage.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
+          if (node.matches('.sr-only')) return false;
+          const rect = node.getBoundingClientRect();
+          const hit = node.closest('label')?.getBoundingClientRect() ?? rect;
+          return rect.width > 0 && rect.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
+        }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim(), rect: (node.closest('label') ?? node).getBoundingClientRect().toJSON() })));
+        expect(darkTargets, `${route.name} dark WCAG 2.5.8 target-size`).toEqual([]);
+        if (route.name !== 'account') {
+          await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
+          await auditPage.goto(route.path);
+          await expectReady(auditPage, route);
+          await expect(auditPage.locator('html'), `${route.name} restored light/system theme`).not.toHaveAttribute('data-theme', 'dark');
+        }
         if (route.name === 'account') {
           const appearance = auditPage.getByRole('main').getByRole('group', { name: en['account.appearance.title'], exact: true });
           await appearance.getByRole('button', { name: en['account.appearance.dark'], exact: true }).click();
@@ -3550,10 +3589,32 @@ test.describe('Tendo production journey', () => {
       await expect(addForm).toBeVisible();
       await addForm.getByLabel(en['items.title'], { exact: true }).fill('Contrast evidence item');
       await addForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
-      const addRows = await measureContrast(auditPage, 'home-add-form', true);
+      const addRows = await measureContrast(auditPage, 'home-add-form');
       expect(addRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'home-add-form has a measured [value] text row').toBe(true);
-      await addForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
-      await expect(addForm).toHaveCount(0);
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto(routes[0].path);
+      await expectReady(auditPage, routes[0]);
+      await expect(auditPage.locator('html'), 'home add form dark preference applied').toHaveAttribute('data-theme', 'dark');
+      await auditPage.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const darkAddForm = auditPage.getByRole('form', { name: en['items.add.formLabel'] });
+      await expect(darkAddForm).toBeVisible();
+      await darkAddForm.getByLabel(en['items.title'], { exact: true }).fill('Contrast evidence item');
+      await darkAddForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await expect(auditPage.locator('dialog[open]')).toBeVisible();
+      const darkAddRows = await measureContrast(auditPage, 'home-add-form-dark');
+      expect(darkAddRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'dark home-add-form has a measured [value] text row').toBe(true);
+      await runAxe(auditPage, 'home-add-form-dark');
+      await keyboardSweep(auditPage, 'home-add-form-dark', true, true);
+      await darkAddForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
+      await auditPage.goto(routes[0].path);
+      await expectReady(auditPage, routes[0]);
+      await auditPage.getByRole('button', { name: en['items.add'], exact: true }).click();
+      const lightAddForm = auditPage.getByRole('form', { name: en['items.add.formLabel'] });
+      await lightAddForm.getByLabel(en['items.title'], { exact: true }).fill('Contrast evidence item');
+      await lightAddForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+      await lightAddForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(lightAddForm).toHaveCount(0);
 
       await auditPage.goto(routes[1].path);
       await expectReady(auditPage, routes[1]);
@@ -3562,10 +3623,31 @@ test.describe('Tendo production journey', () => {
       await auditPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
       const editForm = auditPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
       await expect(editForm).toBeVisible();
-      const editRows = await measureContrast(auditPage, 'item-edit-form', true);
+      const editRows = await measureContrast(auditPage, 'item-edit-form');
       expect(editRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'item-edit-form has a measured [value] text row').toBe(true);
-      await editForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
-      await expect(editForm).toHaveCount(0);
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto(routes[1].path);
+      await expectReady(auditPage, routes[1]);
+      await auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('link').first().click();
+      await expect(auditPage.getByRole('heading', { level: 1 })).toBeVisible();
+      await auditPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const darkEditForm = auditPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await expect(darkEditForm).toBeVisible();
+      await expect(auditPage.locator('html'), 'item edit form dark preference applied').toHaveAttribute('data-theme', 'dark');
+      const darkEditRows = await measureContrast(auditPage, 'item-edit-form-dark');
+      expect(darkEditRows.some((row) => row.kind === 'text' && row.name.endsWith('[value]')), 'dark item-edit-form has measured value text').toBe(true);
+      await runAxe(auditPage, 'item-edit-form-dark');
+      await keyboardSweep(auditPage, 'item-edit-form-dark', true, true);
+      await darkEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
+      await auditPage.goto(routes[1].path);
+      await expectReady(auditPage, routes[1]);
+      await auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('link').first().click();
+      await expect(auditPage.getByRole('heading', { level: 1 })).toBeVisible();
+      await auditPage.getByRole('button', { name: en['itemDetail.edit.button'], exact: true }).click();
+      const lightEditForm = auditPage.getByRole('form', { name: en['itemDetail.edit.formLabel'] });
+      await lightEditForm.getByRole('button', { name: en['items.cancel'], exact: true }).click();
+      await expect(lightEditForm).toHaveCount(0);
 
       // An undone receipt is readable history, not an inactive control: it must meet 1.4.3 like any text.
       // n1 left "Book dental check" done with one undone and one active receipt.
@@ -3580,18 +3662,63 @@ test.describe('Tendo production journey', () => {
       await expect(historySection.getByText(undoneText, { exact: true }).first()).toBeVisible();
       const historyRows = await measureContrast(auditPage, 'item-detail-undone-history');
       expect(historyRows.filter((row) => row.kind === 'text' && !row.exempt && row.ratio !== null).length, 'undone history text measured').toBeGreaterThan(0);
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto(`/items/${undoneHistoryItem.id}`);
+      await expect(auditPage.getByRole('heading', { level: 1, name: 'Book dental check' })).toBeVisible();
+      await expect(auditPage.locator('html'), 'undone history dark preference applied').toHaveAttribute('data-theme', 'dark');
+      const darkHistoryRows = await measureContrast(auditPage, 'item-detail-undone-history-dark');
+      expect(darkHistoryRows.filter((row) => row.kind === 'text' && !row.exempt && row.ratio !== null).length, 'dark undone history text measured').toBeGreaterThan(0);
+      await runAxe(auditPage, 'item-detail-undone-history-dark');
+      await keyboardSweep(auditPage, 'item-detail-undone-history-dark');
+      await auditPage.evaluate(() => localStorage.removeItem('tendo.theme'));
 
       // Readiness includes asynchronously loaded content: login's OIDC provider button.
       const signedOutRoutes: Array<{ path: string; name: string; findTitle: string; content: (target: Page) => Locator }> = [
         { path: '/', name: 'login', findTitle: en['login.title'], content: (target) => target.getByRole('button', { name: /^Sign in with / }) },
         { path: '/invite#' + 'A'.repeat(43), name: 'invitation-acceptance', findTitle: en['invite.title'], content: (target) => target.getByRole('button', { name: en['invite.create'], exact: true }) },
       ];
+      // Dark empty and recoverable error states are scanned independently of the populated route baseline.
+      await auditPage.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+      await auditPage.goto('/items');
+      await expectReady(auditPage, routes[1]);
+      await expect(auditPage.locator('html'), 'All items dark state applied').toHaveAttribute('data-theme', 'dark');
+      const darkSearch = auditPage.getByRole('searchbox');
+      if (await darkSearch.count()) {
+        await darkSearch.fill('zz no item matches dark accessibility empty state');
+        await auditPage.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+        await expect(auditPage.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem')).toHaveCount(0);
+        await runAxe(auditPage, 'all-items-empty-dark');
+        const emptyRows = await measureContrast(auditPage, 'all-items-empty-dark');
+        expect(emptyRows.some((row) => row.kind === 'text' && !row.exempt && row.ratio !== null), 'dark empty state has measured text').toBe(true);
+        await keyboardSweep(auditPage, 'all-items-empty-dark', false);
+        const emptyTargets = await auditPage.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
+          if (node.matches('.sr-only') || (node instanceof HTMLInputElement && ['checkbox', 'radio'].includes(node.type) && getComputedStyle(node).appearance === 'none') || ((node as HTMLInputElement).type === 'checkbox' && (node as HTMLInputElement).checked === false && !node.textContent?.trim())) return false;
+          const box = node.getBoundingClientRect();
+          const hit = node.closest('label')?.getBoundingClientRect() ?? box;
+          return box.width > 0 && box.height > 0 && (hit.width < 24 - 1 / 64 || hit.height < 24 - 1 / 64);
+        }).map((node) => ({ label: node.getAttribute('aria-label') || node.textContent?.trim() || node.getAttribute('type'), rect: (node.closest('label') ?? node).getBoundingClientRect().toJSON(), target: node.outerHTML.slice(0, 300) })));
+        await test.info().attach('targets-all-items-empty-dark.json', { body: JSON.stringify(emptyTargets, null, 2), contentType: 'application/json' });
+        expect(emptyTargets, 'dark empty state targets >=24').toEqual([]);
+      }
+      const failureUrl = `**/api/v1/households/${householdId}/items/summary`;
+      const failure = (route: import('@playwright/test').Route) => route.fulfill({ status: 500, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 500, code: 'unavailable' }) });
+      await auditPage.route(failureUrl, failure);
+      await auditPage.goto('/');
+      await expect(auditPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await expect(auditPage.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+      await expect(auditPage.locator('html'), 'home error dark state applied').toHaveAttribute('data-theme', 'dark');
+      await runAxe(auditPage, 'home-error-dark');
+      const errorRows = await measureContrast(auditPage, 'home-error-dark');
+      expect(errorRows.some((row) => row.kind === 'text' && !row.exempt && row.ratio !== null), 'dark error state has measured text').toBe(true);
+      await keyboardSweep(auditPage, 'home-error-dark');
+      await auditPage.unroute(failureUrl, failure);
+
       for (const route of signedOutRoutes) {
         await signedOut.goto(route.path);
         await expect(signedOut.getByRole('main')).toBeVisible();
         await expect(signedOut.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
         await expect(route.content(signedOut), `${route.name} content`).toBeVisible();
-        await measureContrast(signedOut, route.name, route.name === 'login' || route.name === 'invitation-acceptance');
+        await measureContrast(signedOut, route.name);
         const aria = await signedOut.locator('body').ariaSnapshot();
         console.log(`aria-snapshot ${route.name}\n${aria}`);
         await test.info().attach(`aria-${route.name}.txt`, { body: aria, contentType: 'text/plain' });
@@ -3620,6 +3747,23 @@ test.describe('Tendo production journey', () => {
             measured.push({ route: route.name, zoom: percent, ...metrics });
           } finally { await zoomContext.close(); }
         }
+        if (route.name === 'invitation-acceptance') await signedOut.goto('/login');
+        else await signedOut.goto(route.path);
+        await signedOut.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+        await signedOut.goto(route.path);
+        await expect(signedOut.getByRole('heading', { level: 1, name: route.findTitle })).toBeVisible();
+        await expect(signedOut.locator('html'), `${route.name} dark preference applied`).toHaveAttribute('data-theme', 'dark');
+        await measureContrast(signedOut, `${route.name}-dark`);
+        await runAxe(signedOut, `${route.name}-dark`);
+        const darkTargets = await signedOut.locator('a[href],button,input,select,textarea,[role="switch"],[role="radio"]').evaluateAll((nodes) => nodes.filter((node) => {
+          if (node.matches('.sr-only')) return false;
+          const box = node.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && (box.width < 24 - 1 / 64 || box.height < 24 - 1 / 64);
+        }).map((node) => ({ name: node.getAttribute('aria-label') || node.textContent?.trim(), rect: node.getBoundingClientRect().toJSON() })));
+        expect(darkTargets, `${route.name} dark target size >=24`).toEqual([]);
+        await keyboardSweep(signedOut, `${route.name}-dark`);
+        await signedOut.evaluate(() => localStorage.removeItem('tendo.theme'));
+        await signedOut.goto(route.path);
       }
       const contrastPairs = [...new Set(contrastEvidence.map((row) => `${row.foreground} on ${row.background}`))];
       const contrastSummary = contrastPairs.map((pair) => {
