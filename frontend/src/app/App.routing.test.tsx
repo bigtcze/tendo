@@ -133,7 +133,9 @@ describe('App route characterization', () => {
     renderApp();
     expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Go to your household' })).toHaveAttribute('href', '/');
-    expect(screen.queryByRole('navigation', { name: 'Household navigation' })).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Household navigation' })).toBeInTheDocument();
+    expect(screen.getByText('Signed in as anna')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
     expect(window.location.pathname).toBe('/unknown');
   });
 

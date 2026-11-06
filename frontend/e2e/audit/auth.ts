@@ -16,6 +16,36 @@ async function shot(page: Page, dir: string, name: string, capture: Capture, wid
   await capture(page, join(dir, name), false, mask);
 }
 
+/**
+ * Viewport capture of the onboarding recovery area: the error alert, the timezone select and the submit button must all be
+ * visible in the same frame. Scrolls once, asserts, then screenshots with page.screenshot so no measurement or focus reset
+ * runs between the scroll and the image.
+ */
+async function captureRecoveryArea(page: Page, path: string, timezoneLabel: string, submitLabel: string) {
+  const alert = page.getByRole('alert');
+  const timezone = page.getByLabel(timezoneLabel, { exact: true });
+  const submit = page.getByRole('button', { name: submitLabel, exact: true });
+  await alert.scrollIntoViewIfNeeded();
+  await expect(alert, 'error alert in viewport').toBeInViewport();
+  await expect(timezone, 'timezone visible in recovery frame').toBeVisible();
+  await expect(submit, 'submit visible in recovery frame').toBeVisible();
+  const bounds = await page.evaluate(() => {
+    const at = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector);
+      return element ? element.getBoundingClientRect().bottom : Infinity;
+    };
+    return { alertBottom: at('[role="alert"]'), timezoneBottom: at('#onboarding-timezone'), submitBottom: at('button[type="submit"]') };
+  });
+  const viewportHeight = page.viewportSize()?.height ?? 0;
+  for (const [name, bottom] of Object.entries(bounds)) {
+    expect(bottom, `${name} starts inside the captured viewport`).toBeLessThan(viewportHeight);
+    expect(bottom, `${name} has a finite position`).toBeGreaterThan(0);
+  }
+  await expect(timezone, 'timezone in viewport').toBeInViewport();
+  await expect(submit, 'submit in viewport').toBeInViewport();
+  await page.screenshot({ path, fullPage: false });
+}
+
 async function setLocale(page: Page, locale: 'en' | 'cs') {
   await page.evaluate((value) => localStorage.setItem('tendo.locale', value), locale);
   await page.reload();
@@ -58,10 +88,7 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   await expect(validationPage.getByRole('alert')).toBeVisible();
   await expectNoAxeViolations(validationPage, 'auth-onboarding-validation');
   await capture(validationPage, join(dir, 'auth-onboarding-validation-en-390.png'), true);
-  await validationPage.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-  await expect(validationPage.getByLabel(en['onboarding.timezone'], { exact: true })).toBeInViewport();
-  await expect(validationPage.getByRole('button', { name: en['onboarding.submit'], exact: true })).toBeInViewport();
-  await capture(validationPage, join(dir, 'auth-onboarding-validation-area-en-390.png'), false);
+  await captureRecoveryArea(validationPage, join(dir, 'auth-onboarding-validation-area-en-390.png'), en['onboarding.timezone'], en['onboarding.submit']);
   await validationContext.close();
 
   const setupErrorContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
@@ -78,11 +105,7 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   await setupError.getByRole('button', { name: en['onboarding.submit'], exact: true }).click();
   await expect(setupError.getByRole('alert')).toBeVisible();
   await capture(setupError, join(dir, 'auth-onboarding-server-error-en-390.png'), true);
-  await setupError.evaluate(() => window.scrollTo(0, 0));
-  await expect(setupError.getByRole('alert')).toBeVisible();
-  await expect(setupError.getByLabel(en['onboarding.timezone'], { exact: true })).toBeVisible();
-  await expect(setupError.getByRole('button', { name: en['onboarding.submit'], exact: true })).toBeVisible();
-  await capture(setupError, join(dir, 'auth-onboarding-server-error-area-en-390.png'), true);
+  await captureRecoveryArea(setupError, join(dir, 'auth-onboarding-server-error-area-en-390.png'), en['onboarding.timezone'], en['onboarding.submit']);
   await setupErrorContext.close();
 
   for (const width of widths) {

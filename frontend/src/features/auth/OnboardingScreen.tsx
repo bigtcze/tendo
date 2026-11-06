@@ -191,7 +191,7 @@ function SetupFields({ form, target, locale }: {
           onChange={form.setTimezone}
           invalid={target === 'timezone'}
           zones={form.zones}
-          locale={locale === 'cs' ? 'cs-CZ' : 'en'}
+          locale={locale}
         />
       </div>
     </>
@@ -210,7 +210,7 @@ export function OnboardingScreen({
   const target = form.error ? errorTarget(form.error) : null;
 
   return (
-    <section className="settle mx-auto w-full max-w-5xl">
+    <section className="settle w-full max-w-5xl">
       <OnboardingIntroduction />
       <form onSubmit={form.submit} className="mt-8 grid gap-x-8 gap-y-6 sm:grid-cols-2" noValidate>
         <SetupFields form={form} target={target} locale={locale} />

@@ -52,7 +52,8 @@ describe('onboarding', () => {
     stubTimezone('Europe/Prague');
     installFakeServer(setupRequired);
     renderApp();
-    expect(await screen.findByText((_, element) => element?.tagName.toLowerCase() === 'p' && element.textContent?.startsWith('Použije se pro data v domácnosti: Prague · ') === true)).toBeVisible();
+    expect(await screen.findByText('Použije se pro data v domácnosti: Prague · středoevropský čas', { exact: true })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Prague · středoevropský čas' })).toHaveValue('Europe/Prague');
     expect(screen.queryByText(/Used for dates in your household:/)).not.toBeInTheDocument();
   });
 

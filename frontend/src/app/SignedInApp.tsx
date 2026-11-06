@@ -12,6 +12,7 @@ import { ScreenTransitionContext } from './Heading';
 import { Layout } from './Layout';
 import { NotFoundScreen } from './StatusScreens';
 import { SignOutContext } from './SignOutContext';
+import { AccountActions } from './AccountActions';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
 import type { Session } from '../features/auth/sessionApi';
@@ -40,8 +41,22 @@ export function SignedInApp(props: Props) {
     account: navigation.openAccount,
   };
   if (route.kind === 'invite') return renderInvite(props);
-  if (route.kind === 'notFound') return <ScreenTransitionContext value={props.transitioned}><Layout><NotFoundScreen /></Layout></ScreenTransitionContext>;
+  if (route.kind === 'notFound') return renderNotFound(props, householdId ?? null, navigationActions);
   return renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions);
+}
+
+/** Unknown pages keep the signed-in shell (account actions and navigation); Home is the nearest destination. */
+function renderNotFound(props: Props, householdId: string | null, navigationActions: NavigationActions) {
+  const { session, sessionActions } = props;
+  return <SignOutContext value={sessionActions.signedOut}>
+    <HouseholdNavigationContext value={{ route: 'home', actions: navigationActions, household: Boolean(householdId) }}>
+      <ScreenTransitionContext value={props.transitioned}>
+        <Layout actions={<AccountActions login={session.login} onSignedOut={sessionActions.sessionEnded} />}>
+          <NotFoundScreen />
+        </Layout>
+      </ScreenTransitionContext>
+    </HouseholdNavigationContext>
+  </SignOutContext>;
 }
 
 function renderInvite(props: Props) {

@@ -246,9 +246,13 @@ describe('sign in with the configured provider', () => {
 });
 
 describe('callback results', () => {
+  it('keeps the cancelled dictionary entry equal to the approved copy', () => {
+    expect(en['oidc.error.cancelled']).toBe('Sign-in was cancelled. You can try again or use your password.');
+  });
+
   it.each([
     ['identity_not_linked', 'This sign-in isn’t connected to a Tendo account yet. Sign in with your password, then connect it from Account.'],
-    ['cancelled', en['oidc.error.cancelled']],
+    ['cancelled', 'Sign-in was cancelled. You can try again or use your password.'],
     ['session_changed', 'You signed in or out in another tab while this was in progress. Please start again.'],
     ['<script>', 'Something went wrong with that sign-in. Please try again.'],
   ])('/login#oidcError=%s shows a calm notice and scrubs the fragment', async (code, message) => {

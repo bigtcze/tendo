@@ -44,8 +44,12 @@ describe('onboarding model', () => {
 
   it('shows a readable time-zone label without changing its submitted IANA value', () => {
     expect(formatTimezoneLabel('America/New_York', 'en')).toMatch(/^New York · /);
-    expect(formatTimezoneLabel('Europe/Prague', 'cs-CZ')).toMatch(/^Prague · /);
     expect(formatTimezoneLabel('UTC', 'en')).toMatch(/^UTC/);
+  });
+
+  it('uses the Czech locale the component passes for both the option and hint labels', () => {
+    // OnboardingScreen passes the i18n locale ('cs') unchanged to both the option and hint formatters.
+    expect(formatTimezoneLabel('Europe/Prague', 'cs')).toBe('Prague · středoevropský čas');
   });
 
   it('deduplicates and sorts supported zones while including UTC and the detected zone', () => {
