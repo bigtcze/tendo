@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
+import { en } from '../../i18n/en';
+import { cs } from '../../i18n/cs';
 import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session } from '../../test/fakeServer';
 import { browserNavigation } from './oidcApi';
 import { LoginScreen } from './LoginScreen';
@@ -35,7 +37,7 @@ describe('sign in with the configured provider', () => {
   it('is hidden when the provider is disabled and the password form still works', async () => {
     installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': json(200, { enabled: false }) });
     renderApp();
-    await screen.findByLabelText('Login');
+    await screen.findByLabelText('Username');
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
     expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
@@ -50,7 +52,8 @@ describe('sign in with the configured provider', () => {
       ...emptyHome,
     });
     renderApp();
-    const noticeText = await screen.findByText('Other sign-in options couldn’t be loaded.');
+    const noticeText = await screen.findByText(en['login.oidc.loadError'], { exact: true });
+    expect(noticeText).toHaveTextContent('Password sign-in is still available.');
     const notice = noticeText.closest('[role="status"]');
     expect(notice).not.toBeNull();
     expect(notice).not.toHaveAttribute('role', 'alert');
@@ -58,7 +61,7 @@ describe('sign in with the configured provider', () => {
     expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument();
     const signIn = screen.getByRole('button', { name: /^Sign in$/ });
     expect(signIn).toBeEnabled();
-    await userEvent.type(screen.getByLabelText('Login'), 'anna');
+    await userEvent.type(screen.getByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'password');
     await userEvent.click(signIn);
     await waitFor(() => expect(fake.requests.some((request) => request.path === '/api/v1/session' && request.method === 'POST')).toBe(true));
@@ -126,7 +129,7 @@ describe('sign in with the configured provider', () => {
     expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
     expect(retry).toHaveFocus();
     await act(async () => { release(problem(503)); });
-    expect(await screen.findByText('Other sign-in options couldn’t be loaded.')).toBeInTheDocument();
+    expect(await screen.findByText(en['login.oidc.loadError'], { exact: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
   });
 
@@ -147,7 +150,7 @@ describe('sign in with the configured provider', () => {
   it('does not show a notice when provider sign-in is disabled', async () => {
     installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': json(200, { enabled: false }) });
     renderApp();
-    await screen.findByLabelText('Login');
+    await screen.findByLabelText('Username');
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
@@ -167,14 +170,14 @@ describe('sign in with the configured provider', () => {
     await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
     await act(async () => { release(json(200, { enabled: true, displayName: 'Stale Provider' })); });
     await waitFor(() => expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument());
-    expect(screen.queryByText('Other sign-in options couldn’t be loaded.')).not.toBeInTheDocument();
+    expect(screen.queryByText(en['login.oidc.loadError'], { exact: true })).not.toBeInTheDocument();
   });
 
   it('renders the status recovery notice in Czech', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...signedOut, 'GET /api/v1/auth/oidc': problem(503) });
     renderApp();
-    expect(await screen.findByText('Další možnosti přihlášení se nepodařilo načíst.')).toBeInTheDocument();
+    expect(await screen.findByText(cs['login.oidc.loadError'], { exact: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Zkusit znovu' })).toBeInTheDocument();
   });
 
@@ -216,7 +219,7 @@ describe('sign in with the configured provider', () => {
     const onSignedIn = vi.fn();
     installFakeServer({ ...signedOut, ...enabled, 'POST /api/v1/session': () => delayed });
     const view = render(<I18nProvider><LoginScreen onSignedIn={onSignedIn} /></I18nProvider>);
-    await userEvent.type(await screen.findByLabelText('Login'), 'anna');
+    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'pw');
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     view.unmount();
@@ -229,6 +232,7 @@ describe('sign in with the configured provider', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Pocket ID' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Pocket ID can’t be reached right now. You can still use your password.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('You can still use your password.');
     expect(screen.getByRole('button', { name: 'Sign in with Pocket ID' })).toHaveFocus();
     expect(assign).not.toHaveBeenCalled();
   });
@@ -242,6 +246,10 @@ describe('sign in with the configured provider', () => {
 });
 
 describe('callback results', () => {
+  it('keeps the cancelled dictionary entry equal to the approved copy', () => {
+    expect(en['oidc.error.cancelled']).toBe('Sign-in was cancelled. You can try again or use your password.');
+  });
+
   it.each([
     ['identity_not_linked', 'This sign-in isn’t connected to a Tendo account yet. Sign in with your password, then connect it from Account.'],
     ['cancelled', 'Sign-in was cancelled. You can try again or use your password.'],
@@ -263,7 +271,7 @@ describe('callback results', () => {
     installFakeServer({ ...signedOut, ...enabled });
     renderApp();
     expect(await screen.findByText('That sign-in is already connected to another Tendo account.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Login')).toBeInTheDocument();
+    expect(screen.getByLabelText('Username')).toBeInTheDocument();
     expect(window.location.hash).toBe('');
   });
 
@@ -284,10 +292,10 @@ describe('callback results', () => {
 });
 
 describe('account screen', () => {
-  it('explains where to change language in English and Czech when sign-in linking is unavailable', async () => {
-    for (const [locale, title, body] of [
-      ['en', 'Language', 'Switch between English and Czech at the bottom of any page.'],
-      ['cs', 'Jazyk', 'Mezi češtinou a angličtinou přepnete dole na každé stránce.'],
+  it('offers an in-page language switch in English and Czech when sign-in linking is unavailable', async () => {
+    for (const [locale, title, body, activeLabel, nextLabel] of [
+        ['en', 'Language', 'Choose the language you’d like to use in Tendo.', 'English', 'Čeština'],
+      ['cs', 'Jazyk', 'Vyberte si jazyk, ve kterém chcete Tendo používat.', 'Čeština', 'English'],
     ]) {
       localStorage.setItem('tendo.locale', locale);
       window.history.replaceState(null, '', '/account');
@@ -298,6 +306,14 @@ describe('account screen', () => {
       const main = screen.getByRole('main');
       expect(await within(main).findByRole('heading', { name: title })).toBeVisible();
       expect(within(main).getByText(body)).toBeVisible();
+      const languageGroup = within(main).getByRole('group', { name: locale === 'cs' ? 'Jazyk' : 'Language' });
+      expect(within(languageGroup).getByRole('button', { name: activeLabel })).toHaveAttribute('aria-pressed', 'true');
+      await userEvent.click(within(languageGroup).getByRole('button', { name: nextLabel }));
+      expect(document.documentElement.lang).toBe(locale === 'cs' ? 'en' : 'cs');
+      expect(localStorage.getItem('tendo.locale')).toBe(locale === 'cs' ? 'en' : 'cs');
+      expect(within(main).getByRole('heading', { name: locale === 'cs' ? 'Language' : 'Jazyk' })).toBeVisible();
+      const switchedLanguage = within(main).getByRole('group', { name: locale === 'cs' ? 'Language' : 'Jazyk' });
+      expect(within(switchedLanguage).getByRole('button', { name: nextLabel })).toHaveAttribute('aria-pressed', 'true');
       cleanup();
       localStorage.removeItem('tendo.locale');
     }
@@ -590,7 +606,7 @@ describe('account screen', () => {
     window.history.replaceState(null, '', '/account');
     renderApp();
     await userEvent.type(await screen.findByLabelText('Current password'), 'pw{Enter}');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to Tendo' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
   });
 

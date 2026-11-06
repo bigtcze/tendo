@@ -32,14 +32,15 @@ const signedInRoutes = (extra: Record<string, unknown> = {}) => ({
   [`GET ${base}/subjects/s-1`]: json(200, { id: 's-1', name: 'Test', type: 'person', linkedUserId: null, archived: false }, { ETag: '"subject"' }),
   [`GET ${base}/items/${validId}/completions`]: json(200, { items: [], nextCursor: null }),
   [`GET ${base}/members`]: json(200, { items: [], nextCursor: null }),
-  'GET /api/v1/auth/oidc': json(200, { enabled: false }), ...extra,
+  'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+  'GET /api/v1/auth/setup': json(200, { required: false }), ...extra,
 });
 
 describe('App route characterization', () => {
   it.each([
-    ['/', 'Veselí'], ['/items', 'All items'], ['/items/a/b', 'Veselí'],
-    ['/unknown', 'Veselí'], ['/people', 'People and things'],
-    ['/members', 'Household members'], ['/account', 'Your account'],
+    ['/', 'Veselí'], ['/items', 'All items'], ['/items/a/b', 'We couldn’t find that page.'],
+    ['/people', 'People and things'],
+    ['/members', 'Household members'], ['/account', 'Your account'], ['/unknown', 'We couldn’t find that page.'],
   ])('routes %s as expected', async (path, heading) => {
     window.history.replaceState(null, '', path);
     installFakeServer(signedInRoutes({
@@ -91,7 +92,7 @@ describe('App route characterization', () => {
       'GET /api/v1/auth/setup': json(200, { required: false }),
     });
     renderApp();
-    expect(await screen.findByLabelText('Login')).toBeVisible();
+    expect(await screen.findByLabelText('Username')).toBeVisible();
     assertPendingStoresCleared();
   });
 
@@ -112,7 +113,7 @@ describe('App route characterization', () => {
     }));
     renderApp();
     expect(await screen.findByLabelText('Password')).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue.');
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
     assertPendingStoresCleared();
   });
 
@@ -124,6 +125,48 @@ describe('App route characterization', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
+  });
+
+  it('shows an explicit not-found screen for signed-in visitors and gives a working home link', async () => {
+    window.history.replaceState(null, '', '/unknown');
+    installFakeServer(signedInRoutes());
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Go to your household' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('navigation', { name: 'Household navigation' })).toBeInTheDocument();
+    expect(screen.getByText('Signed in as anna')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
+    expect(window.location.pathname).toBe('/unknown');
+  });
+
+  it('moves focus to the not-found heading after a signed-in popstate route transition', async () => {
+    window.history.replaceState(null, '', '/');
+    installFakeServer(signedInRoutes());
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+
+    act(() => {
+      window.history.pushState(null, '', '/unknown');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toHaveFocus();
+  });
+
+  it('shows a not-found recovery screen for signed-out visitors with a working sign-in link', async () => {
+    window.history.replaceState(null, '', '/unknown');
+    installFakeServer({
+      'GET /api/v1/session': json(401, { type: 'about:blank', title: 'Unauthorized', status: 401 }),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+    });
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t find that page.' })).toBeVisible();
+    const signIn = screen.getByRole('link', { name: 'Sign in' });
+    expect(signIn).toHaveAttribute('href', '/login');
+    await userEvent.click(signIn);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible();
+    expect(await screen.findByLabelText('Username')).toBeVisible();
+    expect(window.location.pathname).toBe('/login');
   });
 
   it('signed-in visitor at /people without household replaces URL with home', async () => {

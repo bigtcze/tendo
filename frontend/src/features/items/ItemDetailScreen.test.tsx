@@ -533,7 +533,7 @@ describe('item details', () => {
     const before = fake.requests.length;
     await act(async () => { resolveSubjects(status === 401 ? json(401) : json(200, { items: [subject], nextCursor: null })); });
     expect(screen.getByRole('heading', { name: 'Different item' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(fake.requests).toHaveLength(before);
   });
 
@@ -551,7 +551,7 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { name: 'Different item' })).toBeVisible();
     await act(async () => { resolveRefresh(json(401)); });
     expect(screen.getByRole('heading', { name: 'Different item' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Sign in to Tendo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
   });
 
   it('handles mutation 404 and 401, plus failed restore and undo with visible notices', async () => {
@@ -575,7 +575,7 @@ describe('item details', () => {
     await screen.findByRole('heading', { name: 'That item is gone' });
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
     installFakeServer(common({ [`GET ${path}`]: json(401) })); app();
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
   });
 
   it('does not show the old subject name when the saved subject refresh fails', async () => {
@@ -1061,7 +1061,7 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { name: 'That item is gone' })).toBeVisible();
     cleanup(); setup(json(401)); app(); await userEvent.click(await screen.findByRole('button', { name: 'Edit' })); form = await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Signed out'); await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
-    expect(await screen.findByRole('heading', { name: 'Sign in to Tendo' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible();
   });
 
   it('disables edit controls for the duration of a pending PATCH', async () => {

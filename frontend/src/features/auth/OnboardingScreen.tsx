@@ -4,12 +4,12 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n } from '../../i18n';
 import type { Session } from './sessionApi';
-import { errorKey, errorTarget, type FormError } from './onboardingModel';
+import { errorKey, errorTarget, formatTimezoneLabel, type FormError } from './onboardingModel';
 import { useOnboardingForm } from './useOnboardingForm';
 
 const timezoneClassName = [
-  'min-h-11 w-full rounded-xl border border-field bg-white px-4 text-base text-ink',
-  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
+  'min-h-11 w-full rounded-xl border border-field bg-raised px-4 text-base text-ink',
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
   'aria-[invalid=true]:border-danger',
 ].join(' ');
 
@@ -31,16 +31,16 @@ type TextFieldProps = {
   autoCapitalize?: 'none';
   spellCheck?: false;
   placeholder?: string;
-  labelClassName?: string;
   hint?: string;
   hintId?: string;
 };
 
-function TimezoneField({ value, onChange, invalid, zones }: {
+function TimezoneField({ value, onChange, invalid, zones, locale }: {
   value: string;
   onChange: (value: string) => void;
   invalid: boolean;
   zones: string[];
+  locale: string;
 }) {
   const { t } = useI18n();
   return (
@@ -55,10 +55,10 @@ function TimezoneField({ value, onChange, invalid, zones }: {
         aria-describedby={describedBy('onboarding-timezone-hint', invalid)}
         className={timezoneClassName}
       >
-        {zones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+        {zones.map((zone) => <option key={zone} value={zone}>{formatTimezoneLabel(zone, locale)}</option>)}
       </select>
       <p id="onboarding-timezone-hint" className="text-sm text-muted">
-        {t('onboarding.timezone.hint', { timezone: value })}
+        {t('onboarding.timezone.hint', { timezone: formatTimezoneLabel(value, locale) })}
       </p>
     </div>
   );
@@ -66,11 +66,11 @@ function TimezoneField({ value, onChange, invalid, zones }: {
 
 function TextField({
   id, name, label, type, autoComplete, value, invalid, onChange,
-  autoCapitalize, spellCheck, placeholder, labelClassName, hint, hintId,
+  autoCapitalize, spellCheck, placeholder, hint, hintId,
 }: TextFieldProps) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={id} className={labelClassName}>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
         name={name}
@@ -118,6 +118,86 @@ function OnboardingIntroduction() {
   );
 }
 
+function SetupFields({ form, target, locale }: {
+  form: ReturnType<typeof useOnboardingForm>;
+  target: ReturnType<typeof errorTarget>;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <div className="space-y-4 sm:col-span-2">
+        <h2 className="font-display text-h2">{t('onboarding.setup.section')}</h2>
+        <p className="max-w-prose text-muted">{t('onboarding.setup.intro')}</p>
+      </div>
+      <TextField
+        id="setup-code"
+        name="setupCode"
+        label={t('onboarding.setupCode')}
+        type="password"
+        autoComplete="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        value={form.setupCode}
+        invalid={target === 'setupCode'}
+        onChange={form.setSetupCode}
+        hintId="setup-code-hint"
+        hint={t('onboarding.setupCode.hint')}
+      />
+      <TextField
+        id="household-name"
+        name="householdName"
+        label={t('onboarding.householdName')}
+        type="text"
+        autoComplete="off"
+        value={form.householdName}
+        invalid={target === 'householdName'}
+        onChange={form.setHouseholdName}
+        placeholder={t('onboarding.householdName.placeholder')}
+      />
+      <div className="space-y-4 pt-2 sm:col-span-2">
+        <h2 className="font-display text-h2">{t('onboarding.owner.section')}</h2>
+        <p className="max-w-prose text-muted">{t('onboarding.owner.intro')}</p>
+      </div>
+      <TextField
+        id="onboarding-login"
+        name="login"
+        label={t('onboarding.login')}
+        type="text"
+        autoComplete="username"
+        autoCapitalize="none"
+        spellCheck={false}
+        value={form.loginName}
+        invalid={target === 'login'}
+        onChange={form.setLoginName}
+        hintId="onboarding-login-hint"
+        hint={t('onboarding.login.hint')}
+      />
+      <TextField
+        id="onboarding-password"
+        name="password"
+        label={t('onboarding.password')}
+        type="password"
+        autoComplete="new-password"
+        value={form.password}
+        invalid={target === 'password'}
+        onChange={form.setPassword}
+        hintId="onboarding-password-hint"
+        hint={t('onboarding.password.hint')}
+      />
+      <div className="pt-2 sm:col-span-2">
+        <TimezoneField
+          value={form.timezone}
+          onChange={form.setTimezone}
+          invalid={target === 'timezone'}
+          zones={form.zones}
+          locale={locale}
+        />
+      </div>
+    </>
+  );
+}
+
 export function OnboardingScreen({
   onSignedIn,
   onSetupComplete,
@@ -125,74 +205,19 @@ export function OnboardingScreen({
   onSignedIn: (session: Session) => void;
   onSetupComplete: () => void;
 }) {
-  const { t } = useI18n();
+  const { locale } = useI18n();
   const form = useOnboardingForm({ onSignedIn, onSetupComplete });
   const target = form.error ? errorTarget(form.error) : null;
 
   return (
-    <section className="settle">
+    <section className="settle w-full max-w-5xl">
       <OnboardingIntroduction />
-      <form onSubmit={form.submit} className="mt-8 space-y-6" noValidate>
-        <TextField
-          id="setup-code"
-          name="setupCode"
-          label={t('onboarding.setupCode')}
-          type="password"
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          value={form.setupCode}
-          invalid={target === 'setupCode'}
-          onChange={form.setSetupCode}
-          hintId="setup-code-hint"
-          hint={t('onboarding.setupCode.hint')}
-        />
-        <TextField
-          id="household-name"
-          name="householdName"
-          label={t('onboarding.householdName')}
-          type="text"
-          autoComplete="off"
-          value={form.householdName}
-          invalid={target === 'householdName'}
-          onChange={form.setHouseholdName}
-          placeholder={t('onboarding.householdName.placeholder')}
-          labelClassName="font-display text-xl"
-        />
-        <TextField
-          id="onboarding-login"
-          name="login"
-          label={t('onboarding.login')}
-          type="text"
-          autoComplete="username"
-          autoCapitalize="none"
-          spellCheck={false}
-          value={form.loginName}
-          invalid={target === 'login'}
-          onChange={form.setLoginName}
-          hintId="onboarding-login-hint"
-          hint={t('onboarding.login.hint')}
-        />
-        <TextField
-          id="onboarding-password"
-          name="password"
-          label={t('onboarding.password')}
-          type="password"
-          autoComplete="new-password"
-          value={form.password}
-          invalid={target === 'password'}
-          onChange={form.setPassword}
-          hintId="onboarding-password-hint"
-          hint={t('onboarding.password.hint')}
-        />
-        <TimezoneField
-          value={form.timezone}
-          onChange={form.setTimezone}
-          invalid={target === 'timezone'}
-          zones={form.zones}
-        />
-        <OnboardingError error={form.error} />
-        <OnboardingSubmit pending={form.pending} />
+      <form onSubmit={form.submit} className="mt-8 grid gap-x-8 gap-y-6 sm:grid-cols-2" noValidate>
+        <SetupFields form={form} target={target} locale={locale} />
+        <div className="flex flex-col gap-4 pt-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
+          <OnboardingError error={form.error} />
+          <OnboardingSubmit pending={form.pending} />
+        </div>
       </form>
     </section>
   );

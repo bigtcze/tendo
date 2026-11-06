@@ -261,7 +261,7 @@ def run_opt_in(root, app_path, inherited, log, artifact_dir, screenshot_path=Non
         run_screen_reader(root, env, log, sr_audit_dir)
     elif audit_dir is not None:
         env["E2E_AUDIT_DIR"] = str(audit_dir.resolve())
-        playwright(root, env, log, "ux-audit", 1800)
+        playwright(root, env, log, "ux-audit", 3600)
     else:
         if screenshot_path is None:
             raise RuntimeError("screenshot path is required for README capture")

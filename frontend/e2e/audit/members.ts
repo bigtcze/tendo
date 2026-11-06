@@ -245,7 +245,7 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
   const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width: 1440, height: 900 } });
   const memberPage = await memberContext.newPage();
   await memberPage.goto('/login');
-  await memberPage.getByLabel(en['login.login'], { exact: true }).fill('audit_member');
+  await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
   await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();

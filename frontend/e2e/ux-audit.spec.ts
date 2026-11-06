@@ -8,13 +8,14 @@ import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
 import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
 import { captureMembers } from './audit/members';
+import { captureAuth } from './audit/auth';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
 const NOW = '2026-05-14';
 test.describe.configure({ mode: 'serial' });
 test.use({ reducedMotion: 'reduce' });
-test.setTimeout(1_800_000);
+test.setTimeout(3_600_000);
 
 const routeOverflow: Record<string, boolean> = {};
 const routeOverflowElements: Record<string, Array<{ tag: string; text: string; right: number }>> = {};
@@ -28,8 +29,8 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   const height = page.viewportSize()?.height ?? 900;
   await page.setViewportSize({ width, height });
   expect(await page.evaluate(() => window.innerWidth), `viewport width for ${path}`).toBe(width);
-  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   const file = path.split('/').pop()!;
+  if (!file.startsWith('auth-boot-loading-')) await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   const overflow = await page.evaluate(() => {
     const clientWidth = document.documentElement.clientWidth;
     return {
@@ -195,7 +196,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       await capture(signedOut, join(dir, 'audit-login-dark-en-390.png'));
       await signedOut.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
     }
-    await signedOut.getByLabel(en['login.login'], { exact: true }).fill('audit_missing_user');
+    await signedOut.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_missing_user');
     await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-audit-password');
     await signedOut.getByRole('button', { name: en['login.submit'], exact: true }).click();
     await expect(signedOut.getByRole('alert')).toHaveText(en['login.error.invalid']);
@@ -237,7 +238,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await invalidPage.reload();
     await invalidPage.goto(`/invite#${'Z'.repeat(43)}`);
     await expect(invalidPage.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
-    await invalidPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_invalid_invite');
+    await invalidPage.getByLabel(en['invite.login'], { exact: true }).fill('audit_invalid_invite');
     await invalidPage.getByLabel(en['onboarding.password'], { exact: true }).fill('audit-member-password-long-enough');
     await invalidPage.getByRole('button', { name: en['invite.create'], exact: true }).click();
     await expect(invalidPage.getByRole('status')).toContainText(/invite link can’t be used/);
@@ -825,7 +826,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await capture(page, join(dir, `audit-members-en-${width}.png`));
         const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
         const memberPage = await memberContext.newPage(); await memberPage.goto('/login');
-        await memberPage.getByLabel(en['login.login'], { exact: true }).fill('audit_member');
+        await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
         await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
         await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
         await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
@@ -1023,6 +1024,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
   await page.goto('/members');
   await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
   await captureMembers(page, browser, dir, capture);
+  await page.unrouteAll({ behavior: 'wait' });
+  await captureAuth(page, browser, dir, capture);
   metrics.journeys = journeyMetrics;
   metrics.routes = routeMetrics;
   metrics.stages.routeOverflow = routeOverflow;
