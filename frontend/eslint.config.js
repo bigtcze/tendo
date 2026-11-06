@@ -39,6 +39,11 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.browser } },
   },
   {
+    // Classic script served as-is before the app bundle (theme-boot.js); it runs in the browser, not a bundle.
+    files: ['public/*.js'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
     files: ['*.config.{js,ts}', 'scripts/**/*.mjs'],
     languageOptions: { globals: { ...globals.node } },
   },

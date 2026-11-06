@@ -7,7 +7,7 @@ import type { ItemDetailHistoryState } from './useItemDetailHistory';
 
 function HistoryRow({ completion, t, locale }: { completion: Completion; t: Translate; locale: string }) {
   const doneKey = completion.undoneAt ? 'itemDetail.historyUndone' : 'itemDetail.historyDone';
-  return <li className={`rounded-xl bg-white/50 px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted' : ''}`}>
+  return <li className={`rounded-xl bg-raised px-4 py-3 text-sm ${completion.undoneAt ? 'text-muted' : ''}`}>
     <p>{t(doneKey, { date: formatDate(completion.completedOn, locale) })}</p>
     {completion.cycleAttentionOn
       ? <p className="mt-1 text-muted">{t('itemDetail.historyPlanned', { date: formatDate(completion.cycleAttentionOn, locale) })}</p> : null}

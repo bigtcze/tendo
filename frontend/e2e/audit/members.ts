@@ -2,8 +2,8 @@ import { expect, type Browser, type Page } from '@playwright/test';
 import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
-import { designTokens } from '../../src/designTokens';
 import { expectNoAxeViolations } from '../a11y';
+import { applySavedDarkPreference, applySystemAppearance } from './appearance';
 
 const widths = [320, 360, 390, 768, 1024, 1440] as const;
 const heightFor = (width: number) => width <= 320 ? 640 : width < 768 ? 844 : width < 1440 ? 1024 : 900;
@@ -43,24 +43,12 @@ async function shot(page: Page, path: string, mask: import('@playwright/test').L
   await page.screenshot({ path, mask });
 }
 
+/**
+ * Measures invitation metadata in the shipped theme. Dark is reached through the saved preference (a reload), never by
+ * writing token values inline, so the ratio reflects the CSS users receive.
+ */
 async function assertHistoryMetadataContrast(page: Page, theme: 'light' | 'dark') {
-  if (theme === 'dark') {
-    const { paper, raised, sand, ink, muted, line, field, accent, accentStrong, onAccent, focus } = designTokens.dark;
-    await page.locator('html').evaluate((html, colors) => {
-      html.setAttribute('data-theme', 'dark');
-      html.style.setProperty('--surface-paper', colors.paper);
-      html.style.setProperty('--surface-raised', colors.raised);
-      html.style.setProperty('--surface-sunken', colors.sand);
-      html.style.setProperty('--text-ink', colors.ink);
-      html.style.setProperty('--text-muted', colors.muted);
-      html.style.setProperty('--border-line', colors.line);
-      html.style.setProperty('--border-field', colors.field);
-      html.style.setProperty('--accent', colors.accent);
-      html.style.setProperty('--accent-strong', colors.accentStrong);
-      html.style.setProperty('--on-accent', colors.onAccent);
-      html.style.setProperty('--focus-ring', colors.focus);
-    }, { paper, raised, sand, ink, muted, line, field, accent, accentStrong, onAccent, focus });
-  }
+  if (theme === 'dark') await applySavedDarkPreference(page);
   const metadata = page.locator('[aria-labelledby="invitations-history-heading"] li.bg-sand div p.text-muted').last();
   await expect(metadata, `${theme} history metadata is present`).toBeVisible();
   const measurement = await metadata.evaluate(element => {
@@ -122,11 +110,10 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     if (width === 390 || width === 1440) {
       await assertHistoryMetadataContrast(page, 'dark');
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-      const darkCapture = join(dir, `audit-members-owner-forced-dark-en-${width}.png`);
+      const darkCapture = join(dir, `audit-members-owner-dark-en-${width}.png`);
       await shot(page, darkCapture);
       const darkPixels = await page.screenshot();
-      await page.locator('html').evaluate((html) => { html.removeAttribute('data-theme'); html.removeAttribute('style'); });
-      await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
+      await applySystemAppearance(page);
       const lightPixels = await page.screenshot();
       expect(darkPixels.equals(lightPixels), `dark and light captures differ at ${width}px`).toBe(false);
     }
@@ -137,6 +124,12 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     const ownerCzechCapture = join(dir, `audit-members-owner-cs-${width}.png`);
     await assertCaptureWidth(page, ownerCzechCapture);
     await capture(page, ownerCzechCapture, false);
+    if (width === 390) {
+      await applySavedDarkPreference(page);
+      await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
+      await capture(page, join(dir, 'audit-members-owner-dark-cs-390.png'), false);
+      await applySystemAppearance(page);
+    }
     await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
     await page.reload();
   }

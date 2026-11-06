@@ -463,13 +463,13 @@ describe('item creation', () => {
     await userEvent.click(within(form).getByRole('switch', { name: 'Repeat' }));
     expect(within(form).getByRole('spinbutton', { name: 'Repeat every' })).toBeVisible();
     expect(within(form).getByRole('switch', { name: /count the next repeat/i })).not.toBeChecked();
-    expect(within(form).getByText('A boiler check keeps its planned dates, even if you finish late.')).toBeVisible();
+    expect(within(form).getByText('Keeps the plan: the boiler check stays on its planned dates. If you finish late, the next one is the next planned date.')).toBeVisible();
     await userEvent.clear(within(form).getByRole('spinbutton'));
     await userEvent.type(within(form).getByRole('spinbutton'), '3');
     await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Repeat interval' }), 'month');
     if (fluid) {
       await userEvent.click(within(form).getByRole('switch', { name: /count the next repeat/i }));
-      expect(within(form).getByText('For example, the next boiler check is due 3 months after you finish.')).toBeVisible();
+      expect(within(form).getByText('Counts from when you finish: the next boiler check is 3 months after the day you finish it.')).toBeVisible();
     }
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
     await screen.findByText('“Check smoke alarm” was added.');
@@ -805,8 +805,8 @@ describe('Home items', () => {
   });
 
   it.each([
-    { locale: 'en', fixed: '1 year · keeps planned dates', fluid: '3 months · counted from when it’s done' },
-    { locale: 'cs', fixed: '1 rok · drží plánované termíny', fluid: '3 měsíce · počítá se od dokončení' },
+    { locale: 'en', fixed: '1 year · stays on the planned dates', fluid: '3 months · counted from when it’s done' },
+    { locale: 'cs', fixed: '1 rok · drží se plánovaných termínů', fluid: '3 měsíce · počítá se od dokončení' },
   ])('says on each repeating row whether the next date keeps the plan or follows completion ($locale)', async ({ locale, fixed, fluid }) => {
     if (locale === 'cs') localStorage.setItem('tendo.locale', 'cs');
     const entries = [

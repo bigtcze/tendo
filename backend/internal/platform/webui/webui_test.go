@@ -16,6 +16,7 @@ func testFS() fstest.MapFS {
 		"assets/app-123.js": {Data: []byte("console.log(1)")},
 		"assets/app.css":    {Data: []byte("body{}")},
 		"robots.txt":        {Data: []byte("User-agent: *")},
+		"theme-boot.js":     {Data: []byte("(function(){})();")},
 		".gitkeep":          {Data: []byte("")},
 		"assets/.gitkeep":   {Data: []byte("")},
 	}
@@ -87,6 +88,40 @@ func TestAssetsAndStatic(t *testing.T) {
 	w = do(h, http.MethodHead, "/assets/app-123.js")
 	if w.Code != 200 || w.Body.Len() != 0 {
 		t.Fatalf("head status=%d body=%q", w.Code, w.Body)
+	}
+}
+
+// The first-paint theme script is an external classic script at the dist root: it must be served as JavaScript
+// (so script-src 'self' allows it), revalidated rather than cached as an immutable asset, and must not carry a
+// CSP of its own. The HTML CSP is asserted unchanged by TestIndexFallback.
+func TestDocumentCSPIsExactlyUnchanged(t *testing.T) {
+	const want = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	if contentSecurityPolicy != want {
+		t.Fatalf("CSP changed:\n got %q\nwant %q", contentSecurityPolicy, want)
+	}
+	w := do(New(testFS()), http.MethodGet, "/")
+	if got := w.Header().Get("Content-Security-Policy"); got != want {
+		t.Fatalf("served CSP=%q", got)
+	}
+}
+
+func TestThemeBootScriptServedAsSameOriginJavaScript(t *testing.T) {
+	h := New(testFS())
+	w := do(h, http.MethodGet, "/theme-boot.js")
+	if w.Code != http.StatusOK || w.Body.String() != "(function(){})();" {
+		t.Fatalf("status=%d body=%q", w.Code, w.Body)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Fatalf("content-type=%q, want text/javascript", ct)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("cache-control=%q, want no-cache (not immutable: the file is not content-hashed)", cc)
+	}
+	if w.Header().Get("Content-Security-Policy") != "" {
+		t.Fatal("script responses must not carry a document CSP")
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("missing nosniff on theme script")
 	}
 }
 

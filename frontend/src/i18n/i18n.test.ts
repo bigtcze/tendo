@@ -23,10 +23,22 @@ describe('locale catalogs', () => {
   it('uses warm, concrete examples and natural repeat copy', () => {
     expect(en['items.title.placeholder']).toContain('Check');
     expect(cs['items.title.placeholder']).toContain('Zkontrolovat');
-    expect(en['items.repeatExample.fixed']).toContain('even if you finish late');
-    expect(cs['items.repeatExample.fixed']).toContain('později');
-    expect(en['items.repeatExample.after']).toContain('{interval} after you finish');
-    expect(cs['items.repeatExample.after']).toContain('{interval} po dokončení');
+    // Fixed cadence keeps the planned dates (a late finish moves to the next planned date, possibly several intervals on,
+    // so it must not promise "one interval after the planned date"); after-completion counts one interval from the finish.
+    expect(en['items.repeatExample.fixed']).toContain('planned dates');
+    expect(en['items.repeatExample.fixed']).toContain('finish late, the next one is the next planned date');
+    expect(cs['items.repeatExample.fixed']).toContain('plánovaných termínech');
+    expect(cs['items.repeatExample.fixed']).toContain('dokončíte později, další bude v nejbližším plánovaném termínu');
+    for (const catalog of [en, cs]) expect(catalog['items.repeatExample.fixed']).not.toContain('{interval}');
+    expect(en['items.repeatExample.after']).toContain('{interval} after the day you finish');
+    expect(cs['items.repeatExample.after']).toContain('za {interval} ode dne, kdy ji dokončíte');
+  });
+
+  it('keeps internal and technical vocabulary out of user-facing copy', () => {
+    const jargon = /\b(etag|tenant|fluid|api|workflow|cursor|idempotenc\w*|recurrence|payload|http|uuid|sla)\b|overdue|po termínu|zpožděn/i;
+    for (const [key, value] of [...Object.entries(en), ...Object.entries(cs)]) {
+      expect(value, key).not.toMatch(jargon);
+    }
   });
 
   it('has no empty translations', () => {

@@ -27,12 +27,24 @@ export function contrastShortfalls(rows: ContrastAuditRow[]): string[] {
 }
 
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
-const PAPER = 'rgb(250, 247, 242)';
 
-/** Collect rendered text and control candidates using the browser's resolved styles. */
+/**
+ * Collect rendered text and control candidates using the browser's resolved styles.
+ * The base layer is the page's own resolved root background (light or dark, whichever the active theme paints),
+ * never a hard-coded paper colour; an unreadable or transparent root fails closed.
+ */
 export async function collectContrastCandidates(page: Page): Promise<RawCandidate[]> {
   // Entry animations fade content in from opacity 0; measuring mid-animation reports transient, not rendered, colours.
   await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
+  // The page surface is the opaque root background, or the body's for documents (such as audit fixtures) that paint only
+  // the body. Neither being opaque means the base is unknowable, so fail closed rather than assume a theme.
+  const surfaces = await page.evaluate(() => ({
+    root: getComputedStyle(document.documentElement).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor,
+  }));
+  const opaque = (value: string) => parseColor(value)?.a === 1;
+  const surface = opaque(surfaces.root) ? surfaces.root : opaque(surfaces.body) ? surfaces.body : null;
+  if (!surface) throw new Error(`page surface is not opaque on root (${surfaces.root}) or body (${surfaces.body}); contrast base is unknown`);
   return page.evaluate(({ paper, transparent }) => {
     // Chromium serializes color-mix() (e.g. Tailwind bg-white/70) as oklab(); let the canvas convert any CSS colour to sRGB.
     // Fail closed: an unreadable colour must never be skipped as if it were transparent.
@@ -205,7 +217,7 @@ export async function collectContrastCandidates(page: Page): Promise<RawCandidat
       });
     }
     return result.map((candidate) => ({ ...candidate, background: candidate.background || transparent }));
-  }, { paper: PAPER, transparent: TRANSPARENT });
+  }, { paper: surface, transparent: TRANSPARENT });
 }
 
 /** Apply WCAG thresholds and boundary-indicator exception to browser-collected candidates. */

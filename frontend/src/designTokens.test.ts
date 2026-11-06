@@ -4,10 +4,15 @@ import { contrastRatio } from '../e2e/contrast';
 import { designTokens } from './designTokens';
 
 const css = readFileSync('src/index.css', 'utf8');
-const cssColors = (selector: string) => {
-  const block = css.match(new RegExp(`${selector}\\s*\\{([^}]+)\\}`))?.[1] ?? '';
-  return Object.fromEntries([...block.matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})/g)].map(([, key, value]) => [key, value.toLowerCase()]));
-};
+const colorsIn = (block: string) => Object.fromEntries([...block.matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})/g)].map(([, key, value]) => [key, value.toLowerCase()]));
+// Light values are the plain :root fallback; every token also has one light-dark(light, dark) declaration that the browser resolves per color-scheme.
+const fallbackLight = colorsIn(css.match(/:root\s*\{([^}]+)\}/)?.[1] ?? '');
+const lightDarkPairs = Object.fromEntries(
+  [...css.matchAll(/(--[\w-]+):\s*light-dark\((#[0-9a-fA-F]{6}),\s*(#[0-9a-fA-F]{6})\)/g)].map(([, key, light, dark]) => [key, { light: light.toLowerCase(), dark: dark.toLowerCase() }]),
+);
+const cssColors = (theme: 'light' | 'dark') => theme === 'light'
+  ? fallbackLight
+  : Object.fromEntries(Object.entries(lightDarkPairs).map(([key, pair]) => [key, pair.dark]));
 function hex(value: string) {
   const match = value.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
   if (!match) throw new Error(`Invalid token hex: ${value}`);
@@ -46,11 +51,29 @@ const documentedPairs: Pair[] = [
   { label: 'Success / subtle', foreground: 'success', background: 'successBg', minimum: 4.5, light: 5.96, dark: 7.29 },
 ];
 
+describe('CSS theme declarations', () => {
+  it('pairs every token light-dark() with a light fallback that cannot drift', () => {
+    expect(Object.keys(lightDarkPairs).sort()).toEqual(Object.keys(fallbackLight).sort());
+    for (const [key, pair] of Object.entries(lightDarkPairs)) expect(pair.light, key).toBe(fallbackLight[key]);
+  });
+
+  it('pins color-scheme to the explicit preference and lets the device decide by default', () => {
+    const lightDarkBoundary = css.slice(css.indexOf('@supports (color: light-dark('), css.indexOf('\n}\n\n@keyframes settle'));
+    expect(lightDarkBoundary).toContain(":root[data-theme='light'] { color-scheme: light; }");
+    expect(lightDarkBoundary).toContain(":root[data-theme='dark'] { color-scheme: dark; }");
+    expect(lightDarkBoundary).toContain('color-scheme: light dark;');
+    expect(lightDarkBoundary).toContain('@media (prefers-color-scheme: dark)');
+    expect(lightDarkBoundary).toContain(":root:not([data-theme]) { color-scheme: dark; }");
+    expect(lightDarkBoundary.match(/@media \(prefers-color-scheme: dark\)/g)).toHaveLength(1);
+    expect(css.slice(0, css.indexOf('@supports (color: light-dark('))).toContain('color-scheme: light;');
+    expect(css.slice(0, css.indexOf('@supports (color: light-dark('))).not.toContain('color-scheme: dark;');
+  });
+});
+
 for (const theme of ['light', 'dark'] as const) {
   describe(`${theme} design tokens`, () => {
     it('matches CSS source and documented contrast ratios', () => {
-      const selector = theme === 'light' ? ':root' : ":root\\[data-theme='dark'\\]";
-      const cssValues = cssColors(selector);
+      const cssValues = cssColors(theme);
       const tokens = designTokens[theme];
       for (const [key, cssKey] of Object.entries(cssNames)) expect(cssValues[cssKey]).toBe(tokens[key as TokenName]);
       for (const pair of documentedPairs) {

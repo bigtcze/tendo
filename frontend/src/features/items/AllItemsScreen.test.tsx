@@ -269,7 +269,7 @@ describe('All items', () => {
       makeItem(2, { title: 'Fluid result', recurrence: { intervalUnit: 'day', intervalValue: 1, mode: 'after_completion' } }),
     ]);
     const main = screen.getByRole('main');
-    expect(within(within(main).getByText('Fixed result').closest('li')!).getByText('2 weeks · keeps planned dates')).toBeVisible();
+    expect(within(within(main).getByText('Fixed result').closest('li')!).getByText('2 weeks · stays on the planned dates')).toBeVisible();
     expect(within(within(main).getByText('Fluid result').closest('li')!).getByText('1 day · counted from when it’s done')).toBeVisible();
   });
 

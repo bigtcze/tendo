@@ -2252,6 +2252,19 @@ test.describe('Tendo production journey', () => {
       };
       await atPageZoom('Account', (percent) => accountControls(`at ${percent}%`));
       await at320('account', () => accountControls('at 320px'));
+      // Appearance through the real control: Dark persists across reload, passes axe, and its text meets AA in dark.
+      const appearanceGroup = page.getByRole('group', { name: en['account.appearance.title'], exact: true });
+      await appearanceGroup.getByRole('button', { name: en['account.appearance.dark'], exact: true }).click();
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('tendo.theme'))).toBe('dark');
+      await page.reload();
+      await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      await expect(appearanceGroup.getByRole('button', { name: en['account.appearance.dark'], exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+      await expectNoAxeViolations(page, 'account-dark');
+      const darkAccountRows = await auditContrast(page, 'account-dark');
+      expect(contrastShortfalls(darkAccountRows), 'account dark contrast failures').toEqual([]);
+      await appearanceGroup.getByRole('button', { name: en['account.appearance.system'], exact: true }).click();
+      await expect(page.locator('html')).not.toHaveAttribute('data-theme');
       await page.getByRole('main').getByRole('button', { name: 'Čeština', exact: true }).click();
       try {
         await page.getByRole('link', { name: cs['nav.home'], exact: true }).click();
@@ -3374,7 +3387,7 @@ test.describe('Tendo production journey', () => {
         return ids;
       });
       await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
-      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[] }> = [];
+      const stops: Array<{ id: string; name: string; region: string; focused: string; unfocused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[]; pageSurface: string }> = [];
       let loop = '';
       for (let index = 0; index < 150; index += 1) {
         await target.keyboard.press('Tab');
@@ -3419,7 +3432,8 @@ test.describe('Tendo production journey', () => {
           const unfocused = indicator();
           element.focus({ preventScroll: true });
           const region = element.closest('main') ? 'main' : element.closest('nav') ? 'nav' : element.closest('footer') ? 'footer' : element.closest('header') ? 'header' : 'other';
-          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds };
+          const pageSurface = toRgba(getComputedStyle(document.documentElement).backgroundColor !== 'rgba(0, 0, 0, 0)' ? getComputedStyle(document.documentElement).backgroundColor : getComputedStyle(document.body).backgroundColor);
+          return { id: element.dataset.sweepId, name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), region, focused, unfocused, unobscured, ringColor: toRgba(ringColor), ringBackgrounds, pageSurface };
         }, index);
         if (!stop) break;
         if (stops.some((entry) => entry.id === stop.id)) { loop = `${stop.region}:${stop.name}`; break; }
@@ -3429,7 +3443,9 @@ test.describe('Tendo production journey', () => {
       const focusRatios = stops.map((stop) => {
         const foreground = parseColor(stop.ringColor);
         const layers = stop.ringBackgrounds.map(parseColor);
-        const background = layers.every((layer) => layer !== null) ? layers.reduce<Color>((backdrop, layer) => composite(layer!, backdrop), { r: 250, g: 247, b: 242, a: 1 }) : null;
+        // Base is the page's own opaque surface (light or dark), never a hard-coded paper colour.
+        const base = parseColor(stop.pageSurface);
+        const background = layers.every((layer) => layer !== null) && base ? layers.reduce<Color>((backdrop, layer) => composite(layer!, backdrop), base) : null;
         const ratio = foreground && background ? contrastRatio(composite(foreground, background), background) : null;
         const evidence = { route: label, stop: `${stop.region}:${stop.name}`, color: stop.ringColor, background: background ? colorString(background) : `unparsed ${stop.ringBackgrounds.join(' > ')}`, ratio, unobscured: stop.unobscured };
         focusEvidence.push(evidence);
@@ -3509,8 +3525,21 @@ test.describe('Tendo production journey', () => {
         await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(tooSmall, null, 2), contentType: 'application/json' });
         expect(tooSmall, `${route.name} WCAG 2.5.8 target-size review`).toEqual([]);
         await runAxe(auditPage, `${route.name}-default`);
-        // Account's main now contains the in-page language switch, so all visible controls are keyboard-swept.
+        // Account's main now contains the in-page language and Appearance switches, so sweep every visible control.
         await keyboardSweep(auditPage, route.name);
+        if (route.name === 'account') {
+          const appearance = auditPage.getByRole('main').getByRole('group', { name: en['account.appearance.title'], exact: true });
+          await appearance.getByRole('button', { name: en['account.appearance.dark'], exact: true }).click();
+          await expect(auditPage.locator('html')).toHaveAttribute('data-theme', 'dark');
+          await auditPage.reload();
+          await expect(auditPage.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+          await expect(auditPage.getByRole('main').getByRole('group', { name: en['account.appearance.title'], exact: true })
+            .getByRole('button', { name: en['account.appearance.dark'], exact: true })).toHaveAttribute('aria-pressed', 'true');
+          await measureContrast(auditPage, 'account-dark');
+          await keyboardSweep(auditPage, 'account-dark');
+          await appearance.getByRole('button', { name: en['account.appearance.system'], exact: true }).click();
+          await expect(auditPage.locator('html')).not.toHaveAttribute('data-theme');
+        }
         for (const zoom of [200, 400] as const) await auditZoom(route, zoom);
       }
       // Measure form states separately from route-entry evidence, including populated control values.
