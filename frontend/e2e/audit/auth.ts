@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { expectNoAxeViolations } from '../a11y';
+import { applySavedDarkPreference, applySystemAppearance } from './appearance';
 
 const widths = [320, 390, 768, 1024, 1440] as const;
 const heightFor = (width: number) => width <= 320 ? 640 : width < 768 ? 844 : width < 1440 ? 1024 : 900;
@@ -49,6 +50,17 @@ async function captureRecoveryArea(page: Page, path: string, timezoneLabel: stri
 async function setLocale(page: Page, locale: 'en' | 'cs') {
   await page.evaluate((value) => localStorage.setItem('tendo.locale', value), locale);
   await page.reload();
+}
+
+async function focusAppearanceChoiceByKeyboard(page: Page, name: string) {
+  const appearance = page.getByRole('main').getByRole('group', { name: en['account.appearance.title'], exact: true });
+  const choice = appearance.getByRole('button', { name, exact: true });
+  for (let tab = 0; tab < 30 && !(await choice.evaluate((element) => element === document.activeElement)); tab += 1) {
+    await page.keyboard.press('Tab');
+  }
+  await expect(choice, `${name} appearance choice receives keyboard focus`).toBeFocused();
+  await expect(choice).toHaveCSS('outline-style', 'solid');
+  return choice;
 }
 
 /** Auth/first-run capture scenarios. Synthetic password/setup material is only typed into masked fields, never captured. */
@@ -123,9 +135,10 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
     await expectNoAxeViolations(signedOut, `auth-login-${width}`);
     await shot(signedOut, dir, `auth-login-en-${width}.png`, capture, width);
     if (width === 390 || width === 1440) {
-      await signedOut.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-      await shot(signedOut, dir, `auth-login-forced-dark-en-${width}.png`, capture, width);
-      await signedOut.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+      await applySavedDarkPreference(signedOut);
+      await expect(signedOut.getByRole('heading', { level: 1, name: en['login.welcome'] })).toBeVisible();
+      await shot(signedOut, dir, `auth-login-dark-en-${width}.png`, capture, width);
+      await applySystemAppearance(signedOut);
       await setLocale(signedOut, 'cs');
       await expect(signedOut.getByRole('heading', { level: 1, name: cs['login.welcome'] })).toBeVisible();
       await shot(signedOut, dir, `auth-login-cs-${width}.png`, capture, width);
@@ -203,9 +216,21 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-language-heading"]')).toHaveClass(/border-t/);
     await expectNoAxeViolations(page, `auth-account-unlinked-${width}`);
     await shot(page, dir, `auth-account-unlinked-en-${width}.png`, capture, width);
-    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-    await shot(page, dir, `auth-account-forced-dark-en-${width}.png`, capture, width);
-    await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+    if (width === 390) {
+      const focusedLight = await focusAppearanceChoiceByKeyboard(page, en['account.appearance.light']);
+      await page.screenshot({ path: join(dir, 'auth-account-appearance-focus-light-en-390.png'), fullPage: true });
+      await focusedLight.evaluate((element) => (element as HTMLElement).blur());
+    }
+    await applySavedDarkPreference(page);
+    await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    await expect(page.getByRole('main').locator('section[aria-labelledby="account-appearance-heading"]')).toBeVisible();
+    await shot(page, dir, `auth-account-dark-en-${width}.png`, capture, width);
+    if (width === 390) {
+      await focusAppearanceChoiceByKeyboard(page, en['account.appearance.dark']);
+      await page.screenshot({ path: join(dir, 'auth-account-appearance-focus-dark-en-390.png'), fullPage: true });
+      await applySavedDarkPreference(page);
+    }
+    await applySystemAppearance(page);
     await page.unroute('**/api/v1/auth/oidc/identity');
     await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: true }) }));
     await page.reload();

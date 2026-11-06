@@ -38,7 +38,7 @@ Responsive add/edit forms keep one mounted form across breakpoint and browser-zo
 
 ## Color roles
 
-Dark roles apply only when explicitly selected with `:root[data-theme='dark']`. No OS theme behavior or switch is introduced here (V3-14 owns preference, OS-following and no-flash behavior).
+Dark roles are selected for an explicit `:root[data-theme='dark']` preference or, when no preference attribute is present, by `@media (prefers-color-scheme: dark)`. The light/dark token pairs use CSS `light-dark()` so system users follow the device without JavaScript; V3-14 owns the saved preference and first-paint bootstrap.
 
 | Role | Light | Dark |
 |---|---|---|

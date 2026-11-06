@@ -9,6 +9,7 @@ import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit
 import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
 import { captureMembers } from './audit/members';
 import { captureAuth } from './audit/auth';
+import { applySavedDarkPreference, applySystemAppearance } from './audit/appearance';
 
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
@@ -78,7 +79,7 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
 
 /**
  * V3-07 shell evidence: viewport (not full-page) captures, so the fixed phone bar appears where users see it.
- * Asserts the shell variant at each size; dark is forced on <html> for readiness only (V3-14 owns preference).
+ * Asserts the shell variant at each size; dark captures use the saved theme preference through the boot script.
  */
 async function captureShell(page: Page) {
   const shot = async (name: string) => {
@@ -98,9 +99,9 @@ async function captureShell(page: Page) {
     expect(evidence[`${width}x${height}`], `household navigation presentation at ${width}x${height}`).toBe(expected);
     await shot(`shell-home-en-${width}x${height}.png`);
     if (width === 390 || width === 1440) {
-      await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-      await shot(`shell-home-forced-dark-en-${width}.png`);
-      await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+      await applySavedDarkPreference(page);
+      await shot(`shell-home-dark-en-${width}.png`);
+      await applySystemAppearance(page);
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
@@ -158,6 +159,12 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   for (const width of [320, 360, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await capture(page, join(dir, `home-after-setup-en-${width}.png`));
+    if (width === 390) {
+      await applySavedDarkPreference(page);
+      await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await capture(page, join(dir, 'home-empty-dark-en-390.png'));
+      await applySystemAppearance(page);
+    }
   }
   const session = await api(page, 'get', '/api/v1/session');
   expect(session.status()).toBe(200);
@@ -192,9 +199,10 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await expect(signedOut.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
     await capture(signedOut, join(dir, `audit-login-en-${width}.png`));
     if (width === 390) {
-      await signedOut.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
+      await applySavedDarkPreference(signedOut);
+      await expect(signedOut.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
       await capture(signedOut, join(dir, 'audit-login-dark-en-390.png'));
-      await signedOut.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+      await applySystemAppearance(signedOut);
     }
     await signedOut.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_missing_user');
     await signedOut.getByLabel(en['login.password'], { exact: true }).fill('wrong-audit-password');
@@ -510,9 +518,11 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await page.goto('/items');
         }
         if (width === 390 || width === 1440) {
-          await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+          await applySavedDarkPreference(page);
+          await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
           await capture(page, join(dir, `audit-all-items-dark-${width}.png`), false);
-          await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+          await applySystemAppearance(page);
+          await page.goto('/items');
           await page.getByRole('button', { name: en['allItems.next'], exact: true }).click();
           await expect(page.getByRole('button', { name: en['allItems.previous'], exact: true })).toBeVisible();
           const pageTwoPager = page.getByRole('navigation', { name: en['allItems.pages'] });
@@ -529,6 +539,12 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await page.reload();
           await expect(page.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
           await capture(page, join(dir, `audit-all-items-error-${width}.png`), false);
+          if (width === 390 || width === 1440) {
+            await applySavedDarkPreference(page);
+            await expect(page.getByRole('button', { name: en['app.error.retry'], exact: true })).toBeVisible();
+            await capture(page, join(dir, `audit-all-items-error-dark-en-${width}.png`), false);
+            await applySystemAppearance(page);
+          }
           await page.unrouteAll();
           await page.goto('/items');
         }
@@ -625,10 +641,24 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await addForm.getByRole('button', { name: en['items.add.submit'], exact: true }).click();
         await expect(addForm.getByRole('alert')).toBeVisible();
         await capture(page, join(dir, `audit-add-validation-en-${width}.png`), false);
+        // The add form holds a typed title and toggles, so the dark add capture is taken from a fresh dark context
+        // rather than by reloading this open form. Its dark state comes from the saved preference, not an attribute.
         if (width === 390 || width === 1440) {
-          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-          await capture(page, join(dir, `audit-add-forced-dark-en-${width}.png`), false);
-          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+          const darkAddContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });
+          await darkAddContext.addCookies(await page.context().cookies());
+          const darkAdd = await darkAddContext.newPage();
+          await darkAdd.goto('/');
+          await applySavedDarkPreference(darkAdd);
+          await darkAdd.getByRole('button', { name: en['items.add'], exact: true }).click();
+          const darkAddForm = darkAdd.getByRole('form', { name: en['items.add.formLabel'] });
+          await expect(darkAddForm).toBeVisible();
+          await darkAddForm.getByRole('switch', { name: en['items.repeat'], exact: true }).check();
+          await expect(darkAddForm.getByRole('switch', { name: /Count the next/ })).toBeVisible();
+          await capture(darkAdd, join(dir, `audit-add-fixed-dark-en-${width}.png`), false);
+          await darkAddForm.getByRole('switch', { name: /Count the next/ }).check();
+          await expect(darkAddForm.getByText(/Count the next repeat/)).toBeVisible();
+          await capture(darkAdd, join(dir, `audit-add-after-completion-dark-en-${width}.png`), false);
+          await darkAddContext.close();
         }
         await page.getByRole('dialog').locator('header button[aria-label="Cancel"]').click();
         await page.setViewportSize({ width, height: 900 });
@@ -662,7 +692,23 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await capture(csPage, join(dir, `audit-add-fixed-cs-${width}.png`), false);
         await csAddForm.getByRole('switch', { name: /Další/ }).check();
         await capture(csPage, join(dir, `audit-add-after-completion-cs-${width}.png`), false);
-        await csAddForm.getByRole('switch', { name: cs['items.repeat'], exact: true }).uncheck();
+        if (width === 390) {
+          const darkCsContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+          await darkCsContext.addCookies(await page.context().cookies());
+          const darkCsPage = await darkCsContext.newPage();
+          await darkCsPage.goto('/');
+          await darkCsPage.evaluate(() => { localStorage.setItem('tendo.locale', 'cs'); localStorage.setItem('tendo.theme', 'dark'); });
+          await darkCsPage.reload();
+          await expect(darkCsPage.locator('html')).toHaveAttribute('data-theme', 'dark');
+          await darkCsPage.getByRole('button', { name: cs['items.add'] }).click();
+          const darkCsForm = darkCsPage.getByRole('form', { name: cs['items.add.formLabel'] });
+          await darkCsForm.getByRole('switch', { name: cs['items.repeat'], exact: true }).check();
+          await darkCsForm.getByRole('switch', { name: /Další/ }).check();
+          await expect(darkCsForm.getByText(/Počítá se od dokončení/)).toBeVisible();
+          await capture(darkCsPage, join(dir, 'audit-add-after-completion-dark-cs-390.png'), false);
+          await darkCsContext.close();
+        }
+        await csAddForm.getByRole('switch', { name: /Další/ }).uncheck();
         await csAddForm.getByRole('button', { name: cs['items.add.submit'], exact: true }).click();
         await expect(csAddForm.getByRole('alert')).toBeVisible();
         await capture(csPage, join(dir, `audit-add-validation-cs-${width}.png`), false);
@@ -723,9 +769,10 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await capture(page, join(dir, `audit-item-detail-gone-en-${width}.png`));
           await page.goto(`/items/${recurringHistoryItemId}`);
           await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible({ timeout: 10_000 });
-          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-          await capture(page, join(dir, `audit-item-detail-forced-dark-en-${width}.png`));
-          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+          await applySavedDarkPreference(page);
+          await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
+          await capture(page, join(dir, `audit-item-detail-dark-en-${width}.png`));
+          await applySystemAppearance(page);
         }
         await page.goto(`/items/${recurringHistoryItemId}`);
         await expect(page.getByRole('heading', { name: en['itemDetail.history'] })).toBeVisible();
@@ -925,6 +972,23 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       const file = `home-${stage}-${locale}-${width}`;
       await capture(targetPage, join(dir, `${file}.png`));
       await capture(targetPage, join(dir, `${file}-fold.png`), false);
+      if (stage === '1200' && locale === 'en') {
+        await applySavedDarkPreference(targetPage);
+        await expect(targetPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await capture(targetPage, join(dir, `home-1200-en-${width}-dark.png`), false);
+        await applySystemAppearance(targetPage);
+      }
+      if (stage === '1200' && locale === 'cs' && width === 390) {
+        const darkCsHomeContext = await browser.newContext({ locale: 'cs-CZ', reducedMotion: 'reduce', viewport: { width, height: 900 } });
+        await darkCsHomeContext.addCookies(await page.context().cookies());
+        const darkCsHome = await darkCsHomeContext.newPage();
+        await darkCsHome.goto('/');
+        await darkCsHome.evaluate(() => { localStorage.setItem('tendo.locale', 'cs'); localStorage.setItem('tendo.theme', 'dark'); });
+        await darkCsHome.reload();
+        await expect(darkCsHome.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await capture(darkCsHome, join(dir, 'home-1200-cs-390-dark.png'), false);
+        await darkCsHomeContext.close();
+      }
       metrics.stages[`${stage}-${locale}-${width}`] = { requests, requestCount: requests.length, responseBytes: requests.reduce((n, r) => n + r.bytes, 0), timeToContentMs, viewport: actualViewport, innerWidth, ...observed, accessibility: routeMetrics[`${file}.png`], showMoreVisible: await targetPage.locator('button[data-group-more]').first().isVisible().catch(() => false) };
       metrics.listPageSizes.push(...pageSizes);
       targetPage.off('response', responseListener);
@@ -984,9 +1048,11 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await overviewNav.evaluate((nav) => { nav.scrollLeft = 0; });
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
         if (width === 1440) {
-          await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-          await capture(page, join(dir, `home-1200-en-${width}-expanded-forced-dark.png`), false);
-          await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+          await applySavedDarkPreference(page);
+          await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+          await capture(page, join(dir, `home-1200-en-${width}-expanded-dark.png`), false);
+          await applySystemAppearance(page);
+          await page.evaluate(() => window.scrollTo(0, 0));
         }
       }
       const darkContext = await browser.newContext({ colorScheme: 'dark', reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
@@ -998,15 +1064,18 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
       metrics.stages.darkMode = {
         requestedColorScheme: 'dark',
-        renderedIdenticallyToLight: await darkPage.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(250, 247, 242)'),
+        resolvedBackground: await darkPage.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
+        dataTheme: await darkPage.locator('html').getAttribute('data-theme'),
       };
-      expect(metrics.stages.darkMode.renderedIdenticallyToLight).toBe(true);
+      expect(metrics.stages.darkMode.resolvedBackground, 'System follows the emulated dark device').toBe('rgb(29, 33, 31)');
+      expect(metrics.stages.darkMode.dataTheme, 'System leaves the explicit preference unset').toBeNull();
       for (const width of [390, 1440]) {
         await darkPage.setViewportSize({ width, height: 900 });
         await expect(darkPage.evaluate(() => window.innerWidth)).resolves.toBe(width);
-        await darkPage.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-        await capture(darkPage, join(dir, `home-1200-en-${width}-forced-dark.png`));
-        await darkPage.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+        await applySavedDarkPreference(darkPage);
+        await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await capture(darkPage, join(dir, `home-1200-en-${width}-dark.png`), false);
+        await applySystemAppearance(darkPage);
       }
       await darkContext.close();
       metrics.stages.shell = await captureShell(page);

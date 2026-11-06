@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import type { MessageKey } from '../../src/i18n';
+import { applySavedDarkPreference } from './appearance';
 
 /**
  * V3-11 People and things evidence: viewport captures (the fixed phone bar is shown where users see it),
- * empty/populated/dialog/conflict/archive/restore/error/loading states, long Czech names, forced-dark readiness
+ * empty/populated/dialog/conflict/archive/restore/error/loading states, long Czech names, saved-Dark captures
  * and a 1,000+ subject walk with bounded replacement pages.
  */
 type Capture = (page: Page, path: string, fullPage?: boolean) => Promise<void>;
@@ -37,10 +38,20 @@ async function czechPage(browser: Browser, page: Page, width: number) {
   return { context, csPage };
 }
 
-async function forcedDark(page: Page, capture: Capture, path: string) {
-  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'));
-  await capture(page, path, false);
-  await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'));
+/**
+ * Captures the page in saved Dark from its own context: the preference is written and the page reloaded before any
+ * dialog opens, so the dark frame is produced by the real first-paint path rather than an attribute toggle.
+ */
+async function darkCapture(browser: Browser, page: Page, capture: Capture, path: string, openState?: (dark: Page) => Promise<void>) {
+  const size = page.viewportSize()!;
+  const context = await browser.newContext({ locale: 'en-US', reducedMotion: 'reduce', viewport: size });
+  await context.addCookies(await page.context().cookies());
+  const dark = await context.newPage();
+  await dark.goto(new URL(page.url()).pathname);
+  await applySavedDarkPreference(dark);
+  if (openState) await openState(dark);
+  await capture(dark, path, false);
+  await context.close();
 }
 
 /** Content must clear the fixed phone bar once scrolled to the end (full-page images stitch the bar mid-page). */
@@ -144,7 +155,9 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
 
     await editDialog(page, en, LONG_PERSON);
     await capture(page, join(dir, `audit-people-edit-linked-en-${width}.png`), false);
-    if (width === 390) await forcedDark(page, capture, join(dir, 'audit-people-edit-forced-dark-en-390.png'));
+    if (width === 390) {
+      await darkCapture(browser, page, capture, join(dir, 'audit-people-edit-dark-en-390.png'), async (dark) => { await editDialog(dark, en, LONG_PERSON); });
+    }
     await page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', LONG_PERSON) })
       .getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -168,10 +181,15 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
     await expect(page.getByRole('main').getByRole('heading', { name: en['subjects.archived.title'] })).toBeVisible();
     await expect(page.getByRole('main').getByRole('button', { name: en['subjects.restore.label'].replace('{name}', 'Rex'), exact: true })).toBeVisible();
     await capture(page, join(dir, `audit-people-archived-view-en-${width}.png`), false);
-    if (width === 1440) await forcedDark(page, capture, join(dir, 'audit-people-archived-view-forced-dark-en-1440.png'));
+    if (width === 1440) {
+      await darkCapture(browser, page, capture, join(dir, 'audit-people-archived-view-dark-en-1440.png'), async (dark) => {
+        await dark.getByRole('main').getByRole('button', { name: en['subjects.showArchived'], exact: true }).click();
+        await expect(dark.getByRole('main').getByRole('heading', { name: en['subjects.archived.title'] })).toBeVisible();
+      });
+    }
 
     await openPeople(page, en, width);
-    await forcedDark(page, capture, join(dir, `audit-people-forced-dark-en-${width}.png`));
+    await darkCapture(browser, page, capture, join(dir, `audit-people-dark-en-${width}.png`));
   }
 
   const { context, csPage } = await czechPage(browser, page, 390);

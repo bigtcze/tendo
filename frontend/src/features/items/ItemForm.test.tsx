@@ -47,7 +47,7 @@ const title = () => screen.getByLabelText('What needs doing?');
     await userEvent.selectOptions(screen.getByRole('combobox', { name: locale === 'cs' ? 'Jednotka opakování' : 'Repeat interval' }), unit);
     const completion = screen.getByRole('switch', { name: locale === 'cs' ? 'Další opakování počítat od dokončení' : 'Count the next repeat from when I complete this' });
     await userEvent.click(completion);
-    const example = locale === 'cs' ? `Například další kontrola kotle bude ${expected} po dokončení.` : `For example, the next boiler check is due ${expected} after you finish.`;
+    const example = locale === 'cs' ? `Počítá se od dokončení: další kontrola kotle bude za ${expected} ode dne, kdy ji dokončíte.` : `Counts from when you finish: the next boiler check is ${expected} after the day you finish it.`;
     expect(screen.getByText(example)).toBeVisible();
   });
 

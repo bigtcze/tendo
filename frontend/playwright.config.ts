@@ -5,7 +5,7 @@ const baseURL = process.env.E2E_BASE_URL;
 if (!baseURL) throw new Error('E2E_BASE_URL is required; run scripts/e2e-smoke.sh');
 
 const projects = [
-  { name: 'e2e', testMatch: ['journey.spec.ts', 'primitives-browser.spec.ts'] },
+  { name: 'e2e', testMatch: ['journey.spec.ts', 'primitives-browser.spec.ts', 'theme.spec.ts'] },
   { name: 'clock', testMatch: ['attention-clock.spec.ts'] },
   { name: 'readme-screenshot', testMatch: ['readme-screenshot.spec.ts'] },
   { name: 'ux-audit', testMatch: ['ux-audit.spec.ts'] },

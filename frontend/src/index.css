@@ -52,6 +52,12 @@
   --text-small--line-height: 1.35;
 }
 
+/*
+ * Theme tokens. Each token is written once as light-dark(light, dark); the browser picks the side that matches the
+ * element's color-scheme. Default (no data-theme) follows the device; data-theme="light|dark" (set before first paint
+ * by public/theme-boot.js from the saved choice) pins the scheme. Values mirror src/designTokens.ts (tested).
+ * Plain light values below are the fallback for browsers without light-dark() (before Safari 17.5 / Chrome and Edge 123 / Firefox 120).
+ */
 :root {
   color-scheme: light;
   --surface-paper: #faf7f2;
@@ -81,33 +87,42 @@
   --state-success-bg: #e3eee6;
 }
 
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --surface-paper: #1d211f;
-  --surface-raised: #282e2a;
-  --surface-sunken: #343a35;
-  --text-ink: #f1eee8;
-  --text-muted: #c1c9c1;
-  --border-line: #59615a;
-  --border-field: #aab2a8;
-  --accent: #9bc8ad;
-  --accent-strong: #b6ddc4;
-  --on-accent: #17221b;
-  --focus-ring: #b6ddc4;
-  --state-needs-attention: #ffc49f;
-  --state-needs-attention-bg: #493126;
-  --state-in-progress: #a9d8f1;
-  --state-in-progress-bg: #243943;
-  --state-waiting: #d2b9f3;
-  --state-waiting-bg: #392e49;
-  --state-paused: #d0c9b9;
-  --state-paused-bg: #3b3932;
-  --state-done: #a8d5b3;
-  --state-done-bg: #293b2e;
-  --state-danger: #ffb4a9;
-  --state-danger-bg: #492b28;
-  --state-success: #a8d5b3;
-  --state-success-bg: #293b2e;
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    color-scheme: light dark;
+    --surface-paper: light-dark(#faf7f2, #1d211f);
+    --surface-raised: light-dark(#ffffff, #282e2a);
+    --surface-sunken: light-dark(#efe9df, #343a35);
+    --text-ink: light-dark(#25302b, #f1eee8);
+    --text-muted: light-dark(#5b655f, #c1c9c1);
+    --border-line: light-dark(#d8d0c3, #59615a);
+    --border-field: light-dark(#857c6e, #aab2a8);
+    --accent: light-dark(#2f6b57, #9bc8ad);
+    --accent-strong: light-dark(#234f41, #b6ddc4);
+    --on-accent: light-dark(#ffffff, #17221b);
+    --focus-ring: light-dark(#234f41, #b6ddc4);
+    --state-needs-attention: light-dark(#8a3e19, #ffc49f);
+    --state-needs-attention-bg: light-dark(#f5e5d8, #493126);
+    --state-in-progress: light-dark(#285a78, #a9d8f1);
+    --state-in-progress-bg: light-dark(#e0edf4, #243943);
+    --state-waiting: light-dark(#66518a, #d2b9f3);
+    --state-waiting-bg: light-dark(#eee8f5, #392e49);
+    --state-paused: light-dark(#625d52, #d0c9b9);
+    --state-paused-bg: light-dark(#edeae4, #3b3932);
+    --state-done: light-dark(#356149, #a8d5b3);
+    --state-done-bg: light-dark(#e3eee6, #293b2e);
+    --state-danger: light-dark(#a3342a, #ffb4a9);
+    --state-danger-bg: light-dark(#f6e5e2, #492b28);
+    --state-success: light-dark(#356149, #a8d5b3);
+    --state-success-bg: light-dark(#e3eee6, #293b2e);
+  }
+  /* System follows OS without JavaScript; unsupported browsers keep the light token and native-control fallback. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) { color-scheme: dark; }
+  }
+  /* An explicit choice pins the scheme; the attribute is written only by theme-boot.js and src/theme/theme.ts. */
+  :root[data-theme='light'] { color-scheme: light; }
+  :root[data-theme='dark'] { color-scheme: dark; }
 }
 
 dialog::backdrop { background: rgb(20 24 21 / 55%); }
