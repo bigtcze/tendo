@@ -48,6 +48,9 @@ export function installFakeServer(routes: Record<string, Handler | Response>) {
 }
 
 export const emptyHome = {
+  [`GET /api/v1/households/${'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'}/items/summary`]: json(200, {
+    evaluatedOn: '2026-01-15', total: 0, needsAttention: 0, inProgress: 0, waiting: 0, upcoming: 0, paused: 0, done: 0, archived: 0,
+  }),
   [`GET /api/v1/households/${'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'}/items`]: json(200, { items: [], nextCursor: null }),
   [`GET /api/v1/households/${'0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61'}/subjects`]: json(200, { items: [], nextCursor: null }),
 };
