@@ -26,7 +26,7 @@ The list shows one page at a time. Use **Next page**, **Previous page** and **Fi
 
 ## Rename or change the type
 
-Each active entry offers **See items**, which opens **All items** filtered to that person or thing, and **Edit**. Choose **Edit**, change the name or type, then choose **Save**. To move the entry out of the active list, choose **Archive** inside the edit dialog to move the entry out of the active list. Tendo shows a notice and offers **Undo**; no confirmation is needed. If someone else changed the same entry a moment earlier, Tendo shows the latest version so you can check it and save again.
+Each active entry offers **See items**, which opens **All items** filtered to that person or thing, and **Edit**. Choose **Edit**, change the name or type, then choose **Save**. To move the entry out of the active list, choose **Archive** inside the edit dialog. Tendo shows a notice and offers **Undo**; no confirmation is needed. If someone else changed the same entry a moment earlier, Tendo shows the latest version so you can check it and save again.
 
 ## Archive and restore
 
