@@ -1520,7 +1520,7 @@ components:
       properties:
         login: { type: string, minLength: 3, maxLength: 64, pattern: '^[a-z0-9][a-z0-9._-]{2,63}$' }
         password: { type: string, minLength: 15, maxLength: 128, description: 15–128 Unicode scalar values; maximum 512 UTF-8 bytes }
-        householdName: { type: string, minLength: 1, maxLength: 100, description: Trimmed value must be nonempty and contain no control characters. }
+        householdName: { type: string, minLength: 1, maxLength: 100, description: 'Trimmed value must be nonempty and contain no control, format (zero-width and bidirectional), or line or paragraph separator characters.' }
         timezone: { type: string, minLength: 1, maxLength: 128, description: Valid named IANA timezone; UTC accepted; Local and fixed offsets are not accepted. }
     LoginRequest:
       type: object

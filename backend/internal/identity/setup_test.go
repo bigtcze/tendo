@@ -154,7 +154,7 @@ func TestCreateOwnerValidatesAndHashesExactPassword(t *testing.T) {
 }
 
 func TestSetupValidation(t *testing.T) {
-	for _, tc := range []struct{ field, value string }{{"login", "Owner"}, {"login", "ab"}, {"password", "too short"}, {"timezone", "+01:00"}, {"timezone", "Local"}, {"timezone", "../etc/passwd"}, {"timezone", ""}, {"household", "bad\nname"}, {"household", "\xff"}} {
+	for _, tc := range []struct{ field, value string }{{"login", "Owner"}, {"login", "ab"}, {"password", "too short"}, {"timezone", "+01:00"}, {"timezone", "Local"}, {"timezone", "../etc/passwd"}, {"timezone", ""}, {"household", "bad\nname"}, {"household", "\xff"}, {"household", "\u200b"}, {"household", "\ufeff"}} {
 		t.Run(tc.value, func(t *testing.T) {
 			r := &setupRepo{}
 			s := NewSetupService(r)

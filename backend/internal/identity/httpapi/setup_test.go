@@ -176,3 +176,39 @@ func TestSetupDisabled(t *testing.T) {
 		t.Fatalf("got %d", w.Code)
 	}
 }
+
+// untouchedSetupRepository fails the test if setup reaches persistence.
+type untouchedSetupRepository struct{ t *testing.T }
+
+func (r untouchedSetupRepository) IsRequired(context.Context) (bool, error) { return true, nil }
+func (r untouchedSetupRepository) WithSetupTransaction(context.Context, func(identity.SetupTransaction, identity.OwnerHouseholdService) error) error {
+	r.t.Fatal("invalid setup reached persistence")
+	return nil
+}
+
+// TestSetupRejectsInvisibleHouseholdNamesAsFieldValidation composes the real
+// setup service with the HTTP adapter so the household name rule surfaces as
+// the documented 422 field problem the first-run screen localizes.
+func TestSetupRejectsInvisibleHouseholdNamesAsFieldValidation(t *testing.T) {
+	service := identity.NewSetupService(untouchedSetupRepository{t})
+	mux := chi.NewRouter()
+	New(service, "a-secret-of-at-least-thirty-two-bytes").Register(mux)
+	for _, name := range []string{`\u200b`, `\ufeff`, `Rodina\u200bNov\u00e1k`, `a\u2028b`} {
+		t.Run(name, func(t *testing.T) {
+			body := `{"login":"owner_1","password":"a sufficiently long password","householdName":"` + name + `","timezone":"UTC"}`
+			r := httptest.NewRequest(http.MethodPut, "/api/v1/auth/setup", strings.NewReader(body))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("X-Tendo-Setup-Token", "a-secret-of-at-least-thirty-two-bytes")
+			r.RemoteAddr = "192.0.2.7:1234"
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, r)
+			assertSetupProblem(t, w, http.StatusUnprocessableEntity, "invalid_characters")
+			var problem struct {
+				Field string `json:"field"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil || problem.Field != "householdName" {
+				t.Fatalf("field=%q err=%v body=%s", problem.Field, err, w.Body)
+			}
+		})
+	}
+}
