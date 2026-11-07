@@ -1,23 +1,37 @@
 # Autonomous Flow
 
-cycle=fresh_opencode_session
-goal=ship_highest_value_unproven_V3_design_DoD
+cycle=fresh_opencode_session_daily_maintenance
+goal=keep_released_tendo_secure_current_and_green
 work_unit=small_reviewable_PR
+per_invocation=at_most_one_maintenance_change_and_one_release
 main=protected
 parallel_PRs=avoid
 
+V3 is complete (`.autonomous/V3_COMPLETE`). The V3 cycle steps, Issue
+procedure, design-validation discipline and release/completion protocol
+were executed; they are preserved verbatim in git history at tag `v3.0.0`
+(`.autonomous/FLOW.md`) and are not maintenance procedure.
+
 ## Start each cycle
 1. Read the AGENTS read set (`always` + matching conditional files), each once.
-2. Inspect git status/current branch, origin/main, open PRs, required CI, merge state.
-3. Read locked V3_ISSUES_WORKFLOW. Query open managed Issues with BOTH the
-   exact V3 milestone AND label `tendo:v3-autonomous`, e.g.
-   `gh issue list --milestone "Tendo v3.0.0 - Everyday Elegance" --label tendo:v3-autonomous --state open`;
-   reconcile their claims, comments, dependencies, linked PRs and CI with
-   reality (reality wins). Never treat other Issues as work items.
-4. If active Tendo PR exists, finish/review/fix it before unrelated work.
-5. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
-6. Select the highest-value ready managed `status:idle` Issue (prerequisites
-   closed), claim it per V3_ISSUES_WORKFLOW, then deliver one focused PR.
+2. Inspect git status/current branch, origin/main, open PRs, required CI on
+   `main`, merge state, open security advisories (`gh api
+   repos/bigtcze/tendo/dependabot/alerts`), the Renovate Dependency
+   Dashboard (Issue titled "Dependency Dashboard") and the latest published
+   release (`gh release view`).
+3. If an active Tendo PR exists, finish/review/fix it before unrelated work,
+   subject to the priority order below. Never abandon a PR you already
+   started without reconciling its state.
+4. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
+5. Pick the single highest-priority actionable item:
+   1. red `main` CI;
+   2. security vulnerabilities (advisories, `security`-labelled PRs, audit failures);
+   3. open Renovate/dependency PRs;
+   4. toolchain/runtime updates;
+   5. necessary compatibility fixes.
+   Deliver it as one focused PR per "Work", then evaluate "Maintenance release".
+6. Exit promptly when nothing is actionable. No feature work, speculative
+   refactoring, new coordination frameworks or casual Renovate policy changes.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -31,8 +45,8 @@ For behavior/API/schema changes:
 1. Create focused branch from current main.
 2. Implement smallest complete vertical slice.
 3. Add/update meaningful tests per TESTING.
-4. Run applicable local format/lint/typecheck/unit/integration/contract/E2E/build checks.
-5. For every code PR, run an independent reviewer subagent when the controller provides one; review test quality, auth boundary, API contract, architecture boundary, UX simplicity. If no reviewer tool is available, perform and record the same checklist explicitly before merge.
+4. Run applicable focused checks while iterating, then the complete gate before opening or merging: `bash scripts/dev-exec.sh -- bash scripts/verify-local.sh`.
+5. For every code or dependency PR, run an independent reviewer subagent when the controller provides one; review the diff, upstream release notes against Tendo usage, regression coverage, test quality, auth boundary, API contract, architecture boundary, UX simplicity. If no reviewer tool is available, perform and record the same checklist explicitly before merge.
 6. Fix findings; never hide/suppress failures.
 7. Update docs/config examples with behavior.
 8. Commit clearly.
@@ -41,7 +55,7 @@ For behavior/API/schema changes:
 11. Ensure stable `required` CI actually executes/gates every applicable release-blocking layer introduced by the PR; do not leave tests as local-only commands.
 12. Fix failures before merge.
 13. Resolve required conversations.
-14. Enable auto-merge only when repository rules permit.
+14. Merge only through normal protection once `required` is green on the current branch (repository auto-merge is disabled; Renovate's own allowlisted PR automerge is unaffected).
 15. After merge: checkout/sync main, verify expected content + green main CI, remove stale local branch when safe.
 
 ## Delegation discipline
@@ -64,8 +78,9 @@ For behavior/API/schema changes:
 
 ## Maintainability discipline
 - Apply locked CODE_QUALITY policy on EVERY PR, including dependency updates.
-- Audit existing source size/cohesion/complexity, track ranked remediation
-  with verified tests, and actively refactor high-risk existing hotspots.
+- Maintenance does not start refactors. Code changed for a dependency
+  migration follows CODE_QUALITY "Permanent PR discipline" (improve touched
+  hotspots only when safe and in scope of the migration).
 - Prefer cohesive boundaries and readability over arbitrary line-count limits;
   preserve contracts and behavior. Guard against NEW/worsened debt in CI.
 - Reviewer must consider code health, architecture, coupling, duplicate rules,
@@ -79,8 +94,9 @@ For behavior/API/schema changes:
 - Time/concurrency/idempotency paths require deterministic tests.
 
 ## Dependency maintenance
-Dependency PRs (human, Renovate or self-opened) are ordinary open PRs: Start step 4 applies, so finish them before new feature work.
-Exception: routine Renovate PRs never take priority over an open managed `[P0]` Issue or a red `main`. Fix P0 first; leave routine PRs open (or to their native allowlisted automerge) and return to them afterwards. Security-alert PRs (`security` label) are P0 work. Never abandon a PR you already started without reconciling its state.
+Dependency PRs (human, Renovate or self-opened) are ordinary open PRs and the core maintenance work; priority order is Start step 5.
+Routine Renovate PRs never take priority over a red `main` or a security fix; leave them open (or to their native allowlisted automerge) and return afterwards. Security-alert PRs (`security` label) and advisories with a fix are top priority after a red `main`.
+A Renovate PR that fails CI or cannot merge because the new version changes behavior is engineering work, not a merge request: read upstream release notes and migration guides, diagnose the real incompatibility and modify Tendo (Go/TypeScript code, API contract and generated clients, npm/Go constraints, toolchain pins and checksums, Docker images/build config, SQL generation, tests) to support it. Never merely retry CI, suppress failures, delete meaningful tests, silently downgrade or merge broken code. When an update is genuinely blocked, follow "Blockers".
 Follow `docs/development/dependencies.md` "Dependency PR procedure" for every dependency PR (wrapper-only tooling, release notes, pin sync, root-cause failures, full gate, Renovate branch rules).
 
 ## Dependency/tool failures
@@ -88,13 +104,14 @@ Follow `docs/development/dependencies.md` "Dependency PR procedure" for every de
 - Install only what GUARDRAILS permits.
 - Verify version and rerun originally failing task.
 - Do not repeatedly reinstall tools across cycles; record durable requirement once.
-- Preserve primary failure evidence in the owned Issue if cleanup/reporting also fails.
+- Preserve primary failure evidence in the affected PR (or the session report) if cleanup/reporting also fails.
 
 ## Context maintenance
 read_set=AGENTS (always + conditional triggers); map and rationale in docs/development/agent-context.md
-work_status=managed_V3_Issues_only_no_state_file
-issue_body=stable_acceptance_contract_update_when_scope_changes
-issue_comments=claims_decisions_evidence_blockers_PR_links_handoff
+work_status=open_PRs_Renovate_Dependency_Dashboard_and_releases_no_state_file
+pr_description=change_release_notes_reviewed_tests_and_gate_evidence
+pr_comments=decisions_evidence_blockers_handoff
+V3_Issues=closed_historical_never_touched_by_maintenance
 LEARNINGS=durable_reusable_rules_only
 FLOW=may_improve_process_without_changing_locked_policy
 AGENTS=may_improve_navigation_without_changing_locked_policy
@@ -102,67 +119,45 @@ docs_ADR=durable_decisions_only
 
 ## Blockers
 - Do not spin on quota/outage/missing external dependency.
-- Record exact blocker/evidence in a comment on the owned managed Issue and
-  set `status:blocked` (recheck milestone + ownership label first).
-- Choose safe independent V3 design/UX validation, UI work or regression repair if available.
+- For a genuinely incompatible update that cannot be safely resolved, record
+  the exact technical blocker, evidence (failing check, log excerpt, local
+  reproduction) and upstream issue in a comment on that PR; leave it unmerged
+  and continue with independent safe work.
+- Before working an open PR again, read its existing blocker comments; do not
+  re-run or retry an unchanged blocker. Resume only when upstream, the
+  dependency version or Tendo code relevant to it has changed.
 - Never claim unverified success.
 
-## V3 GitHub issue execution (permanent)
-Locked V3_ISSUES_WORKFLOW is the single canonical rule set (ownership filter,
-new-Issue creation, claim/collision, status labels, closure, V3-18/V3-19
-gates); read it every cycle and apply it exactly. Procedure reminders:
-- Every query and mutation filters BOTH milestone `Tendo v3.0.0 - Everyday Elegance`
-  AND label `tendo:v3-autonomous`; recheck both immediately before each mutation.
-- New Issue: `gh issue create --milestone "Tendo v3.0.0 - Everyday Elegance" --label tendo:v3-autonomous --label status:idle`.
-  Never label an existing Issue.
-- Evidence (tests, screenshots, decisions, blockers) goes only in owned Issue
-  comments and linked PRs; never STATE.md or a substitute.
-
-## V3 design and visual validation discipline
-- Before changing visuals, capture evidence of the real current UI on actual
-  product routes with real build and representative synthetic household data.
-- Explore two coherent implemented design concepts; independent critique,
-  comparison and documented choice BEFORE large-scale redesign rollout.
-- For each UI PR, assess authentic before/after browser screenshots for phone
-  and desktop, Czech/English, dark/light, empty/populated/error states and
-  accessibility. Fix design problems before merge; do not just "approve" CSS.
-- Evaluate daily-user journeys: few understandable actions, no technical
-  jargon, readable type, clear hierarchy and forgiving interactions.
-- Commit stable deterministic visual regression baselines for relevant routes,
-  viewports and themes; independently review legitimate screenshot updates.
-- Apply CODE_QUALITY to every frontend slice. Preserve backend, auth, API,
-  recurrence and V2.1 regression checks without weakening coverage.
-
-## V3 release and completion protocol
-Only after all agent-managed milestone Issues with `tendo:v3-autonomous`
-and V3_DEFINITION_OF_DONE are fully and truthfully proven on green main:
-1. Independently review the real implementation against V3_DESIGN_BRIEF,
-   route/state inventory, mobile/tablet/desktop, actual screenshots,
-   localization, contrast, keyboard and beginner household journeys.
-2. Run complete pinned local verification, required CI, production-built
-   Playwright E2E, visual regression and deployment/upgrade checks. Fix all
-   release-blocking issues. Never skip or weaken existing V2.1 gates.
-3. Update README with authentic committed v3.0.0 Playwright screenshot(s),
-   user/docs version references and quality release-facing documentation.
-4. Merge professionally written docs/releases/v3.0.0.md via protected PR.
-   Notes must explain what visually changed, why users benefit, install/
-   upgrade path, backwards compatibility, limitations and tested artifacts.
-5. Only when main has green `required`, create annotated v3.0.0 tag pointing
-   to that EXACT verified main commit, push once, trigger existing Release
-   workflow. NEVER move a tag or bypass the normal publishing pipeline.
-6. Verify GitHub Release v3.0.0 exists publicly with proper notes and exact
-   compose.yaml/example.env; verify public ghcr.io/bigtcze/tendo:v3.0.0
-   image manifest includes linux/amd64 and linux/arm64 and floating tags
-   match release; verify released clean install AND upgrade from v2.1.0
-   retaining existing household data.
-7. If release workflow, GitHub visibility, artifact or upgrade fails, diagnose
-   and FIX before completion. Record genuine external blockers and STOP
-   claiming completion; do not fake a release.
-8. From fresh main, create separate FINAL completion branch, add
-   .autonomous/V3_COMPLETE documenting release and evidence; open PR, run
-   required checks, merge under protection.
-9. Sync clean local main and verify V3_COMPLETE tracked and true; exit.
-Keep PROJECT_COMPLETE, V2_COMPLETE and V2_1_COMPLETE as historical markers.
-Use ONLY V3 milestone Issues carrying `tendo:v3-autonomous`, not STATE.md,
-for V3 progress, blockers and claims. Ignore unlabelled/external Issues.
-Never directly write completion to main.
+## Maintenance release
+Evaluate daily, after the cycle's maintenance change (if any) is merged and
+`main` is green.
+- Interval: normally one maintenance patch release every 14 days, measured
+  from the latest published release's `publishedAt`.
+- Release only when meaningful dependency, security or compatibility changes
+  merged since the latest release tag (`gh api
+  repos/bigtcze/tendo/compare/<tag>...main`): changes to what self-hosters
+  run or how it is built (backend, frontend, API, migrations, runtime/build
+  toolchain, Dockerfiles, `compose.yaml`, `.env.example`). Never publish an
+  empty or documentation-only release; CI-, test- or dev-tool-only bumps
+  alone do not justify one.
+- A merged security fix is released promptly without waiting for the interval.
+- SemVer: maintenance releases are patch releases. Anything that needs manual
+  self-hoster action or breaks `/api/v1` clients is not a patch
+  (`docs/development/release.md`); do not hide breaking behavior behind a
+  patch version.
+- Procedure (`docs/development/release.md` "Cut a release" is canonical):
+  1. Select the next SemVer version (patch increment for maintenance).
+  2. Write user-facing `docs/releases/vX.Y.Z.md`: what changed for
+     self-hosters, update steps, compatibility, known limitations; no
+     commit dump.
+  3. Submit it through one focused protected PR; run the full gate and
+     required CI; merge; verify green `main`.
+  4. Create an annotated tag on that exact verified `main` commit and push it
+     once; the Release workflow runs qualification and publishes.
+  5. Verify the GitHub Release (notes, `compose.yaml`, `example.env`) and the
+     public `ghcr.io/bigtcze/tendo:vX.Y.Z` manifest for `linux/amd64` and
+     `linux/arm64`, pulled anonymously; floating tags match.
+  6. If qualification or publication fails, diagnose and fix through a new
+     PR and a new patch version. Never move or reuse tags or bypass a failed
+     qualification.
+- Release evidence goes in the release-notes PR and the session report.
