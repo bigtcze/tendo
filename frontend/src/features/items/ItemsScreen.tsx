@@ -95,7 +95,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
   } = screen;
   const { cancelAddAndFocus, subjectName } = screen;
   const emptyHome = Boolean(screen.emptyHome);
-  const homeReady = home.itemsRequestComplete;
+  const homeReady = home.itemsRequestComplete && (!home.error || !!home.summary);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 

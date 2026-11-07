@@ -2136,8 +2136,10 @@ describe('Home items', () => {
     app();
     await screen.findByText('Check your connection and try again.');
     expect(screen.queryByText('Renew passport')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]!);
     await waitFor(() => expect(within(screen.getByRole('main')).getAllByRole('listitem')).toHaveLength(2));
+    expect(within(screen.getByRole('main')).getByRole('button', { name: 'Add item' })).toBeVisible();
     const rows = within(screen.getByRole('main')).getAllByRole('listitem');
     expect(rows).toHaveLength(2);
     rows.forEach((row) => expect(row).toHaveTextContent('Renew passport'));
