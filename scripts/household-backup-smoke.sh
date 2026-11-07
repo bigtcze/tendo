@@ -321,6 +321,24 @@ DO $$ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END $$;
+-- Restored CHECK and foreign-key constraints still reject invalid runtime writes, and rejected rows do not persist.
+DO $$
+DECLARE
+  template items%ROWTYPE;
+BEGIN
+  SELECT * INTO STRICT template FROM items ORDER BY id LIMIT 1;
+  BEGIN
+    INSERT INTO items (household_id, subject_id, title) VALUES (template.household_id, template.subject_id, ' ');
+    RAISE EXCEPTION 'restored CHECK constraint accepted a blank title';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO items (household_id, subject_id, title) VALUES (template.household_id, '00000000-0000-7000-8000-000000000000', 'orphan');
+    RAISE EXCEPTION 'restored foreign key accepted an unknown subject';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+  IF (SELECT count(*) FROM items) <> 8 THEN RAISE EXCEPTION 'rejected item rows persisted'; END IF;
+END $$;
 SQL
 # Restore safety, using the real household dump.
 psql_b=("${compose_b[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres)
@@ -356,6 +374,6 @@ if ! grep -qiE 'unexpected end|could not read|could not find header|truncated|co
 fi
 "${psql_b[@]}" -d tendo_corrupt_restore -c "DO \$\$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public') THEN RAISE EXCEPTION 'failed restore left tables'; END IF;
-  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname IN ('unaccent','pg_trgm')) OR to_regprocedure('public.tendo_item_search_normalize(text)') IS NOT NULL OR to_regprocedure('public.tendo_item_search_pattern(text)') IS NOT NULL THEN RAISE EXCEPTION 'failed restore left search objects'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname IN ('unaccent','pg_trgm')) OR to_regprocedure('public.tendo_item_search_normalize(text)') IS NOT NULL OR to_regprocedure('public.tendo_item_search_pattern(text)') IS NOT NULL OR to_regclass('public.items_search_text_trgm_idx') IS NOT NULL THEN RAISE EXCEPTION 'failed restore left search objects'; END IF;
 END \$\$;" >/dev/null
 printf 'Full household backup/restore smoke passed, including refused existing-target and truncated-archive restores.\n'

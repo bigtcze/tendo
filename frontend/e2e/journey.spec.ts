@@ -1917,7 +1917,8 @@ test.describe('Tendo production journey', () => {
       expect(initialUniqueSubjects.size).toBe(4);
       const archivedRowMetadata = main.locator('li[data-item-id]').filter({ hasText: visibleTitles[0]! }).locator('p').first();
       await expect(archivedRowMetadata).toBeVisible();
-      await expect(archivedRowMetadata).toContainText(archivedSubject.name);
+      // V3 joins subject, attention and responsible into one scan line; the subject must be its exact first segment.
+      await expect(archivedRowMetadata).toHaveText(new RegExp(`^${escapeRegExp(archivedSubject.name)}( · |$)`));
       await expect.poll(() => subjectRequests.length).toBe(2 * Math.ceil(initialUniqueSubjects.size / 100));
       expect(subjectRequests.every((url) => url.searchParams.has('id'))).toBe(true);
       expect(subjectRequests.filter((url) => url.searchParams.get('archived') === 'true')).toHaveLength(Math.ceil(initialUniqueSubjects.size / 100));
