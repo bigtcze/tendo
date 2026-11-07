@@ -2,7 +2,7 @@
 
 OIDC lets an existing Tendo account connect to one configured identity provider. A successful connection enables that linked identity to sign in to the same account. Tendo does not create accounts from provider identities, match by email, or grant household memberships through OIDC. The local password remains available for recovery and is required when connecting an identity.
 
-When OIDC is enabled, the sign-in screen shows a **Sign in with <display name>** button below the password form, and each person can connect their own identity from **Your account** on the home screen. See [Your account and sign-in](../user/account.md) for the user steps.
+When OIDC is enabled, the sign-in screen shows a **Sign in with <display name>** button below the password form, and each person can connect their own identity from **Account** in the household navigation (the **Your account** screen). See [Your account and sign-in](../user/account.md) for the user steps.
 
 ## Configuration
 
@@ -67,7 +67,7 @@ The browser screens use these endpoints; scripts may use them directly.
 | Provider reports redirect URI mismatch | Register the exact `<TENDO_PUBLIC_URL>/api/v1/auth/oidc/callback`, including scheme, host, and port. |
 | Sign-in screen says the sign-in isn't connected to a Tendo account yet (`identity_not_linked`) | Sign in with the local password, open **Your account**, and connect the provider. Email equality does not link accounts. |
 | Account screen says the sign-in is already connected to another Tendo account (`identity_conflict`) | That provider identity is linked to a different Tendo login. Sign in to that account instead. Unlinking is not available in this release. |
-| Account screen says "That password isn't right" (`invalid_credentials`) | Enter the current Tendo password, not the provider password. |
+| Account screen says "That password isn’t right." (`invalid_credentials`) | Enter the current Tendo password, not the provider password. |
 | No sign-in button appears | `GET /api/v1/auth/oidc` reports `enabled: false`; check `TENDO_OIDC_ISSUER` and recreate the app. |
 | Secret-file configuration fails at startup | Confirm the override mounts a readable, non-empty file at the configured container path and that the literal secret variable is unset. |
 | `TENDO_OIDC_DISPLAY_NAME` is rejected | Use printable text up to 80 bytes, or leave it unset for `OpenID Connect`. |

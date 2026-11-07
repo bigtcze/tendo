@@ -53,20 +53,20 @@ The app logs `database schema validation failed` when it cannot use the database
 
 | What you see | Fix |
 | --- | --- |
-| "Setup isn't switched on for this Tendo." | `TENDO_SETUP_TOKEN` is empty. Set only that value, for example `sed -i "s\|^TENDO_SETUP_TOKEN=.*\|TENDO_SETUP_TOKEN=$(openssl rand -base64 32)\|" .env`. Do not generate new database passwords. Then run `docker compose up -d --force-recreate --wait app`; a restart alone does not read `.env`. |
-| "That setup code isn't right." | Show the code again with `grep '^TENDO_SETUP_TOKEN=' .env \| cut -d= -f2-` and paste all of it, including the final `=`. If you edited `.env` after starting, recreate the app as above. |
+| "First-time setup is closed." | `TENDO_SETUP_TOKEN` is empty. Set only that value, for example `sed -i "s\|^TENDO_SETUP_TOKEN=.*\|TENDO_SETUP_TOKEN=$(openssl rand -base64 32)\|" .env`. Do not generate new database passwords. Then run `docker compose up -d --force-recreate --wait app`; a restart alone does not read `.env`. |
+| "That setup code isn’t right." | Show the code again with `grep '^TENDO_SETUP_TOKEN=' .env \| cut -d= -f2-` and paste all of it, including the final `=`. If you edited `.env` after starting, recreate the app as above. |
 | The sign-in screen appears instead of setup | Setup already ran. Sign in with the owner account. Setup cannot run a second time on the same database. |
-| "Too many attempts." | Wait one minute and try again. |
+| "Too many attempts. Try again in a moment." | Wait one minute and try again. |
 
 ## Sign-in problems
 
 | What you see | Fix |
 | --- | --- |
-| "Login or password is incorrect." | Check the login (lowercase). Tendo has no password reset in this version; another household member cannot reset it either. Keep your password in a password manager. If the correct password is always refused, check `docker compose logs app` for an error-level `http request` line with `fault=password_hash_integrity_fault`: the stored password record is damaged. Restore your latest backup; see [back up and restore](backup-restore.md). |
-| "Too many attempts." | Sign-in allows 10 attempts per minute from one address. Wait one minute. |
+| "That username or password isn’t right." | Check the username (lowercase). Tendo has no password reset in this version; another household member cannot reset it either. Keep your password in a password manager. If the correct password is always refused, check `docker compose logs app` for an error-level `http request` line with `fault=password_hash_integrity_fault`: the stored password record is damaged. Restore your latest backup; see [back up and restore](backup-restore.md). |
+| "There have been too many sign-in attempts." | Sign-in allows 10 attempts per minute from one address. Wait one minute. |
 | You are signed out after some weeks | Sessions last 30 days and then end. Sign in again. |
 | Sign-in works on `http://localhost` but not through your domain | `TENDO_PUBLIC_URL` must be the HTTPS address of your domain. With an `https://` address the session cookie is marked `Secure` and is sent only over HTTPS. |
-| "Your account isn't part of a household yet." | The account exists but has no household. Ask an owner for an invite link; see [household members](../user/household-members.md). |
+| "Your account isn’t part of a household yet." | The account exists but has no household. Ask an owner for an invite link; see [household members](../user/household-members.md). |
 
 For problems with **Sign in with …**, see the [OIDC troubleshooting table](oidc.md#troubleshooting).
 
