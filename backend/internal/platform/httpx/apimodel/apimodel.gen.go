@@ -1163,7 +1163,7 @@ type Session struct {
 
 // SetupRequest defines model for SetupRequest.
 type SetupRequest struct {
-	// HouseholdName Trimmed value must be nonempty and contain no control characters.
+	// HouseholdName Trimmed value must be nonempty and contain no control, format (zero-width and bidirectional), or line or paragraph separator characters.
 	HouseholdName string `json:"householdName"`
 	Login         string `json:"login"`
 

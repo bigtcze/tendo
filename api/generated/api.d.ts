@@ -497,7 +497,7 @@ export interface components {
             login: string;
             /** @description 15–128 Unicode scalar values; maximum 512 UTF-8 bytes */
             password: string;
-            /** @description Trimmed value must be nonempty and contain no control characters. */
+            /** @description Trimmed value must be nonempty and contain no control, format (zero-width and bidirectional), or line or paragraph separator characters. */
             householdName: string;
             /** @description Valid named IANA timezone; UTC accepted; Local and fixed offsets are not accepted. */
             timezone: string;

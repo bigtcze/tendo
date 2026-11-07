@@ -55,7 +55,9 @@ func Validate(name, timezone string) (string, error) {
 		return "", &ValidationError{"householdName", "invalid_length"}
 	}
 	for _, r := range name {
-		if unicode.IsControl(r) {
+		// Control, format (zero-width, bidi), and line or paragraph separator
+		// characters can hide or reorder text; subject names reject the same set.
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return "", &ValidationError{"householdName", "invalid_characters"}
 		}
 	}
