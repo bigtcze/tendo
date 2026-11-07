@@ -11,6 +11,7 @@ const projects: Project[] = [
   { name: 'clock', testMatch: ['attention-clock.spec.ts'] },
   { name: 'readme-screenshot', testMatch: ['readme-screenshot.spec.ts'] },
   { name: 'ux-audit', testMatch: ['ux-audit.spec.ts'] },
+  ...(process.env.TENDO_VISUAL_MODE ? [{ name: 'visual', testMatch: ['visual/**/*.spec.ts'], use: { browserName: 'chromium' as const } }] : []),
   {
     name: 'screen-reader',
     testMatch: ['screen-reader.spec.ts'],
@@ -82,6 +83,9 @@ export default defineConfig({
   // larger default budget there; required runs keep 30 s. Tests that set their own timeout keep it.
   timeout: process.env.TENDO_E2E_READ_DELAY_MS ? 90_000 : 30_000,
   expect: { timeout: 10_000 },
+  snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
+  // 'changed' rewrites only mismatching or missing baselines, so prerequisite captures stay untouched.
+  updateSnapshots: process.env.TENDO_VISUAL_UPDATE === '1' ? 'changed' : 'none',
   use: {
     baseURL,
     headless: true,
