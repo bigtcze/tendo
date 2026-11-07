@@ -72,4 +72,4 @@ For problems with **Sign in with …**, see the [OIDC troubleshooting table](oid
 
 ## Getting help
 
-When you report a problem, include the Tendo version (`TENDO_VERSION` from `.env`, and `docker compose images app`), `docker compose ps -a`, and the relevant `docker compose logs` lines. Remove your domain name if you prefer; logs contain no secrets, but do not attach your `.env`.
+When you report a problem, include the Tendo version (`TENDO_VERSION` from `.env`; a value of `v2` means the 2.x line), the output of `docker compose images app`, `docker compose ps -a`, and the relevant `docker compose logs` lines. Remove your domain name if you prefer; logs contain no secrets, but do not attach your `.env`.

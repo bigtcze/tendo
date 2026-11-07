@@ -2,7 +2,7 @@
 
 Items can be added for a person or thing. See [Items](items.md) for adding, repeating, and completing them.
 
-"People and things" is the list of who and what your household looks after: a child, your home, the car, a pet. Open it with **People and things** in the navigation at the top of every household screen.
+"People and things" is the list of who and what your household looks after: a child, your home, the car, a pet. Open it with **People** in the household navigation on phones and tablets, or **People and things** on computers. On phones and tablets, household destinations are in a bar at the bottom of the screen; on computers they are in a sidebar on the left.
 
 ## Add one
 
@@ -26,14 +26,14 @@ The list shows one page at a time. Use **Next page**, **Previous page** and **Fi
 
 ## Rename or change the type
 
-Select **Edit** next to an entry, change the name or type, and select **Save**. If someone else changed the same entry a moment earlier, Tendo shows the latest version so you can check it and save again.
+Each active entry offers **See items**, which opens **All items** filtered to that person or thing, and **Edit**. Choose **Edit** to change the name or type, or choose **Archive** inside the edit dialog to move the entry out of the active list. Tendo shows a notice and offers **Undo**; no confirmation is needed. If someone else changed the same entry a moment earlier, Tendo shows the latest version so you can check it and save again.
 
 ## Archive and restore
 
-Select **Archive** to move an entry out of the way. Tendo confirms it and offers **Undo**. Nothing is deleted.
+Archiving an entry does not delete it. Choose **Archive** inside its **Edit** dialog; Tendo shows a notice and offers **Undo**, without a confirmation step.
 
-To see archived entries, select **Show archived**. Select **Restore** next to one to bring it back, then **Back to the list** to return.
+To see archived entries, select **Show archived**. Select **Restore** next to an entry to bring it back, then **Back to the list** to return.
 
 ## Language
 
-The screen is available in English and Czech. Switch the language in the footer.
+The screen is available in English and Czech. In **Your account** under **Language**, or in the footer, you can switch the language.

@@ -4,11 +4,11 @@ Items keep household obligations in view without needing an exact date. From Hom
 
 ## Home
 
-Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each item shows who or what it is for, its attention date when it has one, when it was last done, and who is looking after it. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Home loads up to 100 items per group, then offers **See all … in All items** for the complete, paged list. Empty groups are not shown. When at least two groups have items, **Group overview** links at the top jump straight to each group. Home also links to **All items**, where you can search and filter the full household list.
+Home shows active items in groups: **Needs attention** first, then **In progress** and **Waiting**, then **Coming up** and **Paused**. Within a group, items without a date come first, then the earliest dates. Each item shows who or what it is for, its attention date when it has one, when it was last done, and who is looking after it. Each heading shows how many items the group has in total, even when only the first ones are shown. Choose **Show more** under a group to see the next items in that group; the button says how many are left. Home loads up to 100 items per group, then offers **See all … in All items** for the complete, paged list. Empty groups are not shown. When at least two groups have items, **Group overview** links at the top jump straight to each group; on phones they form a row you can scroll sideways. Home also links to **All items**, where you can search and filter the full household list.
 
 ## Finding items
 
-Open **All items** from the navigation at the top of every household screen, or from the link on Home, to find items across your household. Search for words in an item's title or notes, then choose **Search**. Narrow the results by status, person or thing, who is looking after it, and whether it repeats. The counts beside each status show how many matching items are in that group. Use the page buttons to move through results. Choose **Done** or **Archived** to find completed or archived items.
+Open **All items** from the household navigation (labelled **Items** on phones and tablets), or from the link on Home, to find items across your household. Search for words in an item's title or notes, then choose **Search**. Narrow the results by status, person or thing, who is looking after it, and whether it repeats. On phones and tablets, Search and Status stay visible; choose **Filters** to show the person or thing, who is looking after it, and repeat filters. The button shows the number of active filters, for example **Filters (1)**. The counts beside each status show how many matching items are in that group. Use the page buttons to move through results. Choose **Done** or **Archived** to find completed or archived items.
 
 ## Repeat an item
 
@@ -20,7 +20,7 @@ In lists, a repeating item shows its interval and which kind it is: **keeps plan
 
 ## Mark done and undo
 
-Choose **Done** on an item. A repeating item stays in the list with its next attention date; a one-off item leaves the active list. The confirmation immediately after marking it done offers **Undo**, which can undo only the latest completion. If a connection problem interrupts completion, retrying the same attempt will not mark it done twice.
+Choose **Done** on an item. A repeating item stays in the list with its next attention date; a one-off item leaves the active list. A notice says the item is done, and for a repeating item when it comes back. **Undo** appears next to the notice and can undo only the latest completion. If a connection problem interrupts completion, retrying the same attempt will not mark it done twice.
 
 ## Opening and updating an item
 
@@ -42,4 +42,4 @@ The history lists completions from newest to oldest, 25 at a time. Choose **Olde
 
 ## Archive
 
-Archive an item to keep it out of the way without deleting it. Its details and history remain available, and you can restore it from the item screen. Right after archiving, **Undo** reverses the change.
+On the item screen, choose **Archive** to keep an item out of the way without deleting it. The screen says “This item was archived.” and offers **Undo**. Its details and history remain available; choose **Restore** on the item screen to bring it back.

@@ -132,10 +132,10 @@ The native browser suite is not a replacement for deployment smokes. Setup/API w
 With the dedicated PostgreSQL service and pinned tools available, run:
 
 ```sh
-TENDO_README_SCREENSHOT=$PWD/docs/images/v2-overview.png bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+TENDO_README_SCREENSHOT=$PWD/docs/images/v3-overview.png bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
 ```
 
-The opt-in capture builds and runs the production app against real PostgreSQL, uses the fixed test clock `2026-05-14T08:00:00Z`, and creates realistic household data through the public API. It is separate from the required E2E journeys and is not part of CI.
+The opt-in capture builds and runs the production app against real PostgreSQL, uses the fixed test clock `2026-05-14T08:00:00Z`, and creates realistic household data through the public API. It writes the 1280×800 full-page desktop image to the given path and a 390×844 phone viewport image next to it with a `-phone` suffix (`docs/images/v3-overview-phone.png`). It is separate from the required E2E journeys and is not part of CI.
 
 ### Required visual regression suite
 

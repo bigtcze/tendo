@@ -1,6 +1,10 @@
 # Your account and sign-in
 
-Choose **Account** in the navigation at the top of every household screen to open **Your account** and see which login you are signed in with. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
+Choose **Account** in the household navigation to open **Your account** and see which login you are signed in with. On phones and tablets, household destinations are in a bar at the bottom of the screen; on computers they are in a sidebar on the left. If your session ends, Tendo returns you to sign-in and says so; unsaved drafts are not kept.
+
+## Appearance and language
+
+In **Your account**, choose **Appearance** to match this device, or select **Light** or **Dark**. The explicit choice is saved in this browser only. Under **Language**, choose English or Čeština; you can also change the language in the footer.
 
 ## Sign in with your identity provider
 

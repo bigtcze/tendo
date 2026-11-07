@@ -4,7 +4,7 @@ An owner can invite someone to join the household as a member. Tendo does not se
 
 ## See who is in the household
 
-Choose **Members** in the navigation at the top of every household screen to open **Household members**. Everyone in the household sees the member list with each person's login and whether they are an owner or a member. Long lists show one page at a time; use **Next page**, **Previous page** and **First page** to move through them. For owners, the **Invitations** list pages the same way.
+Choose **Members** in the household navigation to open **Household members**. On phones and tablets, household destinations are in a bar at the bottom of the screen; on computers they are in a sidebar on the left. Everyone in the household sees the member list with each person's login and whether they are an owner or a member. Long lists show one page at a time; use **Next page**, **Previous page** and **First page** to move through them. For owners, the **Invitations** list pages the same way.
 
 ## Invite someone (owners)
 
@@ -20,7 +20,7 @@ Each link:
 - expires after seven days,
 - always joins the person as a member, not an owner.
 
-The **Invitations** list shows each invite as pending, accepted, revoked, or expired. Select **Revoke** on a pending invite if it should no longer be used. Revoking an accepted invite does not remove the member.
+The **Invitations** list shows each invite as pending, accepted, revoked, or expired. Select **Revoke** on a pending invite if it should no longer be used. Tendo asks **Revoke?**; choose **Yes** to continue or **Cancel** to keep the invite. Revoking an accepted invite does not remove the member.
 
 If the link could not be shown, for example because the connection dropped, select **Check again**. If the invite was created, Tendo cannot show its link again, but it offers to revoke that invite so you can create a new one.
 

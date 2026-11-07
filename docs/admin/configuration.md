@@ -1,6 +1,6 @@
 # Runtime configuration
 
-This is the reference for every setting. For step-by-step installation, see [install](install.md). The Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Owners create invite links from **Household members**; no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). When OIDC is configured, the sign-in screen offers it and people connect their own identity from **Your account**; see the [OIDC guide](oidc.md). PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
+This is the reference for every setting. For step-by-step installation, see [install](install.md). The Compose stack provides PostgreSQL, health/readiness, browser first-run onboarding protected by an operator setup code, local login sessions, household/member/invitation APIs, subjects, and the household backlog UI. Owners create invite links from **Members** (the **Household members** screen); no email is sent. Invitation tokens are bearer secrets: share them only with the intended person over a private channel, and protect database backups because they contain invitation token digests. See the [household invitations and members guide](../user/household-members.md). When OIDC is configured, the sign-in screen offers it and people connect their own identity from **Your account**; see the [OIDC guide](oidc.md). PostgreSQL has no host-published port; keep the app bound to loopback unless you understand the network exposure.
 
 Settings live in `.env` next to `compose.yaml`; the release's `example.env` is the template (`.env.example` in the repository). Generate two independent hexadecimal database passwords:
 
@@ -25,7 +25,7 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 
 | Variable | Required/default | Meaning and security |
 | --- | --- | --- |
-| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v1`, or an exact release such as `v1.0.0`. See [update](update.md). |
+| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v3`, or an exact release such as `v3.0.0`. See the [update tag table](update.md#update). |
 | `POSTGRES_PASSWORD` | Required; no default | PostgreSQL bootstrap superuser password; independent random hexadecimal value. |
 | `TENDO_DATABASE_PASSWORD` | Required; no default | Restricted web-role password; independent random hexadecimal value. |
 | `TENDO_SETUP_TOKEN` | Empty; first-run setup disabled (the onboarding screen says so) | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |
