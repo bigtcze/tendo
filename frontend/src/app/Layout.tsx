@@ -53,10 +53,10 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
         <span className="font-display text-xl tracking-tight">{t('app.name')}</span>
         {actions}
       </header>
-      {navigation ? <HouseholdNavigation rail={household} /> : null}
       <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
         {children}
       </main>
+      {navigation ? <HouseholdNavigation rail={household} /> : null}
       <footer className={`${FOOTER} ${household ? FOOTER_HOUSEHOLD : ''}`}>
         <LanguageSwitch />
       </footer>

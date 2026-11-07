@@ -21,7 +21,8 @@ const ACCOUNT: LinkSpec = { route: 'account', href: '/account', label: 'nav.acco
 
 /**
  * One navigation landmark whose presentation changes with width: a fixed bottom bar on phone/tablet
- * (static on short viewports such as 200–400% zoom, so it never covers content) and a left rail from `lg`.
+ * (static after main on short viewports such as 200–400% zoom, so it never covers content) and a left rail from `lg`.
+ * It follows main in the DOM so keyboard order matches the bottom bar; the rail keeps content-first order beside main.
  * `rail` is false for the household-less state, which keeps a small inline bar and never reserves rail space.
  */
 export function HouseholdNavigation({ rail }: { rail: boolean }) {
@@ -52,7 +53,7 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 const NAV_RAIL = [
   'fixed inset-x-0 bottom-0 z-20 border-t border-line bg-raised pb-[env(safe-area-inset-bottom)]',
-  'short:static short:border-t-0 short:border-b short:pb-0',
+  'short:static short:pb-0',
   'lg:sticky lg:top-0 lg:col-start-1 lg:row-start-2 lg:self-start lg:border-t-0 lg:bg-transparent lg:pb-0',
 ].join(' ');
 const LIST_RAIL = 'mx-auto flex max-w-xl gap-1 px-1 py-1 lg:mx-0 lg:max-w-none lg:flex-col lg:gap-1 lg:px-4 lg:py-6';
