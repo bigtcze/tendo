@@ -50,7 +50,7 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
     : item.responsibleUserId ? t('items.responsible.read', { name: t('items.responsible.unknown') }) : null;
 
   return <>
-    <Heading className="mt-2 min-w-0 break-words font-display text-3xl leading-tight sm:text-4xl">{item.title}</Heading>
+    <Heading className="mt-2 min-w-0 [overflow-wrap:anywhere] text-pretty font-display text-[1.75rem] leading-[1.15] sm:text-4xl sm:leading-tight">{item.title}</Heading>
     <p className="mt-2 text-muted">{subjectOverride ?? (subjectName || t('items.subject.unknown'))}</p>
     <ItemDetailNotice notice={notice} undoArchive={undoArchive} busy={busy.busy} t={t} focusRef={refs.notice} onUndo={actions.onRestore} />
     {item.archived ? <p className="mt-4 rounded-xl bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
