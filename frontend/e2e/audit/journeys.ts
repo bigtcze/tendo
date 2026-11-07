@@ -170,7 +170,6 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await expect(page.getByRole('button', { name: en['subjects.restore'], exact: true })).toBeVisible();
     await click(page.getByRole('button', { name: en['subjects.restore'], exact: true }), recorder);
     await expect(archive).toBeVisible();
-    recorder.obstacle('Detail has no Done action; archive and restore are available there.');
   };
   await record('J6 edit archive restore from detail', j6);
 

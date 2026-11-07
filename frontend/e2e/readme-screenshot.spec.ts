@@ -134,9 +134,18 @@ test('capture populated README household home screen', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: en['items.group.overview'] }).getByRole('link')).toHaveText([
     `${en['items.group.needs']} 4`, `${en['items.group.inProgress']} 2`, `${en['items.group.waiting']} 1`, `${en['items.group.upcoming']} 3`,
   ]);
-  await expect(page.getByText(en['items.responsible.read'].replace('{name}', 'anna_novak'), { exact: true }).first()).toBeVisible();
-  await expect(page.getByText(en['items.responsible.you'], { exact: true }).first()).toBeVisible();
+  // Rows join subject, date and who is looking after it into one scan line separated by " · ".
+  const main = page.getByRole('main');
+  await expect(main.getByText(en['items.responsible.read'].replace('{name}', 'anna_novak')).first()).toBeVisible();
+  await expect(main.getByText(en['items.responsible.you']).first()).toBeVisible();
 
   mkdirSync(dirname(screenshotPath), { recursive: true });
   await page.screenshot({ path: screenshotPath, fullPage: true });
+
+  // Phone companion image: the first screen a household member sees on a phone, next to the desktop path.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(390);
+  await expect(page.getByRole('navigation', { name: en['nav.label'] })).toBeVisible();
+  await expect(page.getByText("Book Anna's dental check-up", { exact: true })).toBeVisible();
+  await page.screenshot({ path: screenshotPath.replace(/\.png$/, '-phone.png') });
 });

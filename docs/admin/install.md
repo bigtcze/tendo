@@ -89,7 +89,7 @@ docker compose up -d --force-recreate --wait app
 
 ## Next steps
 
-- Invite the rest of your household from **Household members**; see [household members and invitations](../user/household-members.md).
+- Invite the rest of your household from **Members** (the **Household members** screen); see [household members and invitations](../user/household-members.md).
 - Set up regular [backups](backup-restore.md).
 - Optional: let people sign in through an identity provider such as Pocket ID; see [OIDC](oidc.md).
 - Learn how to [update Tendo](update.md).

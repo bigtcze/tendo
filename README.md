@@ -2,7 +2,9 @@
 
 Tendo is a self-hosted shared list for the things a household needs to remember, without forcing everything into a calendar.
 
-![Tendo Home for a sample household: navigation at the top, links to each group with its item count, and items grouped under Needs attention, In progress, Waiting, and Coming up, with dates, who is looking after them, and repeat details where they apply](docs/images/v2-overview.png)
+![Tendo Home on a computer for a sample household: a sidebar with Home, All items, People and things, Members, and Account; links to each group with its item count; an Add item button; and items grouped under Needs attention, In progress, Waiting, and Coming up, each with a Done button, who or what it is for, its date, who is looking after it, and repeat details where they apply](docs/images/v3-overview.png)
+
+<img src="docs/images/v3-overview-phone.png" width="260" alt="The same Home on a phone: group links in a row you can scroll sideways, a full-width Add item button, the first items under Needs attention, and Home, Items, People, Members, and Account in a bar at the bottom of the screen">
 
 ## What Tendo does
 
@@ -14,7 +16,7 @@ Tendo is a self-hosted shared list for the things a household needs to remember,
 - Keeps a history of completions, and lets you undo a completion you marked by mistake.
 - Lets an owner invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
 
-The interface is available in English and Czech and works in a web browser on phones, tablets, and computers, with a keyboard, and with browser zoom.
+The interface is available in English and Czech, follows your device's light or dark appearance (or the one you choose in **Account**), and works in a web browser on phones, tablets, and computers, with a keyboard, and with browser zoom.
 
 ## Quick start
 
@@ -85,4 +87,4 @@ Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
 
 ## Project status and license
 
-Tendo 2.1 is the current release ([v2.1.0](https://github.com/bigtcze/tendo/releases/tag/v2.1.0)), a quality release that fixes problems found in 2.0 and adds no new features. It keeps all your data; to update from 2.0, follow [Update](docs/admin/update.md#update), and from 1.x, follow [Updating from 1.x to 2.0](docs/admin/update.md#updating-from-1x-to-20). Images are published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64` with the tags `latest`, `v2`, `v2.1`, and the exact version; `v2.0` stays on 2.0.0 and `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
+This README describes Tendo 3.0, which is not released yet. 3.0 redesigns every screen for everyday use on phones and computers and adds light and dark appearance; it keeps all your data and does not change the database. The latest published release is 2.1.0 ([v2.1.0](https://github.com/bigtcze/tendo/releases/tag/v2.1.0)), and the quick start above installs it until 3.0 is published. To update once 3.0 is out, follow [Updating from 2.x to 3.0](docs/admin/update.md#updating-from-2x-to-30). When 3.0 is published, its images will be at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64` with the tags `latest`, `v3`, `v3.0`, and the exact version; `v2` and `v2.1` stay on 2.1.0, `v2.0` stays on 2.0.0, and `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
