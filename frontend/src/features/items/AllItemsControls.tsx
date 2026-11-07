@@ -99,7 +99,11 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
         className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"
         data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
         {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
-        <span aria-hidden="true" className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" data-all-items-filter-chevron
+          className={`ml-auto size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
       </Button>
     </div>
     {clear}
