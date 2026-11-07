@@ -20,3 +20,4 @@ stage "API checks" bash -c 'cd api && npm ci && npm audit --audit-level=moderate
 stage "Frontend checks" bash -c 'cd frontend && npm ci && npm audit --audit-level=moderate && npm run check'
 stage "Playwright browsers for the locked @playwright/test" bash -c 'cd frontend && npx --no-install playwright install chromium firefox webkit'
 stage "Production E2E" bash scripts/e2e-smoke.sh
+stage "Visual regression" env TENDO_VISUAL_MODE=1 bash scripts/e2e-smoke.sh

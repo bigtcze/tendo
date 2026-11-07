@@ -217,6 +217,72 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: false
 
+  visual:
+    name: visual
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TENDO_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:5432/postgres?sslmode=disable
+      TENDO_VISUAL_MODE: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/toolchain
+      - name: Install native PostgreSQL 18 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /etc/apt/keyrings/postgresql.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+          [[ "$(psql --version)" =~ PostgreSQL\)\ 18([.]|$) ]]
+      - name: Bootstrap PostgreSQL 18 visual service
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=0
+          for _ in $(seq 1 60); do if pg_isready -h 127.0.0.1 -U postgres -d postgres; then ready=1; break; fi; sleep 1; done
+          (( ready == 1 ))
+          PGPASSWORD=ci-postgres-password psql "$TENDO_TEST_POSTGRES_ADMIN_URL" -v ON_ERROR_STOP=1 -c 'CREATE ROLE tendo NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install pinned Chromium and dependencies
+        working-directory: frontend
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Visual regression against native production build and PostgreSQL
+        id: visual
+        timeout-minutes: 15
+        env:
+          E2E_CI_UPLOAD_DIR: ${{ runner.temp }}/visual-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_DIAGNOSTICS_RECIPIENT: ci/e2e-artifact-recipient.asc
+        run: bash scripts/e2e-smoke.sh
+      - name: Upload visual failure diagnostics
+        if: ${{ (failure() || cancelled()) && steps.visual.outputs.ci_upload == 'ready' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: visual-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/visual-ci-upload-${{ github.run_id }}-${{ github.run_attempt }}/
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: false
+
   deployment:
     name: deployment (${{ matrix.smoke }}${{ matrix.from && format(' {0}', matrix.from) || '' }})
     timeout-minutes: 20
@@ -257,7 +323,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    needs: [backend, api, frontend, postgres, e2e, deployment]
+    needs: [backend, api, frontend, postgres, e2e, visual, deployment]
     env:
       NEEDS_JSON: ${{ toJSON(needs) }}
     steps:
@@ -266,4 +332,4 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s\n' "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value.result)"'
-          jq -e 'length == 6 and all(.[]; .result == "success")' <<<"$NEEDS_JSON" >/dev/null
+          jq -e 'length == 7 and all(.[]; .result == "success")' <<<"$NEEDS_JSON" >/dev/null

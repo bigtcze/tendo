@@ -137,6 +137,24 @@ TENDO_README_SCREENSHOT=$PWD/docs/images/v2-overview.png bash scripts/dev-exec.s
 
 The opt-in capture builds and runs the production app against real PostgreSQL, uses the fixed test clock `2026-05-14T08:00:00Z`, and creates realistic household data through the public API. It is separate from the required E2E journeys and is not part of CI.
 
+### Required visual regression suite
+
+`TENDO_VISUAL_MODE=1 bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh` builds the production binary, creates isolated PostgreSQL, starts a fresh app with fixed server clock `2026-05-14T08:00:00Z`, then runs the Chromium-only `visual` project. Browser time is fixed to the same instant, and every browser context uses locale `en-US` and time zone `Europe/Prague`, so CI runners in UTC render the same onboarding default and dates. A serial route-group suite captures first-run onboarding and empty Home before API fixtures are seeded; subsequent fixtures use real API calls, and route tests share the saved owner session. Coverage includes Home/add/Repeat, All items/no-match, item detail open/done/archived, edit/412 conflict, People current/archived, Members owner/non-owner, Account, signed-out Login/error, Czech Home/add/detail, Home and All-items retry errors, and a final 1,000-active-item scale case. Onboarding, Home, the add form and All items have 320/390/768/1440 captures. Detail, edit/conflict, Repeat and the other route states are captured at 390/1440. Light/dark screenshots cover onboarding, login, Home, add, All items, detail, People, Members and Account at 390/1440. Czech Home/add/detail are captured at 390/1440. Full-page captures preserve long-content states; responsive and theme matrix captures use viewport images.
+
+The large-data scenario adds 1,000 deterministic `Úkol 0001`… items through the public API sequentially (item ids are uuidv7 and list order tie-breaks on id, so concurrent creation would make row order nondeterministic), after all normal route captures. It checks the API summary count delta, bounds the DOM at `<3000` elements per Home/All-items page (2x headroom over observed bounded-list structure; Home groups cap at 100 and All-items paginates), and caps initial-load household API traffic at `<=8` requests (session plus bounded summary/list reads, never per-record requests). These bounds are measured on the settled screen: no row is still loading its subject label and the network is idle. It logs seeding time, navigation-to-first-row and navigation-to-settled timing without machine-specific timing thresholds. Large Home and All-items are captured at 390/1440.
+
+`toHaveScreenshot` uses the default per-pixel color threshold and `maxDiffPixels: 0`; captures assert viewport, clear focus/pointer, disable animations, hide caret and use reduced motion. No page region is masked. The visual runner sets `FONTCONFIG_FILE`/`FC_CONFIG_DIR` only for the visual process. `frontend/e2e/visual/fonts/` commits Liberation Sans/Serif/Mono TTF from Debian `fonts-liberation` 1:2.1.5-3, source https://github.com/liberationfonts/liberation-fonts, SIL OFL 1.1; its config reads only committed fonts and aliases product-stack families (including `ui-rounded`, `system-ui`, and `ui-serif`). Product CSS is unchanged. Snapshot paths omit platform suffixes because Chromium and complete font source are pinned. CI job `visual` is included in aggregate `required`; CI never updates snapshots and uploads only encrypted diagnostics through the existing E2E artifact pipeline.
+
+Baseline refresh runs the whole serial suite (later route groups depend on the household created by the first tests) with Playwright `updateSnapshots: 'changed'`, so only mismatching or missing PNGs are rewritten and matching baselines stay byte-identical:
+
+```sh
+source ~/.config/tendo-test/env
+TENDO_VISUAL_MODE=1 TENDO_VISUAL_UPDATE=1 bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+git status --short frontend/e2e/visual/visual.spec.ts-snapshots/
+```
+
+Review every changed PNG image-by-image at full resolution against its previous version, enumerate each changed path in the PR, and explain its intended change; revert any change that is not intended. `TENDO_VISUAL_UPDATE=1` is rejected when `CI` is set. Normal local and CI runs use `updateSnapshots: 'none'`; missing or changed baselines fail.
+
 ### UX/scale audit capture
 
 With the dedicated PostgreSQL service, pinned tools, and frontend dependencies available:
