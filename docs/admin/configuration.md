@@ -25,7 +25,7 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 
 | Variable | Required/default | Meaning and security |
 | --- | --- | --- |
-| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v3`, or an exact release such as `v3.0.0`. See the [update tag table](update.md#update). |
+| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v2`, or an exact release such as `v2.1.0` (`v3` and `v3.0.0` once 3.0 is published). See the [update tag table](update.md#update). |
 | `POSTGRES_PASSWORD` | Required; no default | PostgreSQL bootstrap superuser password; independent random hexadecimal value. |
 | `TENDO_DATABASE_PASSWORD` | Required; no default | Restricted web-role password; independent random hexadecimal value. |
 | `TENDO_SETUP_TOKEN` | Empty; first-run setup disabled (the onboarding screen says so) | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |

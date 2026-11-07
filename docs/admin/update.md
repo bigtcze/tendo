@@ -2,12 +2,15 @@
 
 Tendo is published as the container image `ghcr.io/bigtcze/tendo`. `TENDO_VERSION` in `.env` selects which tag Compose runs:
 
+> Tendo 3.0 is not released yet; the latest published release is 2.1.0. The `v3`, `v3.0`, and `v3.0.0` tags exist only once 3.0 is published. Until then, use `latest`, `v2`, `v2.1`, or `v2.1.0`.
+
 | `TENDO_VERSION` | What you get |
 | --- | --- |
 | `latest` (default) | The newest release, including a future major version. |
 | `v3` | The newest 3.x release. A future 4.0 is never installed until you change this value. |
 | `v3.0` | The newest 3.0.x release. |
 | `v2` | The newest 2.x release. It stays on the 2.x line and never installs 3.0; change it to `v3` or `latest` to update. |
+| `v2.1` | The newest 2.1.x release. |
 | `v1` | The newest 1.x release. 2.0 and later are never installed until you change this value. |
 | `v3.0.0` | Exactly that release. Change the value to update. |
 
@@ -48,7 +51,7 @@ Run every command from the directory that holds Tendo's `compose.yaml` and `.env
 
 ## Updating from 2.x to 3.0
 
-Tendo 3.0 redesigns the app's screens. It keeps your data, does not change the database schema, and needs no new settings. Take a [backup](backup-restore.md#back-up) first, then follow the update steps above. If `TENDO_VERSION` is `v2`, `v2.1`, `v2.0`, or an exact 2.x version, change it to `v3` (or `latest`) first.
+These steps apply once 3.0 is published (see the [releases page](https://github.com/bigtcze/tendo/releases)). Tendo 3.0 redesigns the app's screens. It keeps your data, does not change the database schema, and needs no new settings. Take a [backup](backup-restore.md#back-up) first, then follow the update steps above. If `TENDO_VERSION` is `v2`, `v2.1`, `v2.0`, or an exact 2.x version, change it to `v3` (or `latest`) first.
 
 Because the database schema is unchanged from 2.1, going back to 2.1 works without restoring a backup. For other earlier versions, follow [Go back to an earlier version](#go-back-to-an-earlier-version).
 

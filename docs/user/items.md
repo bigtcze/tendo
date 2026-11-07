@@ -8,7 +8,7 @@ Home shows active items in groups: **Needs attention** first, then **In progress
 
 ## Finding items
 
-Open **All items** from the household navigation (labelled **Items** on phones and tablets), or from the link on Home, to find items across your household. Search for words in an item's title or notes, then choose **Search**. Narrow the results by status, person or thing, who is looking after it, and whether it repeats. On phones and tablets, Search and Status stay visible; choose **Filters** to show the person or thing, who is looking after it, and repeat filters. The button shows the number of active filters, for example **Filters (1)**. The counts beside each status show how many matching items are in that group. Use the page buttons to move through results. Choose **Done** or **Archived** to find completed or archived items.
+Open **All items** from the household navigation (labelled **Items** on phones and tablets), or from the link on Home, to find items across your household. Search for words in an item's title or notes, then choose **Search**. Narrow the results by status, person or thing, who is looking after it, and whether it repeats. On phones and tablets, **Search items** and **Show** stay visible; choose **Filters** to show the person or thing, who is looking after it, and repeat filters. The button shows the number of active filters, for example **Filters (1)**. The counts beside each status show how many matching items are in that group. Use the page buttons to move through results. Choose **Done** or **Archived** to find completed or archived items.
 
 ## Repeat an item
 
