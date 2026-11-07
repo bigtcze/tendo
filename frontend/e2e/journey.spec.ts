@@ -2089,7 +2089,7 @@ test.describe('Tendo production journey', () => {
       await at320('home-populated', async () => {
         await expect(page.getByRole('button', { name: en['items.add'], exact: true })).toBeVisible();
       });
-      // Keyboard: the skip link moves focus past the navigation, and each of the first sampled tab stops shows a visible focus indicator.
+      // Keyboard: the skip link moves focus into main content before the household navigation, and sampled stops show visible focus indicators.
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.goto('/');
       await expect(group(en['items.group.needs']).getByRole('listitem').filter({ hasText: title })).toBeVisible();
@@ -2499,8 +2499,8 @@ test.describe('Tendo production journey', () => {
   });
 
   // Shell presentation and its keyboard safety. Phone/tablet: a fixed bottom bar must never cover the control
-  // that Tab just focused (WCAG 2.4.11). Short viewports (landscape, high zoom): the bar is static at the top,
-  // keeping visual order equal to DOM/Tab order. Desktop: a left rail beside main.
+  // that Tab just focused (WCAG 2.4.11). Short viewports (landscape, high zoom): the bar is static after main.
+  // Desktop keeps content-first keyboard order while the rail remains visually beside main.
   test('n15b. app shell: bottom bar never covers keyboard focus, short viewports keep DOM order, desktop rail sits beside main', async () => {
     test.setTimeout(120_000);
     try {
@@ -2541,7 +2541,7 @@ test.describe('Tendo production journey', () => {
         return { position: getComputedStyle(document.querySelector(navSelector)!).position, header: top('body header'), nav: top(navSelector), main: top('main'), footer: top('body footer') };
       }, navSelector);
       expect(shortLayout.position, 'short viewport bar is static').toBe('static');
-      expect(shortLayout.header < shortLayout.nav && shortLayout.nav < shortLayout.main && shortLayout.main < shortLayout.footer, `short viewport visual order follows DOM order ${JSON.stringify(shortLayout)}`).toBe(true);
+      expect(shortLayout.header < shortLayout.main && shortLayout.main < shortLayout.nav && shortLayout.nav < shortLayout.footer, `short viewport visual order follows DOM order ${JSON.stringify(shortLayout)}`).toBe(true);
       await page.setViewportSize({ width: 1024, height: 800 });
       const rail = await page.evaluate((navSelector) => {
         const element = document.querySelector(navSelector)!;

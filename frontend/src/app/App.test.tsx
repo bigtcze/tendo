@@ -153,6 +153,7 @@ describe('signed in', () => {
     const currentHrefs = () => within(screen.getByRole('navigation', { name: 'Household navigation' })).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page').map((link) => link.getAttribute('href'));
     expect(within(nav).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/', '/items', '/people', '/members', '/account']);
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
+    expect(screen.getByRole('main').compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(currentHrefs()).toEqual(['/']);
     for (const [name, href, heading] of [
       ['All items', '/items', 'All items'],
