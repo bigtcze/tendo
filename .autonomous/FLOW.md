@@ -29,9 +29,12 @@ were executed; they are preserved verbatim in git history at tag `v3.0.0`
    3. open Renovate/dependency PRs;
    4. toolchain/runtime updates;
    5. necessary compatibility fixes.
-   Deliver it as one focused PR per "Work", then evaluate "Maintenance release".
-6. Exit promptly when nothing is actionable. No feature work, speculative
-   refactoring, new coordination frameworks or casual Renovate policy changes.
+   Deliver it as one focused PR per "Work".
+6. Always evaluate "Maintenance release" on green `main` before exiting,
+   including when no maintenance change was made or the selected update is
+   blocked. Then exit; exit promptly when nothing is actionable. No feature
+   work, speculative refactoring, new coordination frameworks or casual
+   Renovate policy changes.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -129,8 +132,8 @@ docs_ADR=durable_decisions_only
 - Never claim unverified success.
 
 ## Maintenance release
-Evaluate daily, after the cycle's maintenance change (if any) is merged and
-`main` is green.
+Evaluate every cycle (Start step 6) on green `main`, after the cycle's
+maintenance change, if any, has merged.
 - Interval: normally one maintenance patch release every 14 days, measured
   from the latest published release's `publishedAt`.
 - Release only when meaningful dependency, security or compatibility changes
@@ -146,7 +149,10 @@ Evaluate daily, after the cycle's maintenance change (if any) is merged and
   (`docs/development/release.md`); do not hide breaking behavior behind a
   patch version.
 - Procedure (`docs/development/release.md` "Cut a release" is canonical):
-  1. Select the next SemVer version (patch increment for maintenance).
+  1. Select the next SemVer version (patch increment for maintenance). It
+     must be higher than every existing `v*` tag (`git ls-remote --tags
+     origin`), including tags whose release failed; a failed tag is never
+     reused.
   2. Write user-facing `docs/releases/vX.Y.Z.md`: what changed for
      self-hosters, update steps, compatibility, known limitations; no
      commit dump.
@@ -156,7 +162,10 @@ Evaluate daily, after the cycle's maintenance change (if any) is merged and
      once; the Release workflow runs qualification and publishes.
   5. Verify the GitHub Release (notes, `compose.yaml`, `example.env`) and the
      public `ghcr.io/bigtcze/tendo:vX.Y.Z` manifest for `linux/amd64` and
-     `linux/arm64`, pulled anonymously; floating tags match.
+     `linux/arm64`, pulled anonymously; floating tags match. Verify a clean
+     install from the published release assets and an in-place upgrade from
+     the previous published release that preserves existing household data
+     (`docs/development/release-qualification.md`, published-artifact row).
   6. If qualification or publication fails, diagnose and fix through a new
      PR and a new patch version. Never move or reuse tags or bypass a failed
      qualification.
