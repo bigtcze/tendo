@@ -855,8 +855,14 @@ describe('All items', () => {
     app();
     await screen.findByText('Item 1');
     const filtersDisclosure = document.querySelector<HTMLButtonElement>('[data-all-items-filter-disclosure]')!;
+    const chevron = filtersDisclosure.querySelector('svg[data-all-items-filter-chevron]');
+    // The indicator is a decorative inline SVG, not a font glyph that may render as a missing-glyph box.
+    expect(chevron).toHaveAttribute('aria-hidden', 'true');
+    expect(filtersDisclosure).toHaveTextContent(/^Filters$/);
+    expect(chevron).not.toHaveClass('rotate-180');
     await userEvent.click(filtersDisclosure);
     expect(filtersDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(chevron).toHaveClass('rotate-180');
     expect(document.getElementById(filtersDisclosure.getAttribute('aria-controls')!)).not.toHaveAttribute('hidden');
     const facet = screen.getByLabelText('For');
     expect(within(facet).getAllByRole('option', { name: 'Café' })).toHaveLength(1);
