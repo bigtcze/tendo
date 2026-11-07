@@ -2551,6 +2551,30 @@ test.describe('Tendo production journey', () => {
       }, navSelector);
       expect(rail.position, 'desktop rail is not a fixed overlay').not.toBe('fixed');
       expect(rail.navRight <= rail.mainLeft && rail.mainWidth >= 700, `desktop rail sits beside a wide main ${JSON.stringify(rail)}`).toBe(true);
+      // Content-first keyboard path (#395): from page start, real Tab presses reach the first Home result before any
+      // household-navigation link, at phone and desktop widths. Before #395 the path crossed all five navigation links.
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.goto('/');
+        await waitForSettledHome(page, householdName);
+        await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+        await page.mouse.click(1, 1);
+        const path: string[] = [];
+        let reached = false;
+        for (let index = 0; index < 40 && !reached; index += 1) {
+          await page.keyboard.press('Tab');
+          const stop = await page.evaluate((navSelector) => {
+            const element = document.activeElement as HTMLElement | null;
+            if (!element || element === document.body) return { name: 'body', nav: false, result: false };
+            return { name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 30), nav: !!element.closest(navSelector), result: !!element.closest('main li[data-item-id]') && element.tagName === 'A' };
+          }, navSelector);
+          path.push(stop.nav ? `nav:${stop.name}` : stop.name);
+          reached = stop.result;
+        }
+        expect(reached, `first Home result reachable by Tab at ${width}: ${JSON.stringify(path)}`).toBe(true);
+        expect(path.filter((name) => name.startsWith('nav:')), `no household-nav stop before the first result at ${width}`).toEqual([]);
+        expect(path.length, `tab stops to first Home result at ${width}: ${JSON.stringify(path)}`).toBeLessThanOrEqual(8);
+      }
       for (const [width, compact] of [[390, true], [1024, false]] as const) {
         await page.setViewportSize({ width, height: 800 });
         const allItemsLink = householdNav.getByRole('link', { name: en['home.allItems'], exact: true });
