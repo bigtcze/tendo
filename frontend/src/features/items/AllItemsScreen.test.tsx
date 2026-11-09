@@ -11,7 +11,7 @@ const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const subjectsPath = `GET ${base}/subjects`;
 const membersPath = `GET ${base}/members`;
 const subject: Subject = { id: 's-1', name: 'Café', type: 'person', linkedUserId: null, archived: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
-const member = { userId: session().userId, login: 'anna', role: 'owner' as const };
+const member = { userId: session().userId, login: 'anna', role: 'admin' as const };
 function makeItem(index: number, overrides: Partial<Item> = {}): Item {
   return { id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, subjectId: 's-1', responsibleUserId: null, title: `Item ${index}`, notes: null, attentionOn: null, recurrence: null, workflowState: 'open', attention: 'needs_attention', archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...overrides };
 }

@@ -11,17 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const addOwner = `-- name: AddOwner :exec
-INSERT INTO household_memberships (user_id, household_id, role) VALUES ($1, $2, 'owner')
+const addAdmin = `-- name: AddAdmin :exec
+INSERT INTO household_memberships (user_id, household_id, role) VALUES ($1, $2, 'admin')
 `
 
-type AddOwnerParams struct {
+type AddAdminParams struct {
 	UserID      pgtype.UUID
 	HouseholdID pgtype.UUID
 }
 
-func (q *Queries) AddOwner(ctx context.Context, arg AddOwnerParams) error {
-	_, err := q.db.Exec(ctx, addOwner, arg.UserID, arg.HouseholdID)
+func (q *Queries) AddAdmin(ctx context.Context, arg AddAdminParams) error {
+	_, err := q.db.Exec(ctx, addAdmin, arg.UserID, arg.HouseholdID)
 	return err
 }
 

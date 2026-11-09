@@ -114,10 +114,10 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES ('subject_test_actor_two') RETURNING id::text`).Scan(&secondActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES ($1::uuid,$2::uuid,'owner'),($3::uuid,$2::uuid,'member')`, actorID, homeA, secondActor); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES ($1::uuid,$2::uuid,'admin'),($3::uuid,$2::uuid,'member')`, actorID, homeA, secondActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES ($1::uuid,$2::uuid,'owner')`, actorID, homeB); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES ($1::uuid,$2::uuid,'admin')`, actorID, homeB); err != nil {
 		t.Fatal(err)
 	}
 	repo := NewRepository(app)
@@ -920,7 +920,7 @@ func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy linkless') RETURNING id::text`, householdID).Scan(&subjectID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `ALTER TABLE subjects DROP CONSTRAINT subjects_linked_user_person_only, DROP CONSTRAINT subjects_linked_membership_fk; DROP INDEX subjects_linked_membership_idx; ALTER TABLE subjects DROP COLUMN linked_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (14,15)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`ALTER TABLE subjects DROP CONSTRAINT subjects_linked_user_person_only, DROP CONSTRAINT subjects_linked_membership_fk; DROP INDEX subjects_linked_membership_idx; ALTER TABLE subjects DROP COLUMN linked_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (14,15)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upApp); err == nil {
@@ -937,7 +937,7 @@ func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
 		t.Fatalf("runtime legacy link=%v err=%v", linked, err)
 	}
 	var max int
-	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 16 {
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 17 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 	var actor string
@@ -989,7 +989,7 @@ func TestMigrationUpgradeFromVersionElevenPreservesSubjectRows(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy') RETURNING id::text`, hid).Scan(&legacyID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, `ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,12,13,14)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upApp); err == nil {
@@ -1038,7 +1038,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 3 schema, then add pre-existing data.
-	if _, err := upAdmin.Exec(ctx, `DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,4,5,6,7,8,9,10,11,12,13,14)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,4,5,6,7,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid string
@@ -1076,7 +1076,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 16 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 17 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

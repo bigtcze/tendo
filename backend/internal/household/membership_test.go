@@ -18,6 +18,9 @@ type membershipFake struct {
 func (f *membershipFake) GetMembership(context.Context, string, string) (string, error) {
 	return f.role, f.err
 }
+func (f *membershipFake) LockHouseholdForMembership(context.Context, string, string) error {
+	return f.err
+}
 func (f *membershipFake) AddInvitedMember(context.Context, string, string) error { return nil }
 func (f *membershipFake) HasMembershipElsewhere(context.Context, string, string) (bool, error) {
 	return false, nil
@@ -42,22 +45,22 @@ func TestMembershipAuthorizationPolicy(t *testing.T) {
 	for _, tc := range []struct {
 		name, role string
 		err        error
-		ownerErr   error
-	}{{"owner", RoleOwner, nil, nil}, {"member", RoleMember, nil, ErrForbidden}, {"nonmember", "", ErrNotFound, ErrNotFound}, {"unknown", "mystery", nil, ErrNotFound}} {
+		adminErr   error
+	}{{"admin", RoleAdmin, nil, nil}, {"member", RoleMember, nil, ErrAdminRequired}, {"nonmember", "", ErrNotFound, ErrNotFound}, {"unknown", "mystery", nil, ErrNotFound}} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &membershipFake{role: tc.role, err: tc.err}
 			s := NewMembershipService(repo)
 			role, e := s.GetMembership(context.Background(), membershipActor, membershipHouse)
-			if tc.name == "owner" || tc.name == "member" {
+			if tc.name == "admin" || tc.name == "member" {
 				if e != nil || role != tc.role {
 					t.Fatalf("role=%s err=%v", role, e)
 				}
 			} else if !errors.Is(e, ErrNotFound) {
 				t.Fatalf("membership err=%v", e)
 			}
-			e = s.RequireOwner(context.Background(), membershipActor, membershipHouse)
-			if !errors.Is(e, tc.ownerErr) {
-				t.Fatalf("owner err=%v", e)
+			e = s.RequireAdmin(context.Background(), membershipActor, membershipHouse)
+			if !errors.Is(e, tc.adminErr) {
+				t.Fatalf("admin err=%v", e)
 			}
 		})
 	}

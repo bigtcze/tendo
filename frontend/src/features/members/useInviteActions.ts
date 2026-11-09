@@ -9,7 +9,7 @@ import { useInviteLink } from './useInviteLink';
 type RevokeResult = Awaited<ReturnType<typeof revokeInvitation>>;
 
 export function useInviteActions(householdId: string, onSignedOut: () => void, t: Translate, core: MembersCore, inv: InvitationList, listReady: boolean) {
-  const { mountedRef, memberGenerationRef, owner, setOwner, setNotice, noticeRef } = core;
+  const { mountedRef, memberGenerationRef, admin, setAdmin, setNotice, noticeRef } = core;
   const [busy, setBusy] = useState(false);
   const [canCheckAgain, setCanCheckAgain] = useState(false);
   const [revokeId, setRevokeId] = useState<string | null>(null);
@@ -20,12 +20,12 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
   const restoreFocusIdRef = useRef<string | null>(null);
   const inviteLink = useInviteLink(t);
 
-  function loseOwnership() { setOwner(false); inv.setInvitations([]); setNotice(t('members.invite.ownerRequired')); unresolvedCreateKey.current = null; }
+  function loseAdminAccess() { setAdmin(false); inv.setInvitations([]); setNotice(t('members.invite.adminRequired')); unresolvedCreateKey.current = null; }
   function settleKey() { unresolvedCreateKey.current = null; setCanCheckAgain(false); }
 
   function applyCreate(result: CreateInvitationResult, key: string) {
     if (result.kind === 'unauthenticated') { onSignedOut(); return; }
-    if (result.kind === 'forbidden') { loseOwnership(); return; }
+    if (result.kind === 'forbidden') { loseAdminAccess(); return; }
     if (result.kind === 'rejected' || result.kind === 'notFound') {
       setNotice(t(result.kind === 'rejected' ? 'members.error.requestRefused' : 'members.error.householdNotFound'));
       settleKey();
@@ -49,7 +49,7 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
   }
 
   async function invite(replay = false) {
-    if (busy || owner !== true || !listReady) return;
+    if (busy || admin !== true || !listReady) return;
     setBusy(true); setNotice(null); inviteLink.clearLink();
     const key = replay && unresolvedCreateKey.current ? unresolvedCreateKey.current : newIdempotencyKey();
     if (!replay) { unresolvedCreateKey.current = null; setCanCheckAgain(false); }
@@ -62,7 +62,7 @@ export function useInviteActions(householdId: string, onSignedOut: () => void, t
 
   function applyRevoke(result: RevokeResult, id: string) {
     if (result === 'unauthenticated') { onSignedOut(); return; }
-    if (result === 'forbidden') { loseOwnership(); setCanCheckAgain(false); return; }
+    if (result === 'forbidden') { loseAdminAccess(); setCanCheckAgain(false); return; }
     if (result === 'rejected') { setNotice(t('members.error.requestRefused')); return; }
     if (result === 'notFound') { setNotice(t('members.error.householdNotFound')); return; }
     if (result !== 'ok') { setNotice(t('members.error.action')); return; }

@@ -27,7 +27,7 @@ func (f *memberPageFake) ListMembers(_ context.Context, _, _, cursor string, _ i
 }
 func TestListMembersHTTPPaginationAndErrors(t *testing.T) {
 	next := "m1Y3Vyc29y"
-	svc := &memberPageFake{items: []household.Member{{UserID: "u1", Login: "owner", Role: household.RoleOwner}, {UserID: "u2", Login: "member", Role: household.RoleMember}}, next: next}
+	svc := &memberPageFake{items: []household.Member{{UserID: "u1", Login: "owner", Role: household.RoleAdmin}, {UserID: "u2", Login: "member", Role: household.RoleMember}}, next: next}
 	r := chi.NewRouter()
 	auth := func(n http.Handler) http.Handler { return n }
 	NewMembers(svc, auth, func(context.Context) (string, bool) { return "u1", true }).Register(r)
@@ -37,7 +37,7 @@ func TestListMembersHTTPPaginationAndErrors(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	expected := apimodel.MemberList{Items: []apimodel.Member{{UserId: "u1", Login: "owner", Role: apimodel.MemberRoleOwner}, {UserId: "u2", Login: "member", Role: apimodel.MemberRoleMember}}, NextCursor: &next}
+	expected := apimodel.MemberList{Items: []apimodel.Member{{UserId: "u1", Login: "owner", Role: apimodel.MemberRoleAdmin}, {UserId: "u2", Login: "member", Role: apimodel.MemberRoleMember}}, NextCursor: &next}
 	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" || !equalJSON(body, expected) {
 		t.Fatalf("status=%d body=%+v", w.Code, body)
 	}
@@ -74,7 +74,7 @@ func equalJSON(a, b any) bool {
 	return string(x) == string(y)
 }
 func TestListMembersHTTPUnknownRoleFailsClosed(t *testing.T) {
-	svc := &memberPageFake{items: []household.Member{{UserID: "u", Login: "x", Role: "admin"}}}
+	svc := &memberPageFake{items: []household.Member{{UserID: "u", Login: "x", Role: "mystery"}}}
 	r := chi.NewRouter()
 	NewMembers(svc, func(n http.Handler) http.Handler { return n }, func(context.Context) (string, bool) { return "u", true }).Register(r)
 	w := httptest.NewRecorder()

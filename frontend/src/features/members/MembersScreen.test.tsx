@@ -8,7 +8,7 @@ import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session, t
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const page = (items: unknown[]) => json(200, { items, nextCursor: null });
-const members = (role = 'owner') => [{ userId: session().userId, login: 'anna', role }, { userId: 'other', login: 'petr', role: 'member' }];
+const members = (role = 'admin') => [{ userId: session().userId, login: 'anna', role }, { userId: 'other', login: 'petr', role: 'member' }];
 const invitation = (id: string, status = 'pending') => ({ id, status, createdAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-08T00:00:00Z' });
 function renderApp() { return render(<I18nProvider><App /></I18nProvider>); }
 function defaults() { return { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household), ...emptyHome, [`GET ${base}/members`]: page(members()), [`GET ${base}/invitations`]: page([]) }; }
@@ -28,9 +28,9 @@ describe('members and invitations', () => {
     const fake = installFakeServer(defaults());
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('Owners can invite and manage invitations; members can use the household.')).toBeVisible();
+    expect(await screen.findByText('Administrators can invite people and manage invitations; members can use the household.')).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household administrator to send them an invite link.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
     const memberList = screen.getByRole('list', { name: 'Members' });
     expect(within(memberList).getAllByRole('listitem')).toHaveLength(2);
@@ -76,7 +76,7 @@ describe('members and invitations', () => {
     expect(await screen.findByRole('link', { name: 'Household members' })).toHaveAttribute('href', '/members');
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
     const rows = within(screen.getByRole('list', { name: 'Members' })).getAllByRole('listitem');
-    expect(rows.map((row) => row.textContent)).toEqual(['anna (you)Owner', 'petrMember']);
+    expect(rows.map((row) => row.textContent)).toEqual(['anna (you)Administrator', 'petrMember']);
     expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members`)).toBe(true);
   });
 
@@ -206,10 +206,10 @@ describe('members and invitations', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
-    expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
+    expect(await screen.findByText('Only household administrators can manage invitations.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
-    expect(screen.getByText('Ask a household owner to send them an invite link.')).toBeVisible();
+    expect(screen.getByText('Ask a household administrator to send them an invite link.')).toBeVisible();
     expect(fake.requests.some((request) => request.path === `${base}/invitations` && request.method === 'POST')).toBe(true);
   });
 
@@ -223,19 +223,19 @@ describe('members and invitations', () => {
     expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
   });
 
-  it('only owner_required 403 hides owner controls', async () => {
-    installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(403, { code: 'owner_required' }) });
+  it.each(['owner_required', 'admin_required'])('a %s 403 hides invite controls', async (code) => {
+    installFakeServer({ ...defaults(), [`POST ${base}/invitations`]: problem(403, { code }) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' })); await userEvent.click(await screen.findByRole('button', { name: 'Create invite link' }));
-    expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Only household administrators can manage invitations.')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
-    expect(screen.getByText('Ask a household owner to send them an invite link.')).toBeVisible();
+    expect(screen.getByText('Ask a household administrator to send them an invite link.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
   });
 
   it('member never requests invitations or sees invite controls', async () => {
     const routes = defaults(); routes[`GET ${base}/members`] = page(members('member')); const fake = installFakeServer(routes);
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('Ask a household owner to send them an invite link.')).toBeVisible();
+    expect(await screen.findByText('Ask a household administrator to send them an invite link.')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument(); expect(fake.requests.some((r) => r.path === `${base}/invitations`)).toBe(false);
   });
@@ -247,7 +247,7 @@ describe('members and invitations', () => {
       const cursor = req.query.get('cursor'); requests.push(cursor);
       if (cursor === null) return json(200, { items: [{ userId: 'first', login: 'first_page', role: 'member' }], nextCursor: 'p2' });
       if (cursor === 'p2') return json(200, { items: [{ userId: 'second', login: 'second_page', role: 'member' }], nextCursor: 'p3' });
-      return json(200, { items: [{ userId: session().userId, login: 'anna', role: 'owner' }], nextCursor: 'p4' });
+      return json(200, { items: [{ userId: session().userId, login: 'anna', role: 'admin' }], nextCursor: 'p4' });
     } });
     renderApp(); await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
@@ -275,13 +275,13 @@ describe('members and invitations', () => {
     await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household administrator to send them an invite link.')).not.toBeInTheDocument();
     expect(routeCursors).toHaveLength(20);
     expect(routeCursors.filter((cursor) => cursor !== null)).toHaveLength(19);
     expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Invitations' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household administrator to send them an invite link.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create invite link' })).toBeVisible();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
   });
@@ -303,7 +303,7 @@ describe('members and invitations', () => {
     expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Need to invite someone?' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Ask a household owner to send them an invite link.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask a household administrator to send them an invite link.')).not.toBeInTheDocument();
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`)).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: 'Create invite link' })).toBeEnabled();
@@ -376,7 +376,7 @@ describe('members and invitations', () => {
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
-    expect(await screen.findByText('Ask a household owner to send them an invite link.')).toBeVisible();
+    expect(await screen.findByText('Ask a household administrator to send them an invite link.')).toBeVisible();
     expect(initialMemberCalls).toBe(20);
     expect(within(screen.getByRole('list', { name: 'Members' })).getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByText('page_1')).toBeVisible();
@@ -386,7 +386,7 @@ describe('members and invitations', () => {
 
   it('discovers the owner on a later page without rendering discovery rows', async () => {
     const ownerPage = () => json(200, { items: [{ userId: 'other', login: 'petr', role: 'member' }], nextCursor: 'next' });
-    const routes = { ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'next' ? json(200, { items: [{ userId: session().userId, login: 'anna', role: 'owner' }], nextCursor: null }) : ownerPage() };
+    const routes = { ...defaults(), [`GET ${base}/members`]: (req: { query: URLSearchParams }) => req.query.get('cursor') === 'next' ? json(200, { items: [{ userId: session().userId, login: 'anna', role: 'admin' }], nextCursor: null }) : ownerPage() };
     const fake = installFakeServer(routes);
     renderApp();
     await screen.findByRole('link', { name: 'Household members' });
@@ -709,7 +709,8 @@ describe('members and invitations', () => {
 
   it.each([
     [401, undefined, 'signed-out'],
-    [403, 'owner_required', 'owner'],
+    [403, 'owner_required', 'admin'],
+    [403, 'admin_required', 'admin'],
     [403, undefined, 'refused'],
     [404, undefined, 'not-found'],
     [503, undefined, 'That didn’t work. Check your connection and try again.'],
@@ -719,7 +720,7 @@ describe('members and invitations', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Yes' }));
     if (outcome === 'signed-out') expect(await screen.findByLabelText('Password')).toBeVisible();
-    if (outcome === 'owner') expect(await screen.findByText('Only household owners can manage invitations.')).toBeVisible();
+    if (outcome === 'admin') expect(await screen.findByText('Only household administrators can manage invitations.')).toBeVisible();
     if (outcome === 'refused') {
       const notice = await screen.findByText('Tendo refused this request. If this keeps happening, ask whoever runs Tendo to check its address settings.');
       expect(notice).toBeVisible();
@@ -814,7 +815,7 @@ describe('members and invitations', () => {
       [`GET ${base}/members`]: (req: RecordedRequest) => {
         if (req.documentPath !== '/members') return page(members());
         const n = Number(req.query.get('cursor')?.replace('p', '') ?? 1);
-        return json(200, { items: [{ userId: n === 20 ? session().userId : `user-${n}`, login: `page_${n}`, role: n === 20 ? 'owner' : 'member' }], nextCursor: n < 20 ? `p${n + 1}` : null });
+        return json(200, { items: [{ userId: n === 20 ? session().userId : `user-${n}`, login: `page_${n}`, role: n === 20 ? 'admin' : 'member' }], nextCursor: n < 20 ? `p${n + 1}` : null });
       },
     });
     renderApp(); await openMembersAfterHomeRead(fake);

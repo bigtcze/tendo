@@ -25,7 +25,7 @@ func TestCompletionHistoryKeysetWalkPostgres(t *testing.T) {
 	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('completion_history_property') RETURNING id::text`).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, userID, householdID); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, userID, householdID); err != nil {
 		t.Fatal(err)
 	}
 	if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','history') RETURNING id::text`, householdID).Scan(&subjectID); err != nil {

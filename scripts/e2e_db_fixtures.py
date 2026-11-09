@@ -118,7 +118,7 @@ def seed_existing_invitation_accounts(
       RETURNING id, default_household_id
     ), conflict_membership AS (
       INSERT INTO household_memberships(user_id, household_id, role)
-      SELECT id, default_household_id, 'owner' FROM conflict_user
+      SELECT id, default_household_id, 'admin' FROM conflict_user
       RETURNING user_id, household_id
     ), conflict_credential AS (
       INSERT INTO local_credentials(user_id, password_hash)
@@ -148,7 +148,7 @@ def seed_large_paging_household(
       SELECT '{login}', id FROM h RETURNING id, default_household_id
     ), membership AS (
       INSERT INTO household_memberships(user_id, household_id, role)
-      SELECT id, default_household_id, 'owner' FROM owner RETURNING user_id, household_id
+      SELECT id, default_household_id, 'admin' FROM owner RETURNING user_id, household_id
     ), credential AS (
       INSERT INTO local_credentials(user_id, password_hash)
       SELECT id, '{EXISTING_ACCOUNT_PASSWORD_HASH}' FROM owner
@@ -275,7 +275,7 @@ def assert_existing_invitation_accounts(
       (SELECT count(*) FROM household_memberships m
         JOIN user_accounts u ON u.id=m.user_id
         WHERE u.login='existing_conflict_e2e'
-          AND m.household_id='{conflict_household_id}' AND m.role='owner'),
+          AND m.household_id='{conflict_household_id}' AND m.role='admin'),
       (SELECT default_household_id::text FROM user_accounts
         WHERE login='existing_conflict_e2e'),
       (SELECT count(*) FROM household_memberships

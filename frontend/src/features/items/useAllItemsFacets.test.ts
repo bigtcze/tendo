@@ -6,7 +6,7 @@ import { useAllItemsFacets } from './useAllItemsFacets';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const subject: Subject = { id: 's-1', name: 'Café', type: 'person', linkedUserId: null, archived: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
-const member = { userId: session().userId, login: 'anna', role: 'owner' as const };
+const member = { userId: session().userId, login: 'anna', role: 'admin' as const };
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 

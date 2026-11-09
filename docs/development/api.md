@@ -20,7 +20,8 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 | 401 | `unauthenticated` | No valid session |
 | 404 | `not_found` | Malformed ID, nonexistent resource, resource of another household, or caller not a member. The bodies are identical |
 | 404 | `invalid_invitation` | Malformed, unknown, expired, revoked, or already-used invitation token |
-| 403 | `owner_required` | Caller is a current household member but not an owner managing invitations |
+| 403 | `owner_required` | Legacy code on invitation routes: caller is a current household member but not an admin managing invitations |
+| 403 | `admin_required` | Caller is a current household member but not an admin managing accounts |
 | 400 | `idempotency_key_required`, `invalid_idempotency_key` | `Idempotency-Key` is missing or malformed on invitation, subject, item, or completion create |
 | 409 | `already_member`, `household_conflict` | Existing-account invitation acceptance conflicts with current membership/default household |
 | 429 | `rate_limited` | Session or invitation acceptance limit; response includes `Retry-After` |
@@ -33,11 +34,12 @@ Errors use `application/problem+json` with `type`, `title`, `status`, and a stab
 
 ## Invitations and members
 
-- Only a current household owner may create, list, or revoke invitations. Members receive `403 owner_required`; non-members and unknown households receive uniform `404 not_found`. `defaultHouseholdId` grants no access.
+- Household roles are `admin` and `member`; the `MemberRole` enum no longer contains `owner`. There is no global admin, and the role is never derived from OIDC claims or email. Only a current household admin may create, list, or revoke invitations. Members receive the legacy `403 owner_required` on these three routes; the account routes below return `403 admin_required`. Non-members and unknown households receive uniform `404 not_found`. `defaultHouseholdId` grants no access.
 - Create with `POST /api/v1/households/{householdId}/invitations` and one visible-ASCII `Idempotency-Key`. The body is exactly `{}`. A first creation returns `201` and the raw bearer token once; same-key retry returns `200` without it. Both responses include `Location`. Missing key returns `400 idempotency_key_required`; invalid or duplicate keys return `400 invalid_idempotency_key`. Tokens are never included in list responses.
-- Owner list uses `limit` and opaque `n1:` cursors. Members list uses opaque `m1:` cursors and is available to any household member. Both default to 50 and cap at 100.
+- Admin list uses `limit` and opaque `n1:` cursors. Members list uses opaque `m1:` cursors and is available to any household member. Both default to 50 and cap at 100.
 - Revoke succeeds for terminal invitations and does not remove members. New-account acceptance is `POST /api/v1/auth/invitations/accept`, returns `{userId, login, householdId, role}`, and does not set a session cookie; sign in through `POST /api/v1/session`. Existing-account acceptance is `POST /api/v1/invitations/accept`, returns `{userId, householdId, role}`, and rejects an account with an existing default household or other household membership (`409 household_conflict`); an existing member gets `409 already_member`. Malformed, unknown, expired, revoked, and already-used tokens all return `404 invalid_invitation`.
-- Request evaluation order for management routes: global Origin/authority middleware (400 for malformed trusted forwarded metadata, 403 Origin, 421 authority) → session authentication (401, clearing a stale single cookie) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before owner authorization. All responses include `X-Request-ID`; application responses use `Cache-Control: no-store`.
+- Request evaluation order for management routes: global Origin/authority middleware (400 for malformed trusted forwarded metadata, 403 Origin, 421 authority) → session authentication (401, clearing a stale single cookie) → Idempotency-Key syntax (create only) → strict body decode → service authorization/not-found. Thus forbidden Origins are rejected before session lookup; authenticated members with malformed body/key see syntax errors before admin authorization. All responses include `X-Request-ID`; application responses use `Cache-Control: no-store`.
+- Admins manage accounts with `GET .../accounts` (cursor paged, limit at most 100), `GET .../accounts/{userId}` (strong `ETag` equal to the membership version), and `PATCH .../accounts/{userId}` with `{"role": "admin" | "member"}`. PATCH requires `If-Match`; missing returns `428`, malformed, weak, listed or stale returns `412`. An unchanged role is a no-op with no version bump and no audit row. A change that would leave zero admins returns `409 last_admin`; self-demotion succeeds while another admin remains. Accounts expose `signInMethods` `{password, oidc}` booleans and never credentials. See `api/openapi.yaml` for the exact schemas and responses.
 
 ## Subjects
 
@@ -120,7 +122,8 @@ The response fields are `evaluatedOn`, `total`, `needsAttention`, `inProgress`, 
 
 - Single-resource `GET`, item/subject `POST` (create), and `PATCH` responses return a strong `ETag` such as `"3"`, the resource version. Completion `POST` returns a receipt without an ETag; fetch the item afterward for its current ETag. The version is not in the body.
 - `PATCH` requires `If-Match` with one strong ETag. Missing returns `428`; anything not matching `^"[1-9][0-9]*"$`, or a stale version, returns `412`.
-- Every successful update increments the version.
+- Every successful update increments the version; an unchanged account role is a no-op with no version bump.
+- Admin writes (invitation create, list and revoke, and role change) run in one transaction that locks the household row `FOR NO KEY UPDATE` gated by the caller's membership, then re-reads the caller's role. `FOR NO KEY UPDATE` avoids deadlock with the `KEY SHARE` locks taken by foreign keys referencing the household. Two admins demoting each other concurrently leave exactly one admin, and a demoted admin's in-flight admin write fails with `admin_required`.
 
 ## Regenerating and checking
 

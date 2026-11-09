@@ -11,13 +11,15 @@ const invitationsPath = '/api/v1/households/{householdId}/invitations';
 export type PageResult<T> = { kind: 'ok'; items: T[]; nextCursor: string | null } | { kind: 'unauthenticated' | 'forbidden' | 'rejected' | 'notFound' | 'error' };
 
 function problemCode(error: unknown): string | undefined { return (error as { code?: string } | undefined)?.code; }
+/** Invitation routes use the legacy `owner_required`; newer admin-only routes use `admin_required`. */
+function isAdminRequired(code: string | undefined): boolean { return code === 'owner_required' || code === 'admin_required'; }
 
 export async function listMembers(householdId: string, cursor?: string): Promise<PageResult<Member>> {
   try {
     const { data, error, response } = await api.GET(membersPath, { params: { path: { householdId }, query: { limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) } } });
     if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' };
-    if (response.status === 403) return problemCode(error) === 'owner_required' ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
     if (response.status === 404) return { kind: 'notFound' };
   } catch { /* show the common unavailable state */ }
   return { kind: 'error' };
@@ -28,7 +30,7 @@ export async function listInvitations(householdId: string, cursor?: string): Pro
     const { data, error, response } = await api.GET(invitationsPath, { params: { path: { householdId }, query: { limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) } } });
     if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' };
-    if (response.status === 403) return problemCode(error) === 'owner_required' ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
     if (response.status === 404) return { kind: 'notFound' };
   } catch { /* show the common unavailable state */ }
   return { kind: 'error' };
@@ -43,7 +45,7 @@ export async function createInvitation(householdId: string, idempotencyKey: stri
     if (response.status === 201 && data && 'token' in data) return { kind: 'created', invitation: data };
     if (response.status === 200 && data) return { kind: 'existing', invitation: data };
     if (response.status === 401) return { kind: 'unauthenticated' };
-    if (response.status === 403) return problemCode(error) === 'owner_required' ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
     if (response.status === 404) return { kind: 'notFound' };
   } catch { /* key can be replayed to recover an uncertain outcome */ }
   return { kind: 'error' };
@@ -54,7 +56,7 @@ export async function revokeInvitation(householdId: string, invitationId: string
     const { error, response } = await api.DELETE('/api/v1/households/{householdId}/invitations/{invitationId}', { params: { path: { householdId, invitationId } } });
     if (response.status === 204) return 'ok';
     if (response.status === 401) return 'unauthenticated';
-    if (response.status === 403) return problemCode(error) === 'owner_required' ? 'forbidden' : 'rejected';
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? 'forbidden' : 'rejected';
     if (response.status === 404) return 'notFound';
   } catch { /* fall through */ }
   return 'error';

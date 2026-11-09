@@ -19,7 +19,7 @@ export function MemberListSection({ members, userId, headingRef, stack, cursor, 
     <ul aria-labelledby="members-list-heading" className="mt-1 grid gap-1.5 sm:mt-3 sm:grid-cols-2 sm:gap-2">{members.map((member) => (
       <li key={member.userId} className="flex min-h-14 items-center justify-between gap-2 rounded-xl border border-line bg-raised px-3 py-2 sm:min-h-16 sm:gap-4 sm:px-4">
         <span className="min-w-0 break-words text-row-title text-ink">{member.login}{member.userId === userId ? ` (${t('members.you')})` : ''}</span>
-        <span className="shrink-0 rounded-md bg-sand px-2 py-1 text-sm text-ink">{t(member.role === 'owner' ? 'members.role.owner' : 'members.role.member')}</span>
+        <span className="shrink-0 rounded-md bg-sand px-2 py-1 text-sm text-ink">{t(member.role === 'admin' ? 'members.role.admin' : 'members.role.member')}</span>
       </li>))}</ul>
     <p className="mt-0.5 max-w-prose text-meta text-muted sm:mt-2">{t('members.roles.explained')}</p>
     {stack.length > 0 || cursor

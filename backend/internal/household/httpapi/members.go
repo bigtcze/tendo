@@ -54,7 +54,7 @@ func (h *MembersHandler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	out := apimodel.MemberList{Items: make([]apimodel.Member, 0, len(items)), NextCursor: nil}
 	for _, m := range items {
-		if m.Role != household.RoleOwner && m.Role != household.RoleMember {
+		if m.Role != household.RoleAdmin && m.Role != household.RoleMember {
 			httpx.ProblemResponse(w, 503, "unavailable")
 			return
 		}

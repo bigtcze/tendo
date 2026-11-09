@@ -29,7 +29,7 @@ func (s *InvitationService) CreateInvitation(ctx context.Context, actor, househo
 	now := invitationNow(s.clock)
 	var result InvitationResult
 	err := s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {
-		if e := tx.RequireOwner(ctx, actor, householdID); e != nil {
+		if e := tx.RequireAdmin(ctx, actor, householdID); e != nil {
 			return e
 		}
 		raw := make([]byte, 32)
@@ -93,7 +93,7 @@ func (s *InvitationService) ListInvitations(ctx context.Context, actor, househol
 	}
 	var out []Invitation
 	e = s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {
-		if x := tx.RequireOwner(ctx, actor, householdID); x != nil {
+		if x := tx.RequireAdmin(ctx, actor, householdID); x != nil {
 			return x
 		}
 		var x error
@@ -125,7 +125,7 @@ func (s *InvitationService) RevokeInvitation(ctx context.Context, actor, househo
 		return household.ErrNotFound
 	}
 	return s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {
-		if e := tx.RequireOwner(ctx, actor, householdID); e != nil {
+		if e := tx.RequireAdmin(ctx, actor, householdID); e != nil {
 			return e
 		}
 		return tx.RevokeInvitation(ctx, householdID, id, invitationNow(s.clock))

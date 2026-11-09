@@ -25,7 +25,7 @@ func (r *BootstrapRepository) CreateBootstrapHousehold(ctx context.Context, inpu
 	return id, nil
 }
 
-func (r *BootstrapRepository) AddOwner(ctx context.Context, userID, householdID string) error {
+func (r *BootstrapRepository) AddAdmin(ctx context.Context, userID, householdID string) error {
 	var userUUID, householdUUID pgtype.UUID
 	if err := userUUID.Scan(userID); err != nil {
 		return err
@@ -33,5 +33,5 @@ func (r *BootstrapRepository) AddOwner(ctx context.Context, userID, householdID 
 	if err := householdUUID.Scan(householdID); err != nil {
 		return err
 	}
-	return r.queries.AddOwner(ctx, dbgen.AddOwnerParams{UserID: userUUID, HouseholdID: householdUUID})
+	return r.queries.AddAdmin(ctx, dbgen.AddAdminParams{UserID: userUUID, HouseholdID: householdUUID})
 }

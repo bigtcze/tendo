@@ -160,7 +160,13 @@ def populate():
 def verify():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
     after=capture(s); assert after.keys()==s['before'].keys()
-    for k in s['before']: assert after[k]==s['before'][k],('source-release API snapshot differs (body or ETag)',k,s['before'][k],after[k])
+    expected=json.loads(json.dumps(s['before']))
+    # The admin-role migration changes only household_memberships.role; the members
+    # API reports that column, so normalize the pre-upgrade snapshot there alone.
+    for page in expected.get('members',[]):
+        for item in page['body']['items']:
+            if item.get('role')=='owner': item['role']='admin'
+    for k in expected: assert after[k]==expected[k],('source-release API snapshot differs (body or ETag)',k,expected[k],after[k])
     print(f'{len(after)} source-release API response groups identical after upgrade (bodies and ETags).')
 def exercise():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
@@ -240,7 +246,25 @@ wait_ready
 ledger=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
 [[ "$ledger" == "$((10#$expected_current)):false" ]] || { printf 'Upgrade ledger unexpected: %s (expected %s)\n' "$ledger" "$((10#$expected_current)):false" >&2; exit 1; }
 snapshot_counts "${compose_build[@]}" >"$temp_dir/counts-after.txt"
-if ! diff -u "$temp_dir/counts-before.txt" "$temp_dir/counts-after.txt"; then printf 'Pre-existing public table row counts changed during upgrade\n' >&2; exit 1; fi
+python3 - "$temp_dir/counts-before.txt" "$temp_dir/counts-after.txt" <<'PY'
+import sys
+def load(path):
+    values = {}
+    for line in open(path, encoding='utf-8'):
+        name, separator, count = line.strip().partition('=')
+        if separator:
+            values[name] = count
+    return values
+before = load(sys.argv[1])
+after = load(sys.argv[2])
+for name, count in before.items():
+    assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
+unexpected = set(after) - set(before) - {'household_role_changes'}
+assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
+assert 'household_role_changes' in after, ('migration 017 audit table missing after upgrade', sorted(after))
+assert after['household_role_changes'] == '0', ('new table must be empty after migration', 'household_role_changes', after['household_role_changes'])
+print(f'{len(before)} pre-existing table row counts preserved; household_role_changes empty.')
+PY
 snapshot_ledger "${compose_build[@]}" >"$temp_dir/ledger-after.txt"
 python3 - "$temp_dir/ledger-before.txt" "$temp_dir/ledger-after.txt" <<'PY'
 import sys

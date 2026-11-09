@@ -28,7 +28,7 @@ type transportInvitationTx struct{ r *transportInvitationRepo }
 func newTransportInvitationRepo() *transportInvitationRepo {
 	r := &transportInvitationRepo{rows: map[string]identity.Invitation{}, keys: map[string]string{}, digests: map[string]string{}, users: map[string]string{}, defaults: map[string]string{}, members: map[string]map[string]string{}, owner: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"}
 	r.users[r.owner] = "owner"
-	r.members["0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"] = map[string]string{r.owner: household.RoleOwner}
+	r.members["0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"] = map[string]string{r.owner: household.RoleAdmin}
 	return r
 }
 func (r *transportInvitationRepo) WithInvitationTransaction(_ context.Context, fn func(identity.InvitationTransaction) error) error {
@@ -41,13 +41,13 @@ func (r *transportInvitationRepo) FindInvitation(_ context.Context, d []byte) (i
 	}
 	return r.rows[id], nil
 }
-func (t *transportInvitationTx) RequireOwner(_ context.Context, user, house string) error {
+func (t *transportInvitationTx) RequireAdmin(_ context.Context, user, house string) error {
 	role := t.r.members[house][user]
 	if role == "" {
 		return household.ErrNotFound
 	}
-	if role != household.RoleOwner {
-		return household.ErrForbidden
+	if role != household.RoleAdmin {
+		return household.ErrAdminRequired
 	}
 	return nil
 }
@@ -162,6 +162,12 @@ func (t *transportMembersRepo) GetMembership(_ context.Context, u, h string) (st
 	}
 	return "", household.ErrNotFound
 }
+func (t *transportMembersRepo) LockHouseholdForMembership(_ context.Context, u, h string) error {
+	if role := t.r.members[h][u]; role != "" {
+		return nil
+	}
+	return household.ErrNotFound
+}
 func (*transportMembersRepo) AddInvitedMember(context.Context, string, string) error { return nil }
 func (*transportMembersRepo) HasMembershipElsewhere(context.Context, string, string) (bool, error) {
 	return false, nil
@@ -220,7 +226,7 @@ func TestInvitationHTTPUsesApplicationServiceForCreateRetryAcceptAndConflict(t *
 		t.Fatalf("accepted state users=%v members=%v defaults=%v invite=%+v", repo.users, repo.members, repo.defaults, repo.rows[id])
 	}
 	otherHouse := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
-	repo.members[otherHouse] = map[string]string{repo.owner: household.RoleOwner}
+	repo.members[otherHouse] = map[string]string{repo.owner: household.RoleAdmin}
 	invite, e := app.CreateInvitation(context.Background(), repo.owner, otherHouse, "conflict")
 	if e != nil {
 		t.Fatal(e)

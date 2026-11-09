@@ -9,6 +9,24 @@ import (
 	"time"
 )
 
+// Defines values for AccountRole.
+const (
+	AccountRoleAdmin  AccountRole = "admin"
+	AccountRoleMember AccountRole = "member"
+)
+
+// Valid indicates whether the value is a known member of the AccountRole enum.
+func (e AccountRole) Valid() bool {
+	switch e {
+	case AccountRoleAdmin:
+		return true
+	case AccountRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompletionProblemField.
 const (
 	CompletionProblemFieldCompletedOn CompletionProblemField = "completedOn"
@@ -320,16 +338,16 @@ func (e ItemValidationProblemField) Valid() bool {
 
 // Defines values for MemberRole.
 const (
+	MemberRoleAdmin  MemberRole = "admin"
 	MemberRoleMember MemberRole = "member"
-	MemberRoleOwner  MemberRole = "owner"
 )
 
 // Valid indicates whether the value is a known member of the MemberRole enum.
 func (e MemberRole) Valid() bool {
 	switch e {
-	case MemberRoleMember:
+	case MemberRoleAdmin:
 		return true
-	case MemberRoleOwner:
+	case MemberRoleMember:
 		return true
 	default:
 		return false
@@ -788,6 +806,31 @@ type AcceptInvitationRequest struct {
 	Token string `json:"token"`
 }
 
+// Account defines model for Account.
+type Account struct {
+	Login         string               `json:"login"`
+	Role          AccountRole          `json:"role"`
+	SignInMethods AccountSignInMethods `json:"signInMethods"`
+	UserId        string               `json:"userId"`
+}
+
+// AccountList defines model for AccountList.
+type AccountList struct {
+	Items []Account `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// AccountRole defines model for AccountRole.
+type AccountRole string
+
+// AccountSignInMethods defines model for AccountSignInMethods.
+type AccountSignInMethods struct {
+	Oidc     bool `json:"oidc"`
+	Password bool `json:"password"`
+}
+
 // Completion defines model for Completion.
 type Completion struct {
 	CompletedByUserId string          `json:"completedByUserId"`
@@ -810,6 +853,7 @@ type CompletionList struct {
 
 // CompletionProblem defines model for CompletionProblem.
 type CompletionProblem struct {
+	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                 `json:"code,omitempty"`
 	Detail               *string                 `json:"detail,omitempty"`
 	Field                *CompletionProblemField `json:"field,omitempty"`
@@ -1122,6 +1166,7 @@ type OIDCValidationProblemStatus int
 
 // Problem defines model for Problem.
 type Problem struct {
+	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
@@ -1133,6 +1178,7 @@ type Problem struct {
 
 // QueryProblem defines model for QueryProblem.
 type QueryProblem struct {
+	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
 	Code                 *string                `json:"code,omitempty"`
 	Detail               *string                `json:"detail,omitempty"`
 	Instance             *string                `json:"instance,omitempty"`
@@ -1252,6 +1298,11 @@ type UndoCompletionRequest struct {
 // UndoCompletionRequestUndone defines model for UndoCompletionRequest.Undone.
 type UndoCompletionRequestUndone bool
 
+// UpdateAccountRoleRequest defines model for UpdateAccountRoleRequest.
+type UpdateAccountRoleRequest struct {
+	Role AccountRole `json:"role"`
+}
+
 // UpdateItemRequest defines model for UpdateItemRequest.
 type UpdateItemRequest struct {
 	Archived *bool `json:"archived,omitempty"`
@@ -1305,6 +1356,9 @@ type ValidationProblemField string
 
 // WorkflowState defines model for WorkflowState.
 type WorkflowState string
+
+// AccountUserId defines model for AccountUserId.
+type AccountUserId = string
 
 // Archived defines model for Archived.
 type Archived = bool
@@ -1392,6 +1446,33 @@ type CreateInitialOwnerParams struct {
 type GetHouseholdParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// ListHouseholdAccountsParams defines parameters for ListHouseholdAccounts.
+type ListHouseholdAccountsParams struct {
+	// Limit Maximum number of items per page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetHouseholdAccountParams defines parameters for GetHouseholdAccount.
+type GetHouseholdAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// UpdateHouseholdAccountRoleParams defines parameters for UpdateHouseholdAccountRole.
+type UpdateHouseholdAccountRoleParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// IfMatch Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+	IfMatch string `json:"If-Match"`
 }
 
 // ListInvitationsParams defines parameters for ListInvitations.
@@ -1664,6 +1745,9 @@ type StartOidcJSONRequestBody = OIDCStartRequest
 
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest
+
+// UpdateHouseholdAccountRoleJSONRequestBody defines body for UpdateHouseholdAccountRole for application/json ContentType.
+type UpdateHouseholdAccountRoleJSONRequestBody = UpdateAccountRoleRequest
 
 // CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
 type CreateInvitationJSONRequestBody = EmptyObject

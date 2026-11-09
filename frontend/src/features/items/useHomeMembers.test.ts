@@ -6,8 +6,8 @@ import { useHomeMembers } from './useHomeMembers';
 const listMembers = vi.hoisted(() => vi.fn<(householdId: string, cursor?: string) => Promise<PageResult<Member>>>());
 vi.mock('../members/membersApi', () => ({ listMembers }));
 
-const alice: Member = { userId: 'user-a', login: 'alice', role: 'owner' };
-const bob: Member = { userId: 'user-b', login: 'bob', role: 'owner' };
+const alice: Member = { userId: 'user-a', login: 'alice', role: 'admin' };
+const bob: Member = { userId: 'user-b', login: 'bob', role: 'admin' };
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

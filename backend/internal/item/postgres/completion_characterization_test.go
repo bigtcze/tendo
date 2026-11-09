@@ -297,7 +297,7 @@ func newCompletionFixture(t *testing.T, ctx context.Context, admin, app *pgxpool
 	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("completion-characterization-%d", time.Now().UnixNano())).Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, actor, household); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, actor, household); err != nil {
 		t.Fatal(err)
 	}
 	var subjectID string

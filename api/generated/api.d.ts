@@ -225,6 +225,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/households/{householdId}/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List household member accounts
+         * @description Household admin only. Returns every member with identity-owned sign-in methods. A member receives admin_required; a non-member, unknown household, or malformed identifier receives not_found.
+         */
+        get: operations["listHouseholdAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/accounts/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one household member account
+         * @description Household admin only. The ETag is the strong, quoted decimal membership version used by PATCH If-Match. A target who is not a member of this household returns not_found.
+         */
+        get: operations["getHouseholdAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a household member role
+         * @description Household admin only, with required If-Match against the membership version. An unchanged role is a no-op without a version bump or audit row. Removing the last admin returns last_admin and changes nothing. Self-demotion is allowed when another admin remains.
+         */
+        patch: operations["updateHouseholdAccountRole"];
+        trace?: never;
+    };
     "/api/v1/households/{householdId}": {
         parameters: {
             query?: never;
@@ -486,6 +530,7 @@ export interface components {
             detail?: string;
             /** Format: uri-reference */
             instance?: string;
+            /** @description Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable. */
             code?: string;
         } & {
             [key: string]: unknown;
@@ -532,7 +577,7 @@ export interface components {
         /** @enum {string} */
         InvitationStatus: "pending" | "accepted" | "revoked" | "expired";
         /** @enum {string} */
-        MemberRole: "owner" | "member";
+        MemberRole: "admin" | "member";
         Invitation: {
             /** Format: uuid */
             id: string;
@@ -577,6 +622,27 @@ export interface components {
         MemberList: {
             items: components["schemas"]["Member"][];
             nextCursor: string | null;
+        };
+        /** @enum {string} */
+        AccountRole: "admin" | "member";
+        AccountSignInMethods: {
+            password: boolean;
+            oidc: boolean;
+        };
+        Account: {
+            /** Format: uuid */
+            userId: string;
+            login: string;
+            role: components["schemas"]["AccountRole"];
+            signInMethods: components["schemas"]["AccountSignInMethods"];
+        };
+        AccountList: {
+            items: components["schemas"]["Account"][];
+            /** @description Opaque cursor for the next page; null on the last page. */
+            nextCursor: string | null;
+        };
+        UpdateAccountRoleRequest: {
+            role: components["schemas"]["AccountRole"];
         };
         InvitedAccount: {
             /** Format: uuid */
@@ -852,6 +918,11 @@ export interface components {
          */
         HouseholdId: string;
         InvitationId: string;
+        /**
+         * @description Member user identifier within this household.
+         * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+         */
+        AccountUserId: string;
         /**
          * @description Subject identifier.
          * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70
@@ -2293,7 +2364,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Current household owner role required; a member gets owner_required. */
+            /** @description Current household admin role required (legacy code name); a member gets owner_required. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -2464,7 +2535,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Owner role required or Origin is malformed or foreign. A member gets owner_required. */
+            /** @description Household admin role required (legacy code name) or Origin is malformed or foreign. A member gets owner_required. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -2649,7 +2720,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Owner role required or Origin is malformed or foreign. */
+            /** @description Household admin role required (legacy code name) or Origin is malformed or foreign. */
             403: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -3306,6 +3377,622 @@ export interface operations {
                 };
             };
             /** @description Persistence or identity lookup unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listHouseholdAccounts: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of items per page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account list. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *           "login": "alice",
+                     *           "role": "admin",
+                     *           "signInMethods": {
+                     *             "password": true,
+                     *             "oidc": false
+                     *           }
+                     *         },
+                     *         {
+                     *           "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
+                     *           "login": "bob",
+                     *           "role": "member",
+                     *           "signInMethods": {
+                     *             "password": false,
+                     *             "oidc": true
+                     *           }
+                     *         }
+                     *       ],
+                     *       "nextCursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AccountList"];
+                };
+            };
+            /** @description Invalid pagination query (invalid_query with parameter limit or cursor) or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_query",
+                     *       "parameter": "cursor"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller is a household member but not an admin, or Origin is malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household is unknown or inaccessible, or the identifier is malformed. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable, including a missing sign-in-method fact. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getHouseholdAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Member user identifier within this household.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+                 */
+                userId: components["parameters"]["AccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account. */
+            200: {
+                headers: {
+                    /** @description Strong membership version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "login": "alice",
+                     *       "role": "admin",
+                     *       "signInMethods": {
+                     *         "password": true,
+                     *         "oidc": false
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller is a household member but not an admin, or Origin is malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household or target account is unknown, inaccessible, malformed, or not a member of this household. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable, including a missing sign-in-method fact. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateHouseholdAccountRole: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
+                 * @example "1"
+                 */
+                "If-Match": string;
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Member user identifier within this household.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+                 */
+                userId: components["parameters"]["AccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "role": "admin"
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdateAccountRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated account, or the current account for an unchanged role. */
+            200: {
+                headers: {
+                    /** @description Strong membership version entity tag. */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "login": "alice",
+                     *       "role": "member",
+                     *       "signInMethods": {
+                     *         "password": true,
+                     *         "oidc": false
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Invalid body (invalid_request), or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller is a household member but not an admin, or Origin is missing, malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household or target account is unknown, inaccessible, malformed, or not a member of this household. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The change would remove the household's last admin. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "last_admin"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match is malformed, weak, a list, or stale. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description role is missing a valid admin or member value. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_value",
+                     *       "field": "role"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match is required. */
+            428: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Required",
+                     *       "status": 428,
+                     *       "code": "precondition_required"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable, including a missing sign-in-method fact. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

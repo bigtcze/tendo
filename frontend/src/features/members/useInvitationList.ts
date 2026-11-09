@@ -4,7 +4,7 @@ import { nextPage, previousPage } from './membersModel';
 import type { MembersCore } from './useMembersCore';
 
 export function useInvitationList(householdId: string, core: MembersCore) {
-  const { mountedRef, invitationGenerationRef, onSignedOutRef, tRef, setOwner, setNotice } = core;
+  const { mountedRef, invitationGenerationRef, onSignedOutRef, tRef, setAdmin, setNotice } = core;
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [invitationCursor, setInvitationCursor] = useState<string | null>(null);
   const [invitationStack, setInvitationStack] = useState<string[]>([]);
@@ -18,7 +18,7 @@ export function useInvitationList(householdId: string, core: MembersCore) {
   const applyPage = useCallback((page: PageResult<Invitation>, cursor: string, stack?: string[]): boolean => {
     if (page.kind === 'unauthenticated') { onSignedOutRef.current(); return false; }
     if (page.kind === 'forbidden') {
-      setOwner(false); setInvitations([]); setInvitationCursor(null); setInvitationStack([]); setCurrentInvitationCursor(undefined);
+      setAdmin(false); setInvitations([]); setInvitationCursor(null); setInvitationStack([]); setCurrentInvitationCursor(undefined);
       setInvitationsError(false); setInvitationsLoaded(true); return false;
     }
     if (page.kind === 'rejected' || page.kind === 'notFound') {
@@ -28,8 +28,8 @@ export function useInvitationList(householdId: string, core: MembersCore) {
       return false;
     }
     if (page.kind === 'ok') {
-      // Only owners can list invitations, so a successful list also settles an unknown role.
-      setOwner(true);
+      // Only administrators can list invitations, so a successful list also settles an unknown role.
+      setAdmin(true);
       setInvitations(page.items);
       setInvitationCursor(page.nextCursor);
       setCurrentInvitationCursor(cursor || undefined);
@@ -41,7 +41,7 @@ export function useInvitationList(householdId: string, core: MembersCore) {
     setInvitationsError(true);
     setInvitationsLoaded(true);
     return false;
-  }, [onSignedOutRef, tRef, setOwner, setNotice]);
+  }, [onSignedOutRef, tRef, setAdmin, setNotice]);
 
   const loadInvitations = useCallback(async (cursor: string, generation: number, stack?: string[]): Promise<boolean> => {
     const page = await listInvitations(householdId, cursor || undefined);

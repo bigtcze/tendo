@@ -12,7 +12,7 @@ export type NoticeTone = 'neutral' | 'success';
  */
 export function useMembersCore(onSignedOut: () => void, t: Translate) {
   const [state, setState] = useState<State>('loading');
-  const [owner, setOwner] = useState<boolean | null>(null);
+  const [admin, setAdmin] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeTone, setNoticeTone] = useState<NoticeTone>('neutral');
@@ -36,7 +36,7 @@ export function useMembersCore(onSignedOut: () => void, t: Translate) {
   }, []);
 
   return {
-    state, setState, owner, setOwner, attempt, setAttempt, notice, setNotice: setTypedNotice, noticeTone, noticeRef,
+    state, setState, admin, setAdmin, attempt, setAttempt, notice, setNotice: setTypedNotice, noticeTone, noticeRef,
     onSignedOutRef, tRef, mountedRef, memberGenerationRef, memberPageGenerationRef, invitationGenerationRef,
   };
 }

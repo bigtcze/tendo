@@ -54,7 +54,7 @@ func newAttentionFixture(t *testing.T) *attentionFixture {
 			t.Fatal(err)
 		}
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner'),($3::uuid,$2::uuid,'member'),($1::uuid,$4::uuid,'member'),($5::uuid,$4::uuid,'member')`, f.actor, f.house, f.assignee, f.otherHouse, f.outsider); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin'),($3::uuid,$2::uuid,'member'),($1::uuid,$4::uuid,'member'),($5::uuid,$4::uuid,'member')`, f.actor, f.house, f.assignee, f.otherHouse, f.outsider); err != nil {
 		t.Fatal(err)
 	}
 	for _, v := range []struct {

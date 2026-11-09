@@ -48,11 +48,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false)`},
-		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=16`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (16,false)`},
-		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false)`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=17`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (17,false)`},
+		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false)`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=16`, reset: `UPDATE tendo_schema_migrations SET version=16 WHERE version=99`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=17`, reset: `UPDATE tendo_schema_migrations SET version=17 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {
@@ -131,7 +131,7 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 	var hash string
 	var name, timezone string
 	var count int
-	if err = admin.QueryRow(ctx, `SELECT c.password_hash,h.name,h.timezone FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.default_household_id=h.id AND m.role='owner'`).Scan(&hash, &name, &timezone); err != nil {
+	if err = admin.QueryRow(ctx, `SELECT c.password_hash,h.name,h.timezone FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.default_household_id=h.id AND m.role='admin'`).Scan(&hash, &name, &timezone); err != nil {
 		t.Fatal(err)
 	}
 	if name != "Veselí 家族" || timezone != "Europe/Prague" {

@@ -145,7 +145,7 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 	if err = admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES($1,'UTC') RETURNING id::text`, "OIDC admission "+login).Scan(&house); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1,$2,'owner')`, user, house); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1,$2,'admin')`, user, house); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = admin.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2 WHERE id=$1`, user, house); err != nil {

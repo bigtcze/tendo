@@ -11,9 +11,10 @@ import (
 
 const membershipRepositoryBudget = 5 * time.Second
 
-var ErrForbidden = errors.New("owner_required")
+// ErrAdminRequired means the caller is a member but not a household admin.
+var ErrAdminRequired = errors.New("admin_required")
 
-const RoleOwner = "owner"
+const RoleAdmin = "admin"
 const RoleMember = "member"
 
 type Member struct {
@@ -24,6 +25,7 @@ type Member struct {
 type MembershipRecord struct{ UserID, Role string }
 type MembershipRepository interface {
 	GetMembership(context.Context, string, string) (string, error)
+	LockHouseholdForMembership(context.Context, string, string) error
 	HasMembershipElsewhere(context.Context, string, string) (bool, error)
 	AddInvitedMember(context.Context, string, string) error
 	ListMembers(context.Context, string, string, int) ([]MembershipRecord, string, error)
@@ -70,7 +72,7 @@ func (s *MembershipService) GetMembership(ctx context.Context, userID, household
 	if e != nil {
 		return "", e
 	}
-	if role != RoleOwner && role != RoleMember {
+	if role != RoleAdmin && role != RoleMember {
 		return "", ErrNotFound
 	}
 	return role, nil
@@ -87,15 +89,44 @@ func (s *MembershipService) AddInvitedMember(ctx context.Context, userID, househ
 	}
 	return s.repository.AddInvitedMember(ctx, userID, householdID)
 }
-func (s *MembershipService) RequireOwner(ctx context.Context, userID, householdID string) error {
-	role, e := s.GetMembership(ctx, userID, householdID)
+
+// AdminGate is the transaction-scoped membership surface needed by the shared
+// admin lock protocol.
+type AdminGate interface {
+	LockHouseholdForMembership(context.Context, string, string) error
+	GetMembership(context.Context, string, string) (string, error)
+}
+
+// RequireAdmin runs the single admin transaction lock protocol: it locks the
+// household row FOR NO KEY UPDATE through the caller's membership, then re-reads
+// the role in a separate statement. FOR NO KEY UPDATE (not FOR UPDATE) keeps
+// foreign-key inserts that take KEY SHARE on households from deadlocking, and
+// gating the lock on membership stops outsiders from locking a household.
+func RequireAdmin(ctx context.Context, gate AdminGate, userID, householdID string) error {
+	if !ids.IsCanonicalUUID(userID) || !ids.IsCanonicalUUID(householdID) {
+		return ErrNotFound
+	}
+	if e := gate.LockHouseholdForMembership(ctx, userID, householdID); e != nil {
+		return e
+	}
+	role, e := gate.GetMembership(ctx, userID, householdID)
+	if errors.Is(e, ErrNotFound) {
+		return ErrNotFound
+	}
 	if e != nil {
 		return e
 	}
-	if role != RoleOwner {
-		return ErrForbidden
+	if role != RoleAdmin {
+		if role != RoleMember {
+			return ErrNotFound
+		}
+		return ErrAdminRequired
 	}
 	return nil
+}
+
+func (s *MembershipService) RequireAdmin(ctx context.Context, userID, householdID string) error {
+	return RequireAdmin(ctx, s.repository, userID, householdID)
 }
 func (s *MembershipService) ListMembers(ctx context.Context, actorID, householdID, cursor string, limit int) ([]Member, string, error) {
 	bounded, cancel := context.WithTimeout(ctx, membershipRepositoryBudget)

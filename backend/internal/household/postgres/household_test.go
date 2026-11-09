@@ -75,8 +75,8 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 
 	alice, bob, carol := newUser("alice"), newUser("bob"), newUser("carol")
 	homeA, homeB := newHousehold("Alice Home", "Europe/Prague"), newHousehold("Bob 家", "UTC")
-	join(alice, homeA, "owner")
-	join(bob, homeB, "owner")
+	join(alice, homeA, "admin")
+	join(bob, homeB, "admin")
 	repo := NewRepository(app)
 
 	t.Run("owner reads own household", func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 
 	t.Run("multi-household member reads both with any role", func(t *testing.T) {
 		join(carol, homeA, "member")
-		join(carol, homeB, "owner")
+		join(carol, homeB, "admin")
 		for id, name := range map[string]string{homeA: "Alice Home", homeB: "Bob 家"} {
 			got, err := repo.FindForMember(ctx, carol, id)
 			if err != nil || got.Name != name || got.ID != id {

@@ -210,7 +210,7 @@ func writeInvitationError(w http.ResponseWriter, e error) {
 	switch {
 	case errors.Is(e, household.ErrNotFound):
 		httpx.ProblemResponse(w, 404, "not_found")
-	case errors.Is(e, household.ErrForbidden):
+	case errors.Is(e, household.ErrAdminRequired):
 		httpx.ProblemResponse(w, 403, "owner_required")
 	case errors.Is(e, identity.ErrInvalidInvitation):
 		httpx.ProblemResponse(w, 404, "invalid_invitation")

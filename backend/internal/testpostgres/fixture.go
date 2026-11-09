@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -140,6 +141,21 @@ func sqlState(err error) string {
 		return pgErr.Code
 	}
 	return ""
+}
+
+// RevertVersion17SQL reverses migration 017 and removes its ledger row so an
+// upgrade fixture can present the exact version 16 schema before migrating
+// forward again. It restores the legacy owner role value and check constraint.
+// The reversal body is derived from the embedded migration's actual Down
+// section so it cannot drift from the shipped schema.
+var RevertVersion17SQL = revertVersion17SQL()
+
+func revertVersion17SQL() string {
+	down, err := database.MigrationDownSQL(17)
+	if err != nil {
+		panic("revert version 17 SQL unavailable: " + err.Error())
+	}
+	return down + " DELETE FROM tendo_schema_migrations WHERE version=17"
 }
 
 func PoolConfigForDatabase(t *testing.T, url, database string) *pgxpool.Config {

@@ -66,7 +66,7 @@ func TestInvitationPostgresExistingAccountPoliciesAndRevokeIdempotence(t *testin
 	if e = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('existing_member') RETURNING id::text`).Scan(&member); e != nil {
 		t.Fatal(e)
 	}
-	_, e = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, member, house)
+	_, e = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, member, house)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -78,7 +78,7 @@ func TestInvitationPostgresExistingAccountPoliciesAndRevokeIdempotence(t *testin
 	if e = admin.QueryRow(ctx, `SELECT role FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid`, member, house).Scan(&role); e != nil {
 		t.Fatal(e)
 	}
-	if role != "owner" {
+	if role != "admin" {
 		t.Fatalf("role downgraded to %s", role)
 	}
 	other, e := svc.CreateInvitation(ctx, owner, house, "revoke-pending")

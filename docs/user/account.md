@@ -21,7 +21,7 @@ After that, **Sign in with …** takes you straight to your household.
 
 ## What connecting does not do
 
-- It does not create a Tendo account. A person who is new to the household needs an invite link from an owner first; see [Household members and invitations](household-members.md).
+- It does not create a Tendo account. A person who is new to the household needs an invite link from an administrator first; see [Household members and invitations](household-members.md).
 - It does not add anyone to a household.
 - It does not match accounts by email address.
 

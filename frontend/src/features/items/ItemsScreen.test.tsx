@@ -14,7 +14,7 @@ import { itemRoutes } from '../../test/fakeItems';
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const subjectList = `GET ${base}/subjects`;
 const memberList = `GET ${base}/members`;
-const ownerMember = { userId: session().userId, login: 'anna', role: 'owner' as const };
+const ownerMember = { userId: session().userId, login: 'anna', role: 'admin' as const };
 const secondMember = { userId: 'u-2', login: 'petr', role: 'member' as const };
 const memberPage = (items = [ownerMember, secondMember]) => json(200, { items, nextCursor: null });
 const donePath = `${base}/items/i-1/completions`;

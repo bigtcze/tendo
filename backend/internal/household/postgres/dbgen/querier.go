@@ -6,17 +6,25 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	AddAdmin(ctx context.Context, arg AddAdminParams) error
 	AddInvitedMember(ctx context.Context, arg AddInvitedMemberParams) error
-	AddOwner(ctx context.Context, arg AddOwnerParams) error
+	CountHouseholdAdmins(ctx context.Context, householdID pgtype.UUID) (int64, error)
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (string, error)
 	FindMemberHousehold(ctx context.Context, arg FindMemberHouseholdParams) (FindMemberHouseholdRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (string, error)
+	GetMembershipAccount(ctx context.Context, arg GetMembershipAccountParams) (GetMembershipAccountRow, error)
 	GetMembershipForInvitation(ctx context.Context, arg GetMembershipForInvitationParams) (string, error)
 	HasMembershipElsewhere(ctx context.Context, arg HasMembershipElsewhereParams) (bool, error)
+	InsertHouseholdRoleChange(ctx context.Context, arg InsertHouseholdRoleChangeParams) error
 	ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error)
+	ListMembershipAccounts(ctx context.Context, arg ListMembershipAccountsParams) ([]ListMembershipAccountsRow, error)
+	LockHouseholdForMembership(ctx context.Context, arg LockHouseholdForMembershipParams) (pgtype.UUID, error)
+	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

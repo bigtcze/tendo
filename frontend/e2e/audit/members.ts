@@ -144,8 +144,8 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
   await expect(permissionPage.getByRole('main').getByRole('region', { name: en['members.invite.title'] })).toBeVisible();
   await permissionPage.getByRole('button', { name: en['members.invite.action'], exact: true }).click();
   await expect(permissionPage.getByRole('heading', { name: en['members.help.title'], exact: true })).toBeVisible();
-  await expect(permissionPage.getByText(en['members.invite.ownerRequired'], { exact: true })).toBeVisible();
-  await expect(permissionPage.getByRole('status')).toContainText(en['members.invite.ownerRequired']);
+  await expect(permissionPage.getByText(en['members.invite.adminRequired'], { exact: true })).toBeVisible();
+  await expect(permissionPage.getByRole('status')).toContainText(en['members.invite.adminRequired']);
   await expect(permissionPage.getByRole('main').getByRole('button', { name: en['members.invite.action'], exact: true })).toHaveCount(0);
   await expect(permissionPage.getByRole('main').getByRole('heading', { name: en['members.invitations.title'] })).toHaveCount(0);
   await capture(permissionPage, join(dir, 'audit-members-owner-required-en-390.png'), false);
