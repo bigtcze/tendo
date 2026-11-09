@@ -1,13 +1,14 @@
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 import type { components } from '../../../api/generated/api';
 import { en } from '../../src/i18n/en';
+import { REFERENCE_HOUSEHOLD, REFERENCE_OWNER_LOGIN } from '../referenceFixture';
 
 export const BASE_URL = process.env.E2E_BASE_URL;
 const SETUP_TOKEN = process.env.E2E_SETUP_TOKEN;
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD;
 if (!BASE_URL || !SETUP_TOKEN || !OWNER_PASSWORD) throw new Error('visual native runner credentials are required');
-export const HOUSEHOLD = 'Rodina Novákových';
-export const OWNER_LOGIN = 'visual_owner';
+export const HOUSEHOLD = REFERENCE_HOUSEHOLD;
+export const OWNER_LOGIN = REFERENCE_OWNER_LOGIN;
 export type Subject = { name: string; id: string };
 export type VisualItem = { id: string; title: string };
 export type Fixture = { householdId: string; apiRoot: string; ownerId: string; memberId: string; subjects: Subject[]; items: VisualItem[] };

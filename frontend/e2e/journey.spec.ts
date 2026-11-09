@@ -1157,7 +1157,7 @@ test.describe('Tendo production journey', () => {
     expect(upcoming).toMatchObject({ attentionOn: '2026-01-31', lastCompletedOn: '2025-12-31', attention: 'upcoming' });
     const upcomingRow = group(en['items.group.upcoming']).getByRole('listitem').filter({ hasText: upcomingTitle });
     await expect(upcomingRow).toBeVisible();
-    await expect(upcomingRow).toContainText(en['items.attentionOn'].replace('{date}', 'Jan 31'));
+    await expect(upcomingRow).toContainText('Jan 31');
     await expect(upcomingRow).not.toContainText('Jan 31, 2026');
 
     const ordinaryTitle = 'Ordinary repeating no history';
@@ -1915,10 +1915,10 @@ test.describe('Tendo production journey', () => {
       }));
       const initialUniqueSubjects = new Set(renderedItems.map((item) => item.subjectId));
       expect(initialUniqueSubjects.size).toBe(4);
-      const archivedRowMetadata = main.locator('li[data-item-id]').filter({ hasText: visibleTitles[0]! }).locator('p').first();
-      await expect(archivedRowMetadata).toBeVisible();
-      // V3 joins subject, attention and responsible into one scan line; the subject must be its exact first segment.
-      await expect(archivedRowMetadata).toHaveText(new RegExp(`^${escapeRegExp(archivedSubject.name)}( · |$)`));
+      const archivedRowSubject = main.locator('li[data-item-id]').filter({ hasText: visibleTitles[0]! }).locator('[data-subject-pill]').first();
+      await expect(archivedRowSubject).toBeVisible();
+      // V4 shows the subject as its own pill; an archived subject still resolves through the label batch.
+      await expect(archivedRowSubject).toHaveText(archivedSubject.name);
       await expect.poll(() => subjectRequests.length).toBe(2 * Math.ceil(initialUniqueSubjects.size / 100));
       expect(subjectRequests.every((url) => url.searchParams.has('id'))).toBe(true);
       expect(subjectRequests.filter((url) => url.searchParams.get('archived') === 'true')).toHaveLength(Math.ceil(initialUniqueSubjects.size / 100));
@@ -2505,6 +2505,7 @@ test.describe('Tendo production journey', () => {
     test.setTimeout(120_000);
     try {
       const householdNav = page.getByRole('navigation', { name: en['nav.label'] });
+      const navSelector = `nav[aria-label="${en['nav.label']}"]`;
       for (const [width, height] of [[390, 640], [768, 640]] as const) {
         await page.setViewportSize({ width, height });
         await page.goto('/');
@@ -2516,13 +2517,15 @@ test.describe('Tendo production journey', () => {
         let footerStops = 0;
         for (let index = 0; index < 200 && footerStops < 2; index += 1) {
           await page.keyboard.press('Tab');
-          const stop = await page.evaluate(() => {
+          const stop = await page.evaluate((navSelector) => {
             const element = document.activeElement as HTMLElement | null;
             if (!element || element === document.body || !element.closest('main, footer')) return null;
             const box = element.getBoundingClientRect();
-            const hit = document.elementFromPoint(box.left + box.width / 2, Math.min(box.bottom - 1, window.innerHeight - 1));
-            return { name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), main: !!element.closest('main'), covered: !hit || !(hit === element || element.contains(hit) || hit.contains(element)), footer: !!element.closest('footer') };
-          });
+            const bar = document.querySelector(navSelector)!.getBoundingClientRect();
+            // The contract is specifically that the fixed bottom bar never covers focused content.
+            const covered = box.bottom > bar.top && box.top < bar.bottom && box.right > bar.left && box.left < bar.right;
+            return { name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), main: !!element.closest('main'), covered, footer: !!element.closest('footer') };
+          }, navSelector);
           if (!stop) continue;
           if (stop.main) mainStops += 1;
           if (stop.covered) covered.push(stop.name);
@@ -2535,7 +2538,6 @@ test.describe('Tendo production journey', () => {
       await page.setViewportSize({ width: 640, height: 360 });
       await page.goto('/');
       await waitForSettledHome(page, householdName);
-      const navSelector = `nav[aria-label="${en['nav.label']}"]`;
       const shortLayout = await page.evaluate((navSelector) => {
         const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().top + window.scrollY;
         return { position: getComputedStyle(document.querySelector(navSelector)!).position, header: top('body header'), nav: top(navSelector), main: top('main'), footer: top('body footer') };

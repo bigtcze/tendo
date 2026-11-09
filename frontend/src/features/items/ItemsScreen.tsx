@@ -1,5 +1,4 @@
-import { useMemo, useRef, useState, type RefObject } from 'react';
-import { Button } from '../../components/ui/button';
+import { useMemo, useRef, useState } from 'react';
 import { Dialog } from '../../components/ui/dialog';
 import { useI18n } from '../../i18n';
 import { useSubjectLabels } from './useSubjectLabels';
@@ -9,7 +8,9 @@ import { AddItemCatalogueStatus, AddItemPanel } from './AddItemPanel';
 import { groups, HOME_GROUP_ROW_CAP } from './homeGroups';
 import type { Notice } from './HomeOverview';
 import { HomeGroupList } from './HomeGroupList';
-import { HomeOverviewNav, ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
+import { HomeHeader } from './HomeHeader';
+import { ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
+import { HomeStatusPills } from './HomeStatusPills';
 import { HomeEmptyState, HomeLoadState } from './HomeStates';
 import { useHomeItems } from './useHomeItems';
 import { useHomeMembers } from './useHomeMembers';
@@ -25,6 +26,7 @@ export { HOME_GROUP_ROW_CAP };
 type ItemsScreenProps = {
   userId: string;
   householdId: string;
+  householdName: string;
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: ItemGroup) => void;
@@ -76,12 +78,16 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
     return t(state === 'queued' || state === 'loading' ? 'items.subjectLabels.loading' : 'items.subject.unknown');
   }
 
+  function subjectType(subjectId: string) {
+    return labels.subjects.get(subjectId)?.type;
+  }
+
   const showHome = !loading && summary;
   const emptyHome = showHome && !error && groups.every((group) => summary[group.count] === 0) && !adding;
 
   return {
     t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
-    cancelAddAndFocus, subjectName, emptyHome,
+    cancelAddAndFocus, subjectName, subjectType, emptyHome,
   };
 }
 
@@ -93,13 +99,14 @@ export function ItemsScreen(props: ItemsScreenProps) {
     t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice,
     visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
   } = screen;
-  const { cancelAddAndFocus, subjectName } = screen;
+  const { cancelAddAndFocus, subjectName, subjectType } = screen;
   const emptyHome = Boolean(screen.emptyHome);
   const homeReady = home.itemsRequestComplete && (!home.error || !!home.summary);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
-  return <div className="max-w-3xl min-w-0 space-y-6">
+  return <div data-home-screen className="min-w-0 space-y-6">
+    <HomeHeader householdName={props.householdName} ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
     <ItemsNoticeArea
       noticeRef={noticeRef}
       createNotice={createNotice}
@@ -115,9 +122,9 @@ export function ItemsScreen(props: ItemsScreenProps) {
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
     {!loading && summary && !adding
-      ? <HomeOverviewNav summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
+      ? <HomeStatusPills summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
       : null}
-    <HomeActions empty={emptyHome} ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
+    {emptyHome && !adding ? <HomeEmptyState /> : null}
     <Dialog open={adding} onOpenChange={(open) => { if (!open) cancelAddAndFocus(); }} title={t('items.add.formLabel')} closeLabel={t('items.cancel')}
       busy={busy || recovering} sheet triggerRef={addRef} initialFocusRef={addInitialFocusRef}>
     <AddItemCatalogueStatus adding={adding} subjectLoading={add.subjectLoading} subjectState={add.subjectState}
@@ -147,6 +154,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
       sectionHeadingRefs={sectionHeadingRefs}
       showMoreButtons={home.showMoreButtons}
       subjectName={subjectName}
+      subjectType={subjectType}
       userId={userId}
       members={homeMembers.members}
       membersLoaded={homeMembers.loaded}
@@ -156,32 +164,5 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onDone={(itemId) => void completion.finish(itemId)}
       onOpenItem={onOpenItem}
     /> : null}
-  </div>;
-}
-
-function HomeActions({ empty, ready, adding, addRef, onAdd }: {
-  empty: boolean;
-  ready: boolean;
-  adding: boolean;
-  addRef: RefObject<HTMLButtonElement | null>;
-  onAdd: () => void;
-}) {
-  const { t } = useI18n();
-  if (!ready) return null;
-  return <div className="space-y-4">
-    <div className={`flex justify-start ${adding ? 'hidden' : ''}`}>
-      <Button
-        ref={addRef}
-        data-action="completion-trigger"
-        type="button"
-        aria-hidden={adding || undefined}
-        tabIndex={adding ? -1 : undefined}
-        onClick={onAdd}
-        className="w-full sm:w-auto"
-      >
-        {t('items.add')}
-      </Button>
-    </div>
-    {empty ? <HomeEmptyState /> : null}
   </div>;
 }

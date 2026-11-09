@@ -1036,13 +1036,21 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(page.locator('main a[data-group-all]')).toHaveCount(expectedSeeAllLinks);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
-        // Home is one bounded stack at every width: no side-by-side columns, rows never wider than max-w-3xl (48rem).
-        const stack = await page.locator('main [data-home-layout="stack"]').evaluate((element) => ({
-          width: element.getBoundingClientRect().width,
-          lefts: [...element.querySelectorAll(':scope > section')].map((section) => Math.round(section.getBoundingClientRect().left)),
-        }));
-        expect(stack.width, `Home stack measure at ${width}px`).toBeLessThanOrEqual(768.5);
-        expect(new Set(stack.lefts).size, `Home groups share one column at ${width}px`).toBe(1);
+        // Home fills the main column at every width; groups share one left edge and rows use aligned grid columns.
+        const stack = await page.locator('main [data-home-layout="wide"]').evaluate((element) => {
+          const main = document.querySelector('main')!.getBoundingClientRect();
+          const row = element.querySelector('li[data-item-id]');
+          return {
+            width: element.getBoundingClientRect().width,
+            mainWidth: main.width,
+            lefts: [...element.querySelectorAll(':scope > section')].map((section) => Math.round(section.getBoundingClientRect().left)),
+            rowColumns: row ? getComputedStyle(row).gridTemplateColumns.split(' ').length : 0,
+          };
+        });
+        expect(stack.width, `Home fills the main column at ${width}px`).toBeGreaterThanOrEqual(stack.mainWidth - 80);
+        if (width === 1440) expect(stack.width, `Home uses desktop width at ${width}px`).toBeGreaterThanOrEqual(900);
+        expect(new Set(stack.lefts).size, `Home groups share one left edge at ${width}px`).toBe(1);
+        expect(stack.rowColumns, `Home row grid columns at ${width}px`).toBe(width === 1440 ? 4 : 3);
         // Each overview chip's 2px outline + 2px offset must stay inside the horizontally clipped nav when focused.
         const overviewNav = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
         for (const link of await overviewNav.getByRole('link').all()) {

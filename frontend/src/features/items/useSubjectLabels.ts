@@ -98,14 +98,18 @@ export function useSubjectLabels(userId: string, householdId: string, visibleIDs
   }, [controller, publish, run, visibleKey]);
 
   const names = new Map<string, string>();
+  const subjects = new Map<string, Subject>();
   let loading = false;
   let hasFailures = false;
   for (const id of visibleKey ? visibleKey.split('\u0000') : []) {
     const state = controller.scope === scope ? controller.states.get(id) : undefined;
-    if (state?.kind === 'found') names.set(id, state.subject.name);
+    if (state?.kind === 'found') {
+      names.set(id, state.subject.name);
+      subjects.set(id, state.subject);
+    }
     if (state?.kind === 'queued' || state?.kind === 'loading') loading = true;
     if (state?.kind === 'failed' || state?.kind === 'missing') hasFailures = true;
   }
   const stateFor = (id: string) => controller.scope === scope ? controller.states.get(id)?.kind : undefined;
-  return { names, loading, hasFailures, retry, stateFor };
+  return { names, subjects, loading, hasFailures, retry, stateFor };
 }

@@ -1,10 +1,12 @@
 import type { RefObject } from 'react';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
+import type { SubjectType } from '../subjects/subjectsApi';
 import type { ItemGroup, ItemSummary } from './itemsApi';
 import { countPluralKey } from './itemsScreenHelpers';
 import { groups, type GroupData } from './homeGroups';
-import { HomeGroupSection, ItemRow } from './HomeGroupSection';
+import { HomeGroupSection } from './HomeGroupSection';
+import { HomeItemRow } from './HomeItemRow';
 
 type HomeGroupListProps = {
   summary: ItemSummary;
@@ -12,6 +14,7 @@ type HomeGroupListProps = {
   sectionHeadingRefs: RefObject<Map<ItemGroup, HTMLHeadingElement>>;
   showMoreButtons: RefObject<Map<ItemGroup, HTMLButtonElement>>;
   subjectName: (subjectId: string) => string;
+  subjectType: (subjectId: string) => SubjectType | undefined;
   userId: string;
   members: Member[];
   membersLoaded: boolean;
@@ -22,9 +25,9 @@ type HomeGroupListProps = {
   onOpenItem: (itemId: string) => void;
 };
 
-/** Puts attention first, then the quieter groups, in one stack inside Home's bounded reading measure (no desktop columns). */
+/** Attention first, then the quieter groups; every group spans the available main width. */
 export function HomeGroupList(props: HomeGroupListProps) {
-  const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, userId, members, membersLoaded, busy } = props;
+  const { summary, groupData, sectionHeadingRefs, showMoreButtons, subjectName, subjectType, userId, members, membersLoaded, busy } = props;
   const { t, locale } = useI18n();
   const renderGroup = (group: (typeof groups)[number]) => {
     const state = groupData[group.id];
@@ -41,12 +44,13 @@ export function HomeGroupList(props: HomeGroupListProps) {
       onShowMore={() => { if (!state.loadingMore) props.onShowMore(group.id); }}
       onOpenAll={() => props.onOpenAllItems(group.id)}
     >
-      {state.items.map((item) => <ItemRow
+      {state.items.map((item) => <HomeItemRow
         key={item.id}
         item={item}
         group={group.id}
         evaluatedOn={summary.evaluatedOn}
         subjectName={subjectName(item.subjectId)}
+        subjectType={subjectType(item.subjectId)}
         locale={locale}
         userId={userId}
         members={members}
@@ -57,7 +61,7 @@ export function HomeGroupList(props: HomeGroupListProps) {
       />)}
     </HomeGroupSection>;
   };
-  return <div data-home-layout="stack" className="min-w-0 space-y-8">
+  return <div data-home-layout="wide" className="min-w-0 space-y-6">
     {groups.map(renderGroup)}
   </div>;
 }
