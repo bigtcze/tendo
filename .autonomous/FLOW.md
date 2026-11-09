@@ -1,16 +1,22 @@
 # Autonomous Flow
 
-cycle=fresh_opencode_session_daily_maintenance
-goal=keep_released_tendo_secure_current_and_green
+cycle=fresh_opencode_session_per_V4_controller_cycle
+goal=ship_v4_modern_everyday_via_managed_V4_Issues
+controller=scripts/autonomous-loop.sh(tendo-autonomous.service)+.autonomous/V4_CYCLE_PROMPT.md
 work_unit=small_reviewable_PR
-per_invocation=at_most_one_maintenance_change_and_one_release
+per_cycle=at_most_one_claimed_managed_V4_Issue
 main=protected
 parallel_PRs=avoid
 
-V3 is complete (`.autonomous/V3_COMPLETE`). The V3 cycle steps, Issue
-procedure, design-validation discipline and release/completion protocol
-were executed; they are preserved verbatim in git history at tag `v3.0.0`
-(`.autonomous/FLOW.md`) and are not maintenance procedure.
+V3 is complete (`.autonomous/V3_COMPLETE`); its cycle, Issue procedure and
+release/completion protocol are preserved at tag `v3.0.0`
+(`.autonomous/FLOW.md`). Post-V3 maintenance (the daily
+`tendo-maintenance.timer`, outside this repository) is paused while V4 runs:
+the V4 controller refuses to start while that timer or service is enabled or
+active, and holds the maintenance flock during every cycle. Dependency,
+security and red-`main` work continues inside the V4 cycle (priority below).
+Maintenance releases are not cut during V4; security fixes ship in v4.0.0 or,
+if urgent, through a patch release per "Maintenance release".
 
 ## Start each cycle
 1. Read the AGENTS read set (`always` + matching conditional files), each once.
@@ -19,22 +25,20 @@ were executed; they are preserved verbatim in git history at tag `v3.0.0`
    repos/bigtcze/tendo/dependabot/alerts`), the Renovate Dependency
    Dashboard (Issue titled "Dependency Dashboard") and the latest published
    release (`gh release view`).
-3. If an active Tendo PR exists, finish/review/fix it before unrelated work,
-   subject to the priority order below. Never abandon a PR you already
-   started without reconciling its state.
-4. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
-5. Pick the single highest-priority actionable item:
+3. Query open managed V4 Issues with BOTH the exact milestone AND label:
+   `gh issue list --milestone "Tendo v4.0.0 - Modern Everyday" --label tendo:v4-autonomous --state open`;
+   reconcile their claims, comments, dependencies ("Blocked by"), linked PRs
+   and CI with reality (reality wins). Never treat other Issues as work items.
+4. If an active Tendo PR exists, finish/review/fix it before unrelated work.
+   Never abandon a PR you already started without reconciling its state.
+5. If no active PR, safely sync local main (`fetch` + `pull --ff-only`) before branching.
+6. Pick the single highest-priority actionable item:
    1. red `main` CI;
    2. security vulnerabilities (advisories, `security`-labelled PRs, audit failures);
-   3. open Renovate/dependency PRs;
-   4. toolchain/runtime updates;
-   5. necessary compatibility fixes.
-   Deliver it as one focused PR per "Work".
-6. Always evaluate "Maintenance release" on green `main` before exiting,
-   including when no maintenance change was made or the selected update is
-   blocked. Then exit; exit promptly when nothing is actionable. No feature
-   work, speculative refactoring, new coordination frameworks or casual
-   Renovate policy changes.
+   3. the highest-value dependency-ready managed `status:idle` V4 Issue
+      (every "Blocked by" Issue closed), claimed per "V4 GitHub issue execution";
+   4. open Renovate/dependency PRs that do not conflict with active V4 work.
+   Deliver it as one focused PR per "Work", then exit.
 
 ## Before coding
 For behavior/API/schema changes:
@@ -97,7 +101,7 @@ For behavior/API/schema changes:
 - Time/concurrency/idempotency paths require deterministic tests.
 
 ## Dependency maintenance
-Dependency PRs (human, Renovate or self-opened) are ordinary open PRs and the core maintenance work; priority order is Start step 5.
+Dependency PRs (human, Renovate or self-opened) are ordinary open PRs; priority order is Start step 6.
 Routine Renovate PRs never take priority over a red `main` or a security fix; leave them open (or to their native allowlisted automerge) and return afterwards. Security-alert PRs (`security` label) and advisories with a fix are top priority after a red `main`.
 A Renovate PR that fails CI or cannot merge because the new version changes behavior is engineering work, not a merge request: read upstream release notes and migration guides, diagnose the real incompatibility and modify Tendo (Go/TypeScript code, API contract and generated clients, npm/Go constraints, toolchain pins and checksums, Docker images/build config, SQL generation, tests) to support it. Never merely retry CI, suppress failures, delete meaningful tests, silently downgrade or merge broken code. When an update is genuinely blocked, follow "Blockers".
 Follow `docs/development/dependencies.md` "Dependency PR procedure" for every dependency PR (wrapper-only tooling, release notes, pin sync, root-cause failures, full gate, Renovate branch rules).
@@ -107,14 +111,15 @@ Follow `docs/development/dependencies.md` "Dependency PR procedure" for every de
 - Install only what GUARDRAILS permits.
 - Verify version and rerun originally failing task.
 - Do not repeatedly reinstall tools across cycles; record durable requirement once.
-- Preserve primary failure evidence in the affected PR (or the session report) if cleanup/reporting also fails.
+- Preserve primary failure evidence in the owned V4 Issue or the affected PR if cleanup/reporting also fails.
 
 ## Context maintenance
 read_set=AGENTS (always + conditional triggers); map and rationale in docs/development/agent-context.md
-work_status=open_PRs_Renovate_Dependency_Dashboard_and_releases_no_state_file
-pr_description=change_release_notes_reviewed_tests_and_gate_evidence
-pr_comments=decisions_evidence_blockers_handoff
-V3_Issues=closed_historical_never_touched_by_maintenance
+work_status=managed_V4_Issues_plus_open_PRs_and_Renovate_Dependency_Dashboard_no_state_file
+issue_body=stable_acceptance_contract_update_when_scope_changes
+issue_comments=claims_decisions_evidence_blockers_PR_links_handoff
+pr_description=change_reviewed_tests_and_gate_evidence
+V3_Issues=closed_historical_never_touched
 LEARNINGS=durable_reusable_rules_only
 FLOW=may_improve_process_without_changing_locked_policy
 AGENTS=may_improve_navigation_without_changing_locked_policy
@@ -122,6 +127,9 @@ docs_ADR=durable_decisions_only
 
 ## Blockers
 - Do not spin on quota/outage/missing external dependency.
+- For a managed V4 Issue: record the exact blocker and evidence in a comment
+  on it and set `status:blocked` (recheck milestone + ownership label first);
+  continue with independent safe work.
 - For a genuinely incompatible update that cannot be safely resolved, record
   the exact technical blocker, evidence (failing check, log excerpt, local
   reproduction) and upstream issue in a comment on that PR; leave it unmerged
@@ -131,9 +139,44 @@ docs_ADR=durable_decisions_only
   dependency version or Tendo code relevant to it has changed.
 - Never claim unverified success.
 
+## V4 GitHub issue execution
+Locked V4_ISSUES_WORKFLOW is the canonical rule set (ownership filter, claim,
+collision, status labels, closure, finalization). Procedure reminders:
+- Every query and mutation filters BOTH milestone `Tendo v4.0.0 - Modern Everyday`
+  AND label `tendo:v4-autonomous`; recheck both immediately before each mutation.
+- Claim: comment `CLAIM agent=<identity> time=<UTC>`, swap `status:idle` for
+  `status:in-progress`, wait 3-5 s, re-read labels, milestone and all
+  comments; earliest active claim (server timestamp, then comment ID) wins.
+- New managed Issue (verified V4 blocker only):
+  `gh issue create --milestone "Tendo v4.0.0 - Modern Everyday" --label tendo:v4-autonomous --label status:idle`.
+  Never label an existing Issue.
+- Reference the managed Issue from its PR with `Refs #N`, never `Closes`/
+  `Fixes`/`Resolves` (GitHub would auto-close it at merge, before main CI is
+  verified). Close it explicitly only after merge, verified green `main` and a
+  DONE comment with evidence (milestone + label rechecked).
+- V4-16 (two-service Compose) blocks V4-13; V4-13 blocks V4-14; V4-14 blocks
+  V4-15 (`V4_COMPLETE`).
+
+## V4 design and visual validation
+- Before UI, token, rendering or visual-baseline work, read tracked
+  `.autonomous/V4_DESIGN_BRIEF.md`, view both `docs/design/reference/tendo-v4-*.png`
+  and verify their SHA-256 against the brief header. They are visual targets
+  only; never commit them or derivatives as product screenshots.
+- Validate with real production Playwright captures (fixture, widths, themes
+  and side-by-side review per the brief's "Required visual comparison").
+  Major deviations need human approval, recorded on the owned Issue.
+- Keep the V3 visual-regression gate meaningful: baseline updates are
+  intentional, reviewed and explained in the PR.
+
+## V4 release and completion
+V4-14 releases v4.0.0 per "Maintenance release" procedure steps 1-6 (major
+version, published two-service Compose) and V4_DEFINITION_OF_DONE; V4-15 merges
+`.autonomous/V4_COMPLETE` through a separate final protected PR, after which
+the controller exits. Preserve all earlier markers and tags.
+
 ## Maintenance release
-Evaluate every cycle (Start step 6) on green `main`, after the cycle's
-maintenance change, if any, has merged.
+Not evaluated by V4 cycles; it applies again after `V4_COMPLETE` and for an
+urgent security patch. Evaluate on green `main`, after any change has merged.
 - Interval: normally one maintenance patch release every 14 days, measured
   from the latest published release's `publishedAt`.
 - Release only when meaningful dependency, security or compatibility changes

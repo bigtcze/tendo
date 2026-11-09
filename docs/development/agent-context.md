@@ -4,7 +4,8 @@ How the autonomous agent's instructions fit together, which files it loads and w
 
 ## How OpenCode loads context
 
-- Since v3.0.0 the project is in post-V3 maintenance. A daily user systemd timer (`tendo-maintenance.timer`, outside this repository) triages releases and open Renovate PRs and, when there is work, starts one fresh `opencode run --agent orchestrator` session with the owner's maintenance prompt. The V3 controller (`scripts/autonomous-loop.sh` with `.autonomous/CYCLE_PROMPT.md` as first message) exits immediately because `.autonomous/V3_COMPLETE` is tracked on `main`; it exits whenever the checkout is clean `main` with that marker tracked. Both are kept unchanged as history.
+- V4 Modern Everyday is the current stage (human-authorized, activated by managed Issue V4-00). The controller is the existing user unit `tendo-autonomous.service`, which runs `scripts/autonomous-loop.sh`; each cycle is one fresh `opencode run --agent orchestrator` session whose first message is `.autonomous/V4_CYCLE_PROMPT.md`. The loop exits successfully once `.autonomous/V4_COMPLETE` is tracked on clean `main`. `.autonomous/CYCLE_PROMPT.md` (V3) is kept unchanged as history and is no longer sent.
+- Post-V3 maintenance (daily user timer `tendo-maintenance.timer` → `~/.local/bin/tendo-maintenance.sh` with the owner's prompt, outside this repository) is paused during V4. It is a second controller that would otherwise start its own sessions, so the V4 loop refuses to start a cycle (exit 3, no session) while `tendo-maintenance.timer` or `tendo-maintenance.service` is enabled or active, or while the maintenance flock `$XDG_RUNTIME_DIR/tendo-maintenance-$UID.lock` is held; it rechecks before every cycle and holds that flock for its whole run, so a manually started maintenance run exits as "already running". Dependency and security work continues inside V4 cycles (FLOW). Behavior tests: `bash scripts/autonomous-loop-test.sh` (local gate and required CI).
 - OpenCode injects the repository `AGENTS.md` into every session's system prompt (it appears as "Instructions from: …/AGENTS.md"). Reading it again with a tool only duplicates it.
 - In the verified configuration no other repository `.autonomous` document is loaded automatically. OpenCode and the installed plugin also supply their own agent and tool instructions, which this repository does not control. Every `.autonomous/*` file is loaded by explicit tool reads that the agent decides on from `AGENTS.md`. Child subagents do not inherit the parent's read history; they get their own system and project instructions plus whatever requirements the orchestrator puts in the packet.
 - A file read with a tool stays in the model-visible input of every later step of the session, until compaction summarizes it. Prompt caching lowers the price of that repeated input but does not remove it from the context window. After compaction the exact text may be gone, so `AGENTS.md` tells the agent to re-read a governing file rather than rely on a summary.
@@ -15,10 +16,13 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | File | Kind | Editable by agent | Loaded |
 | --- | --- | --- | --- |
 | `AGENTS.md` | entry point, read set, authority list | yes (navigation only) | injected |
-| `CYCLE_PROMPT.md` | historical V3 controller prompt, human-authored | no: controller input of `scripts/autonomous-loop.sh` | never in maintenance |
+| `V4_CYCLE_PROMPT.md` | V4 controller prompt, human-authorized through V4-00 | no: controller input of `scripts/autonomous-loop.sh` | as the session prompt |
+| V4_SCOPE, V4_DEFINITION_OF_DONE, V4_ISSUES_WORKFLOW | locked, human-authorized V4 contract (imported byte-for-byte by V4-00) | no | always during V4 |
+| V4_DESIGN_BRIEF + `docs/design/reference/tendo-v4-{desktop,mobile}.png` | locked visual direction; images are references, not screenshots; SHA-256 in the brief header | no | frontend UI, design tokens, rendering or visual-baseline changes |
+| `CYCLE_PROMPT.md` | historical V3 controller prompt, human-authored | no | never |
 | GUARDRAILS, CODE_QUALITY | locked, `agent_must_not_edit=this_file` | no | always |
 | CHARTER, PRODUCT, ARCHITECTURE, API, TESTING | locked by `AGENTS.md` `must_not_self_change` | no | always |
-| UX, V3_SCOPE, V3_DESIGN_BRIEF, V3_DEFINITION_OF_DONE | locked (V3_DESIGN_BRIEF also `agent_must_not_edit`) | no | frontend UI, rendering or visual-baseline changes; V3 semantics changes |
+| UX, V3_SCOPE, V3_DESIGN_BRIEF, V3_DEFINITION_OF_DONE | locked (V3_DESIGN_BRIEF also `agent_must_not_edit`) | no | with the V4 brief for UI work; V3 semantics changes |
 | V3_ISSUES_WORKFLOW | locked, `agent_must_not_edit=this_file`; historical | no | only to interpret historical V3 Issue evidence |
 | FLOW | agent-maintained procedure | yes, without changing locked policy | always |
 | LEARNINGS | agent-maintained durable rules | yes | always |
@@ -30,11 +34,29 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | V3_ISSUES_READY | issue identifiers, not status | no (migration output) | when an Issue ID is needed |
 | V3_ISSUES_MIGRATION_PROMPT | executed one-shot bootstrap prompt | no | never for routine work |
 | PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE, V3_COMPLETE | historical completion markers | never edit or delete | never for routine work |
+| V4_COMPLETE (future) | V4 completion marker, only via V4-15 final protected PR | created once by V4-15 | stops the controller |
 | `docs/development/dependencies.md`, `release.md`, `release-qualification.md` | agent-maintained development docs | yes | dependency/toolchain/security work; releases |
 
-Precedence when two sources seem to disagree: locked files over FLOW and AGENTS; V3_ISSUES_WORKFLOW over every other statement about Issues; the newer V3 documents refine but never relax the historical V1/V2/V2.1 invariants (GUARDRAILS "Scope safety").
+Precedence when two sources seem to disagree: locked files over FLOW and AGENTS; V4_ISSUES_WORKFLOW over every other statement about V4 Issues and V3_ISSUES_WORKFLOW over every statement about V3 Issues; V4_DESIGN_BRIEF over V3_DESIGN_BRIEF for visual direction only; the newer V3 documents refine but never relax the historical V1/V2/V2.1 invariants (GUARDRAILS "Scope safety").
 
-## Post-V3 maintenance read set
+## V4 activation and controller runbook
+
+V4-00 (#408) imported the four V4 specifications and both reference images byte-for-byte from the human-approved packet (`v4-design-identity-deployment-2026-11-09-r2`), switched this read set, FLOW and the loop to V4, and did not touch any systemd unit (GUARDRAILS controller boundary). The human owner switches controllers once, after the V4-00 PR is merged and no maintenance run is active:
+
+```bash
+systemctl --user is-active tendo-maintenance.service   # must print inactive
+systemctl --user disable --now tendo-maintenance.timer
+git -C ~/repositories/tendo switch main && git -C ~/repositories/tendo pull --ff-only
+~/.local/bin/opencode-tendo-safe --check                 # must print GUARD CHECK PASSED
+systemctl --user start tendo-autonomous.service
+journalctl --user -u tendo-autonomous.service -f
+```
+
+Inside the loop, a failed or timed-out OpenCode cycle is retried with backoff. The loop process itself exits on a refusal (exit 3: maintenance controller enabled, active or holding its lock), a missing tool or governance file (exit 2), or completion (exit 0); because of the unit's `Restart=no` drop-in it then stays stopped until the owner starts it again. The loop always uses the canonical checkout `/home/tomas/repositories/tendo`, the same one the host wrapper runs and recovers sessions in. After V4-15 merges `V4_COMPLETE` the loop exits; re-enable maintenance with `systemctl --user enable --now tendo-maintenance.timer` (its prompt is the owner's file and is not changed by this repository).
+
+Known limitation: the host wrapper `~/.local/bin/opencode-tendo-safe` (outside this repository) embeds a recovery prompt that still mentions `.autonomous/STATE.md`; under AGENTS "Context rules" that means the owned managed V4 Issue.
+
+## Post-V3 maintenance read set (historical, before V4)
 
 During V3 the always set also held UX, V3_SCOPE, V3_DESIGN_BRIEF, V3_DEFINITION_OF_DONE and V3_ISSUES_WORKFLOW, because locked `V3_SCOPE.md` "Execution constraints" requires reading them for V3 work. V3 work ended with v3.0.0 and `V3_COMPLETE`; routine maintenance is dependency, toolchain, security and compatibility updates, so those files moved to concern triggers (about 26 KB less per session):
 
