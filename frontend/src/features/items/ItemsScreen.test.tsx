@@ -363,11 +363,11 @@ describe('item creation', () => {
       let subjectCalls = 0;
       const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => ++subjectCalls <= 2 ? deferred : json(200, { items: [subject], nextCursor: null }), [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
       const signedOut = vi.fn();
-      const view = render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+      const view = render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} householdName="Veselí" onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
       await screen.findByText('Renew passport');
       await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
       view.unmount();
-      render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+      render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} householdName="Veselí" onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
       await screen.findByText('Anna');
       await act(async () => release(result));
       expect(screen.queryByText('Obsolete labels')).not.toBeInTheDocument();
@@ -395,7 +395,7 @@ describe('item creation', () => {
           [memberList]: () => { if (target !== 'members' || ++memberCalls === 1) return memberPage(); unmountLater(); return json(401); },
         });
         const lateSignOut = vi.fn();
-        views.push(render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={() => { if (!mounted) lateSignOut(); }} /></I18nProvider>));
+        views.push(render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} householdName="Veselí" onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={() => { if (!mounted) lateSignOut(); }} /></I18nProvider>));
         await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
         await waitFor(() => expect(mounted).toBe(false));
         await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
@@ -410,7 +410,7 @@ describe('item creation', () => {
     const deferred = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: () => deferred, [memberList]: memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     const signedOut = vi.fn();
-    render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
+    render(<I18nProvider><ItemsScreen userId={session().userId} householdId={HOUSEHOLD_ID} householdName="Veselí" onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} onSignedOut={signedOut} /></I18nProvider>);
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
     cleanup();
     await act(async () => { release(json(401)); });
@@ -751,25 +751,25 @@ describe('Home items', () => {
     await screen.findByText('Need now');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
-    expect(screen.getByText(/Nov 1/)).toBeVisible();
-    const rows = screen.getByRole('main').querySelectorAll('ul.divide-y > li');
-    expect([...rows].filter((row) => row.querySelector('a > span[aria-hidden="true"]')).map((row) => row.querySelector('a > span[aria-hidden="true"]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
+    expect(screen.getByText('Attention date Nov 1')).toBeVisible();
+    const rows = screen.getByRole('main').querySelectorAll('li[data-item-id]');
+    expect([...rows].map((row) => row.querySelector('[data-item-title]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
 
   it.each([
     { name: 'attention and secondary', entries: () => [item({ id: 'mix-needs', title: 'Mix needs' }), item({ id: 'mix-progress', title: 'Mix progress', workflowState: 'in_progress' })], first: 'Mix needs' },
     { name: 'needs only', entries: () => [item({ id: 'needs-only', title: 'Needs only' })], first: 'Needs only' },
     { name: 'secondary only', entries: () => [item({ id: 'secondary-only', title: 'Secondary only', workflowState: 'in_progress' })], first: 'Secondary only' },
-  ])('keeps $name Home in one bounded stack with no desktop columns', async ({ entries, first }) => {
+  ])('keeps $name Home in one wide aligned stack', async ({ entries, first }) => {
     installFakeServer({ ...routes, ...itemRoutes(base, entries()), [subjectList]: subjects });
     app();
     await screen.findByRole('link', { name: `Open item ${first}` });
     const main = screen.getByRole('main');
-    const stack = main.querySelector('[data-home-layout="stack"]');
+    const stack = main.querySelector('[data-home-layout="wide"]');
     expect(stack).toBeInTheDocument();
-    expect(stack!.closest('.max-w-3xl')).toBeInTheDocument();
-    expect(main.querySelector('[class*="grid-cols"]')).toBeNull();
+    expect(stack!.closest('.max-w-3xl')).toBeNull();
     expect([...stack!.children].every((child) => child.tagName === 'SECTION')).toBe(true);
+    expect(stack!.querySelector('li[data-item-id]')).toHaveClass('grid');
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -790,15 +790,15 @@ describe('Home items', () => {
     expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
     expect(needsRow).toHaveTextContent('Looked after by you');
     const progressRow = screen.getByText('In progress date').closest('li')!;
+    await waitFor(() => expect(progressRow).toHaveTextContent('Looked after by petr'));
     expect(progressRow).toHaveTextContent('Attention date Mar 4');
-    expect(progressRow).toHaveTextContent('petr');
     expect(screen.getByText('Waiting date').closest('li')).toHaveTextContent('Attention date Mar 5');
     expect(screen.getByText('Paused date').closest('li')).toHaveTextContent('Attention date Mar 6');
-    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Needs attention Feb 3');
+    expect(screen.getByText('Upcoming date').closest('li')).toHaveTextContent('Feb 3');
     const noDateRow = screen.getByText('No attention date').closest('li')!;
     const needsGroup = screen.getByRole('heading', { level: 2, name: 'Needs attention 2 items' }).closest('section')!;
     expect(needsGroup).toBeVisible();
-    expect(needsRow.querySelector('p')).toHaveTextContent('Anna');
+    expect(needsRow).toHaveTextContent('Anna');
     expect(noDateRow).not.toHaveTextContent('Attention date');
     expect(noDateRow).not.toHaveTextContent('Needs attention since');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
@@ -820,6 +820,84 @@ describe('Home items', () => {
     expect(within(fixedRow).getByText(fixed)).toBeVisible();
     expect(within(screen.getByText('Fluid repeat').closest('li')!).getByText(fluid)).toBeVisible();
     expect(screen.getByText('One-off').closest('li')!.textContent).not.toMatch(/Repeats|Opakuje|planned|plánované|done ·|dokončení/);
+  });
+
+  it('keeps the household heading accessible name exact and hides the accent period', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage() });
+    app();
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    expect(heading.textContent).toBe('Veselí.');
+    expect(within(heading).getByText('.', { exact: true })).toHaveAttribute('aria-hidden', 'true');
+    expect(await screen.findByRole('button', { name: 'Add item' })).toBeVisible();
+  });
+
+  it('shows the paused status pill only when paused items exist', async () => {
+    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'active-pill', title: 'Active pill' }), item({ id: 'paused-pill', title: 'Paused pill', workflowState: 'paused' })]), [subjectList]: subjectPages, [memberList]: memberPage() });
+    app();
+    await screen.findByText('Paused pill');
+    const nav = screen.getByRole('navigation', { name: 'Group overview' });
+    expect(within(nav).getByRole('link', { name: 'Paused 1 item' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'Needs attention 1 item' })).toBeVisible();
+  });
+
+  it('derives row icons and metadata only from the real subject type and item fields', async () => {
+    const roster: Subject[] = [
+      { ...subject, id: 'p-person', name: 'Anna', type: 'person' },
+      { ...subject, id: 'p-home', name: 'Home', type: 'home' },
+      { ...subject, id: 'p-vehicle', name: 'Octavia', type: 'vehicle' },
+      { ...subject, id: 'p-pet', name: 'Rex', type: 'pet' },
+      { ...subject, id: 'p-custom', name: 'Shed', type: 'custom' },
+    ];
+    const entries = [
+      item({ id: 'row-person', subjectId: 'p-person', title: 'Passport', attentionOn: '2026-03-02' }),
+      item({ id: 'row-home', subjectId: 'p-home', title: 'Water filter', lastCompletedOn: '2026-01-02', recurrence: { intervalValue: 3, intervalUnit: 'month', mode: 'fixed' } }),
+      item({ id: 'row-vehicle', subjectId: 'p-vehicle', title: 'Car service', workflowState: 'waiting', attentionOn: '2026-03-04' }),
+      item({ id: 'row-pet', subjectId: 'p-pet', title: 'Flea treatment', recurrence: { intervalValue: 1, intervalUnit: 'month', mode: 'after_completion' } }),
+      item({ id: 'row-custom', subjectId: 'p-custom', title: 'Paint the shed', workflowState: 'in_progress' }),
+    ];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-03-05' }), [subjectList]: (request) => json(200, { items: request.query.get('archived') === 'true' ? [] : roster, nextCursor: null }), [memberList]: memberPage() });
+    app();
+    await screen.findByText('Passport');
+    const icon = async (title: string) => (await screen.findByText(title)).closest('li')!.querySelector('[data-subject-icon]')?.getAttribute('data-subject-icon');
+    expect(await icon('Passport')).toBe('person');
+    expect(await icon('Water filter')).toBe('home');
+    expect(await icon('Car service')).toBe('vehicle');
+    expect(await icon('Flea treatment')).toBe('pet');
+    expect(await icon('Paint the shed')).toBe('custom');
+    const passport = (await screen.findByText('Passport')).closest('li')!;
+    expect(passport).toHaveTextContent('Needs attention since Mar 2');
+    expect(passport).toHaveTextContent('Anna');
+    expect(within(passport).getByRole('button', { name: 'Done: Passport' })).toBeVisible();
+    const filter = (await screen.findByText('Water filter')).closest('li')!;
+    expect(filter).toHaveTextContent('Last done Jan 2, 2026');
+    expect(filter).toHaveTextContent('3 months');
+    const service = (await screen.findByText('Car service')).closest('li')!;
+    expect(service).toHaveTextContent('Attention date Mar 4');
+    const flea = (await screen.findByText('Flea treatment')).closest('li')!;
+    expect(flea).toHaveTextContent('1 month · counted from when it’s done');
+    expect(flea).not.toHaveTextContent('Looked after by');
+  });
+
+  it('keeps recurrence, last done, attention date and responsible as independent visible facts', async () => {
+    const extra = { attentionOn: '2026-01-02', lastCompletedOn: '2025-12-02', recurrence: { intervalValue: 1, intervalUnit: 'month' as const, mode: 'fixed' as const }, responsibleUserId: 'u-2' };
+    const entries = [
+      item({ id: 'facts-needs', title: 'Facts needs', ...extra }),
+      item({ id: 'facts-progress', title: 'Facts progress', workflowState: 'in_progress', ...extra }),
+      item({ id: 'facts-waiting', title: 'Facts waiting', workflowState: 'waiting', ...extra }),
+      item({ id: 'facts-paused', title: 'Facts paused', workflowState: 'paused', ...extra }),
+      item({ id: 'facts-upcoming', title: 'Facts upcoming', attention: 'upcoming', ...extra, attentionOn: '2026-03-02' }),
+    ];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjectPages, [memberList]: memberPage() });
+    app();
+    await screen.findByText('Facts needs');
+    await waitFor(() => expect(screen.getByText('Facts needs').closest('li')).toHaveTextContent('Looked after by petr'));
+    for (const title of ['Facts needs', 'Facts progress', 'Facts waiting', 'Facts paused', 'Facts upcoming']) {
+      const row = screen.getByText(title).closest('li')!;
+      expect(row).toHaveTextContent('Last done Dec 2, 2025');
+      expect(row).toHaveTextContent('1 month · stays on the planned dates');
+      expect(row).toHaveTextContent('Looked after by petr');
+      expect(row).toHaveTextContent(title === 'Facts needs' ? 'Needs attention since Jan 2' : title === 'Facts upcoming' ? 'Attention date Mar 2' : 'Attention date Jan 2');
+    }
   });
 
   it('retries only failed label IDs while retaining names from the successful partition', async () => {
@@ -1906,13 +1984,15 @@ describe('Home items', () => {
     const nav = screen.getByRole('navigation', { name: 'Group overview' });
     const needsLink = within(nav).getByRole('link', { name: 'Needs attention 1 item' });
     expect(needsLink).toBeVisible();
-    expect(needsLink).toHaveClass('bg-sand');
-    expect(needsLink).not.toHaveClass('border');
-    expect(within(nav).getByRole('link', { name: 'In progress 1 item' })).toBeVisible();
+    expect(needsLink).toHaveClass('bg-needs-attention-bg');
+    expect(needsLink).toHaveClass('text-needs-attention');
+    const progress = within(nav).getByRole('link', { name: 'In progress 1 item' });
+    expect(progress).toBeVisible();
+    expect(progress).toHaveClass('bg-raised');
     expect(within(nav).getByRole('link', { name: 'Coming up 1 item' })).toBeVisible();
     expect(within(nav).queryByRole('link', { name: 'Waiting' })).not.toBeInTheDocument();
     expect(within(nav).queryByRole('link', { name: 'Paused' })).not.toBeInTheDocument();
-    const progressLink = within(nav).getByRole('link', { name: 'In progress 1 item' });
+    const progressLink = progress;
     expect(progressLink).toHaveAttribute('href', '#group-inProgress');
     const modified = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true, button: 0 });
     progressLink.dispatchEvent(modified);

@@ -78,10 +78,16 @@ export function HomeScreen({
       ) : null}
       {household.kind === 'ready' ? (
         <section className="settle">
-          <Heading className="font-display text-display leading-tight">{household.name}</Heading>
-          <div className="mt-5">
-            <ItemsScreen key={`${session.userId}:${householdId}`} userId={session.userId} householdId={householdId!} onOpenPeople={onOpenPeople} onOpenItem={onOpenItem} onOpenAllItems={onOpenAllItems} onSignedOut={onSignedOut} />
-          </div>
+          <ItemsScreen
+            key={`${session.userId}:${householdId}`}
+            userId={session.userId}
+            householdId={householdId!}
+            householdName={household.name}
+            onOpenPeople={onOpenPeople}
+            onOpenItem={onOpenItem}
+            onOpenAllItems={onOpenAllItems}
+            onSignedOut={onSignedOut}
+          />
         </section>
       ) : null}
     </Layout>

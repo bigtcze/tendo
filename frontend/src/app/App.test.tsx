@@ -193,6 +193,24 @@ describe('signed in', () => {
     }
   });
 
+  it('shows the workspace rail label, brand tagline, avatar initial and mobile account affordance', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
+    expect(screen.getByText('Workspace')).toBeVisible();
+    expect(screen.getByText('Home, handled.')).toBeVisible();
+    expect(document.querySelector('[data-avatar]')).toHaveTextContent('A');
+    expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+    const account = screen.getByRole('link', { name: 'Account settings' });
+    expect(account).toHaveAttribute('href', '/account');
+    await userEvent.click(account);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
+  });
+
   it('shared navigation and popstate restore the prior route and focus', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),

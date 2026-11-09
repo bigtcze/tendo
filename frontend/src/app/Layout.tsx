@@ -1,5 +1,6 @@
 import { useContext, useRef, type ReactNode, type RefObject } from 'react';
 import { useI18n } from '../i18n';
+import { BrandMark } from './BrandMark';
 import { HouseholdNavigation, HouseholdNavigationContext } from './HouseholdNavigation';
 import { LanguageSwitch } from './LanguageSwitch';
 
@@ -14,21 +15,21 @@ type Shell = 'household' | 'householdLess' | 'centered';
  * know the fixed bottom bar covers the viewport's last ~5rem, so every descendant reserves it as scroll margin.
  * Off where the bar is static (short viewports) or replaced by the rail (lg).
  */
-const KEEP_FOCUS_ABOVE_BAR = '[&_*]:scroll-mb-[calc(5rem+env(safe-area-inset-bottom))] short:[&_*]:scroll-mb-0 lg:[&_*]:scroll-mb-0';
+const KEEP_FOCUS_ABOVE_BAR = '[&_*]:scroll-mb-[calc(6rem+env(safe-area-inset-bottom))] short:[&_*]:scroll-mb-0 lg:[&_*]:scroll-mb-0';
 
 const FRAME: Record<Shell, string> = {
   household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh flex-col lg:mx-auto lg:grid lg:w-full lg:max-w-[90rem]`
-    + ' lg:grid-cols-[15rem_minmax(0,1fr)] lg:grid-rows-[auto_1fr_auto]',
+    + ' lg:grid-cols-[14rem_minmax(0,1fr)] lg:grid-rows-[auto_1fr_auto]',
   householdLess: 'mx-auto flex min-h-dvh max-w-3xl flex-col',
   centered: 'mx-auto flex min-h-dvh w-full max-w-6xl flex-col',
 };
-const HEADER = 'flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3 sm:px-8';
-const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:px-8';
+const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-raised px-5 py-2 sm:px-8';
+const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:h-14 lg:px-8 lg:py-0';
 const MAIN = 'w-full min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8';
 /** Bottom padding keeps the last content row clear of the fixed bar (bar height + safe area). */
-const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:max-w-6xl lg:px-12 lg:pb-12 lg:pt-10';
+const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:min-w-0 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
 const FOOTER = 'flex justify-end px-5 py-3 sm:px-8';
-const FOOTER_HOUSEHOLD = 'border-t border-line pb-[calc(5rem+env(safe-area-inset-bottom))] short:pb-3 lg:col-span-2 lg:row-start-3 lg:pb-3';
+const FOOTER_HOUSEHOLD = 'border-t border-line pb-[calc(5rem+env(safe-area-inset-bottom))] short:pb-3 lg:col-span-2 lg:row-start-3 lg:py-2';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
   const { t } = useI18n();
@@ -41,7 +42,6 @@ function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
 }
 
 export function Layout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
-  const { t } = useI18n();
   const mainRef = useRef<HTMLElement>(null);
   const navigation = useContext(HouseholdNavigationContext);
   const shell: Shell = navigation?.household ? 'household' : navigation ? 'householdLess' : 'centered';
@@ -50,7 +50,7 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
     <div className={FRAME[shell]}>
       <SkipLink target={mainRef} />
       <header className={`${HEADER} ${household ? HEADER_HOUSEHOLD : ''}`}>
-        <span className="font-display text-xl tracking-tight">{t('app.name')}</span>
+        <BrandMark />
         {actions}
       </header>
       <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
