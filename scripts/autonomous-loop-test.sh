@@ -32,6 +32,9 @@ EOF
 count=$(( $(cat "${FAKE_STATE}/calls" 2>/dev/null || echo 0) + 1 ))
 echo "${count}" >"${FAKE_STATE}/calls"
 printf '%s\n' "$@" >"${FAKE_STATE}/args.${count}"
+for fd in 8 9; do
+  if [[ -e "/proc/$$/fd/${fd}" ]]; then echo open; else echo closed; fi >"${FAKE_STATE}/fd${fd}.${count}"
+done
 if flock -n "${XDG_RUNTIME_DIR}/tendo-maintenance-${UID}.lock" true; then
   echo free >"${FAKE_STATE}/maintenance-lock.${count}"
 else
@@ -77,7 +80,7 @@ COMMIT_V4_COMPLETE='echo done >.autonomous/V4_COMPLETE; git add -A; git -c user.
 
 run_loop() {
   set +e
-  env -i HOME="${CASE}" PATH="${CASE}/bin:/usr/bin:/bin" UID="${UID}" \
+  env -i HOME="${CASE}" PATH="${CASE}/bin:/usr/bin:/bin" UID="${UID}" TENDO_ROOT="${REPO}" \
     XDG_RUNTIME_DIR="${RUNTIME}" FAKE_STATE="${STATE}" \
     OPENCODE_BIN="${CASE}/bin/opencode" SUCCESS_SLEEP=0 FAIL_SLEEP_BASE=0 \
     FAIL_SLEEP_MAX=0 CYCLE_TIMEOUT=30s \
@@ -111,6 +114,10 @@ name="holds the maintenance lock while a V4 cycle runs"
 if [[ "$(cat "${WORK}/run-v4/state/maintenance-lock.1" 2>/dev/null)" == held ]]; then pass "${name}"
 else fail "${name}" "maintenance flock was acquirable during the cycle"; fi
 
+name="the cycle does not inherit the controller lock descriptors"
+if [[ "$(cat "${WORK}/run-v4/state/fd8.1" 2>/dev/null)" == closed && "$(cat "${WORK}/run-v4/state/fd9.1" 2>/dev/null)" == closed ]]; then pass "${name}"
+else fail "${name}" "fd8=$(cat "${WORK}/run-v4/state/fd8.1" 2>/dev/null) fd9=$(cat "${WORK}/run-v4/state/fd9.1" 2>/dev/null)"; fi
+
 name="tracked V3_COMPLETE alone does not stop the V4 loop"
 new_case v3-only; hook "${COMMIT_V4_COMPLETE}"; run_loop
 expect "${name}" 0 1 && pass "${name}"
@@ -121,6 +128,25 @@ echo done >"${REPO}/.autonomous/V4_COMPLETE"
 git -C "${REPO}" add -A; git -C "${REPO}" -c user.name=t -c user.email=t@t commit -q -m done
 run_loop
 expect "${name}" 0 0 && pass "${name}"
+
+name="V4_COMPLETE tracked on a non-main branch does not count as completion"
+new_case v4-branch
+git -C "${REPO}" switch -q -c feature
+echo done >"${REPO}/.autonomous/V4_COMPLETE"
+git -C "${REPO}" add -A; git -C "${REPO}" -c user.name=t -c user.email=t@t commit -q -m done
+hook 'git switch -q main; git merge -q feature'; run_loop
+expect "${name}" 0 1 && pass "${name}"
+
+for dirt in unstaged staged; do
+  name="V4_COMPLETE on main with ${dirt} changes does not count as completion"
+  new_case "v4-dirty-${dirt}"
+  echo done >"${REPO}/.autonomous/V4_COMPLETE"
+  git -C "${REPO}" add -A; git -C "${REPO}" -c user.name=t -c user.email=t@t commit -q -m done
+  echo changed >>"${REPO}/.autonomous/V4_ISSUES_WORKFLOW.md"
+  [[ "${dirt}" == staged ]] && git -C "${REPO}" add -A
+  hook 'git reset -q --hard'; run_loop
+  expect "${name}" 0 1 && pass "${name}"
+done
 
 name="untracked V4_COMPLETE does not count as completion"
 new_case v4-untracked; echo x >"${REPO}/.autonomous/V4_COMPLETE"

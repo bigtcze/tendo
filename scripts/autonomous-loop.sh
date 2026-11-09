@@ -8,7 +8,10 @@ set -u -o pipefail
 # active, and holds that controller's own flock for its whole lifetime so a
 # manually started maintenance run exits as "already running".
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Canonical checkout: the host wrapper (opencode-tendo-safe) always runs and
+# recovers sessions there, so prompt and completion state must come from the
+# same checkout. TENDO_ROOT exists only for the behavior tests.
+ROOT="${TENDO_ROOT:-/home/tomas/repositories/tendo}"
 PROMPT_FILE="${ROOT}/.autonomous/V4_CYCLE_PROMPT.md"
 WORKFLOW_FILE="${ROOT}/.autonomous/V4_ISSUES_WORKFLOW.md"
 COMPLETE_FILE=".autonomous/V4_COMPLETE"

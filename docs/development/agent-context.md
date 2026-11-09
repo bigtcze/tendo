@@ -52,7 +52,7 @@ systemctl --user start tendo-autonomous.service
 journalctl --user -u tendo-autonomous.service -f
 ```
 
-The unit's `Restart=no` drop-in means a refusal (exit 3) or failure stops the loop until the owner starts it again. After V4-15 merges `V4_COMPLETE` the loop exits; re-enable maintenance with `systemctl --user enable --now tendo-maintenance.timer` (its prompt is the owner's file and is not changed by this repository).
+Inside the loop, a failed or timed-out OpenCode cycle is retried with backoff. The loop process itself exits on a refusal (exit 3: maintenance controller enabled, active or holding its lock), a missing tool or governance file (exit 2), or completion (exit 0); because of the unit's `Restart=no` drop-in it then stays stopped until the owner starts it again. The loop always uses the canonical checkout `/home/tomas/repositories/tendo`, the same one the host wrapper runs and recovers sessions in. After V4-15 merges `V4_COMPLETE` the loop exits; re-enable maintenance with `systemctl --user enable --now tendo-maintenance.timer` (its prompt is the owner's file and is not changed by this repository).
 
 Known limitation: the host wrapper `~/.local/bin/opencode-tendo-safe` (outside this repository) embeds a recovery prompt that still mentions `.autonomous/STATE.md`; under AGENTS "Context rules" that means the owned managed V4 Issue.
 

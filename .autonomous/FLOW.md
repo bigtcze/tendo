@@ -150,8 +150,10 @@ collision, status labels, closure, finalization). Procedure reminders:
 - New managed Issue (verified V4 blocker only):
   `gh issue create --milestone "Tendo v4.0.0 - Modern Everyday" --label tendo:v4-autonomous --label status:idle`.
   Never label an existing Issue.
-- Link PRs with `Closes #N` only for a fully satisfied managed Issue. Close it
-  only after merge, verified green `main` and a DONE comment with evidence.
+- Reference the managed Issue from its PR with `Refs #N`, never `Closes`/
+  `Fixes`/`Resolves` (GitHub would auto-close it at merge, before main CI is
+  verified). Close it explicitly only after merge, verified green `main` and a
+  DONE comment with evidence (milestone + label rechecked).
 - V4-16 (two-service Compose) blocks V4-13; V4-13 blocks V4-14; V4-14 blocks
   V4-15 (`V4_COMPLETE`).
 
