@@ -3340,7 +3340,9 @@ test.describe('Tendo production journey', () => {
   });
 
   test('n21. exploratory accessibility evidence: route semantics, target sizing, and zoom layouts', async ({ browser }) => {
-    test.setTimeout(90_000);
+    // Time budget only, not an assertion: the V4 Home shell (rail, status pills, row title links) adds real Tab stops
+    // to every keyboard sweep; locally this test takes ~85 s and CI runners are slower, so 90 s timed out on CI.
+    test.setTimeout(180_000);
     const routes: Array<{ path: string; name: string; heading: string; content: (target: Page) => Locator }> = [
       { path: '/', name: 'home', heading: householdName, content: (target) => target.getByRole('main').getByRole('button', { name: en['items.add'], exact: true }) },
       { path: '/items', name: 'all-items', heading: en['allItems.title'], content: (target) => target.getByRole('region', { name: en['allItems.results'] }).getByRole('listitem').first() },
