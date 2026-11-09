@@ -19,12 +19,12 @@ gone). Headings are 700, row titles 600, body 400, controls 600.
 | Item | Value |
 | --- | --- |
 | Package | `@fontsource-variable/inter` pinned exactly to `5.3.0` (dependency, not devDependency) |
-| License | SIL Open Font License 1.1 (upstream Inter Project Authors); full text committed as [INTER-OFL-LICENSE.txt](v4-tokens/INTER-OFL-LICENSE.txt) and shipped in the npm package |
+| License | SIL Open Font License 1.1 (upstream Inter Project Authors); canonical text in [`frontend/public/fonts/INTER-OFL-LICENSE.txt`](../../frontend/public/fonts/INTER-OFL-LICENSE.txt), copied by Vite to `/fonts/INTER-OFL-LICENSE.txt` in the production build and served as `text/plain` |
 | Axis | `wght` 100–900 variable; no italic face is shipped because the UI never renders italic text |
 | Subsets | `latin` (48,256 B) and `latin-ext` (85,068 B); only these two `@font-face` rules are declared in `frontend/src/fonts.css` |
-| Czech coverage | `latin-ext` carries `ě š č ř ž ý á í é ů ú ń ť ď`; verified in a production browser by `e2e/theme.spec.ts` (`document.fonts.check(…, 'ěščřžýáíéůú')`) and by Czech visual baselines |
+| Czech coverage | `latin` covers `ý á í é ú`; `latin-ext` covers `ě š č ř ž ů ď ť ň`. The production browser test loads text containing all of `ěščřžýáíéůúďťň`, requires a 200 same-origin `font/woff2` response for both hashed faces, and parses each loaded `FontFace.unicodeRange` to prove every code point in that sample is covered; Czech visual baselines add rendering evidence |
 | Fallback | `Inter`, `ui-sans-serif`, `system-ui`, `-apple-system`, `Segoe UI`, sans-serif — used only while loading or if the bundled font is unavailable |
-| Delivery | Vite emits hashed `/assets/inter-*-wght-normal-*.woff2`; Go serves them same-origin as `font/woff2` (CSP `font-src 'self'`, covered by a `webui` test) |
+| Delivery | Vite emits hashed `/assets/inter-*-wght-normal-*.woff2`; Go serves them same-origin as `font/woff2` (CSP `font-src 'self'`, covered by a `webui` test). The OFL text ships at `/fonts/INTER-OFL-LICENSE.txt` (Go serves it as `text/plain`, no SPA fallback) |
 | Loading | `font-display: swap`; `unicode-range` means English fetches only `latin`, Czech fetches `latin-ext` too |
 
 | Role | Size / line-height | Weight | Use |
@@ -154,10 +154,13 @@ its paper constants were updated to the new palette.
   `upcoming` and focus/control boundaries). A changed hex without a documented measurement fails.
 - `frontend/e2e/theme.spec.ts` — System/Light/Dark first paint and reload, rendered-frame evidence,
   tamper fallback, contrast audit on Login in both themes, and a new production-browser test:
-  body/heading resolve to Inter Variable, the heading weight is 700, a loaded Inter face renders
-  Czech diacritics, and every woff2 response is 200, same-origin, under `/assets/`, `font/woff2`.
+  body/heading resolve to Inter Variable and the heading weight is 700; both the `latin` and
+  `latin-ext` woff2 return 200 same-origin `font/woff2`; a loaded Inter `FontFace`'s parsed
+  unicode-range covers every code point in `ěščřžýáíéůúďťň`; and `/fonts/INTER-OFL-LICENSE.txt`
+  is 200, `text/plain`, and contains the Inter copyright and SIL OFL 1.1 title.
 - `backend/internal/platform/webui/webui_test.go` — `.woff2`/`.woff` are served with their real
-  font MIME types and immutable caching (Go's builtin table has no woff entries).
+  font MIME types and immutable caching (Go's builtin table has no woff entries); the shipped OFL
+  text is served as `text/plain` with no SPA fallback and no HTML CSP.
 - `frontend/e2e/visual/capture.ts` — every visual capture asserts Inter Variable is the computed
   body family and a face is loaded before pixels are taken.
 - `frontend/e2e/ux-audit.spec.ts` — captures a real invalid + focused field state for evidence.

@@ -17,10 +17,11 @@ func testFS() fstest.MapFS {
 		"assets/app.css":    {Data: []byte("body{}")},
 		"assets/inter-latin-wght-normal-abc123.woff2": {Data: []byte("wOF2\x00\x01")},
 		"assets/inter-latin-wght-normal-abc123.woff":  {Data: []byte("wOFF\x00\x01")},
-		"robots.txt":      {Data: []byte("User-agent: *")},
-		"theme-boot.js":   {Data: []byte("(function(){})();")},
-		".gitkeep":        {Data: []byte("")},
-		"assets/.gitkeep": {Data: []byte("")},
+		"robots.txt":                  {Data: []byte("User-agent: *")},
+		"theme-boot.js":               {Data: []byte("(function(){})();")},
+		"fonts/INTER-OFL-LICENSE.txt": {Data: []byte("Copyright 2016 The Inter Project Authors\nSIL OPEN FONT LICENSE Version 1.1\n")},
+		".gitkeep":                    {Data: []byte("")},
+		"assets/.gitkeep":             {Data: []byte("")},
 	}
 }
 
@@ -90,6 +91,26 @@ func TestAssetsAndStatic(t *testing.T) {
 	w = do(h, http.MethodHead, "/assets/app-123.js")
 	if w.Code != 200 || w.Body.Len() != 0 {
 		t.Fatalf("head status=%d body=%q", w.Code, w.Body)
+	}
+}
+
+func TestFontLicenseServedAsStaticText(t *testing.T) {
+	w := do(New(testFS()), http.MethodGet, "/fonts/INTER-OFL-LICENSE.txt")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("content-type=%q", ct)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("cache-control=%q", cc)
+	}
+	if w.Header().Get("Content-Security-Policy") != "" {
+		t.Fatal("static text must not carry the HTML CSP")
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "The Inter Project Authors") || !strings.Contains(body, "SIL OPEN FONT LICENSE Version 1.1") {
+		t.Fatalf("license body=%q", body)
 	}
 }
 

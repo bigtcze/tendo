@@ -250,7 +250,8 @@ test.describe('dark theme contrast on signed-out routes', () => {
 });
 
 test.describe('self-hosted Inter Variable', () => {
-  test('serves the bundled woff2 from the app origin and uses it for Latin-ext Czech glyphs', async ({ browser }) => {
+  test('serves both woff2 subsets, covers Czech glyphs, and ships the OFL license', async ({ browser }) => {
+    const CZECH_SAMPLE = 'ěščřžýáíéůúďťň';
     const context = await browser.newContext({ colorScheme: 'light', viewport: { width: 390, height: 844 }, locale: 'en-US' });
     const page = await context.newPage();
     const fontResponses: Array<{ url: string; status: number; contentType: string | null }> = [];
@@ -262,37 +263,75 @@ test.describe('self-hosted Inter Variable', () => {
     await page.goto('/login');
     await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
 
-    // Force the same font face the app uses to cover Czech diacritics, then require the load to finish.
-    const result = await page.evaluate(async () => {
-      await document.fonts.load('600 16px "Inter Variable"', 'ěščřžýáíéůú');
+    // Render Czech text in Inter, then require the browser to load every face whose unicode-range covers it.
+    const result = await page.evaluate(async (sample) => {
+      const probe = document.createElement('span');
+      probe.lang = 'cs';
+      probe.style.fontFamily = '"Inter Variable"';
+      probe.style.fontSize = '16px';
+      probe.style.fontWeight = '600';
+      probe.textContent = sample;
+      document.body.append(probe);
+      await document.fonts.load('600 16px "Inter Variable"', sample);
       await document.fonts.ready;
-      const heading = document.querySelector('h1');
+
+      const parseRanges = (value: string): Array<[number, number]> => value.split(',').flatMap((part) => {
+        const match = part.trim().toUpperCase().match(/^U\+([0-9A-F?]+)(?:-([0-9A-F?]+))?$/);
+        if (!match) return [];
+        const hex = (token: string) => Number.parseInt(token.replaceAll('?', 'F'), 16);
+        const start = hex(match[1]);
+        const end = match[2] ? hex(match[2]) : hex(match[1]);
+        if (Number.isNaN(start) || Number.isNaN(end)) return [];
+        return [[start, end] as [number, number]];
+      });
       const faces = [...document.fonts]
         .filter((face) => face.family.replaceAll('"', '') === 'Inter Variable')
-        .map((face) => ({ status: face.status, weight: face.weight }));
+        .map((face) => ({ status: face.status, weight: face.weight, unicodeRange: face.unicodeRange, ranges: parseRanges(face.unicodeRange) }));
+      const loaded = faces.filter((face) => face.status === 'loaded');
+      const missing = [...sample]
+        .filter((character) => {
+          const codePoint = character.codePointAt(0)!;
+          return !loaded.some((face) => face.ranges.some(([start, end]) => codePoint >= start && codePoint <= end));
+        });
+      const heading = document.querySelector('h1');
       return {
         bodyFamily: getComputedStyle(document.body).fontFamily,
         headingFamily: heading ? getComputedStyle(heading).fontFamily : '',
         headingWeight: heading ? getComputedStyle(heading).fontWeight : '',
-        czechAvailable: document.fonts.check('600 16px "Inter Variable"', 'ěščřžýáíéůú'),
-        faces,
+        czechAvailable: document.fonts.check('600 16px "Inter Variable"', sample),
+        loaded,
+        missing,
       };
-    });
+    }, CZECH_SAMPLE);
 
     expect(result.bodyFamily, 'body uses Inter Variable before the system fallback').toContain('Inter Variable');
     expect(result.headingFamily, 'headings use the same Inter Variable family').toContain('Inter Variable');
     expect(result.headingWeight, 'display headings render at bold weight').toBe('700');
-    expect(result.czechAvailable, 'a loaded Inter face can render Czech diacritics').toBe(true);
-    expect(result.faces.some((face) => face.status === 'loaded'), 'at least one Inter face reports loaded').toBe(true);
+    expect(result.czechAvailable, 'a loaded Inter face reports readiness for the Czech sample').toBe(true);
+    expect(result.missing, `loaded Inter unicode ranges cover every glyph in ${CZECH_SAMPLE}`).toEqual([]);
+    expect(result.loaded.length, 'both Latin and Latin-ext faces are loaded').toBeGreaterThanOrEqual(2);
 
     const origin = new URL(page.url()).origin;
-    expect(fontResponses.length, 'the page requested its bundled woff2').toBeGreaterThan(0);
+    for (const pattern of [/\/assets\/inter-latin-wght-normal-[^/]+\.woff2$/, /\/assets\/inter-latin-ext-wght-normal-[^/]+\.woff2$/]) {
+      const response = fontResponses.find((candidate) => pattern.test(new URL(candidate.url).pathname));
+      expect(response, `the browser fetched ${pattern}`).toBeDefined();
+      expect(new URL(response!.url).origin, 'font is same-origin, never a CDN').toBe(origin);
+      expect(response!.status, 'font request succeeds').toBe(200);
+      expect(response!.contentType, 'font is served with its real MIME type').toBe('font/woff2');
+    }
     for (const response of fontResponses) {
       expect(new URL(response.url).origin, 'font is same-origin, never a CDN').toBe(origin);
       expect(response.url, 'font comes from the hashed asset bundle').toContain('/assets/');
       expect(response.status, 'font request succeeds').toBe(200);
       expect(response.contentType, 'font is served with its real MIME type').toBe('font/woff2');
     }
+
+    const licenseResponse = await page.request.get(new URL('/fonts/INTER-OFL-LICENSE.txt', page.url()).toString());
+    expect(licenseResponse.status(), 'the production build ships the Inter OFL license').toBe(200);
+    expect(licenseResponse.headers()['content-type'], 'license is served as text').toContain('text/plain');
+    const license = await licenseResponse.text();
+    expect(license).toContain('The Inter Project Authors');
+    expect(license).toContain('SIL OPEN FONT LICENSE Version 1.1');
     await context.close();
   });
 });

@@ -127,9 +127,9 @@ test('native dialog close is refused while busy', async ({ page }) => {
 
 test('switch track endpoints are covered by a full-size native input', async ({ page }) => {
   await openHarness(page, '?closed');
-  const root = page.locator('[data-switch-root]');
+  const input = page.getByRole('switch', { name: 'Primitive switch', exact: true });
+  const root = input.locator('xpath=..');
   const track = root.locator('span[aria-hidden="true"]');
-  const input = page.getByRole('switch', { name: 'Primitive switch' });
   const trackBox = await track.boundingBox();
   const inputBox = await input.boundingBox();
   expect(trackBox).not.toBeNull();
@@ -157,4 +157,36 @@ test('switch track endpoints are covered by a full-size native input', async ({ 
     await expect(input).toHaveAttribute('aria-checked', 'false');
     await expect(input).not.toBeChecked();
   }
+});
+
+test('switch track hover comes from the input and is suppressed while disabled', async ({ page }) => {
+  await openHarness(page, '?closed');
+  const trackColor = (name: string) => page.getByRole('switch', { name, exact: true }).evaluate((input) => getComputedStyle(input.nextElementSibling!).backgroundColor);
+  const field = 'rgb(107, 124, 144)';
+  const muted = 'rgb(82, 100, 123)';
+  const accent = 'rgb(0, 109, 130)';
+  const accentStrong = 'rgb(0, 85, 102)';
+
+  const unchecked = page.getByRole('switch', { name: 'Primitive switch', exact: true });
+  await expect.poll(() => trackColor('Primitive switch')).toBe(field);
+  await unchecked.hover();
+  await expect.poll(() => trackColor('Primitive switch'), { message: 'unchecked track darkens on input hover' }).toBe(muted);
+  await page.mouse.move(0, 0);
+  await expect.poll(() => trackColor('Primitive switch')).toBe(field);
+
+  const checked = page.getByRole('switch', { name: 'Checked primitive switch', exact: true });
+  await expect.poll(() => trackColor('Checked primitive switch')).toBe(accent);
+  await checked.hover();
+  await expect.poll(() => trackColor('Checked primitive switch'), { message: 'checked track darkens on input hover' }).toBe(accentStrong);
+  await page.mouse.move(0, 0);
+  await expect.poll(() => trackColor('Checked primitive switch')).toBe(accent);
+
+  const disabled = page.getByRole('switch', { name: 'Disabled primitive switch', exact: true });
+  await disabled.hover();
+  await expect.poll(() => trackColor('Disabled primitive switch'), { message: 'disabled unchecked track ignores hover' }).toBe(field);
+  await page.mouse.move(0, 0);
+
+  const disabledChecked = page.getByRole('switch', { name: 'Disabled checked primitive switch', exact: true });
+  await disabledChecked.hover();
+  await expect.poll(() => trackColor('Disabled checked primitive switch'), { message: 'disabled checked track ignores hover' }).toBe(accent);
 });

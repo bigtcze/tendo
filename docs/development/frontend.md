@@ -34,6 +34,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 - `src/features/<feature>`: one folder per feature (`auth`, `home`, `subjects`, `members`) with its screens and API calls
 - `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
 - `src/fonts.css`: self-hosted Inter Variable faces (`@fontsource-variable/inter` 5.3.0, SIL OFL 1.1; latin + latin-ext, no CDN)
+- `public/fonts/INTER-OFL-LICENSE.txt`: canonical OFL text, copied into the production build at `/fonts/INTER-OFL-LICENSE.txt`
 - `src/i18n`: translations (`en.ts`, `cs.ts`) and the language provider
 - `src/lib`: the API client and small helpers
 - `src/test`: test setup and the fake server used by tests

@@ -10,7 +10,7 @@ export function DoneControl({ label, done, onToggle }: { label: string; done: bo
       aria-label={label}
       aria-pressed={done}
       onClick={onToggle}
-      className={`h-11 w-11 shrink-0 rounded-lg border !p-0 ${done ? 'border-success bg-success-bg text-success hover:bg-success-bg hover:text-success' : 'border-control-border bg-raised text-ink hover:bg-sand'}`}
+      className={`h-11 w-11 shrink-0 rounded-[10px] border !p-0 ${done ? 'border-success bg-success-bg text-success hover:bg-success-bg hover:text-success' : 'border-control-border bg-raised text-ink hover:bg-sand'}`}
     >
       {done ? <span aria-hidden="true">✓</span> : null}
     </Button>
