@@ -26,7 +26,7 @@ export function SubjectRow({ subject, editing, members, membersLoaded, showArchi
       triggerRef={editRef} t={t} onSave={onSave} onArchive={() => onArchive(subject, true, false)}
       onCancel={() => onCancelEditing(subject.id)} /> : <div className={`flex min-w-0 gap-2 ${showArchived ? 'flex-row items-start justify-between' : 'flex-col sm:flex-row sm:items-center sm:justify-between sm:gap-3 lg:flex-col lg:items-start xl:flex-row xl:items-center'}`}>
       <div className="min-w-0 flex-1">
-        <p className="break-words text-lg font-medium leading-snug" data-subject-name>{subject.name}</p>
+        <p className="break-words text-lg font-semibold leading-snug" data-subject-name>{subject.name}</p>
         <p className="mt-1 text-sm text-muted" data-subject-type>{t(typeLabelKey(subject.type))}</p>
         {subject.type === 'person' && subject.linkedUserId ? (() => {
           const member = members.find((entry) => entry.userId === subject.linkedUserId);

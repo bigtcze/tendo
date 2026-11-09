@@ -13,6 +13,7 @@ Tendo needs a consumer-friendly, mobile-first web UI (see the UX rules). The UX 
 - The production image builds the frontend in a Node stage and embeds the result in the Go binary (`backend/internal/platform/webui`, `//go:embed`). There is no separate frontend container or web server.
 - The API client is `openapi-fetch`, typed from `api/generated/api.d.ts`, which is generated from `api/openapi.yaml`. API types are never written by hand.
 - Localization (Czech and English) uses a small in-house typed module in `frontend/src/i18n`. Both locales must define the same keys, enforced by types and a test. No i18n library is used yet: there are two locales and a small set of strings. Revisit if plural rules, formatting, or more locales make the module hard to maintain.
+- The UI font is **Inter Variable**, self-hosted from the pinned `@fontsource-variable/inter` package (SIL Open Font License 1.1) and bundled as same-origin `woff2` assets; no external font CDN or tracking. See [V4 design system](../design/v4-design-system.md).
 
 ## Consequences
 

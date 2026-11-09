@@ -17,7 +17,7 @@ export function AllItemsSearch({ draft, page, actions, searchRef }: {
 }) {
   const { t } = useI18n();
   return <form role="search" aria-label={t('allItems.search')} onSubmit={actions.submit} className="min-w-0">
-    <label htmlFor="all-items-search" className="mb-1 block text-label font-medium">{t('allItems.search')}</label>
+    <label htmlFor="all-items-search" className="mb-1 block text-label font-semibold">{t('allItems.search')}</label>
     <div className="flex min-w-0 gap-2">
       <input ref={searchRef} id="all-items-search" type="search" value={draft.search}
         onChange={(event) => actions.editSearch(event.target.value)}

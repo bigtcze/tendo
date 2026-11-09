@@ -8,7 +8,7 @@ import { formatAttentionDate, formatDate } from './formatDate';
 import { HOME_GROUP_ROW_CAP, groups, type GroupData } from './homeGroups';
 
 const ROW_TITLE_CLASS = [
-  'inline-flex min-h-11 w-fit max-w-full items-center py-1 text-left text-row-title font-medium leading-snug text-ink',
+  'inline-flex min-h-11 w-fit max-w-full items-center py-1 text-left text-row-title font-semibold leading-snug text-ink',
   '[overflow-wrap:anywhere] hover:text-accent focus-visible:rounded-sm focus-visible:outline-2',
   'focus-visible:outline-offset-2 focus-visible:outline-accent',
 ].join(' ');
@@ -16,7 +16,7 @@ const ROW_CLASS = 'flex items-start gap-3 px-4 py-3';
 const ROW_CONTENT_CLASS = 'min-w-0 flex-1';
 const DONE_CLASS = 'mt-1 shrink-0';
 const GROUP_HEADING_CLASS = [
-  'flex items-baseline justify-between border-b border-line pb-2 text-h2 font-medium text-ink',
+  'flex items-baseline justify-between border-b border-line pb-2 text-h2 font-bold text-ink',
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
 ].join(' ');
 const GROUP_LIST_CLASS = 'mt-3 divide-y divide-line rounded-2xl border border-line bg-raised';

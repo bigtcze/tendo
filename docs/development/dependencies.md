@@ -49,6 +49,7 @@ All direct and required indirect modules are at their latest releases. `go list 
 | `frontend`: `@playwright/test` | 1.64.1 | Browser revision installed via `npx --no-install playwright install chromium` |
 | `frontend`: `vite` / `vitest` | 8.3.4 / 5.0.5 | |
 | `frontend`: `react` / `react-dom` | 19.3.0 | |
+| `frontend`: `@fontsource-variable/inter` | 5.3.0 | Self-hosted Inter Variable (SIL OFL 1.1); bundled `woff2` under `/assets/` and `/fonts/INTER-OFL-LICENSE.txt`, no CDN; see [V4 design system](../design/v4-design-system.md) |
 | `frontend`: `typescript` | 6.0.3 | Held; see below |
 | `frontend`: `typescript-eslint` | 8.71.1 | |
 | `frontend`: `@axe-core/playwright` (+ `axe-core`) | 4.14.0 | MPL-2.0; test-only, runs WCAG scans in production E2E, not shipped in the bundle |

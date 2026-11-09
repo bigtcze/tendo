@@ -78,10 +78,7 @@ func (h *handler) serveFile(w http.ResponseWriter, r *http.Request, name string,
 		writeProblem(w, http.StatusNotFound, "Not Found")
 		return
 	}
-	contentType := mime.TypeByExtension(path.Ext(name))
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
-	}
+	contentType := contentTypeFor(name, data)
 	header := w.Header()
 	header.Set("Content-Type", contentType)
 	if immutable {
@@ -98,6 +95,23 @@ func (h *handler) serveFile(w http.ResponseWriter, r *http.Request, name string,
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(data)
 	}
+}
+
+// contentTypeFor names the MIME types browsers require for self-hosted webfonts. Go's builtin MIME table
+// omits .woff/.woff2, and sniffing would label the binary as application/octet-stream, so the font
+// response is mapped explicitly before the extension/sniff fallbacks.
+func contentTypeFor(name string, data []byte) string {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".woff2":
+		return "font/woff2"
+	case ".woff":
+		return "font/woff"
+	}
+	contentType := mime.TypeByExtension(path.Ext(name))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	return contentType
 }
 
 func writeProblem(w http.ResponseWriter, code int, title string) {

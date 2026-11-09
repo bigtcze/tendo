@@ -29,6 +29,9 @@ function Harness() {
       </section>
       <section aria-label="Switch">
         <Switch aria-label="Primitive switch" checked={switchChecked} onCheckedChange={setSwitchChecked} />
+        <Switch aria-label="Checked primitive switch" checked onCheckedChange={() => undefined} />
+        <Switch aria-label="Disabled primitive switch" checked={false} disabled onCheckedChange={() => undefined} />
+        <Switch aria-label="Disabled checked primitive switch" checked disabled onCheckedChange={() => undefined} />
       </section>
     </main>
   );

@@ -38,7 +38,7 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
           <li key={link.route} className="min-w-0 flex-1 lg:flex-none">
             <NavLink href={link.href} onNavigate={navigation.actions[link.route]} aria-label={t(link.name)}
               aria-current={active === link.route ? 'page' : undefined}
-              className={`${rail ? LINK_RAIL : LINK_INLINE} ${active === link.route ? 'bg-sand font-medium text-ink' : 'text-muted hover:bg-sand/60 hover:text-ink'}`}>
+              className={`${rail ? LINK_RAIL : LINK_INLINE} ${active === link.route ? 'bg-nav-selected font-semibold text-ink' : 'font-medium text-muted hover:bg-sand/60 hover:text-ink'}`}>
               {rail ? <NavIcon route={link.route} /> : null}
               {rail ? <span className="max-w-full text-small lg:hidden">{t(link.compactLabel ?? link.label)}</span> : null}
               <span className={rail ? 'hidden lg:inline' : ''}>{t(link.label)}</span>

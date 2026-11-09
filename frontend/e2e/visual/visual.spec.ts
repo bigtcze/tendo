@@ -45,6 +45,12 @@ async function captureScreen(page: Page, base: string, fullPage = false) {
     await capture(page, `${base}-${width}`, width, 900, fullPage);
   }
 }
+// The status filter label gains its count from the summary request after the first row renders. Capture only once
+// that settled label is present, so a native select never re-lays out its option text during screenshot rasterization.
+async function waitForAllItemsSummary(page: Page) {
+  const status = page.getByRole('main').getByRole('combobox').first();
+  await expect(status.locator('option:checked')).toHaveText(/^Active \(\d+\)$/);
+}
 // Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
 async function darkScreen(browser: Browser, storageState: string | undefined, path: string, name: string) {
   const context = await browser.newContext({ ...CONTEXT, ...(storageState ? { storageState } : {}), viewport: { width: 390, height: 900 } });
@@ -61,6 +67,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
       await expect(page.locator('main li[data-item-id]')).toHaveCount(requiredFixture().items.length);
     } else if (path === '/items') {
       await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
+      await waitForAllItemsSummary(page);
     } else {
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     }
@@ -72,6 +79,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     await expect(page.locator('main')).toBeVisible();
     if (name === 'home-add') await openAdd(page, en['items.add']);
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
+    if (path === '/items') await waitForAllItemsSummary(page);
     await page.evaluate(() => window.scrollTo(0, 0));
     await capture(page, `${name}-dark-${width}`, width, 900, false);
     await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
@@ -140,6 +148,7 @@ test('Add form and Repeat cadence', async ({ browser }) => {
 test('All items populated, no-match and dark', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await page.goto('/items');
+  await waitForAllItemsSummary(page);
   for (const width of [320, 390, 768, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
   await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('no-such-visual-item');
   await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();

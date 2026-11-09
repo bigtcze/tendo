@@ -15,10 +15,13 @@ func testFS() fstest.MapFS {
 		"index.html":        {Data: []byte("<html>app</html>")},
 		"assets/app-123.js": {Data: []byte("console.log(1)")},
 		"assets/app.css":    {Data: []byte("body{}")},
-		"robots.txt":        {Data: []byte("User-agent: *")},
-		"theme-boot.js":     {Data: []byte("(function(){})();")},
-		".gitkeep":          {Data: []byte("")},
-		"assets/.gitkeep":   {Data: []byte("")},
+		"assets/inter-latin-wght-normal-abc123.woff2": {Data: []byte("wOF2\x00\x01")},
+		"assets/inter-latin-wght-normal-abc123.woff":  {Data: []byte("wOFF\x00\x01")},
+		"robots.txt":                  {Data: []byte("User-agent: *")},
+		"theme-boot.js":               {Data: []byte("(function(){})();")},
+		"fonts/INTER-OFL-LICENSE.txt": {Data: []byte("Copyright 2016 The Inter Project Authors\nSIL OPEN FONT LICENSE Version 1.1\n")},
+		".gitkeep":                    {Data: []byte("")},
+		"assets/.gitkeep":             {Data: []byte("")},
 	}
 }
 
@@ -88,6 +91,51 @@ func TestAssetsAndStatic(t *testing.T) {
 	w = do(h, http.MethodHead, "/assets/app-123.js")
 	if w.Code != 200 || w.Body.Len() != 0 {
 		t.Fatalf("head status=%d body=%q", w.Code, w.Body)
+	}
+}
+
+func TestFontLicenseServedAsStaticText(t *testing.T) {
+	w := do(New(testFS()), http.MethodGet, "/fonts/INTER-OFL-LICENSE.txt")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("content-type=%q", ct)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("cache-control=%q", cc)
+	}
+	if w.Header().Get("Content-Security-Policy") != "" {
+		t.Fatal("static text must not carry the HTML CSP")
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "The Inter Project Authors") || !strings.Contains(body, "SIL OPEN FONT LICENSE Version 1.1") {
+		t.Fatalf("license body=%q", body)
+	}
+}
+
+// Self-hosted Inter is served from /assets; the browser only accepts it when the response carries the
+// webfont MIME type (Go's builtin table has none, and the woff2 signature would otherwise sniff as
+// application/octet-stream), plus the immutable asset cache policy.
+func TestWebfontsServedWithFontContentType(t *testing.T) {
+	h := New(testFS())
+	for file, want := range map[string]string{
+		"/assets/inter-latin-wght-normal-abc123.woff2": "font/woff2",
+		"/assets/inter-latin-wght-normal-abc123.woff":  "font/woff",
+	} {
+		w := do(h, http.MethodGet, file)
+		if w.Code != 200 {
+			t.Fatalf("%s status=%d", file, w.Code)
+		}
+		if got := w.Header().Get("Content-Type"); got != want {
+			t.Fatalf("%s content-type=%q want %q", file, got, want)
+		}
+		if got := w.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+			t.Fatalf("%s cache-control=%q", file, got)
+		}
+		if w.Header().Get("Content-Security-Policy") != "" {
+			t.Fatalf("%s must not carry the HTML CSP", file)
+		}
 	}
 }
 

@@ -42,7 +42,7 @@ export function ItemDetailReadView({ item, t, locale, responsible }: { item: Ite
     {item.recurrence ? <Repeat recurrence={item.recurrence} t={t} locale={locale} /> : null}
     {responsible ? <p className="text-sm text-muted">{responsible}</p> : null}
     {item.notes ? <div className="border-t border-line pt-4">
-      <h2 className="text-sm font-medium text-muted">{t('items.notes')}</h2>
+      <h2 className="text-sm font-semibold text-muted">{t('items.notes')}</h2>
       <p className="mt-2 whitespace-pre-wrap break-words">{item.notes}</p>
     </div> : null}
   </div>;
