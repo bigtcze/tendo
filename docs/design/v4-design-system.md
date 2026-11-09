@@ -183,7 +183,7 @@ Committed captures are real production-build screenshots (Playwright Chromium, f
 | [login-light-390](v4-tokens/login-light-390.png) | Signed-out Login |
 
 Reference-vs-capture composites are review artifacts only: they embed the AI reference images, so per
-`.autonomous/FLOW.md` "V4 design and visual validation" they are attached to the PR review, never
+`.autonomous/FLOW.md` "V4 design and visual validation" they stay review-only artifacts outside the repository (described in the V4-02 PR), never
 committed. Side-by-side checklist against `.autonomous/V4_DESIGN_BRIEF.md` §"Required visual comparison",
 limited to what V4-02 owns:
 
