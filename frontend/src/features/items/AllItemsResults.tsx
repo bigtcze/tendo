@@ -12,7 +12,7 @@ import { countFor, countKey, cursorStack, hasFilters, type Context } from './all
 import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const titleLink = `inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-medium text-ink hover:text-accent ${focusRing}`;
+const titleLink = `inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent ${focusRing}`;
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
@@ -116,7 +116,7 @@ export function AllItemsResults({ view, context, page, subjectNames, members, ac
   if (view !== 'rows') return null;
   const range = rangeLabel(context, page, t, locale);
   return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="min-w-0 outline-none">
-    <h2 className="flex items-baseline justify-between border-b border-line pb-2 text-h2 font-medium text-ink">{range}</h2>
+    <h2 className="flex items-baseline justify-between border-b border-line pb-2 text-h2 font-bold text-ink">{range}</h2>
     <ul className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
       {page.items.map((item) =>
         <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem} />)}

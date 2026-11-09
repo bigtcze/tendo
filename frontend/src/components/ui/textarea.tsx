@@ -6,9 +6,9 @@ type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<H
 
 export function Textarea({ className, ...props }: TextareaProps) {
   const classes = [
-    'min-h-24 w-full rounded-xl border border-field bg-raised px-4 py-3 text-base text-ink placeholder:text-muted',
-    'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus',
-    'aria-[invalid=true]:border-danger disabled:opacity-60',
+    'min-h-24 w-full rounded-xl border border-field bg-raised px-4 py-3 text-control text-ink transition-colors placeholder:text-muted',
+    'hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus',
+    'aria-[invalid=true]:border-danger aria-[invalid=true]:hover:border-danger disabled:cursor-not-allowed disabled:opacity-60',
   ].join(' ');
   return <textarea className={cn(classes, className)} {...props} />;
 }

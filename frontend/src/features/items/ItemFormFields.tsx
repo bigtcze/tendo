@@ -104,7 +104,7 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
   const labelId = `${controlId(id, 'recurrence')}-label`;
   const intervalId = controlId(id, 'recurrence');
   return <fieldset className="space-y-2">
-    <legend id={labelId} className="text-sm font-medium">{t('items.interval')}</legend>
+    <legend id={labelId} className="text-sm font-semibold">{t('items.interval')}</legend>
     <div className="flex gap-3">
       <Input
         disabled={disabled} id={intervalId} aria-labelledby={labelId} className="w-24"

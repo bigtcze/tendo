@@ -28,7 +28,7 @@ export function Switch({ checked, onCheckedChange, className, ...props }: Switch
         aria-hidden="true"
         className={cn(
           'pointer-events-none relative inline-flex h-8 w-14 items-center rounded-full p-1 transition-colors',
-          'bg-field peer-checked:bg-accent peer-checked:[&>span]:translate-x-6',
+          'bg-field hover:bg-muted peer-checked:bg-accent peer-checked:hover:bg-accent-strong peer-checked:[&>span]:translate-x-6',
           'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus',
           'peer-disabled:opacity-60 motion-reduce:transition-none',
         )}

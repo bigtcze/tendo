@@ -52,7 +52,7 @@ function TypeField({ uid, type, changeType, target, errorId, locked }: {
   const { t } = useI18n();
   return <fieldset role="radiogroup" className="min-w-0 space-y-2" aria-invalid={target === 'type'}
     aria-describedby={target === 'type' ? errorId : undefined}>
-    <legend className="text-sm font-medium text-ink">{t('subjects.type.legend')}</legend>
+    <legend className="text-sm font-semibold text-ink">{t('subjects.type.legend')}</legend>
     <div className="flex flex-wrap gap-2 pt-1">
       {subjectTypes.map((option) => <label key={option} className="relative">
         <input type="radio" name={`${uid}-type`} value={option} checked={type === option}

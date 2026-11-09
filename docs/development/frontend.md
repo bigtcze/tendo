@@ -33,6 +33,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 - `src/app`: shell, layout, and top-level status screens
 - `src/features/<feature>`: one folder per feature (`auth`, `home`, `subjects`, `members`) with its screens and API calls
 - `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
+- `src/fonts.css`: self-hosted Inter Variable faces (`@fontsource-variable/inter` 5.3.0, SIL OFL 1.1; latin + latin-ext, no CDN)
 - `src/i18n`: translations (`en.ts`, `cs.ts`) and the language provider
 - `src/lib`: the API client and small helpers
 - `src/test`: test setup and the fake server used by tests
@@ -70,7 +71,7 @@ It builds the production frontend assets and native Go app/provider binaries, th
 
 `npm run build` writes to `backend/internal/platform/webui/dist`, which the Go binary embeds with `//go:embed`. A committed placeholder keeps `go build` working without a frontend build. The `Dockerfile` has a Node stage that runs the build and a Go stage that copies the output in, so `docker compose -f compose.yaml -f deploy/compose.build.yaml up --build` produces one image.
 
-Go serves `index.html` for app routes with a strict same-origin Content-Security-Policy (no inline scripts or styles) and `X-Frame-Options: DENY`, and serves hashed files under `/assets/` with immutable caching. Unknown `/api` and `/health` paths still return `application/problem+json`.
+Go serves `index.html` for app routes with a strict same-origin Content-Security-Policy (no inline scripts or styles) and `X-Frame-Options: DENY`, and serves hashed files under `/assets/` with immutable caching. Self-hosted woff2 fonts are served with `font/woff2` so browsers accept them under `font-src 'self'`. Unknown `/api` and `/health` paths still return `application/problem+json`.
 
 App routes whose last path segment contains a dot are treated as files and return 404 instead of `index.html`. Client routes must not end in a file-like segment.
 

@@ -9,8 +9,8 @@ import { auditContrast, collectContrastCandidates, contrastShortfalls } from './
 // Covers System / Light / Dark against an emulated OS scheme: first paint, persistence across reload, color-scheme,
 // and live OS switching while the preference is System.
 
-const LIGHT_PAPER = 'rgb(250, 247, 242)';
-const DARK_PAPER = 'rgb(29, 33, 31)';
+const LIGHT_PAPER = 'rgb(241, 245, 250)';
+const DARK_PAPER = 'rgb(15, 26, 36)';
 type Scheme = 'light' | 'dark';
 type Preference = 'system' | 'light' | 'dark';
 
@@ -223,7 +223,7 @@ test.describe('appearance preference on signed-out routes', () => {
 
 test.describe('contrast auditor surface base', () => {
   test('rejects translucent root surfaces, falls back only to an opaque body, and fails closed otherwise', async ({ page }) => {
-    await page.setContent('<html style="background: rgba(1, 2, 3, .5)"><body style="background: rgb(250, 247, 242)"><p>Fallback body</p></body></html>');
+    await page.setContent('<html style="background: rgba(1, 2, 3, .5)"><body style="background: rgb(241, 245, 250)"><p>Fallback body</p></body></html>');
     const rows = await collectContrastCandidates(page);
     const paragraph = rows.find((row) => row.kind === 'text' && row.name === 'p');
     expect(paragraph, 'text candidate is collected using an opaque body fallback').toBeDefined();
@@ -245,5 +245,54 @@ test.describe('dark theme contrast on signed-out routes', () => {
       expect(contrastShortfalls(rows), `${scheme} login contrast failures`).toEqual([]);
       await context.close();
     }
+  });
+
+});
+
+test.describe('self-hosted Inter Variable', () => {
+  test('serves the bundled woff2 from the app origin and uses it for Latin-ext Czech glyphs', async ({ browser }) => {
+    const context = await browser.newContext({ colorScheme: 'light', viewport: { width: 390, height: 844 }, locale: 'en-US' });
+    const page = await context.newPage();
+    const fontResponses: Array<{ url: string; status: number; contentType: string | null }> = [];
+    page.on('response', (response) => {
+      if (/\.woff2(?:$|\?)/.test(new URL(response.url()).pathname)) {
+        fontResponses.push({ url: response.url(), status: response.status(), contentType: response.headers()['content-type'] ?? null });
+      }
+    });
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+
+    // Force the same font face the app uses to cover Czech diacritics, then require the load to finish.
+    const result = await page.evaluate(async () => {
+      await document.fonts.load('600 16px "Inter Variable"', 'ěščřžýáíéůú');
+      await document.fonts.ready;
+      const heading = document.querySelector('h1');
+      const faces = [...document.fonts]
+        .filter((face) => face.family.replaceAll('"', '') === 'Inter Variable')
+        .map((face) => ({ status: face.status, weight: face.weight }));
+      return {
+        bodyFamily: getComputedStyle(document.body).fontFamily,
+        headingFamily: heading ? getComputedStyle(heading).fontFamily : '',
+        headingWeight: heading ? getComputedStyle(heading).fontWeight : '',
+        czechAvailable: document.fonts.check('600 16px "Inter Variable"', 'ěščřžýáíéůú'),
+        faces,
+      };
+    });
+
+    expect(result.bodyFamily, 'body uses Inter Variable before the system fallback').toContain('Inter Variable');
+    expect(result.headingFamily, 'headings use the same Inter Variable family').toContain('Inter Variable');
+    expect(result.headingWeight, 'display headings render at bold weight').toBe('700');
+    expect(result.czechAvailable, 'a loaded Inter face can render Czech diacritics').toBe(true);
+    expect(result.faces.some((face) => face.status === 'loaded'), 'at least one Inter face reports loaded').toBe(true);
+
+    const origin = new URL(page.url()).origin;
+    expect(fontResponses.length, 'the page requested its bundled woff2').toBeGreaterThan(0);
+    for (const response of fontResponses) {
+      expect(new URL(response.url).origin, 'font is same-origin, never a CDN').toBe(origin);
+      expect(response.url, 'font comes from the hashed asset bundle').toContain('/assets/');
+      expect(response.status, 'font request succeeds').toBe(200);
+      expect(response.contentType, 'font is served with its real MIME type').toBe('font/woff2');
+    }
+    await context.close();
   });
 });

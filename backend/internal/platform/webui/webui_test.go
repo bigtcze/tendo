@@ -15,10 +15,12 @@ func testFS() fstest.MapFS {
 		"index.html":        {Data: []byte("<html>app</html>")},
 		"assets/app-123.js": {Data: []byte("console.log(1)")},
 		"assets/app.css":    {Data: []byte("body{}")},
-		"robots.txt":        {Data: []byte("User-agent: *")},
-		"theme-boot.js":     {Data: []byte("(function(){})();")},
-		".gitkeep":          {Data: []byte("")},
-		"assets/.gitkeep":   {Data: []byte("")},
+		"assets/inter-latin-wght-normal-abc123.woff2": {Data: []byte("wOF2\x00\x01")},
+		"assets/inter-latin-wght-normal-abc123.woff":  {Data: []byte("wOFF\x00\x01")},
+		"robots.txt":      {Data: []byte("User-agent: *")},
+		"theme-boot.js":   {Data: []byte("(function(){})();")},
+		".gitkeep":        {Data: []byte("")},
+		"assets/.gitkeep": {Data: []byte("")},
 	}
 }
 
@@ -88,6 +90,31 @@ func TestAssetsAndStatic(t *testing.T) {
 	w = do(h, http.MethodHead, "/assets/app-123.js")
 	if w.Code != 200 || w.Body.Len() != 0 {
 		t.Fatalf("head status=%d body=%q", w.Code, w.Body)
+	}
+}
+
+// Self-hosted Inter is served from /assets; the browser only accepts it when the response carries the
+// webfont MIME type (Go's builtin table has none, and the woff2 signature would otherwise sniff as
+// application/octet-stream), plus the immutable asset cache policy.
+func TestWebfontsServedWithFontContentType(t *testing.T) {
+	h := New(testFS())
+	for file, want := range map[string]string{
+		"/assets/inter-latin-wght-normal-abc123.woff2": "font/woff2",
+		"/assets/inter-latin-wght-normal-abc123.woff":  "font/woff",
+	} {
+		w := do(h, http.MethodGet, file)
+		if w.Code != 200 {
+			t.Fatalf("%s status=%d", file, w.Code)
+		}
+		if got := w.Header().Get("Content-Type"); got != want {
+			t.Fatalf("%s content-type=%q want %q", file, got, want)
+		}
+		if got := w.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+			t.Fatalf("%s cache-control=%q", file, got)
+		}
+		if w.Header().Get("Content-Security-Policy") != "" {
+			t.Fatalf("%s must not carry the HTML CSP", file)
+		}
 	}
 }
 

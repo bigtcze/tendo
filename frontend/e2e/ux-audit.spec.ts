@@ -641,6 +641,15 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await addForm.getByRole('button', { name: en['items.add.submit'], exact: true }).click();
         await expect(addForm.getByRole('alert')).toBeVisible();
         await capture(page, join(dir, `audit-add-validation-en-${width}.png`), false);
+        // One deliberate focus-state capture: the invalid field keeps its visible focus ring next to the error text.
+        if (width === 390) {
+          const titleField = addForm.getByRole('textbox').first();
+          await titleField.focus();
+          await page.setViewportSize({ width, height: 900 });
+          expect(await page.evaluate(() => window.innerWidth), 'viewport width for audit-add-focus-en-390.png').toBe(width);
+          await page.screenshot({ path: join(dir, 'audit-add-focus-en-390.png') });
+          await titleField.blur();
+        }
         // The add form holds a typed title and toggles, so the dark add capture is taken from a fresh dark context
         // rather than by reloading this open form. Its dark state comes from the saved preference, not an attribute.
         if (width === 390 || width === 1440) {
@@ -1067,7 +1076,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         resolvedBackground: await darkPage.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
         dataTheme: await darkPage.locator('html').getAttribute('data-theme'),
       };
-      expect(metrics.stages.darkMode.resolvedBackground, 'System follows the emulated dark device').toBe('rgb(29, 33, 31)');
+      expect(metrics.stages.darkMode.resolvedBackground, 'System follows the emulated dark device').toBe('rgb(15, 26, 36)');
       expect(metrics.stages.darkMode.dataTheme, 'System leaves the explicit preference unset').toBeNull();
       for (const width of [390, 1440]) {
         await darkPage.setViewportSize({ width, height: 900 });

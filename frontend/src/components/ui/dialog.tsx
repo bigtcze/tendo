@@ -99,12 +99,12 @@ export function Dialog({
         if (target?.isConnected) target.focus();
       }}
       className={cn(
-        'max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-paper p-4 text-ink sm:p-6',
+        'max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
         sheetClasses,
       )}
     >
       <header className="flex min-w-0 items-start justify-between gap-4">
-        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words font-display text-h2">{title}</h2>
+        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words font-display text-h2 font-bold">{title}</h2>
         <Button
           type="button"
           variant="quiet"
