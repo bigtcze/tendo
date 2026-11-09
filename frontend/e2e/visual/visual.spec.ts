@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { capture } from './capture';
-import { api, BASE_URL, firstRun, HOUSEHOLD, ownerPassword, seed, type Fixture } from './fixtures';
+import { api, BASE_URL, firstRun, HOUSEHOLD, ownerPassword, pinInvitationDates, seed, type Fixture } from './fixtures';
 import { captureLargeDataset } from './largeData';
 
 test.describe.configure({ mode: 'serial' });
@@ -22,6 +22,7 @@ let fixture: Fixture | undefined;
 
 async function authenticated(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ ...CONTEXT, storageState: statePath, viewport: { width: 390, height: 844 } });
+  await pinInvitationDates(context);
   const page = await context.newPage();
   await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   return { context, page };
@@ -47,6 +48,7 @@ async function captureScreen(page: Page, base: string, fullPage = false) {
 // Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
 async function darkScreen(browser: Browser, storageState: string | undefined, path: string, name: string) {
   const context = await browser.newContext({ ...CONTEXT, ...(storageState ? { storageState } : {}), viewport: { width: 390, height: 900 } });
+  await pinInvitationDates(context);
   const page = await context.newPage();
   await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
   for (const width of [390, 1440]) {
