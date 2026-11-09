@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
 set -u -o pipefail
 
-ROOT="/home/tomas/repositories/tendo"
-PROMPT_FILE="${ROOT}/.autonomous/CYCLE_PROMPT.md"
-COMPLETE_FILE=".autonomous/V3_COMPLETE"
+# V4 Modern Everyday feature controller (tendo-autonomous.service).
+# Exits successfully once .autonomous/V4_COMPLETE is tracked on clean main.
+# Refuses to run while the separate post-V3 maintenance controller
+# (tendo-maintenance.timer/.service, outside this repository) is enabled or
+# active, and holds that controller's own flock for its whole lifetime so a
+# manually started maintenance run exits as "already running".
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROMPT_FILE="${ROOT}/.autonomous/V4_CYCLE_PROMPT.md"
+WORKFLOW_FILE="${ROOT}/.autonomous/V4_ISSUES_WORKFLOW.md"
+COMPLETE_FILE=".autonomous/V4_COMPLETE"
 
 OPENCODE_BIN="${OPENCODE_BIN:-/home/tomas/.opencode/bin/opencode}"
 SUCCESS_SLEEP="${SUCCESS_SLEEP:-45}"
 FAIL_SLEEP_BASE="${FAIL_SLEEP_BASE:-120}"
 FAIL_SLEEP_MAX="${FAIL_SLEEP_MAX:-900}"
 CYCLE_TIMEOUT="${CYCLE_TIMEOUT:-4h}"
-LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/tendo-autonomous-${UID}.lock"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+LOCK_FILE="${RUNTIME_DIR}/tendo-autonomous-${UID}.lock"
+# Same path as ~/.local/bin/tendo-maintenance.sh uses for its own flock.
+MAINTENANCE_LOCK_FILE="${RUNTIME_DIR}/tendo-maintenance-${UID}.lock"
+MAINTENANCE_UNITS=(tendo-maintenance.timer tendo-maintenance.service)
+REFUSED=3
 
 cd "${ROOT}" || {
   echo "[tendo] cannot cd to ${ROOT}" >&2
@@ -27,20 +40,46 @@ if [[ ! -x "${OPENCODE_BIN}" ]]; then
   fi
 fi
 
-command -v flock >/dev/null 2>&1 || {
-  echo "[tendo] flock not found" >&2
-  exit 2
-}
-command -v timeout >/dev/null 2>&1 || {
-  echo "[tendo] timeout not found" >&2
-  exit 2
-}
+for tool in flock timeout git systemctl; do
+  command -v "${tool}" >/dev/null 2>&1 || {
+    echo "[tendo] ${tool} not found" >&2
+    exit 2
+  }
+done
 
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
   echo "[tendo] another autonomous loop already holds ${LOCK_FILE}; exiting."
   exit 0
 fi
+
+exec 8>"${MAINTENANCE_LOCK_FILE}"
+if ! flock -n 8; then
+  echo "[tendo] post-V3 maintenance run holds ${MAINTENANCE_LOCK_FILE}; refusing to start V4 cycles." >&2
+  exit "${REFUSED}"
+fi
+
+# Fails closed: any unit state other than disabled/masked/not-found and
+# inactive, or an unreadable state, refuses the V4 cycle.
+maintenance_controller_off() {
+  local unit enabled active
+  for unit in "${MAINTENANCE_UNITS[@]}"; do
+    enabled="$(systemctl --user is-enabled "${unit}" 2>/dev/null)"
+    case "${enabled}" in
+      disabled|masked|masked-runtime|not-found|static) ;;
+      *)
+        echo "[tendo] ${unit} is-enabled=${enabled:-unknown}; disable the maintenance controller first." >&2
+        return 1 ;;
+    esac
+    active="$(systemctl --user is-active "${unit}" 2>/dev/null)"
+    case "${active}" in
+      inactive|failed) ;;
+      *)
+        echo "[tendo] ${unit} is-active=${active:-unknown}; wait for or stop the maintenance controller first." >&2
+        return 1 ;;
+    esac
+  done
+}
 
 is_complete_on_main() {
   [[ "$(git branch --show-current 2>/dev/null)" == "main" ]] || return 1
@@ -50,7 +89,7 @@ is_complete_on_main() {
 }
 
 if is_complete_on_main; then
-  echo "[tendo] V3_COMPLETE is tracked on clean main; exiting successfully."
+  echo "[tendo] V4_COMPLETE is tracked on clean main; exiting successfully."
   exit 0
 fi
 
@@ -59,28 +98,35 @@ failure_sleep="${FAIL_SLEEP_BASE}"
 
 while true; do
   if is_complete_on_main; then
-    echo "[tendo] V3 complete on protected main; exiting successfully."
+    echo "[tendo] V4 complete on protected main; exiting successfully."
     exit 0
   fi
 
-  [[ -f "${PROMPT_FILE}" ]] || {
-    echo "[tendo] missing ${PROMPT_FILE}" >&2
-    exit 2
-  }
+  maintenance_controller_off || exit "${REFUSED}"
+
+  for file in "${PROMPT_FILE}" "${WORKFLOW_FILE}"; do
+    [[ -f "${file}" ]] || {
+      echo "[tendo] missing ${file}; V4 governance is not active in this checkout." >&2
+      exit 2
+    }
+  done
 
   cycle=$((cycle + 1))
   PROMPT="$(cat "${PROMPT_FILE}")"
 
-  echo "[tendo] starting autonomous cycle ${cycle}"
+  echo "[tendo] starting V4 autonomous cycle ${cycle}"
 
-  if timeout --signal=TERM --kill-after=60s "${CYCLE_TIMEOUT}"       "${OPENCODE_BIN}" run --auto --agent orchestrator       --title "Tendo autonomous cycle ${cycle}"       "${PROMPT}"; then
+  if timeout --signal=TERM --kill-after=60s "${CYCLE_TIMEOUT}" \
+    "${OPENCODE_BIN}" run --auto --agent orchestrator \
+    --title "Tendo V4 autonomous cycle ${cycle}" \
+    "${PROMPT}" 8>&- 9>&-; then
     rc=0
   else
     rc=$?
   fi
 
   if is_complete_on_main; then
-    echo "[tendo] V3 completion merged and verified on main; exiting successfully."
+    echo "[tendo] V4 completion merged and verified on main; exiting successfully."
     exit 0
   fi
 
