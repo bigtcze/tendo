@@ -25,7 +25,7 @@ gone). Headings are 700, row titles 600, body 400, controls 600.
 | Czech coverage | `latin` covers `ý á í é ú`; `latin-ext` covers `ě š č ř ž ů ď ť ň`. The production browser test loads text containing all of `ěščřžýáíéůúďťň`, requires a 200 same-origin `font/woff2` response for both hashed faces, and parses each loaded `FontFace.unicodeRange` to prove every code point in that sample is covered; Czech visual baselines add rendering evidence |
 | Fallback | `Inter`, `ui-sans-serif`, `system-ui`, `-apple-system`, `Segoe UI`, sans-serif — used only while loading or if the bundled font is unavailable |
 | Delivery | Vite emits hashed `/assets/inter-*-wght-normal-*.woff2`; Go serves them same-origin as `font/woff2` (CSP `font-src 'self'`, covered by a `webui` test). The OFL text ships at `/fonts/INTER-OFL-LICENSE.txt` (Go serves it as `text/plain`, no SPA fallback) |
-| Loading | `font-display: swap`; `unicode-range` means English fetches only `latin`, Czech fetches `latin-ext` too |
+| Loading | `font-display: swap`; `unicode-range` means English fetches only `latin`, Czech fetches `latin-ext` too. App boot waits for the `latin` face (bounded by a 1 s timeout) before the first React render, so native form controls are first laid out with Inter's metrics instead of caching fallback metrics through the swap |
 
 | Role | Size / line-height | Weight | Use |
 | --- | ---: | ---: | --- |
@@ -156,7 +156,8 @@ its paper constants were updated to the new palette.
   tamper fallback, contrast audit on Login in both themes, and a new production-browser test:
   body/heading resolve to Inter Variable and the heading weight is 700; both the `latin` and
   `latin-ext` woff2 return 200 same-origin `font/woff2`; a loaded Inter `FontFace`'s parsed
-  unicode-range covers every code point in `ěščřžýáíéůúďťň`; and `/fonts/INTER-OFL-LICENSE.txt`
+  unicode-range covers every code point in `ěščřžýáíéůúďťň`; the first React render is observed
+  with Inter already available (guarding the boot font wait); and `/fonts/INTER-OFL-LICENSE.txt`
   is 200, `text/plain`, and contains the Inter copyright and SIL OFL 1.1 title.
 - `backend/internal/platform/webui/webui_test.go` — `.woff2`/`.woff` are served with their real
   font MIME types and immutable caching (Go's builtin table has no woff entries); the shipped OFL

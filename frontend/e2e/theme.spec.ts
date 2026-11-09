@@ -250,6 +250,34 @@ test.describe('dark theme contrast on signed-out routes', () => {
 });
 
 test.describe('self-hosted Inter Variable', () => {
+  test('keeps the first app render behind the primary Inter face', async ({ browser }) => {
+    const context = await browser.newContext({ colorScheme: 'light', viewport: { width: 390, height: 844 }, locale: 'en-US' });
+    const page = await context.newPage();
+    await page.route(/\/assets\/inter-.*\.woff2$/, async (route) => { await new Promise((resolve) => setTimeout(resolve, 400)); await route.continue(); });
+    await page.addInitScript(() => {
+      const capture = () => {
+        const root = document.getElementById('root');
+        const state = window as unknown as { __rootFontState?: { available: boolean } };
+        if (!state.__rootFontState && root?.childElementCount) {
+          state.__rootFontState = {
+            available: document.fonts.check('400 16px "Inter Variable"', 'The quick brown fox'),
+          };
+        }
+      };
+      const tick = () => {
+        capture();
+        if (!(window as unknown as { __rootFontState?: unknown }).__rootFontState) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+    const state = await page.evaluate(() => (window as unknown as { __rootFontState?: { available: boolean } }).__rootFontState);
+    expect(state, 'the first root render is observed').toBeDefined();
+    expect(state!.available, 'Inter is available when the app first renders').toBe(true);
+    await context.close();
+  });
+
   test('serves both woff2 subsets, covers Czech glyphs, and ships the OFL license', async ({ browser }) => {
     const CZECH_SAMPLE = 'ěščřžýáíéůúďťň';
     const context = await browser.newContext({ colorScheme: 'light', viewport: { width: 390, height: 844 }, locale: 'en-US' });
@@ -278,9 +306,10 @@ test.describe('self-hosted Inter Variable', () => {
       const parseRanges = (value: string): Array<[number, number]> => value.split(',').flatMap((part) => {
         const match = part.trim().toUpperCase().match(/^U\+([0-9A-F?]+)(?:-([0-9A-F?]+))?$/);
         if (!match) return [];
-        const hex = (token: string) => Number.parseInt(token.replaceAll('?', 'F'), 16);
-        const start = hex(match[1]);
-        const end = match[2] ? hex(match[2]) : hex(match[1]);
+        // A wildcard such as U+01?? spans U+0100–U+01FF: '?' is 0 for the lower bound and F for the upper.
+        const hex = (token: string, wildcard: '0' | 'F') => Number.parseInt(token.replaceAll('?', wildcard), 16);
+        const start = hex(match[1], '0');
+        const end = hex(match[2] ?? match[1], 'F');
         if (Number.isNaN(start) || Number.isNaN(end)) return [];
         return [[start, end] as [number, number]];
       });
