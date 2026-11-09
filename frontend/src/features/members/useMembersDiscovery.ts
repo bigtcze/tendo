@@ -21,7 +21,7 @@ export type MemberSetters = {
  * cancellation/generation check, with no extra async boundary.
  */
 export function useMembersDiscovery(householdId: string, userId: string, core: MembersCore, inv: InvitationList, m: MemberSetters) {
-  const { attempt, mountedRef, onSignedOutRef, tRef, setState, setOwner, setNotice } = core;
+  const { attempt, mountedRef, onSignedOutRef, tRef, setState, setAdmin, setNotice } = core;
   const { memberGenerationRef, memberPageGenerationRef, invitationGenerationRef } = core;
   const { loadInvitations, setInvitationBusy, setInvitations, setInvitationCursor, setInvitationsError, setInvitationsLoaded } = inv;
   const { setMembers, setMemberCursor, setCurrentMemberCursor, setMemberStack, setMemberBusy } = m;
@@ -42,18 +42,18 @@ export function useMembersDiscovery(householdId: string, userId: string, core: M
       setMemberCursor(firstNext);
       setCurrentMemberCursor(undefined);
       setMemberStack([]);
-      setOwner(viewer ? viewer.role === 'owner' : null);
+      setAdmin(viewer ? viewer.role === 'admin' : null);
       setState('ready');
       setInvitations([]);
       setInvitationCursor(null);
       setInvitationsError(false);
-      setInvitationsLoaded(viewer !== undefined && viewer.role !== 'owner');
+      setInvitationsLoaded(viewer !== undefined && viewer.role !== 'admin');
     }
     (async () => {
       setMemberBusy(false);
       setInvitationBusy(false);
       setState('loading');
-      setOwner(null);
+      setAdmin(null);
       let cursor: string | undefined;
       let discovered: Member | undefined;
       let firstNext: string | null = null;
@@ -70,11 +70,11 @@ export function useMembersDiscovery(householdId: string, userId: string, core: M
       if (stale()) return;
       apply(firstPage, firstNext, discovered);
       const invitationRequest = ++invitationGenerationRef.current;
-      // An owner beyond the discovery cap is settled by the owner-only invitations list.
+      // An administrator beyond the discovery cap is settled by the admin-only invitations list.
       if (discovered?.role !== 'member') await loadInvitations('', invitationRequest, []);
     })();
     return () => { cancelled = true; memberPageGenerationRef.current += 1; };
-  }, [householdId, userId, attempt, loadInvitations, mountedRef, onSignedOutRef, tRef, setState, setOwner, setNotice,
+  }, [householdId, userId, attempt, loadInvitations, mountedRef, onSignedOutRef, tRef, setState, setAdmin, setNotice,
     memberGenerationRef, memberPageGenerationRef, invitationGenerationRef, setInvitationBusy, setInvitations, setInvitationCursor,
     setInvitationsError, setInvitationsLoaded, setMembers, setMemberCursor, setCurrentMemberCursor, setMemberStack, setMemberBusy]);
 }

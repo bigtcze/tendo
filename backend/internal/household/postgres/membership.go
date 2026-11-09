@@ -29,6 +29,17 @@ func (r *MembershipRepository) GetMembership(ctx context.Context, userID, househ
 	}
 	return v, e
 }
+func (r *MembershipRepository) LockHouseholdForMembership(ctx context.Context, userID, householdID string) error {
+	var u, h pgtype.UUID
+	if u.Scan(userID) != nil || h.Scan(householdID) != nil {
+		return household.ErrNotFound
+	}
+	_, e := r.queries.LockHouseholdForMembership(ctx, dbgen.LockHouseholdForMembershipParams{ID: h, UserID: u})
+	if errors.Is(e, pgx.ErrNoRows) {
+		return household.ErrNotFound
+	}
+	return e
+}
 func (r *MembershipRepository) HasMembershipElsewhere(ctx context.Context, userID, householdID string) (bool, error) {
 	var u, h pgtype.UUID
 	if u.Scan(userID) != nil {
@@ -70,7 +81,7 @@ func (r *MembershipRepository) ListMembers(ctx context.Context, householdID, cur
 	}
 	out := make([]household.MembershipRecord, 0, len(rows))
 	for _, m := range rows {
-		if m.Role != household.RoleOwner && m.Role != household.RoleMember {
+		if m.Role != household.RoleAdmin && m.Role != household.RoleMember {
 			return nil, "", errors.New("membership persistence returned unknown role")
 		}
 		out = append(out, household.MembershipRecord{UserID: m.UserID, Role: m.Role})

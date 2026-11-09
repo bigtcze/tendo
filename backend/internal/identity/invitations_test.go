@@ -38,9 +38,9 @@ func (f *invitationFake) WithInvitationTransaction(_ context.Context, fn func(In
 	f.txCalls++
 	return fn(&invitationFakeTx{f})
 }
-func (t *invitationFakeTx) RequireOwner(context.Context, string, string) error { return t.f.requireErr }
+func (t *invitationFakeTx) RequireAdmin(context.Context, string, string) error { return t.f.requireErr }
 func (t *invitationFakeTx) GetMembership(context.Context, string, string) (string, error) {
-	if t.f.status == "member" || t.f.status == "owner" {
+	if t.f.status == "member" || t.f.status == "admin" {
 		return t.f.status, nil
 	}
 	return "", household.ErrNotFound
@@ -166,8 +166,8 @@ func TestCreateTokenOnlyForNewInvitationAndOwnerBeforeRetry(t *testing.T) {
 	if e != nil || retry.Created || retry.Token != "" || retry.Invitation.ID != r.Invitation.ID {
 		t.Fatalf("retry=%+v err=%v", retry, e)
 	}
-	f.requireErr = household.ErrForbidden
-	if _, e = s.CreateInvitation(context.Background(), testActor, testHouse, "key"); !errors.Is(e, household.ErrForbidden) {
+	f.requireErr = household.ErrAdminRequired
+	if _, e = s.CreateInvitation(context.Background(), testActor, testHouse, "key"); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatal(e)
 	}
 }

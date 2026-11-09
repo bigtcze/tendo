@@ -32,6 +32,17 @@ type HouseholdMembership struct {
 	UserID      pgtype.UUID
 	HouseholdID pgtype.UUID
 	Role        string
+	Version     int64
+}
+
+type HouseholdRoleChange struct {
+	ID           pgtype.UUID
+	HouseholdID  pgtype.UUID
+	TargetUserID pgtype.UUID
+	ActorUserID  pgtype.UUID
+	PreviousRole string
+	NewRole      string
+	ChangedAt    pgtype.Timestamptz
 }
 
 type InstallationState struct {

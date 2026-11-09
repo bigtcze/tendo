@@ -51,7 +51,7 @@ func TestItemMembersPassesCandidateAndHouseholdAndMapsWrappedErrors(t *testing.T
 			return role, err
 		}
 	}
-	if err := itemMembers(lookup(household.RoleOwner, nil))(context.Background(), "candidate", "household"); err != nil || got != [2]string{"candidate", "household"} {
+	if err := itemMembers(lookup(household.RoleAdmin, nil))(context.Background(), "candidate", "household"); err != nil || got != [2]string{"candidate", "household"} {
 		t.Fatalf("got=%v err=%v", got, err)
 	}
 	for _, tc := range []struct{ in, want error }{

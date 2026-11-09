@@ -7,7 +7,7 @@ import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session, t
 
 // Focus-ordering details of MembersScreen that the main screen suite does not pin.
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
-const members = () => [{ userId: session().userId, login: 'anna', role: 'owner' }, { userId: 'other', login: 'petr', role: 'member' }];
+const members = () => [{ userId: session().userId, login: 'anna', role: 'admin' }, { userId: 'other', login: 'petr', role: 'member' }];
 const invitation = (id: string, status = 'pending') => ({ id, status, createdAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-08T00:00:00Z' });
 const problem = (status: number) => json(status, { type: 'about:blank', title: 'x', status });
 function deferred() {

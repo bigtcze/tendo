@@ -110,10 +110,10 @@ func TestInvitationHouseholdIsolationAndOwnerAuthorization(t *testing.T) {
 	house := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
 	foreign := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
 	member := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
-	repo.members[house] = map[string]string{owner: householdapp.RoleOwner, member: householdapp.RoleMember}
+	repo.members[house] = map[string]string{owner: householdapp.RoleAdmin, member: householdapp.RoleMember}
 	repo.members[foreign] = map[string]string{}
 	outsider := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b64"
-	repo.members["0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b66"] = map[string]string{outsider: householdapp.RoleOwner}
+	repo.members["0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b66"] = map[string]string{outsider: householdapp.RoleAdmin}
 	app, err := identity.NewInvitationService(repo, func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestInvitationHouseholdIsolationAndOwnerAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo.members[foreign][owner] = householdapp.RoleOwner
+	repo.members[foreign][owner] = householdapp.RoleAdmin
 	foreignInvitation, err := app.CreateInvitation(context.Background(), owner, foreign, "foreign-target")
 	if err != nil {
 		t.Fatal(err)

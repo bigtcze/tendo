@@ -14,6 +14,7 @@ import (
 
 var _ identity.SessionRepository = (*Repository)(nil)
 var _ household.LoginLookup = (*Repository)(nil)
+var _ household.SignInMethodsLookup = (*Repository)(nil)
 
 func timestamptz(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
 
@@ -33,6 +34,26 @@ func (r *Repository) LoginsByUserIDs(ctx context.Context, ids []string) (map[str
 	out := make(map[string]string, len(rows))
 	for _, row := range rows {
 		out[row.UserID] = row.Login
+	}
+	return out, nil
+}
+
+func (r *Repository) SignInMethodsByUserIDs(ctx context.Context, ids []string) (map[string]household.SignInMethods, error) {
+	uuids := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		var u pgtype.UUID
+		if e := u.Scan(id); e != nil {
+			return nil, e
+		}
+		uuids = append(uuids, u)
+	}
+	rows, e := identitydb.New(r.pool).SignInMethodsByUserIDs(ctx, uuids)
+	if e != nil {
+		return nil, e
+	}
+	out := make(map[string]household.SignInMethods, len(rows))
+	for _, row := range rows {
+		out[row.UserID] = household.SignInMethods{Password: row.Password, OIDC: row.Oidc}
 	}
 	return out, nil
 }

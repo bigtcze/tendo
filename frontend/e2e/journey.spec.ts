@@ -1175,7 +1175,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
     const memberList = page.getByRole('main').getByRole('list', { name: en['members.list.title'] });
     const ownerRow = memberList.getByRole('listitem').filter({ hasText: ownerLogin });
-    await expect(ownerRow).toContainText(en['members.role.owner']);
+    await expect(ownerRow).toContainText(en['members.role.admin']);
     await expect(ownerRow).toContainText(en['members.you']);
 
     await page.getByRole('button', { name: en['members.invite.action'] }).click();
@@ -1232,7 +1232,7 @@ test.describe('Tendo production journey', () => {
       await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
       await waitForSettledHouseholdRequests(memberPage);
       const memberRows = memberPage.getByRole('main').getByRole('list', { name: en['members.list.title'] });
-      await expect(memberRows.getByRole('listitem').filter({ hasText: ownerLogin })).toContainText(en['members.role.owner']);
+      await expect(memberRows.getByRole('listitem').filter({ hasText: ownerLogin })).toContainText(en['members.role.admin']);
       await expect(memberRows.getByRole('listitem').filter({ hasText: 'member_e2e' })).toContainText(en['members.role.member']);
       await expect(memberPage.getByRole('button', { name: en['members.invite.action'] })).toHaveCount(0);
       await expect(memberPage.getByRole('heading', { name: en['members.help.title'] })).toBeVisible();

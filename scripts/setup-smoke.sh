@@ -66,7 +66,7 @@ if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "
 python3 "$root/scripts/setup_smoke_api_capture.py" initial "$origin" "$TENDO_SETUP_TOKEN" "$fixtures"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 "${compose[@]}" exec -T postgres psql -U postgres -d tendo \
-  -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='owner' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
+  -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF (SELECT count(*) FROM user_accounts)=1 AND (SELECT count(*) FROM households)=1 AND (SELECT count(*) FROM household_memberships)=1 AND EXISTS (SELECT 1 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id WHERE u.login='owner_smoke' AND h.name='Veselí 家族' AND h.timezone='Europe/Prague' AND m.role='admin' AND u.default_household_id=h.id AND c.password_hash LIKE '\$argon2%') THEN RETURN; END IF; RAISE EXCEPTION 'first-owner state assertion failed'; END \$\$"
 psql_command="${compose[*]} exec -T postgres psql -U postgres -d tendo -v ON_ERROR_STOP=1 -At"
 SETUP_SMOKE_ORIGIN="$origin" \
   SETUP_SMOKE_FIXTURES="$session_fixtures" \
@@ -495,13 +495,57 @@ assert st==201 and member_session['login']=='member_smoke','new member login fai
 member_token=mh['Set-Cookie'].split(';',1)[0]
 member_cookie={'Cookie':member_token}
 st,_,owner_members,_=xreq('GET',f'/api/v1/households/{household}/members',MEMBERS,headers=cookie_header)
-assert st==200 and {(m['login'],m['role']) for m in owner_members['items']}=={('owner_smoke','owner'),('member_smoke','member')},('owner member list',st,owner_members)
+assert st==200 and {(m['login'],m['role']) for m in owner_members['items']}=={('owner_smoke','admin'),('member_smoke','member')},('owner member list',st,owner_members)
 st,_,joined_members,_=xreq('GET',f'/api/v1/households/{household}/members',MEMBERS,headers=member_cookie)
-assert st==200 and {(m['login'],m['role']) for m in joined_members['items']}=={('owner_smoke','owner'),('member_smoke','member')},('member member list',st,joined_members)
+assert st==200 and {(m['login'],m['role']) for m in joined_members['items']}=={('owner_smoke','admin'),('member_smoke','member')},('member member list',st,joined_members)
 assert psql(f"SELECT m.role||'|'||(u.default_household_id=m.household_id)::text FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id WHERE u.login='member_smoke' AND m.household_id='{household}'")=='member|true','membership/default household persistence'
+# Admin account directory and role management: directory reads, optimistic concurrency, audit and last-admin guard.
+ACC='/api/v1/households/{householdId}/accounts'
+ACC_ITEM='/api/v1/households/{householdId}/accounts/{userId}'
+def areq(method,url,template,body=None,headers=None):
+ return call(method,url,template=template,body=body,headers=headers,sink=fixtures,ensure_ascii=False)[:3]
+accounts_base=f'/api/v1/households/{household}/accounts'
+owner_account_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
+member_account_id=next(m['userId'] for m in owner_members['items'] if m['login']=='member_smoke')
+st,_,directory=areq('GET',accounts_base,ACC,headers=cookie_header)
+assert st==200 and directory['nextCursor'] is None and {(a['login'],a['role']) for a in directory['items']}=={('owner_smoke','admin'),('member_smoke','member')},('admin account list',st,directory)
+assert all(a['signInMethods']=={'password':True,'oidc':False} for a in directory['items']),('local account sign-in methods',directory)
+st,_,member_directory=areq('GET',accounts_base,ACC,headers=member_cookie)
+assert st==403 and member_directory['code']=='admin_required',('member account list',st,member_directory)
+st,mgh,member_account=areq('GET',accounts_base+'/'+member_account_id,ACC_ITEM,headers=cookie_header)
+assert st==200 and member_account['userId']==member_account_id and member_account['login']=='member_smoke' and member_account['role']=='member' and member_account['signInMethods']=={'password':True,'oidc':False},('admin account read',st,member_account)
+member_version=int(mgh['ETag'].strip('"'))
+st,_,hidden_account=areq('GET',accounts_base+'/'+random_id,ACC_ITEM,headers=cookie_header)
+assert st==404 and hidden_account['code']=='not_found',('unknown account read',st,hidden_account)
+st,_,missing_match=areq('PATCH',accounts_base+'/'+member_account_id,ACC_ITEM,{'role':'admin'},owner_mut)
+assert st==428 and missing_match['code']=='precondition_required',('account role missing If-Match',st,missing_match)
+st,_,stale_match=areq('PATCH',accounts_base+'/'+member_account_id,ACC_ITEM,{'role':'admin'},{**owner_mut,'If-Match':'"99"'})
+assert st==412 and stale_match['code']=='precondition_failed',('account role stale If-Match',st,stale_match)
+st,ph,promoted=areq('PATCH',accounts_base+'/'+member_account_id,ACC_ITEM,{'role':'admin'},{**owner_mut,'If-Match':mgh['ETag']})
+assert st==200 and promoted['role']=='admin' and promoted['userId']==member_account_id and ph['ETag']==f'"{member_version+1}"',('promote member',st,promoted,dict(ph))
+assert psql(f"SELECT count(*) FROM household_role_changes WHERE household_id='{household}' AND target_user_id='{member_account_id}' AND previous_role='member' AND new_role='admin'")=='1','promote audit row'
+st,_,demoted=areq('PATCH',accounts_base+'/'+member_account_id,ACC_ITEM,{'role':'member'},{**owner_mut,'If-Match':ph['ETag']})
+assert st==200 and demoted['role']=='member' and demoted['userId']==member_account_id,('demote member',st,demoted)
+st,ogh,owner_account=areq('GET',accounts_base+'/'+owner_account_id,ACC_ITEM,headers=cookie_header)
+assert st==200 and owner_account['role']=='admin',('owner account read',st,owner_account)
+st,_,last_admin=areq('PATCH',accounts_base+'/'+owner_account_id,ACC_ITEM,{'role':'member'},{**owner_mut,'If-Match':ogh['ETag']})
+assert st==409 and last_admin['code']=='last_admin',('sole admin self-demotion',st,last_admin)
+assert psql(f"SELECT role FROM household_memberships WHERE household_id='{household}' AND user_id='{owner_account_id}'")=='admin','last-admin rejection changed the owner role'
+# A real member session must be forbidden on every account route, with valid
+# Origin and a valid-looking If-Match, and must change nothing.
+member_roles_before=psql(f"SELECT user_id::text||'|'||role||'|'||version FROM household_memberships WHERE household_id='{household}' ORDER BY user_id")
+member_audit_before=psql(f"SELECT count(*) FROM household_role_changes WHERE household_id='{household}'")
+st,_,member_admin_read=areq('GET',accounts_base+'/'+owner_account_id,ACC_ITEM,headers={**member_cookie,'Origin':origin})
+assert st==403 and member_admin_read['code']=='admin_required',('member account read',st,member_admin_read)
+st,_,member_self_promote=areq('PATCH',accounts_base+'/'+member_account_id,ACC_ITEM,{'role':'admin'},{**member_cookie,'Origin':origin,'If-Match':'"1"'})
+assert st==403 and member_self_promote['code']=='admin_required',('member self-promotion',st,member_self_promote)
+st,_,member_owner_patch=areq('PATCH',accounts_base+'/'+owner_account_id,ACC_ITEM,{'role':'member'},{**member_cookie,'Origin':origin,'If-Match':'"1"'})
+assert st==403 and member_owner_patch['code']=='admin_required',('member changes owner role',st,member_owner_patch)
+assert psql(f"SELECT user_id::text||'|'||role||'|'||version FROM household_memberships WHERE household_id='{household}' ORDER BY user_id")==member_roles_before,'member account writes changed membership roles/versions'
+assert psql(f"SELECT count(*) FROM household_role_changes WHERE household_id='{household}'")==member_audit_before,'member account writes added audit rows'
 # Linked person-account descriptive association and person-only invariant smoke.
 owner_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
-assert owner_user_id==psql(f"SELECT user_id::text FROM household_memberships WHERE household_id='{household}' AND role='owner'"),'members list userId is the stored owner user id'
+assert owner_user_id==psql(f"SELECT user_id::text FROM household_memberships WHERE household_id='{household}' AND role='admin'"),'members list userId is the stored admin user id'
 linked_person_body={'name':'Linked person smoke','type':'person','linkedUserId':owner_user_id.upper()}
 st,lh,linked_person=sreq('POST',sbase,COLL,linked_person_body,{**mut,'Idempotency-Key':'setup-subject-linked-person'})
 assert st==201 and linked_person['linkedUserId']==owner_user_id,('linked subject create',st,linked_person)

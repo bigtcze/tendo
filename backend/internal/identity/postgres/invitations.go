@@ -15,7 +15,7 @@ import (
 )
 
 type InvitationHouseholdService interface {
-	RequireOwner(context.Context, string, string) error
+	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
 	HasMembershipElsewhere(context.Context, string, string) (bool, error)
 	AddInvitedMember(context.Context, string, string) error
@@ -69,8 +69,8 @@ type invitationTx struct {
 	h InvitationHouseholdService
 }
 
-func (t *invitationTx) RequireOwner(ctx context.Context, userID, householdID string) error {
-	return t.h.RequireOwner(ctx, userID, householdID)
+func (t *invitationTx) RequireAdmin(ctx context.Context, userID, householdID string) error {
+	return t.h.RequireAdmin(ctx, userID, householdID)
 }
 func (t *invitationTx) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
 	return t.h.GetMembership(ctx, userID, householdID)

@@ -7,7 +7,7 @@ import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, emptyHome, household, installFakeServer, json, session } from '../../test/fakeServer';
 const token = 'a'.repeat(43); const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const problem = (status: number, extra: Record<string, unknown> = {}) => json(status, { type: 'about:blank', title: 'x', status, ...extra });
-const member = { userId: session().userId, login: 'anna', role: 'owner' };
+const member = { userId: session().userId, login: 'anna', role: 'admin' };
 function signedInRoutes(extra: Record<string, unknown> = {}) { return { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household), ...emptyHome, [`GET ${base}/members`]: json(200, { items: [member], nextCursor: null }), ...extra }; }
 function signedOutRoutes(extra: Record<string, unknown> = {}) { return { 'GET /api/v1/session': problem(401), 'GET /api/v1/auth/setup': json(200, { required: false }), ...extra }; }
 function renderApp(strict = false) { const app = <I18nProvider><App /></I18nProvider>; return render(strict ? <StrictMode>{app}</StrictMode> : app); }

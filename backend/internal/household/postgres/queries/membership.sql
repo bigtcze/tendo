@@ -1,6 +1,11 @@
 -- name: GetMembership :one
 SELECT role FROM household_memberships WHERE user_id=$1 AND household_id=$2;
 
+-- name: LockHouseholdForMembership :one
+SELECT h.id FROM households h
+WHERE h.id=$1 AND EXISTS (SELECT 1 FROM household_memberships m WHERE m.household_id=h.id AND m.user_id=$2)
+FOR NO KEY UPDATE OF h;
+
 -- name: AddInvitedMember :exec
 INSERT INTO household_memberships(user_id, household_id, role) VALUES($1, $2, 'member');
 

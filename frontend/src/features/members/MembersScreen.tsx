@@ -24,9 +24,9 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
   const core = useMembersCore(onSignedOut, t);
   const inv = useInvitationList(householdId, core);
   const members = useMemberList(householdId, userId, onSignedOut, t, core, inv);
-  const { state, owner, notice, noticeTone, setNotice, setAttempt, noticeRef } = core;
+  const { state, admin, notice, noticeTone, setNotice, setAttempt, noticeRef } = core;
   const listErrorNotice = notice ?? t('members.error.load');
-  const listReady = state === 'ready' && (owner !== true || inv.invitationsLoaded);
+  const listReady = state === 'ready' && (admin !== true || inv.invitationsLoaded);
   const actions = useInviteActions(householdId, onSignedOut, t, core, inv, listReady);
   useMembersFocus({
     members: members.members, memberBusy: members.memberBusy, memberPageFocusRef: members.memberPageFocusRef, memberHeadingRef: members.memberHeadingRef,
@@ -46,8 +46,8 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     {state === 'ready' ? <div className="mt-4 space-y-3 sm:mt-8 sm:space-y-8">
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}
         cursor={members.memberCursor} busy={members.memberBusy} onPrevious={members.previousMembers} onNext={members.nextMembers} t={t} />
-      {owner === true ? <InvitePanel inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
-        : owner === false ? <section className="mt-4 border-t border-line pt-4 sm:mt-6 sm:pt-6" aria-labelledby="members-help-heading">
+      {admin === true ? <InvitePanel inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
+        : admin === false ? <section className="mt-4 border-t border-line pt-4 sm:mt-6 sm:pt-6" aria-labelledby="members-help-heading">
             <h2 id="members-help-heading" className="font-display text-h2">{t('members.help.title')}</h2>
             <p className="mt-2 max-w-prose text-muted">{t('members.help.body')}</p>
           </section>

@@ -14,7 +14,7 @@ Tendo is a self-hosted shared list for the things a household needs to remember,
 - Finds any item with **All items**: search titles and notes, and filter by status, by person or thing, by who is looking after it, and by whether it repeats. Search and counts cover every matching item, even in a household with thousands of items.
 - Connects each item to the person or thing it is for, such as a family member, your home, a vehicle, or a pet, and to the household member looking after it.
 - Keeps a history of completions, and lets you undo a completion you marked by mistake.
-- Lets an owner invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
+- Lets an administrator invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
 
 The interface is available in English and Czech, follows your device's light or dark appearance (or the one you choose in **Account**), and works in a web browser on phones, tablets, and computers, with a keyboard, and with browser zoom.
 

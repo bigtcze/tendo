@@ -40,7 +40,7 @@ type CreateInvitationInput struct {
 	CreatedAt, ExpiresAt              time.Time
 }
 type InvitationTransaction interface {
-	RequireOwner(context.Context, string, string) error
+	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
 	CreateInvitation(context.Context, CreateInvitationInput) (Invitation, bool, error)
 	ListInvitations(context.Context, string, string, int) ([]Invitation, string, error)

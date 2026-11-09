@@ -18,7 +18,7 @@ import (
 //go:embed *.sql
 var migrations embed.FS
 
-const currentVersion int64 = 16
+const currentVersion int64 = 17
 const advisoryLock int64 = 784193214
 
 type migrationConn interface {
@@ -109,6 +109,36 @@ func migrationForEntry(source fs.FS, entry fs.DirEntry, version int64) (migratio
 		return migrationStep{}, errors.New("invalid migration")
 	}
 	return migrationStep{version: version, up: strings.ReplaceAll(up, "-- +goose Up", "")}, nil
+}
+
+// MigrationDownSQL returns the SQL body of the embedded migration's
+// "+goose Down" section for the given version. Down sections are not applied
+// by Migrate; tests and upgrade fixtures use this to exercise the real
+// reversal SQL instead of a hand-copied equivalent.
+func MigrationDownSQL(version int64) (string, error) {
+	entries, err := migrations.ReadDir(".")
+	if err != nil {
+		return "", errors.New("migration files unavailable")
+	}
+	for _, entry := range entries {
+		candidate, err := migrationVersion(entry)
+		if err != nil {
+			return "", err
+		}
+		if candidate != version {
+			continue
+		}
+		raw, err := fs.ReadFile(migrations, entry.Name())
+		if err != nil {
+			return "", errors.New("migration file unavailable")
+		}
+		_, down, ok := strings.Cut(string(raw), "-- +goose Down")
+		if !ok {
+			return "", errors.New("invalid migration")
+		}
+		return strings.TrimSpace(down), nil
+	}
+	return "", fmt.Errorf("migration version %d not found", version)
 }
 
 func applyMigration(ctx context.Context, conn *pgxpool.Conn, step migrationStep) error {

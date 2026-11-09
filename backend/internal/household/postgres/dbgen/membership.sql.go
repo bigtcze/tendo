@@ -110,3 +110,21 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 	}
 	return items, nil
 }
+
+const lockHouseholdForMembership = `-- name: LockHouseholdForMembership :one
+SELECT h.id FROM households h
+WHERE h.id=$1 AND EXISTS (SELECT 1 FROM household_memberships m WHERE m.household_id=h.id AND m.user_id=$2)
+FOR NO KEY UPDATE OF h
+`
+
+type LockHouseholdForMembershipParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) LockHouseholdForMembership(ctx context.Context, arg LockHouseholdForMembershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockHouseholdForMembership, arg.ID, arg.UserID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}

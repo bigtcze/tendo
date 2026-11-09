@@ -42,7 +42,7 @@ func TestMemberKeysetWalkPostgres(t *testing.T) {
 	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, prefix+"_owner").Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, owner, hid); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, owner, hid); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := admin.Exec(ctx, `INSERT INTO user_accounts(login) SELECT $1||'_'||n FROM generate_series(1,1007)n`, prefix); err != nil {

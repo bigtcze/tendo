@@ -55,7 +55,7 @@ The app logs `database schema validation failed` when it cannot use the database
 | --- | --- |
 | "First-time setup is closed." | `TENDO_SETUP_TOKEN` is empty. Set only that value, for example `sed -i "s\|^TENDO_SETUP_TOKEN=.*\|TENDO_SETUP_TOKEN=$(openssl rand -base64 32)\|" .env`. Do not generate new database passwords. Then run `docker compose up -d --force-recreate --wait app`; a restart alone does not read `.env`. |
 | "That setup code isn’t right." | Show the code again with `grep '^TENDO_SETUP_TOKEN=' .env \| cut -d= -f2-` and paste all of it, including the final `=`. If you edited `.env` after starting, recreate the app as above. |
-| The sign-in screen appears instead of setup | Setup already ran. Sign in with the owner account. Setup cannot run a second time on the same database. |
+| The sign-in screen appears instead of setup | Setup already ran. Sign in with the administrator account. Setup cannot run a second time on the same database. |
 | "Too many attempts. Try again in a moment." | Wait one minute and try again. |
 
 ## Sign-in problems
@@ -66,7 +66,7 @@ The app logs `database schema validation failed` when it cannot use the database
 | "There have been too many sign-in attempts." | Sign-in allows 10 attempts per minute from one address. Wait one minute. |
 | You are signed out after some weeks | Sessions last 30 days and then end. Sign in again. |
 | Sign-in works on `http://localhost` but not through your domain | `TENDO_PUBLIC_URL` must be the HTTPS address of your domain. With an `https://` address the session cookie is marked `Secure` and is sent only over HTTPS. |
-| "Your account isn’t part of a household yet." | The account exists but has no household. Ask an owner for an invite link; see [household members](../user/household-members.md). |
+| "Your account isn’t part of a household yet." | The account exists but has no household. Ask an administrator for an invite link; see [household members](../user/household-members.md). |
 
 For problems with **Sign in with …**, see the [OIDC troubleshooting table](oidc.md#troubleshooting).
 

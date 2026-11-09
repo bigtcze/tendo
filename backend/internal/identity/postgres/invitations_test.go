@@ -97,7 +97,7 @@ func invitationFixture(t *testing.T, ctx context.Context, admin *pgxpool.Pool) (
 	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES($1,'UTC') RETURNING id::text`, fmt.Sprintf("Invitation %d", time.Now().UnixNano())).Scan(&house); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, owner, house); e != nil {
+	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, owner, house); e != nil {
 		t.Fatal(e)
 	}
 	return owner, house
@@ -421,7 +421,7 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('second household same owner','UTC') RETURNING id::text`).Scan(&other); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, owner, other); e != nil {
+	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, owner, other); e != nil {
 		t.Fatal(e)
 	}
 	if e := svc.RevokeInvitation(ctx, owner, other, ids[0]); !errors.Is(e, household.ErrNotFound) {
@@ -453,7 +453,7 @@ func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 	if err = admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("invitation_isolation_outsider_%d", time.Now().UnixNano())).Scan(&outsider); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member'),($3::uuid,$2::uuid,'owner'),($4::uuid,$5::uuid,'owner')`, member, house, outsider, owner, foreignHouse); err != nil {
+	if _, err = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member'),($3::uuid,$2::uuid,'admin'),($4::uuid,$5::uuid,'admin')`, member, house, outsider, owner, foreignHouse); err != nil {
 		t.Fatal(err)
 	}
 	foreignCreated, err := service.CreateInvitation(ctx, owner, foreignHouse, fmt.Sprintf("foreign-house-seed-%d", time.Now().UnixNano()))
@@ -476,7 +476,7 @@ func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 		_, createErr := service.CreateInvitation(ctx, member, house, "member-denied")
 		return createErr
 	}}, {"member revoke", func() error { return service.RevokeInvitation(ctx, member, house, created.Invitation.ID) }}} {
-		if err = op.run(); !errors.Is(err, household.ErrForbidden) {
+		if err = op.run(); !errors.Is(err, household.ErrAdminRequired) {
 			t.Fatalf("%s error=%v", op.name, err)
 		}
 	}
@@ -540,13 +540,13 @@ func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.
 	if e = admin.QueryRow(ctx, `SELECT count(*) FROM household_invitations`).Scan(&before); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = svc.CreateInvitation(ctx, member, house, "denied"); !errors.Is(e, household.ErrForbidden) {
+	if _, e = svc.CreateInvitation(ctx, member, house, "denied"); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member create=%v", e)
 	}
-	if _, _, e = svc.ListInvitations(ctx, member, house, 10, ""); !errors.Is(e, household.ErrForbidden) {
+	if _, _, e = svc.ListInvitations(ctx, member, house, 10, ""); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member list=%v", e)
 	}
-	if e = svc.RevokeInvitation(ctx, member, house, inv.Invitation.ID); !errors.Is(e, household.ErrForbidden) {
+	if e = svc.RevokeInvitation(ctx, member, house, inv.Invitation.ID); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member revoke=%v", e)
 	}
 	if _, e = svc.CreateInvitation(ctx, nonmember, house, "nonmember"); !errors.Is(e, household.ErrNotFound) {

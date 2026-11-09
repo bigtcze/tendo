@@ -11,7 +11,7 @@ import { Dialog } from '../../components/ui/dialog';
 import { initialDraft } from './itemFormModel';
 
 const subjects: Subject[] = [{ id: 's-1', name: 'Kitchen', type: 'person', linkedUserId: null, archived: false, createdAt: '', updatedAt: '' }];
-const members: Member[] = [{ userId: 'u-1', login: 'anna', role: 'owner' }];
+const members: Member[] = [{ userId: 'u-1', login: 'anna', role: 'admin' }];
 const values: ItemFormValues = { title: 'Clean kitchen', subjectId: 's-1', attentionOn: '2026-05-06', notes: '', recurrence: null, responsibleUserId: null };
 const renderForm = (props: Partial<React.ComponentProps<typeof ItemForm>> = {}) => render(<I18nProvider><ItemForm subjects={subjects} members={members} onSubmit={vi.fn(async () => ({ kind: 'done' as const }))} onCancel={vi.fn()} {...props} /></I18nProvider>);
 const title = () => screen.getByLabelText('What needs doing?');

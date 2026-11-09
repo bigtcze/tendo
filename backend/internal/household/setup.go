@@ -18,7 +18,7 @@ type Bootstrap struct {
 }
 type BootstrapRepository interface {
 	CreateBootstrapHousehold(context.Context, Bootstrap) (string, error)
-	AddOwner(context.Context, string, string) error
+	AddAdmin(context.Context, string, string) error
 }
 type BootstrapService struct{ repository BootstrapRepository }
 
@@ -35,7 +35,7 @@ func (s *BootstrapService) CreateOwnerHousehold(ctx context.Context, input Boots
 	if err != nil {
 		return "", err
 	}
-	if err = s.repository.AddOwner(ctx, userID, id); err != nil {
+	if err = s.repository.AddAdmin(ctx, userID, id); err != nil {
 		return "", err
 	}
 	return id, nil

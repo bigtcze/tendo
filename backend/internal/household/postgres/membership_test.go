@@ -51,7 +51,7 @@ func TestMembershipServiceAgainstPostgres(t *testing.T) {
 		role := "member"
 		if i == 0 {
 			owner = uid
-			role = "owner"
+			role = "admin"
 		}
 		if _, e = admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,$3)`, uid, hid, role); e != nil {
 			t.Fatal(e)

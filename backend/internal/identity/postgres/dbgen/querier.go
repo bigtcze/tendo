@@ -39,6 +39,7 @@ type Querier interface {
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
+	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

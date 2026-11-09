@@ -52,8 +52,8 @@ func (t *invitationRecordingTx) fail(name string) error {
 	}
 	return t.repo.writeErr["*"]
 }
-func (t *invitationRecordingTx) RequireOwner(context.Context, string, string) error {
-	t.repo.record("owner")
+func (t *invitationRecordingTx) RequireAdmin(context.Context, string, string) error {
+	t.repo.record("admin")
 	return t.repo.requireErr
 }
 func (t *invitationRecordingTx) GetMembership(context.Context, string, string) (string, error) {
@@ -294,7 +294,7 @@ func TestAcceptInvitationExistingAccountOrderedEffects(t *testing.T) {
 func TestAlreadyMemberPrecedesDefaultAndOtherHouseholdConflict(t *testing.T) {
 	repo := &invitationRecordingRepo{
 		invitationFake: invitationFake{inv: recordedInvitation()},
-		membershipRole: household.RoleOwner, defaultHousehold: "another-house", other: true, writeErr: map[string]error{},
+		membershipRole: household.RoleAdmin, defaultHousehold: "another-house", other: true, writeErr: map[string]error{},
 	}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
 	_, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
@@ -324,7 +324,7 @@ func TestInvitationListUsesBoundedLookaheadAndOwnerAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "owner", "list"})
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "admin", "list"})
 	if repo.listLimit != 101 || repo.listHousehold != testHouse || repo.listCursor != "" || len(items) != 1 || next != "" || items[0].Status != "pending" {
 		t.Fatalf("limit=%d items=%+v next=%q", repo.listLimit, items, next)
 	}
@@ -348,7 +348,7 @@ func TestRevokeRequiresOwnerBeforeWriteAndUsesSecondPrecision(t *testing.T) {
 	if !errors.Is(err, cause) {
 		t.Fatalf("error=%v", err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "owner"})
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "admin"})
 }
 
 func TestCreateChecksOwnerBeforePersisting(t *testing.T) {
@@ -359,7 +359,7 @@ func TestCreateChecksOwnerBeforePersisting(t *testing.T) {
 	if !errors.Is(err, cause) {
 		t.Fatalf("error=%v", err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "owner"})
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "admin"})
 }
 
 func TestNewAccountMalformedTokenPrecedesCancelledContext(t *testing.T) {

@@ -141,3 +141,36 @@ func (q *Queries) MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]M
 	}
 	return items, nil
 }
+
+const signInMethodsByUserIDs = `-- name: SignInMethodsByUserIDs :many
+SELECT u.id::text AS user_id,
+  EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id) AS password,
+  EXISTS(SELECT 1 FROM oidc_identities i WHERE i.user_id=u.id) AS oidc
+FROM user_accounts u WHERE u.id = ANY($1::uuid[])
+`
+
+type SignInMethodsByUserIDsRow struct {
+	UserID   string
+	Password bool
+	Oidc     bool
+}
+
+func (q *Queries) SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error) {
+	rows, err := q.db.Query(ctx, signInMethodsByUserIDs, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SignInMethodsByUserIDsRow{}
+	for rows.Next() {
+		var i SignInMethodsByUserIDsRow
+		if err := rows.Scan(&i.UserID, &i.Password, &i.Oidc); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

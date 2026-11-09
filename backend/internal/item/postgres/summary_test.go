@@ -59,7 +59,7 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 	if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','other subject') RETURNING id::text`, other).Scan(&otherS); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner'),($1::uuid,$3::uuid,'owner'),($4::uuid,$2::uuid,'member')`, user, h, other, member); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin'),($1::uuid,$3::uuid,'admin'),($4::uuid,$2::uuid,'member')`, user, h, other, member); err != nil {
 		t.Fatal(err)
 	}
 	today := mustTestDate(2026, time.March, 1)
@@ -477,7 +477,7 @@ func TestSummarizeItemsExplainAtScale(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'owner')`, user, h)
+	_, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, user, h)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,12 @@ FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1
 -- name: MemberLogins :many
 SELECT id::text AS user_id, login FROM user_accounts WHERE id = ANY($1::uuid[]);
 
+-- name: SignInMethodsByUserIDs :many
+SELECT u.id::text AS user_id,
+  EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id) AS password,
+  EXISTS(SELECT 1 FROM oidc_identities i WHERE i.user_id=u.id) AS oidc
+FROM user_accounts u WHERE u.id = ANY($1::uuid[]);
+
 -- name: DeleteExpiredSessions :exec
 DELETE FROM user_sessions WHERE user_id=$1 AND expires_at <= $2;
 
