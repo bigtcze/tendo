@@ -1,4 +1,5 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type Page } from '@playwright/test';
+import type { components } from '../../../api/generated/api';
 import { en } from '../../src/i18n/en';
 
 export const BASE_URL = process.env.E2E_BASE_URL;
@@ -62,3 +63,23 @@ export async function seed(page: Page, identity: Awaited<ReturnType<typeof first
 }
 
 export const ownerPassword = OWNER_PASSWORD;
+
+// TENDO_TEST_CLOCK_NOW fixes item business dates only; invitation timestamps come from the server's real clock,
+// so the rendered "Created … · Expires …" line would change every day. Pin those fields in invitation list
+// responses to the fixed visual instant (lifetime 7 days, as on the server); everything else stays the real response.
+const INVITATION_CREATED_AT = '2026-05-14T08:00:00Z';
+const INVITATION_EXPIRES_AT = '2026-05-21T08:00:00Z';
+
+export async function pinInvitationDates(context: BrowserContext) {
+  await context.route((url) => /^\/api\/v1\/households\/[^/]+\/invitations$/.test(url.pathname), async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    if (response.status() !== 200) return route.fulfill({ response });
+    const page = await response.json() as components['schemas']['InvitationList'];
+    const items = page.items.map((invitation) => ({
+      ...invitation, createdAt: INVITATION_CREATED_AT, expiresAt: INVITATION_EXPIRES_AT,
+      acceptedAt: invitation.acceptedAt && INVITATION_CREATED_AT, revokedAt: invitation.revokedAt && INVITATION_CREATED_AT,
+    }));
+    await route.fulfill({ response, json: { ...page, items } });
+  });
+}
