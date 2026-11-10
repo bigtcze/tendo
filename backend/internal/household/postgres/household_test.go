@@ -84,7 +84,7 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.ID != homeA || got.Name != "Alice Home" || got.Timezone != "Europe/Prague" || got.Version != 1 {
+		if got.ID != homeA || got.Name != "Alice Home" || got.Timezone != "Europe/Prague" || got.Version != 1 || got.ViewerRole != household.RoleAdmin {
 			t.Fatalf("got=%+v", got)
 		}
 		if got.CreatedAt.Location() != time.UTC || time.Since(got.CreatedAt) > time.Minute || got.CreatedAt.IsZero() {
@@ -144,9 +144,10 @@ func TestFindForMemberAgainstPostgres(t *testing.T) {
 	t.Run("multi-household member reads both with any role", func(t *testing.T) {
 		join(carol, homeA, "member")
 		join(carol, homeB, "admin")
-		for id, name := range map[string]string{homeA: "Alice Home", homeB: "Bob 家"} {
+		// viewerRole is the caller's own membership row, not another member's role.
+		for id, want := range map[string]struct{ name, role string }{homeA: {"Alice Home", household.RoleMember}, homeB: {"Bob 家", household.RoleAdmin}} {
 			got, err := repo.FindForMember(ctx, carol, id)
-			if err != nil || got.Name != name || got.ID != id {
+			if err != nil || got.Name != want.name || got.ID != id || got.ViewerRole != want.role {
 				t.Fatalf("household %s: got=%+v err=%v", id, got, err)
 			}
 		}

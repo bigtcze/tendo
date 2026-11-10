@@ -1,7 +1,7 @@
 import type { MouseEvent, RefObject } from 'react';
 import type { Translate } from '../../i18n';
 import type { Member } from './membersApi';
-import { MembersPager } from './MembersPager';
+import { CursorPager } from '../../components/ui/cursor-pager';
 
 function initialOf(login: string): string {
   return login.trim().charAt(0).toLocaleUpperCase() || '?';
@@ -30,7 +30,7 @@ export function MemberListSection({ members, userId, headingRef, stack, cursor, 
       </li>))}</ul>
     <p className="mt-3 max-w-prose text-small text-muted">{t('members.roles.explained')}</p>
     {stack.length > 0 || cursor
-      ? <MembersPager kind="member" stack={stack} cursor={cursor} busy={busy} onPrevious={onPrevious} onNext={onNext} t={t} />
+      ? <CursorPager kind="member" stack={stack} cursor={cursor} busy={busy} onPrevious={onPrevious} onNext={onNext} t={t} />
       : null}
   </section>;
 }

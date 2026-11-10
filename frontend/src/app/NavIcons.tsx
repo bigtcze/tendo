@@ -21,6 +21,8 @@ const paths: Record<Exclude<HouseholdRoute, 'item'>, ReactNode> = {
   </>,
   members: <><path d="M3 20V9.5L12 4l9 5.5V20" /><circle cx="12" cy="11.5" r="2.5" /><path d="M7.5 20c.5-2.8 2.2-4.2 4.5-4.2s4 1.4 4.5 4.2" /></>,
   account: <><circle cx="12" cy="8" r="4" /><path d="M4 20.5c.8-4 4-6.2 8-6.2s7.2 2.2 8 6.2" /></>,
+  // Admin center: a shield with a keyhole, so it reads as household administration rather than another person.
+  admin: <><path d="M12 3.2 5 5.9v5.5c0 4.2 2.8 7.8 7 9.2 4.2-1.4 7-5 7-9.2V5.9L12 3.2Z" /><circle cx="12" cy="10.4" r="1.7" /><path d="M12 12.1v3.5" /></>,
 };
 
 export function NavIcon({ route }: { route: Exclude<HouseholdRoute, 'item'> }) {

@@ -386,7 +386,7 @@ export interface paths {
         };
         /**
          * Read a household
-         * @description Returns the household only when the authenticated user has a membership in it, with any role. The path identifier is authorization context and is validated against membership on every request. A malformed identifier, a nonexistent household, and a household the caller does not belong to all return the same 404 response. The defaultHouseholdId from the session is a navigation hint and grants no access. The ETag is the strong, quoted decimal resource version.
+         * @description Returns the household only when the authenticated user has a membership in it, with any role. The path identifier is authorization context and is validated against membership on every request. A malformed identifier, a nonexistent household, and a household the caller does not belong to all return the same 404 response. The defaultHouseholdId from the session is a navigation hint and grants no access. viewerRole is the caller's current membership role, read in the same query; it is a presentation hint for navigation (for example the admin-only Admin center entry) and grants nothing, since every admin operation re-authorizes on the server. The ETag is the strong, quoted decimal resource version.
          */
         get: operations["getHousehold"];
         put?: never;
@@ -708,6 +708,8 @@ export interface components {
             timezone: string;
             /** Format: date-time */
             createdAt: string;
+            /** @description The caller's membership role in this household. A navigation hint only; admin operations always re-authorize. */
+            viewerRole: components["schemas"]["MemberRole"];
         };
         EmptyObject: Record<string, never>;
         /** @enum {string} */
@@ -5565,7 +5567,8 @@ export interface operations {
                      *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
                      *       "name": "Veselí",
                      *       "timezone": "Europe/Prague",
-                     *       "createdAt": "2026-10-06T10:00:00Z"
+                     *       "createdAt": "2026-10-06T10:00:00Z",
+                     *       "viewerRole": "admin"
                      *     }
                      */
                     "application/json": components["schemas"]["Household"];

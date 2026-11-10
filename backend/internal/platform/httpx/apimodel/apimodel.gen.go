@@ -996,6 +996,9 @@ type Household struct {
 
 	// Timezone Named IANA timezone.
 	Timezone string `json:"timezone"`
+
+	// ViewerRole The caller's membership role in this household. A navigation hint only; admin operations always re-authorize.
+	ViewerRole MemberRole `json:"viewerRole"`
 }
 
 // Invitation defines model for Invitation.

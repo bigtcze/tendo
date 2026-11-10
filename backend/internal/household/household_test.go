@@ -63,7 +63,7 @@ func TestGetRejectsMalformedUserWithoutRepositoryCall(t *testing.T) {
 }
 
 func TestGetAcceptsUppercaseUUID(t *testing.T) {
-	repo := &fakeRepository{result: Household{ID: validHousehold}}
+	repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: RoleMember}}
 	upper := "0198A2F0-7C1E-7A53-9B0E-5D3F2C1A4B61"
 	if _, err := NewService(repo).Get(context.Background(), validUser, upper); err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestGetMapsInfrastructureErrorsToGenericError(t *testing.T) {
 }
 
 func TestGetReturnsRepositoryDataWithBoundedContext(t *testing.T) {
-	want := Household{ID: validHousehold, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 7}
+	want := Household{ID: validHousehold, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 7, ViewerRole: RoleAdmin}
 	repo := &fakeRepository{result: want}
 	got, err := NewService(repo).Get(context.Background(), validUser, validHousehold)
 	if err != nil || got != want {
@@ -104,5 +104,15 @@ func TestGetReturnsRepositoryDataWithBoundedContext(t *testing.T) {
 	}
 	if !repo.hasTimeout {
 		t.Fatal("repository context has no deadline")
+	}
+}
+
+func TestGetFailsClosedOnUnknownViewerRole(t *testing.T) {
+	for _, role := range []string{"", "owner", "superuser"} {
+		repo := &fakeRepository{result: Household{ID: validHousehold, ViewerRole: role}}
+		got, err := NewService(repo).Get(context.Background(), validUser, validHousehold)
+		if err == nil || errors.Is(err, ErrNotFound) || got != (Household{}) {
+			t.Fatalf("role %q: got=%+v err=%v, want unavailable", role, got, err)
+		}
 	}
 }

@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
-import { api, BASE_URL, firstRun, HOUSEHOLD, ownerPassword, pinInvitationDates, seed, type Fixture } from './fixtures';
+import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinInvitationDates, seed, type Fixture } from './fixtures';
 import { captureLargeDataset } from './largeData';
-import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
+import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
 
 test.describe.configure({ mode: 'serial' });
 // Browser time zone feeds the onboarding default and date rendering; pin it so baselines match on UTC CI runners.
@@ -170,6 +170,8 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     } else if (path === '/items') {
       await expect(page.locator('main li[data-item-id]').first()).toBeVisible();
       await waitForAllItemsSummary(page);
+    } else if (path === '/admin') {
+      await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
     } else {
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     }
@@ -180,6 +182,7 @@ async function darkScreen(browser: Browser, storageState: string | undefined, pa
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expect(page.locator('main')).toBeVisible();
     if (name === 'home-add') await openAdd(page, en['items.add']);
+    else if (path === '/admin') await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
     else await expect(page.locator('main li[data-item-id] a[aria-label]')).toHaveText(rows);
     if (path === '/items') await waitForAllItemsSummary(page);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -455,6 +458,53 @@ test('Members owner and non-owner', async ({ browser }) => {
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
   await expect(memberPage.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
   await memberPage.goto('/members'); await captureScreen(memberPage, 'members-non-owner', true);
+  await memberContext.close();
+});
+
+test('Admin center and the member refusal', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { context, page } = await authenticated(browser);
+  await page.goto('/admin');
+  await expect(page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+  const accounts = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] });
+  // The named fixtures are what this capture is about; another seeded member must not invalidate it.
+  const ownerAccountRow = accounts.getByRole('listitem').filter({ hasText: OWNER_LOGIN });
+  const referenceAccountRow = accounts.getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN });
+  const visualMemberAccountRow = accounts.getByRole('listitem').filter({ hasText: 'visual_member' });
+  await expect(ownerAccountRow).toBeVisible();
+  await expect(ownerAccountRow).toContainText(en['members.you']);
+  await expect(referenceAccountRow).toContainText(en['members.role.member']);
+  await expect(visualMemberAccountRow).toContainText(en['members.role.member']);
+  expect(await accounts.getByRole('listitem').count()).toBeGreaterThanOrEqual(3);
+  await darkScreen(browser, statePath, '/admin', 'admin');
+
+  // Czech phone width after the shared dark pass restored the light theme.
+  await page.goto('/admin');
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: cs['admin.title'] })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('list', { name: cs['admin.list.title'] })).toBeVisible();
+  await capture(page, 'admin-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await context.close();
+
+  // A plain member who opens the address directly: the server refuses and no account is listed.
+  const memberContext = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
+  const memberPage = await memberContext.newPage();
+  await memberPage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
+  await memberPage.goto('/login');
+  await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('visual_member');
+  await memberPage.getByLabel(en['login.password'], { exact: true }).fill(`${ownerPassword}-member`);
+  await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+  await expect(memberPage.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await memberPage.goto('/admin');
+  await expect(memberPage.getByRole('heading', { name: en['admin.onlyAdmins.title'] })).toBeVisible();
+  await expect(memberPage.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);
+  await expect(memberPage.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['admin.title'], exact: true })).toBeHidden();
+  await capture(memberPage, 'admin-member-390', 390, 900, true);
+  await memberPage.setViewportSize({ width: 1440, height: 900 });
+  await capture(memberPage, 'admin-member-1440', 1440, 900, false);
   await memberContext.close();
 });
 

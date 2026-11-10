@@ -26,6 +26,19 @@ If the link could not be shown, for example because the connection dropped, sele
 
 Members cannot create, see, or revoke invitations.
 
+## Admin center
+
+Administrators have an **Admin center** in addition to the member list. On a computer it is the last entry in the sidebar. On any screen size you can also open **Account** and choose **Open Admin center**; on a phone or tablet this is the way in, because the bottom bar keeps its five household destinations.
+
+The Admin center lists everyone in the household with their login, whether they are an administrator or a member, and how they sign in (password, single sign-on, or both). Long lists page 50 accounts at a time.
+
+- **Make administrator** gives that person the same abilities you have: inviting people, managing invitations and changing roles.
+- **Make member** takes those abilities away. The person keeps using the household and its items.
+
+Tendo asks for confirmation before a change and names the person and what will change. A household must always keep at least one administrator, so the last administrator cannot be demoted; Tendo explains this and changes nothing. If you demote yourself while someone else is an administrator, you become a member straight away and the Admin center disappears from your navigation.
+
+Members never see the Admin center, and opening its address directly shows a short explanation instead of the account list. Only administrators can change roles; Tendo checks this on the server for every request.
+
 ## Accept an invitation
 
 Open the link you were sent.

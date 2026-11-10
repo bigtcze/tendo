@@ -166,6 +166,11 @@ def verify():
     for page in expected.get('members',[]):
         for item in page['body']['items']:
             if item.get('role')=='owner': item['role']='admin'
+    # V4-07 adds the caller's viewerRole to the household body without a version bump;
+    # the snapshot is read with the upgraded owner's session, so only that field may appear.
+    if 'household' in expected:
+        assert 'viewerRole' not in expected['household']['body'],('source release already exposed viewerRole',expected['household'])
+        expected['household']['body']['viewerRole']='admin'
     def flatten(groups):
         return [item for page in groups for item in page['body']['items']]
     active_key='subjects archived=false'

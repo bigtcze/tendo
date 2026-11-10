@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 import { ItemsScreen } from './ItemsScreen';
 import { HomeScreen } from '../home/HomeScreen';
+import { HouseholdDataProvider } from '../../app/HouseholdData';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Item, Subject } from './itemsApi';
@@ -258,7 +259,7 @@ describe('item creation', () => {
     const baseB = '/api/v1/households/household-b';
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), ...itemRoutes(baseB, [item({ id: 'b-1', title: 'Household B row' })]), [subjectList]: (request) => request.query.has('id') ? json(200, { items: [subject], nextCursor: null }) : deferred, [memberList]: memberPage(), [`GET ${baseB}`]: json(200, householdB), [`GET ${baseB}/subjects`]: json(200, { items: [], nextCursor: null }), [`GET ${baseB}/members`]: memberPage() });
     const signedOut = vi.fn();
-    const home = (householdId: string) => <I18nProvider><HomeScreen session={{ ...session(), defaultHouseholdId: householdId }} onSignedOut={signedOut} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} /></I18nProvider>;
+    const home = (householdId: string) => <I18nProvider><HouseholdDataProvider householdId={householdId} onSignedOut={signedOut}><HomeScreen session={{ ...session(), defaultHouseholdId: householdId }} onSignedOut={signedOut} onOpenPeople={() => {}} onOpenItem={() => {}} onOpenAllItems={() => {}} /></HouseholdDataProvider></I18nProvider>;
     const view = render(home(HOUSEHOLD_ID));
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`).filter((request) => !request.query.has('id'))).toHaveLength(1));

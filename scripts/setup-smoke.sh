@@ -133,7 +133,7 @@ cookie_header={'Cookie':f'tendo_session={token}'}
 def hreq(hid,headers=None,record=True):
  return call('GET','/api/v1/households/'+hid,template='/api/v1/households/{householdId}',headers=headers,sink=fixtures if record else None)[:3]
 status,h,hb=hreq(household,cookie_header)
-assert status==200 and set(hb)=={'id','name','timezone','createdAt'} and hb['id']==household and hb['name']=='Veselí 家族' and hb['timezone']=='Europe/Prague' and hb['createdAt'].endswith('Z'),('get household',status,hb)
+assert status==200 and set(hb)=={'id','name','timezone','createdAt','viewerRole'} and hb['viewerRole']=='admin' and hb['id']==household and hb['name']=='Veselí 家族' and hb['timezone']=='Europe/Prague' and hb['createdAt'].endswith('Z'),('get household',status,hb)
 assert h['ETag']=='"1"' and h['Cache-Control']=='no-store' and h['Content-Type'].startswith('application/json'),dict(h)
 assert psql(f"SELECT to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') FROM households WHERE id='{household}'")==hb['createdAt'].rstrip('Z').split('.')[0],('createdAt mismatch',hb)
 status,h,b_anon=hreq(household);assert status==401 and b_anon['code']=='unauthenticated' and 'Set-Cookie' not in h,('household without cookie',status,b_anon)
@@ -504,6 +504,7 @@ assert st==200 and {(m['login'],m['role']) for m in owner_members['items']}=={('
 st,_,joined_members,_=xreq('GET',f'/api/v1/households/{household}/members',MEMBERS,headers=member_cookie)
 assert st==200 and {(m['login'],m['role']) for m in joined_members['items']}=={('owner_smoke','admin'),('member_smoke','member')},('member member list',st,joined_members)
 assert psql(f"SELECT m.role||'|'||(u.default_household_id=m.household_id)::text FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id WHERE u.login='member_smoke' AND m.household_id='{household}'")=='member|true','membership/default household persistence'
+status,_,member_hb=hreq(household,member_cookie,record=False);assert status==200 and member_hb['viewerRole']=='member' and member_hb['id']==household,('member household viewerRole',status,member_hb)
 # Admin account directory and role management: directory reads, optimistic concurrency, audit and last-admin guard.
 ACC='/api/v1/households/{householdId}/accounts'
 ACC_ITEM='/api/v1/households/{householdId}/accounts/{userId}'

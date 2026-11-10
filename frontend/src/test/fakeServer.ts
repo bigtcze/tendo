@@ -69,6 +69,10 @@ export const household: components['schemas']['Household'] = {
   name: 'Veselí',
   timezone: 'Europe/Prague',
   createdAt: '2026-01-01T00:00:00Z',
+  viewerRole: 'admin',
 };
+
+/** The same household seen by a plain member: the navigation then offers no Admin center. */
+export const memberHousehold: components['schemas']['Household'] = { ...household, viewerRole: 'member' };
 
 export const setupStatus = (required: boolean): components['schemas']['SetupStatus'] => ({ required });
