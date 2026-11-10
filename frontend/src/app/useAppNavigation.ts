@@ -10,10 +10,16 @@ type Options = {
   transitionedRef: RefObject<boolean>;
   setAllItemsVisit: Dispatch<SetStateAction<number>>;
   setOidcOutcome: (outcome: null) => void;
+  clearHomeNotice: () => void;
   state: BootState;
 };
 
-export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, state }: Options) {
+export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, clearHomeNotice, state }: Options) {
+  // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
+  const clearTransient = useCallback(() => {
+    setOidcOutcome(null);
+    clearHomeNotice();
+  }, [clearHomeNotice, setOidcOutcome]);
   const openAllItems = useCallback((subjectId?: string) => {
     transitionedRef.current = true;
     const query = subjectId ? `?subject=${encodeURIComponent(subjectId)}` : '';
@@ -34,10 +40,10 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   }, [setRoute, transitionedRef]);
   const openAccount = useCallback(() => {
     transitionedRef.current = true;
-    setOidcOutcome(null);
+    clearTransient();
     window.history.pushState(null, '', '/account');
     setRoute({ kind: 'account' });
-  }, [setOidcOutcome, setRoute, transitionedRef]);
+  }, [clearTransient, setRoute, transitionedRef]);
   const openMembers = useCallback(() => {
     transitionedRef.current = true;
     window.history.pushState(null, '', '/members');
@@ -45,10 +51,10 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   }, [setRoute, transitionedRef]);
   const goHome = useCallback(() => {
     transitionedRef.current = true;
-    setOidcOutcome(null);
+    clearTransient();
     window.history.pushState(null, '', '/');
     setRoute({ kind: 'home' });
-  }, [setOidcOutcome, setRoute, transitionedRef]);
+  }, [clearTransient, setRoute, transitionedRef]);
   const goBackFromItem = useCallback(() => {
     const returnTo = window.history.state?.returnTo;
     if (typeof returnTo === 'string' && returnTo.startsWith('/items')) {
@@ -73,23 +79,21 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   useEffect(() => {
     const onPop = () => {
       transitionedRef.current = true;
-      setOidcOutcome(null);
+      clearTransient();
       setRoute(readRoute());
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [setRoute, setOidcOutcome, transitionedRef]);
-  // /people without a household has nothing to show; keep the address bar honest and land on home.
+  }, [clearTransient, setRoute, transitionedRef]);
+  // /people without a household has nothing to show, and /login is only a landing path for sign-in
+  // results; in both cases the address bar is corrected to the destination the screen really shows.
   const noHouseholdOnPeople =
     state.kind === 'signedIn' && route.kind === 'people' && !state.session.defaultHouseholdId;
-  useEffect(() => {
-    if (noHouseholdOnPeople) window.history.replaceState(null, '', '/');
-  }, [noHouseholdOnPeople]);
-  // /login is only a landing path for sign-in results; a signed-in visitor belongs on home.
   const signedInOnLogin = state.kind === 'signedIn' && route.kind === 'login';
   useEffect(() => {
+    if (noHouseholdOnPeople) window.history.replaceState(null, '', '/');
     if (signedInOnLogin) window.history.replaceState(null, '', '/');
-  }, [signedInOnLogin]);
+  }, [noHouseholdOnPeople, signedInOnLogin]);
 
   return { openAllItems, openAllItemsForStatus, openPeople, openAccount, openMembers,
     goHome, goBackFromItem, openItemFromAllItems, openItemFromHome };

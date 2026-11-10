@@ -1487,7 +1487,7 @@ test.describe('Tendo production journey', () => {
     } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
   });
 
-  test('n9. the owner connects the test identity provider from Account, then signs in with it; refusals are calm', async () => {
+  test('n9. the owner connects the test identity provider from Account, then signs in with it; first logins choose an account', async ({ browser }) => {
     const provider = 'OIDC Smoke Provider';
     await page.goto('/');
     await page.getByRole('link', { name: en['home.account'], exact: true }).click();
@@ -1522,16 +1522,10 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     const oidcButton = page.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider) });
 
-    // An identity nobody connected is refused without creating anything.
+    // An identity nobody connected is not refused any more: it lands on the first-login choice.
     const issuer = process.env.E2E_OIDC_ISSUER;
     if (!issuer) throw new Error('E2E_OIDC_ISSUER is required; run scripts/e2e-smoke.sh');
     const authorize = `${issuer}/authorize**`;
-    await page.route(authorize, (route) => route.continue({ url: `${route.request().url()}&sub=unknown-subject` }));
-    await oidcButton.click();
-    await expect(page.getByText(en['oidc.error.identity_not_linked'])).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe('/login');
-    expect(new URL(page.url()).hash).toBe('');
-    await page.unroute(authorize);
 
     // Cancelling at the provider returns to the login screen with a calm notice.
     await page.route(authorize, (route) => route.continue({ url: `${route.request().url()}&deny=1` }));
@@ -1547,6 +1541,74 @@ test.describe('Tendo production journey', () => {
     expect(signedIn.defaultHouseholdId).toBe(householdId);
     sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
     expect(sessionToken).not.toBe('');
+
+    // Two fresh provider subjects exercise the first-login choice on isolated pages, so the shared
+    // console/response ledgers of this journey stay untouched.
+    const firstLoginContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const visitor = await firstLoginContext.newPage();
+    const visitorIssues: string[] = [];
+    const visitorFailures: string[] = [];
+    visitor.on('console', (message) => {
+      if (message.type() !== 'error') return;
+      const path = new URL(message.location().url || 'about:blank').pathname;
+      // The signed-out boot probe is expected; the deliberate 409 is asserted below.
+      if (path === '/api/v1/session') return;
+      if (path === '/api/v1/auth/oidc/pending/link' && message.text().includes('409')) return;
+      visitorIssues.push(`console: ${message.text()}`);
+    });
+    visitor.on('pageerror', (error) => visitorIssues.push(`pageerror: ${error.message}`));
+    visitor.on('response', (response) => {
+      if (response.status() < 400) return;
+      const failure = `${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}`;
+      if (failure !== 'GET /api/v1/session 401') visitorFailures.push(failure);
+    });
+    const authorizeFor = async (subject: string) => {
+      await visitor.unroute(authorize).catch(() => undefined);
+      await visitor.route(authorize, (route) => route.continue({ url: `${route.request().url()}&sub=${subject}` }));
+    };
+    const providerButton = visitor.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider), exact: true });
+    try {
+      await visitor.goto('/login');
+      await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await authorizeFor('unknown-subject');
+      await providerButton.click();
+      await expect(visitor.getByRole('heading', { level: 1, name: en['oidc.continue.title'].replace('{provider}', provider) })).toBeVisible();
+      expect(new URL(visitor.url()).pathname).toBe('/login');
+      expect(new URL(visitor.url()).hash).toBe('');
+      await visitor.getByRole('button', { name: en['oidc.continue.create.action'], exact: true }).click();
+      await expect(visitor.getByRole('heading', { level: 1, name: en['home.noHousehold.title'] })).toBeVisible();
+      await expect(visitor.getByRole('button', { name: en['home.noHousehold.discard.action'] })).toBeVisible();
+      const visitorNav = visitor.getByRole('navigation', { name: en['nav.label'] });
+      await expect(visitorNav.getByRole('link')).toHaveCount(2);
+      await visitor.setViewportSize({ width: 360, height: 740 });
+      expect(await visitor.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '360px join-screen overflow').toBeLessThanOrEqual(0);
+      await visitor.setViewportSize({ width: 1280, height: 720 });
+      const fresh = await visitor.request.get('/api/v1/session');
+      expect(fresh.status()).toBe(200);
+      const freshSession = await fresh.json() as { defaultHouseholdId?: string; login: string };
+      expect(freshSession.defaultHouseholdId).toBeUndefined();
+      expect(freshSession.login).toMatch(/^member-/);
+      await visitor.getByRole('button', { name: en['header.signOut'] }).click();
+      await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+
+      // Confirming with the owner's local credentials conflicts: the owner already uses this issuer.
+      await authorizeFor('second-unknown-subject');
+      await providerButton.click();
+      await expect(visitor.getByRole('heading', { level: 1, name: en['oidc.continue.title'].replace('{provider}', provider) })).toBeVisible();
+      await visitor.getByRole('button', { name: en['oidc.continue.link.action'], exact: true }).click();
+      await visitor.getByLabel(en['oidc.continue.link.login'], { exact: true }).fill(ownerLogin);
+      await visitor.getByLabel(en['oidc.continue.link.password'], { exact: true }).fill(ownerPassword);
+      await visitor.getByRole('button', { name: en['oidc.continue.link.submit'], exact: true }).click();
+      await expect(visitor.getByText(en['oidc.continue.error.conflict'], { exact: true })).toBeVisible();
+      await expect(visitor.getByRole('button', { name: en['oidc.continue.backToSignIn'] })).toBeVisible();
+      await visitor.getByRole('button', { name: en['oidc.continue.backToSignIn'] }).click();
+      await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+
+      expect(visitorFailures).toEqual(['POST /api/v1/auth/oidc/pending/link 409']);
+      expect(visitorIssues).toEqual([]);
+    } finally {
+      await firstLoginContext.close();
+    }
   });
 
   test('n10. foreign household and resource access is indistinguishable from missing data', async () => {
@@ -5018,6 +5080,43 @@ test.describe('Tendo production journey', () => {
       await waitForSettledHouseholdRequests(free.actor);
       free.assertClean(['GET /api/v1/session 503', 'POST /api/v1/invitations/accept 404']);
     } finally { await free.context.close(); }
+
+    // A carried invitation survives the provider round trip: the first login joins the household directly.
+    const provider = 'OIDC Smoke Provider';
+    const issuer = process.env.E2E_OIDC_ISSUER;
+    if (!issuer) throw new Error('E2E_OIDC_ISSUER is required; run scripts/e2e-smoke.sh');
+    const carryInviteResponse = await page.request.post(invitationPath, {
+      headers: { Origin: baseURL, 'Idempotency-Key': `g4-oidc-carry-${crypto.randomUUID()}` }, data: {},
+    });
+    expect(carryInviteResponse.status(), 'create OIDC carry-over invitation').toBe(201);
+    const carryInvite = await carryInviteResponse.json() as { id: string; token: string };
+    const carryContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const carry = await carryContext.newPage();
+    const carryIssues: string[] = [];
+    carry.on('console', (message) => {
+      if (message.type() !== 'error') return;
+      const path = new URL(message.location().url || 'about:blank').pathname;
+      if (path === '/api/v1/session') return;
+      carryIssues.push(`console: ${message.text()}`);
+    });
+    carry.on('pageerror', (error) => carryIssues.push(`pageerror: ${error.message}`));
+    try {
+      await carry.goto(`${baseURL}/invite#${carryInvite.token}`);
+      await expect(carry.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
+      await carry.route(`${issuer}/authorize**`, (route) => route.continue({ url: `${route.request().url()}&sub=invited-subject` }));
+      await carry.getByRole('button', { name: en['invite.oidc.submit'].replace('{provider}', provider) }).click();
+      await expect(carry.getByText(en['oidc.continue.invitation'], { exact: true })).toBeVisible();
+      await carry.getByRole('button', { name: en['oidc.continue.create.action'], exact: true }).click();
+      await expect(carry.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      await expect(carry.getByText(en['home.notice.invitationAccepted'], { exact: true })).toBeVisible();
+      const carriedResponse = await carry.request.get('/api/v1/session');
+      expect(carriedResponse.status()).toBe(200);
+      const carried = await carriedResponse.json() as { defaultHouseholdId?: string; login: string };
+      expect(carried.defaultHouseholdId).toBe(householdId);
+      expect(carried.login).toMatch(/^member-/);
+      await expectInvitationStatus(carryInvite.id, 'accepted');
+      expect(carryIssues).toEqual([]);
+    } finally { await carryContext.close(); }
   });
 
   test('n27. two signed-in sessions reject stale item edits and undo without overwriting persisted state', async ({ browser }) => {

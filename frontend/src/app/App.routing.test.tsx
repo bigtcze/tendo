@@ -69,11 +69,18 @@ describe('App route characterization', () => {
       accountReadyNotice: true,
       oidcOutcome: { kind: 'error' as const, code: 'identity_conflict' },
       sessionEndedNotice: true,
+      oidcContinue: false,
+      oidcContinueExpired: false,
+      continueCancelled: vi.fn(),
+      continueExpired: vi.fn(),
     } satisfies SignedOutProps;
     const translate: Translate = (key) => key;
     expect(getLoginNotice(noticeProps, translate)).toBe('invite.error.accountReady');
     expect(getLoginNotice({ ...noticeProps, accountReadyNotice: false }, translate)).toBe('oidc.error.identity_conflict');
     expect(getLoginNotice({ ...noticeProps, accountReadyNotice: false, oidcOutcome: null }, translate)).toBe('login.sessionEnded');
+    expect(getLoginNotice({
+      ...noticeProps, accountReadyNotice: false, oidcOutcome: null, oidcContinueExpired: true,
+    }, translate)).toBe('oidc.continue.expired');
 
     window.history.replaceState(null, '', '/login#oidcError=identity_conflict');
     installFakeServer({
@@ -174,7 +181,7 @@ describe('App route characterization', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     installFakeServer({ 'GET /api/v1/session': json(200, session(false)) });
     renderApp();
-    expect(await screen.findByText('Your account isn’t part of a household yet.')).toBeVisible();
+    expect(await screen.findByText('Join your household by invitation')).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
   });

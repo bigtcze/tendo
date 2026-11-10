@@ -49,11 +49,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false)`},
-		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=18`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (18,false)`},
-		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false)`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false),(19,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=19`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (19,false)`},
+		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false),(19,false)`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=18`, reset: `UPDATE tendo_schema_migrations SET version=18 WHERE version=99`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=19`, reset: `UPDATE tendo_schema_migrations SET version=19 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {

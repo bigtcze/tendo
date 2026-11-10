@@ -82,3 +82,22 @@ func TestTokenPKCESingleUseAndRedirectBinding(t *testing.T) {
 func noRedirectClient() *http.Client {
 	return &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 }
+
+func TestParseEmails(t *testing.T) {
+	emails, err := ParseEmails("subject-1=anna@example.test:true, subject-2=bob@example.test:string,subject-3=c@example.test:false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emails) != 3 || emails["subject-1"].Verified != true || emails["subject-1"].Address != "anna@example.test" {
+		t.Fatalf("emails=%+v", emails)
+	}
+	if emails["subject-2"].Verified != "true" || emails["subject-3"].Verified != false {
+		t.Fatalf("emails=%+v", emails)
+	}
+	if _, err := ParseEmails("subject-1=anna@example.test:maybe"); err == nil {
+		t.Fatal("invalid verification mode accepted")
+	}
+	if _, err := ParseEmails("subject-1"); err == nil {
+		t.Fatal("malformed entry accepted")
+	}
+}

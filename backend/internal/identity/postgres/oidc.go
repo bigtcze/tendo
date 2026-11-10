@@ -53,7 +53,11 @@ func (r *Repository) InsertFlow(ctx context.Context, f identity.OIDCFlow) error 
 		}
 	}
 
-	if err = q.InsertOIDCFlow(ctx, db.InsertOIDCFlowParams{StateHash: f.StateHash, BrowserTokenHash: f.BrowserTokenHash, Issuer: f.Issuer, ClientID: f.ClientID, Nonce: f.Nonce, PkceVerifier: f.PKCEVerifier, Purpose: string(f.Purpose), UserID: user, SessionID: session, CreatedAt: timestamptz(f.CreatedAt), ExpiresAt: timestamptz(f.ExpiresAt)}); err != nil {
+	if err = q.InsertOIDCFlow(ctx, db.InsertOIDCFlowParams{
+		StateHash: f.StateHash, BrowserTokenHash: f.BrowserTokenHash, Issuer: f.Issuer, ClientID: f.ClientID,
+		Nonce: f.Nonce, PkceVerifier: f.PKCEVerifier, Purpose: string(f.Purpose), UserID: user, SessionID: session,
+		CreatedAt: timestamptz(f.CreatedAt), ExpiresAt: timestamptz(f.ExpiresAt), InviteTokenHash: f.InviteTokenHash,
+	}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -61,23 +65,20 @@ func (r *Repository) InsertFlow(ctx context.Context, f identity.OIDCFlow) error 
 func (r *Repository) ConsumeFlow(ctx context.Context, state, browser []byte, now time.Time, issuer, client string) (identity.OIDCFlow, error) {
 	ctx, cancel := context.WithTimeout(ctx, identity.OIDCOperationBudget)
 	defer cancel()
-	row, err := db.New(r.pool).ConsumeOIDCFlow(ctx, db.ConsumeOIDCFlowParams{StateHash: state, BrowserTokenHash: browser, ExpiresAt: timestamptz(now), Issuer: issuer, ClientID: client})
+	row, err := db.New(r.pool).ConsumeOIDCFlow(ctx, db.ConsumeOIDCFlowParams{
+		StateHash: state, BrowserTokenHash: browser, ExpiresAt: timestamptz(now), Issuer: issuer, ClientID: client,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.OIDCFlow{}, identity.ErrNotFound
 	}
 	if err != nil {
 		return identity.OIDCFlow{}, err
 	}
-	return identity.OIDCFlow{Issuer: row.Issuer, ClientID: row.ClientID, Nonce: row.Nonce, PKCEVerifier: row.PkceVerifier, Purpose: identity.OIDCPurpose(row.Purpose), UserID: row.UserID, SessionID: row.SessionID, CreatedAt: row.CreatedAt.Time, ExpiresAt: row.ExpiresAt.Time}, nil
-}
-func (r *Repository) FindIdentity(ctx context.Context, issuer, subject string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, identity.OIDCOperationBudget)
-	defer cancel()
-	id, err := db.New(r.pool).FindOIDCIdentity(ctx, db.FindOIDCIdentityParams{Issuer: issuer, Subject: subject})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", identity.ErrNotFound
-	}
-	return id, err
+	return identity.OIDCFlow{
+		Issuer: row.Issuer, ClientID: row.ClientID, Nonce: row.Nonce, PKCEVerifier: row.PkceVerifier,
+		Purpose: identity.OIDCPurpose(row.Purpose), UserID: row.UserID, SessionID: row.SessionID,
+		InviteTokenHash: row.InviteTokenHash, CreatedAt: row.CreatedAt.Time.UTC(), ExpiresAt: row.ExpiresAt.Time.UTC(),
+	}, nil
 }
 func (r *Repository) FindCredential(ctx context.Context, user string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, identity.OIDCOperationBudget)
@@ -122,15 +123,6 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash []byte, now time
 	}
 	info.ExpiresAt = expires.Time.UTC()
 	return info, nil
-}
-func (r *Repository) CreateOIDCLoginSession(ctx context.Context, s identity.NewSession) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, identity.OIDCOperationBudget)
-	defer cancel()
-	var id pgtype.UUID
-	if err := id.Scan(s.UserID); err != nil {
-		return "", err
-	}
-	return db.New(r.pool).CreateSession(ctx, db.CreateSessionParams{UserID: id, TokenHash: s.TokenHash, CreatedAt: timestamptz(s.CreatedAt), ExpiresAt: timestamptz(s.ExpiresAt)})
 }
 func (r *Repository) LinkAndCreateSession(ctx context.Context, f identity.OIDCFlow, v identity.OIDCVerifiedIdentity, s identity.NewSession, revoke []byte) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, identity.OIDCOperationBudget)

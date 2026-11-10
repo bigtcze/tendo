@@ -7,6 +7,7 @@ import { Label } from '../../components/ui/label';
 import { useI18n, type Translate } from '../../i18n';
 import { inviteErrorMessageKey, isFieldError, isLoginError, isPasswordError, type ErrorState } from './inviteAcceptModel';
 import { useInviteAccept } from './useInviteAccept';
+import { InviteProviderSignIn } from './InviteProviderSignIn';
 import type { Session } from '../auth/sessionApi';
 
 type ScreenProps = {
@@ -134,7 +135,10 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
                 onSignOut={() => void flow.signOutAndContinue()}
                 t={t}
               />
-              : <NewAccountForm {...formProps} onSubmit={(event) => void flow.submit(event)} />}
+              : <>
+                {token ? <InviteProviderSignIn token={token} disabled={flow.pending} /> : null}
+                <NewAccountForm {...formProps} onSubmit={(event) => void flow.submit(event)} />
+              </>}
         </div>
       ) : null}
     </> : <>

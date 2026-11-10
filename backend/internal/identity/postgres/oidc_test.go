@@ -199,7 +199,7 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	}
 	before := invariant()
 	now := time.Now().UTC().Truncate(time.Second)
-	if _, err := repo.CreateOIDCLoginSession(ctx, identity.NewSession{UserID: user1, TokenHash: bytes32(110), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO user_sessions(user_id,token_hash,created_at,expires_at) VALUES($1,$2,$3,$4)`, user1, bytes32(110), now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if invariant() != before {
@@ -269,8 +269,8 @@ func TestOIDCPostgresLinkingAndAdmissionInvariants(t *testing.T) {
 	if err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM user_accounts)||':'||(SELECT count(*) FROM local_credentials)||':'||(SELECT count(*) FROM households)||':'||(SELECT count(*) FROM household_memberships)||':'||(SELECT count(*) FROM user_sessions)||':'||(SELECT count(*) FROM household_invitations)||':'||(SELECT count(*) FROM oidc_identities)||':'||(SELECT count(*) FROM oidc_flows)`).Scan(&beforeUnknown); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = repo.FindIdentity(ctx, verified.Issuer, "missing"); !errors.Is(err, identity.ErrNotFound) {
-		t.Fatalf("unknown identity err=%v", err)
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_identities WHERE issuer=$1 AND subject='missing'`, verified.Issuer).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("unknown identity rows=%d err=%v", count, err)
 	}
 	var afterUnknown string
 	if err = admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM user_accounts)||':'||(SELECT count(*) FROM local_credentials)||':'||(SELECT count(*) FROM households)||':'||(SELECT count(*) FROM household_memberships)||':'||(SELECT count(*) FROM user_sessions)||':'||(SELECT count(*) FROM household_invitations)||':'||(SELECT count(*) FROM oidc_identities)||':'||(SELECT count(*) FROM oidc_flows)`).Scan(&afterUnknown); err != nil || afterUnknown != beforeUnknown {
@@ -389,7 +389,7 @@ func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
 	if _, err := admin.Exec(ctx, `INSERT INTO household_invitations(household_id,created_by_user_id,creation_key,token_hash,created_at,expires_at) VALUES($2,$1,'upgrade',decode(repeat('cd',32),'hex'),now(),now()+interval '1 day')`, uid, hid); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,11,12,13,14)`); err != nil {
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion19SQL+" ; "+testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ValidateSchema(ctx, admin); err == nil {
@@ -404,7 +404,7 @@ func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 18 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 19 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	for _, table := range []string{"oidc_identities", "oidc_flows"} {

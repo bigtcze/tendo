@@ -80,22 +80,22 @@ func (e InvitationCreatedRole) Valid() bool {
 
 // Defines values for InvitationStatus.
 const (
-	Accepted InvitationStatus = "accepted"
-	Expired  InvitationStatus = "expired"
-	Pending  InvitationStatus = "pending"
-	Revoked  InvitationStatus = "revoked"
+	InvitationStatusAccepted InvitationStatus = "accepted"
+	InvitationStatusExpired  InvitationStatus = "expired"
+	InvitationStatusPending  InvitationStatus = "pending"
+	InvitationStatusRevoked  InvitationStatus = "revoked"
 )
 
 // Valid indicates whether the value is a known member of the InvitationStatus enum.
 func (e InvitationStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case InvitationStatusAccepted:
 		return true
-	case Expired:
+	case InvitationStatusExpired:
 		return true
-	case Pending:
+	case InvitationStatusPending:
 		return true
-	case Revoked:
+	case InvitationStatusRevoked:
 		return true
 	default:
 		return false
@@ -399,6 +399,27 @@ func (e MembershipRole) Valid() bool {
 	}
 }
 
+// Defines values for OIDCInvitationOutcome.
+const (
+	OIDCInvitationOutcomeAccepted OIDCInvitationOutcome = "accepted"
+	OIDCInvitationOutcomeInvalid  OIDCInvitationOutcome = "invalid"
+	OIDCInvitationOutcomeNone     OIDCInvitationOutcome = "none"
+)
+
+// Valid indicates whether the value is a known member of the OIDCInvitationOutcome enum.
+func (e OIDCInvitationOutcome) Valid() bool {
+	switch e {
+	case OIDCInvitationOutcomeAccepted:
+		return true
+	case OIDCInvitationOutcomeInvalid:
+		return true
+	case OIDCInvitationOutcomeNone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OIDCStartRequestPurpose.
 const (
 	OIDCPurposeLink  OIDCStartRequestPurpose = "link"
@@ -419,12 +440,15 @@ func (e OIDCStartRequestPurpose) Valid() bool {
 
 // Defines values for OIDCValidationProblemCode.
 const (
-	InvalidValue OIDCValidationProblemCode = "invalid_value"
+	InvalidInvitation OIDCValidationProblemCode = "invalid_invitation"
+	InvalidValue      OIDCValidationProblemCode = "invalid_value"
 )
 
 // Valid indicates whether the value is a known member of the OIDCValidationProblemCode enum.
 func (e OIDCValidationProblemCode) Valid() bool {
 	switch e {
+	case InvalidInvitation:
+		return true
 	case InvalidValue:
 		return true
 	default:
@@ -435,6 +459,7 @@ func (e OIDCValidationProblemCode) Valid() bool {
 // Defines values for OIDCValidationProblemField.
 const (
 	CurrentPassword OIDCValidationProblemField = "currentPassword"
+	InvitationToken OIDCValidationProblemField = "invitationToken"
 	Purpose         OIDCValidationProblemField = "purpose"
 )
 
@@ -442,6 +467,8 @@ const (
 func (e OIDCValidationProblemField) Valid() bool {
 	switch e {
 	case CurrentPassword:
+		return true
+	case InvitationToken:
 		return true
 	case Purpose:
 		return true
@@ -1206,10 +1233,48 @@ type OIDCIdentityStatus struct {
 	Linked bool `json:"linked"`
 }
 
-// OIDCStartRequest currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem.
+// OIDCInvitationOutcome defines model for OIDCInvitationOutcome.
+type OIDCInvitationOutcome string
+
+// OIDCPendingLinkRequest defines model for OIDCPendingLinkRequest.
+type OIDCPendingLinkRequest struct {
+	Login string `json:"login"`
+
+	// Password Maximum 512 UTF-8 bytes.
+	Password string `json:"password"`
+}
+
+// OIDCPendingLinkResult defines model for OIDCPendingLinkResult.
+type OIDCPendingLinkResult struct {
+	// EmailSaved False when the account already had an address or another account claimed it.
+	EmailSaved bool                  `json:"emailSaved"`
+	Invitation OIDCInvitationOutcome `json:"invitation"`
+	Session    Session               `json:"session"`
+}
+
+// OIDCPendingResult defines model for OIDCPendingResult.
+type OIDCPendingResult struct {
+	Invitation OIDCInvitationOutcome `json:"invitation"`
+	Session    Session               `json:"session"`
+}
+
+// OIDCPendingStatus Read-only continuation projection; the handle itself is never exposed.
+type OIDCPendingStatus struct {
+	// EmailVerified The pending ID token carried a usable verified email.
+	EmailVerified bool      `json:"emailVerified"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+
+	// Invitation The continuation carries an invitation to attempt at completion.
+	Invitation bool `json:"invitation"`
+}
+
+// OIDCStartRequest currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem. invitationToken is accepted only for login, must reference a pending invitation, and is otherwise rejected with 422 invalid_invitation.
 type OIDCStartRequest struct {
 	// CurrentPassword Maximum 512 UTF-8 bytes.
-	CurrentPassword *string                 `json:"currentPassword,omitempty"`
+	CurrentPassword *string `json:"currentPassword,omitempty"`
+
+	// InvitationToken Optional pending invitation carried across the provider round trip. Only its digest is stored.
+	InvitationToken *string                 `json:"invitationToken,omitempty"`
 	Purpose         OIDCStartRequestPurpose `json:"purpose"`
 }
 
@@ -1512,6 +1577,13 @@ type GetOidcStatusParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// DiscardOidcAccountParams defines parameters for DiscardOidcAccount.
+type DiscardOidcAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+	Origin     string     `json:"Origin"`
+}
+
 // CompleteOidcCallbackParams defines parameters for CompleteOidcCallback.
 type CompleteOidcCallbackParams struct {
 	Code             *string `form:"code,omitempty" json:"code,omitempty"`
@@ -1528,6 +1600,33 @@ type CompleteOidcCallbackParams struct {
 type GetOidcIdentityParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CancelOidcPendingParams defines parameters for CancelOidcPending.
+type CancelOidcPendingParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+	Origin     string     `json:"Origin"`
+}
+
+// GetOidcPendingParams defines parameters for GetOidcPending.
+type GetOidcPendingParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateOidcPendingAccountParams defines parameters for CreateOidcPendingAccount.
+type CreateOidcPendingAccountParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+	Origin     string     `json:"Origin"`
+}
+
+// ConfirmOidcPendingLinkParams defines parameters for ConfirmOidcPendingLink.
+type ConfirmOidcPendingLinkParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+	Origin     string     `json:"Origin"`
 }
 
 // StartOidcParams defines parameters for StartOidc.
@@ -1861,6 +1960,9 @@ type GetReadinessParams struct {
 
 // AcceptInvitationWithNewAccountJSONRequestBody defines body for AcceptInvitationWithNewAccount for application/json ContentType.
 type AcceptInvitationWithNewAccountJSONRequestBody = AcceptInvitationNewAccountRequest
+
+// ConfirmOidcPendingLinkJSONRequestBody defines body for ConfirmOidcPendingLink for application/json ContentType.
+type ConfirmOidcPendingLinkJSONRequestBody = OIDCPendingLinkRequest
 
 // StartOidcJSONRequestBody defines body for StartOidc for application/json ContentType.
 type StartOidcJSONRequestBody = OIDCStartRequest

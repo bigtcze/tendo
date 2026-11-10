@@ -6,12 +6,17 @@ import { useAppSession } from './useAppSession';
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState(null, '', '/'); });
 
 describe('useAppSession', () => {
+  const stableEntry = { clearContinue: vi.fn(), requestContinue: vi.fn(), clearNotice: vi.fn(), showNotice: vi.fn() };
+
   it('a stale sessionEnded callback is inert once the session it belongs to has ended', async () => {
     installFakeServer({ 'GET /api/v1/session': json(200, session()) });
     const setRoute = vi.fn();
     const setOidcOutcome = vi.fn();
     const transitionedRef = { current: false };
-    const { result } = renderHook(() => useAppSession({ setRoute, transitionedRef, setOidcOutcome }));
+    const { result } = renderHook(() => useAppSession({
+      setRoute, transitionedRef, setOidcOutcome,
+      entry: stableEntry,
+    }));
     await waitFor(() => expect(result.current.state.kind).toBe('signedIn'));
     const staleSessionEnded = result.current.sessionEnded;
 

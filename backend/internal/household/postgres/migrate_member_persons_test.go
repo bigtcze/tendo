@@ -20,7 +20,7 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, testpostgres.RevertVersion18SQL); err != nil {
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion19SQL+" ; "+testpostgres.RevertVersion18SQL); err != nil {
 		t.Fatalf("rewind to version 17: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 
 	var version int64
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 18 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 19 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 
@@ -199,6 +199,14 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 	}
 
 	// Down is non-destructive and Up is idempotent over the retained rows.
+	// Revert 019 first so the ledger can present version 17 exactly.
+	down19, err := database.MigrationDownSQL(19)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, down19); err != nil {
+		t.Fatalf("migration 019 Down: %v", err)
+	}
 	down, err := database.MigrationDownSQL(18)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +228,7 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 	if got := linkedCount(homeA, duplicateMember); got != 1 {
 		t.Fatalf("Down removed links=%d", got)
 	}
-	if _, err := admin.Exec(ctx, `DELETE FROM tendo_schema_migrations WHERE version=18`); err != nil {
+	if _, err := admin.Exec(ctx, `DELETE FROM tendo_schema_migrations WHERE version IN (18,19)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Migrate(ctx, admin); err != nil {
@@ -229,7 +237,7 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 	if got := linkedCount(homeA, duplicateMember); got != 1 {
 		t.Fatalf("up after Down linked people=%d", got)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 18 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 19 || dirty {
 		t.Fatalf("round trip version=%d dirty=%v err=%v", version, dirty, err)
 	}
 }

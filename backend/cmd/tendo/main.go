@@ -126,9 +126,12 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	memberPersonFactory := func(tx householddb.DBTX) identityapp.MemberPersonProvisioner {
 		return subjectpostgres.NewMemberPersonProvisioner(tx)
 	}
-	identityRepository := identitypostgres.New(pool, func(queries *householddb.Queries) identityapp.OwnerHouseholdService {
+	var identityRepository *identitypostgres.Repository
+	identityRepository = identitypostgres.NewWithInvitations(pool, func(queries *householddb.Queries) identityapp.OwnerHouseholdService {
 		return household.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
-	}, memberPersonFactory)
+	}, memberPersonFactory, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
+		return householdpostgres.MembershipServiceFor(tx, identityRepository)
+	})
 	passwordGate := security.NewPasswordGate(2)
 	setupService := identityapp.NewSetupService(identityRepository)
 	setupService.SetPasswordHasher(passwordGate.HashPassword)
