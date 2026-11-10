@@ -42,6 +42,8 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
   const [sessionEndedNotice, setSessionEndedNotice] = useState(false);
   const [oidcContinueExpired, setOidcContinueExpired] = useState(false);
   const [inviteFocusLogin, setInviteFocusLogin] = useState(false);
+  const [loginPrefill, setLoginPrefill] = useState<string | null>(null);
+  const [passwordResetNotice, setPasswordResetNotice] = useState(false);
 
   const isCurrentSession = useCallback(
     () => sessionGenerationRef.current === sessionGeneration && state.kind === 'signedIn',
@@ -73,11 +75,13 @@ export function useAppSession({ setRoute, transitionedRef, setOidcOutcome, entry
   const transitions = useSessionTransitions({
     setRoute, transitionedRef, setOidcOutcome, entry, setState, advanceSessionGeneration, isCurrentSession,
     setAccountReadyNotice, setSessionEndedNotice, setOidcContinueExpired, setInviteFocusLogin,
+    setLoginPrefill, setPasswordResetNotice,
   });
 
   return {
     state, retry,
     ...transitions,
     accountReadyNotice, sessionEndedNotice, oidcContinueExpired, inviteFocusLogin,
+    loginPrefill, passwordResetNotice,
   };
 }

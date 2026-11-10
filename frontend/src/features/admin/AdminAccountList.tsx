@@ -4,7 +4,7 @@ import { CursorPager } from '../../components/ui/cursor-pager';
 import { AdminAccountRow } from './AdminAccountRow';
 import type { Account } from './adminApi';
 
-export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, nextCursor, onPrevious, onNext, onChange, t }: {
+export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, nextCursor, onPrevious, onNext, onChange, onReset, onCancelReset, formatExpiry, t }: {
   accounts: Account[];
   viewerId: string;
   busy: boolean;
@@ -14,6 +14,9 @@ export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, 
   onPrevious: (event: MouseEvent<HTMLButtonElement>) => void;
   onNext: (event: MouseEvent<HTMLButtonElement>) => void;
   onChange: (account: Account, trigger: HTMLElement) => void;
+  onReset: (account: Account, trigger: HTMLElement) => void;
+  onCancelReset: (account: Account) => void;
+  formatExpiry: (iso: string) => string;
   t: Translate;
 }) {
   return <section role="region" aria-labelledby="admin-accounts-heading" className="mt-6 sm:mt-8">
@@ -21,7 +24,8 @@ export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, 
     {accounts.length
       ? <ul aria-labelledby="admin-accounts-heading" className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
         {accounts.map((account) => (
-          <AdminAccountRow key={account.userId} account={account} viewerId={viewerId} busy={busy} onChange={onChange} t={t} />
+          <AdminAccountRow key={account.userId} account={account} viewerId={viewerId} busy={busy} formatExpiry={formatExpiry}
+            onChange={onChange} onReset={onReset} onCancelReset={onCancelReset} t={t} />
         ))}
       </ul>
       : <p className="mt-3 rounded-2xl border border-line bg-raised px-4 py-5 text-body text-muted">{t('admin.list.empty')}</p>}

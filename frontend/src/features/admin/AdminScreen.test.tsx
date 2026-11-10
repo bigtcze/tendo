@@ -12,9 +12,10 @@ const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const accountsPath = `GET ${base}/accounts`;
 const accountPath = (userId: string) => `GET ${base}/accounts/${userId}`;
 const changePath = (userId: string) => `PATCH ${base}/accounts/${userId}`;
-const owner: Account = { userId: session().userId, login: 'anna', role: 'admin', signInMethods: { password: true, oidc: false } };
-const petr: Account = { userId: '0198a2f0-0000-7000-8000-000000000002', login: 'petr', role: 'member', signInMethods: { password: false, oidc: true } };
-const both: Account = { userId: '0198a2f0-0000-7000-8000-000000000003', login: 'jana', role: 'member', signInMethods: { password: true, oidc: true } };
+const owner: Account = { userId: session().userId, login: 'anna', role: 'admin', signInMethods: { password: true, oidc: false }, passwordReset: null };
+const petr: Account = { userId: '0198a2f0-0000-7000-8000-000000000002', login: 'petr', role: 'member', signInMethods: { password: false, oidc: true }, passwordReset: null };
+const both: Account = { userId: '0198a2f0-0000-7000-8000-000000000003', login: 'jana', role: 'member', signInMethods: { password: true, oidc: true }, passwordReset: null };
+const localMember: Account = { userId: '0198a2f0-0000-7000-8000-000000000004', login: 'marta', role: 'member', signInMethods: { password: true, oidc: false }, passwordReset: null };
 
 const forbidden = () => json(403, { type: 'about:blank', title: 'Forbidden', status: 403, code: 'admin_required' });
 
@@ -36,6 +37,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
   localStorage.removeItem('tendo.locale');
 });
 
@@ -70,7 +72,7 @@ describe('Admin center', () => {
     expect(rows[2]).toHaveTextContent('Password and single sign-on');
     expect(within(rows[1] as HTMLElement).getByRole('button', { name: 'Make administrator: petr' })).toHaveTextContent('Make administrator');
     expect(within(rows[0] as HTMLElement).getByRole('button', { name: 'Make member: anna' })).toBeVisible();
-    expect(main).toHaveTextContent('Everyone here can use the household. Only administrators can invite people or change roles.');
+    expect(main).toHaveTextContent('Everyone here can use the household. Only administrators can invite people, change roles or help with passwords.');
   });
 
   it('keeps the Admin center out of a member’s navigation, Account and direct link, and renders no account data', async () => {
@@ -119,7 +121,7 @@ describe('Admin center', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('Make petr an administrator?');
-    expect(dialog).toHaveTextContent('Administrators can invite people, manage invitations and change roles.');
+    expect(dialog).toHaveTextContent('Administrators can invite people, manage invitations, change roles and help with passwords.');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Make administrator' }));
 
     const notice = await screen.findByText('petr is now an administrator.');
@@ -398,6 +400,212 @@ describe('Admin center', () => {
     expect(screen.queryByText('Accounts couldn’t be loaded. Check your connection and try again.')).not.toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: 'Accounts' })).getByText('Page 2')).toBeVisible();
     expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/accounts` && request.query.get('cursor') === 'page-2')).toHaveLength(2);
+  });
+
+  it('offers password reset only where a local password exists and the account is someone else', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, petr, both, localMember], nextCursor: null }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+
+    // The viewer's own row never offers it, even with a local password.
+    expect(within(rowOf('anna')).queryByRole('button', { name: /Reset password/ })).not.toBeInTheDocument();
+    // Single sign-on only: a calm explanation instead of an action that could never work.
+    expect(within(rowOf('petr')).queryByRole('button', { name: /Reset password/ })).not.toBeInTheDocument();
+    expect(rowOf('petr')).toHaveTextContent('This account signs in with single sign-on, so there’s no password to reset.');
+    // Password only and password plus single sign-on both qualify.
+    expect(within(rowOf('marta')).getByRole('button', { name: 'Reset password: marta' })).toBeVisible();
+    expect(within(rowOf('jana')).getByRole('button', { name: 'Reset password: jana' })).toBeVisible();
+  });
+
+  it('issues a one-time reset link, copies it, and drops it from memory when the dialog closes', async () => {
+    const token = 'A'.repeat(43);
+    const expiresAt = '2030-01-02T10:30:00Z';
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } as unknown as Clipboard });
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, both], nextCursor: null }),
+      [`POST ${base}/accounts/${both.userId}/password-reset`]: json(201, { token, createdAt: '2030-01-01T10:30:00Z', expiresAt }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reset password: jana' }));
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent('Reset the password for jana?');
+    expect(confirm).toHaveTextContent('The current password keeps working until the link is used.');
+    expect(confirm).toHaveTextContent('Using the link signs them out on every device.');
+    expect(confirm).toHaveTextContent('The link works once and expires after 24 hours.');
+    expect(confirm).toHaveTextContent('You won’t see or choose their new password.');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Create link' }));
+
+    const linkDialog = await screen.findByRole('dialog', { name: 'Reset link for jana' });
+    const link = `${window.location.origin}/reset-password#${token}`;
+    expect(within(linkDialog).getByRole('textbox', { name: 'Reset link' })).toHaveValue(link);
+    expect(within(linkDialog).getByRole('textbox', { name: 'Reset link' })).toHaveAttribute('readonly');
+    expect(linkDialog).toHaveTextContent('This link works once and expires');
+    const issue = fake.requests.find((request) => request.method === 'POST' && request.path === `${base}/accounts/${both.userId}/password-reset`);
+    expect(issue?.body).toBe('{}');
+    expect(rowOf('jana')).toHaveTextContent('Reset link active until');
+    expect(within(rowOf('jana')).getByRole('button', { name: 'Create a new reset link: jana' })).toBeVisible();
+
+    await userEvent.click(within(linkDialog).getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenCalledWith(link);
+    await waitFor(() => expect(within(linkDialog).getByRole('button', { name: 'Copied' })).toBeVisible());
+    expect(linkDialog).toHaveTextContent('Reset link copied.');
+
+    await userEvent.click(within(linkDialog).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Reset link for jana' })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue(link)).not.toBeInTheDocument();
+    expect(window.location.href).not.toContain(token);
+    expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain(token);
+    expect(document.body.textContent).not.toContain(token);
+  });
+
+  it('selects the link and explains the manual copy when the clipboard is unavailable', async () => {
+    const token = 'C'.repeat(43);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn(async () => { throw new Error('blocked'); }) } as unknown as Clipboard,
+    });
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, both], nextCursor: null }),
+      [`POST ${base}/accounts/${both.userId}/password-reset`]: json(201, {
+        token, createdAt: '2030-01-01T10:30:00Z', expiresAt: '2030-01-02T10:30:00Z',
+      }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Reset password: jana' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create link' }));
+
+    const linkDialog = await screen.findByRole('dialog', { name: 'Reset link for jana' });
+    const field = within(linkDialog).getByRole('textbox', { name: 'Reset link' }) as HTMLInputElement;
+    await userEvent.click(within(linkDialog).getByRole('button', { name: 'Copy' }));
+
+    expect(await within(linkDialog).findByText('The link could not be copied. It is selected so you can copy it manually.')).toBeVisible();
+    expect(field).toHaveFocus();
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(field.value.length);
+    expect(within(linkDialog).getByRole('button', { name: 'Copy' })).toBeVisible();
+  });
+
+  it('shows an outstanding link, replaces it, and cancels it without touching the account', async () => {
+    const outstanding: Account = { ...both, passwordReset: { createdAt: '2030-01-01T10:30:00Z', expiresAt: '2030-01-02T10:30:00Z' } };
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, outstanding], nextCursor: null }),
+      [`DELETE ${base}/accounts/${both.userId}/password-reset`]: json(204),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+    expect(rowOf('jana')).toHaveTextContent('Reset link active until');
+    expect(within(rowOf('jana')).getByRole('button', { name: 'Create a new reset link: jana' })).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create a new reset link: jana' }));
+    const renew = await screen.findByRole('dialog');
+    expect(renew).toHaveTextContent('Replace the reset link for jana?');
+    expect(renew).toHaveTextContent('The existing link stops working as soon as you create the new one.');
+    await userEvent.click(within(renew).getByRole('button', { name: 'Cancel' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel the reset link: jana' }));
+    expect(await screen.findByText('The reset link for jana was cancelled.')).toBeVisible();
+    await waitFor(() => expect(rowOf('jana')).not.toHaveTextContent('Reset link active until'));
+    expect(within(rowOf('jana')).getByRole('button', { name: 'Reset password: jana' })).toBeVisible();
+    expect(fake.requests.filter((request) => request.method === 'DELETE' && request.path === `${base}/accounts/${both.userId}/password-reset`)).toHaveLength(1);
+    expect(fake.requests.some((request) => request.method === 'PATCH')).toBe(false);
+  });
+
+  it.each([
+    [409, 'cannot_reset_self', 'You can’t reset your own password here. Use Account to change it.'],
+    [404, 'not_found', 'That person is no longer a member of this household. The list has been refreshed.'],
+    [429, 'rate_limited', 'Too many reset links were created just now. Wait a little, then try again.'],
+    [503, 'unavailable', 'The reset link couldn’t be created. Check your connection and try again.'],
+  ])('speaks the calm outcome for a %i reset issue refusal', async (status, code, message) => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, both], nextCursor: null }),
+      [`POST ${base}/accounts/${both.userId}/password-reset`]: json(status, { type: 'about:blank', title: 'x', status, code }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Reset password: jana' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create link' }));
+
+    expect(await screen.findByText(message)).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(rowOf('jana')).not.toHaveTextContent('Reset link active until');
+    expect(within(rowOf('jana')).getByRole('button', { name: 'Reset password: jana' })).toBeEnabled();
+  });
+
+  it('reloads the list when the account turns out to have no local password after all', async () => {
+    let listCalls = 0;
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: () => json(200, { items: ++listCalls === 1 ? [owner, both] : [owner, petr], nextCursor: null }),
+      [`POST ${base}/accounts/${both.userId}/password-reset`]: json(409, { type: 'about:blank', title: 'Conflict', status: 409, code: 'no_local_password' }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Reset password: jana' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create link' }));
+
+    expect(await screen.findByText('jana signs in with single sign-on, so there’s no password to reset.')).toBeVisible();
+    await waitFor(() => expect(listCalls).toBe(2));
+    expect(rowOf('petr')).toHaveTextContent('This account signs in with single sign-on');
+  });
+
+  it('re-reads the viewer role and drops the Admin center when a reset is refused as a member', async () => {
+    let householdCalls = 0;
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: () => json(200, ++householdCalls === 1 ? household : memberHousehold),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, both], nextCursor: null }),
+      [`POST ${base}/accounts/${both.userId}/password-reset`]: forbidden(),
+    });
+    app('/admin');
+    await waitFor(() => expect(within(nav()).getByRole('link', { name: 'Admin center' })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Reset password: jana' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Create link' }));
+
+    expect(await screen.findByRole('heading', { name: 'Only administrators can open the Admin center.' })).toBeVisible();
+    expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(0);
+    await waitFor(() => expect(within(nav()).queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument());
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === base)).toHaveLength(2);
+  });
+
+  it('settles the only-administrators state when cancelling a link is refused', async () => {
+    const outstanding: Account = { ...both, passwordReset: { createdAt: '2030-01-01T10:30:00Z', expiresAt: '2030-01-02T10:30:00Z' } };
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, outstanding], nextCursor: null }),
+      [`DELETE ${base}/accounts/${both.userId}/password-reset`]: forbidden(),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel the reset link: jana' }));
+
+    expect(await screen.findByRole('heading', { name: 'Only administrators can open the Admin center.' })).toBeVisible();
+    expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(0);
   });
 
   it('renders the Czech Admin center', async () => {

@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { changeAccountRole, listAccounts, readAccount, signInMethod, type Account } from './adminApi';
+import {
+  cancelPasswordReset, changeAccountRole, issuePasswordReset, listAccounts, readAccount, signInMethod, type Account,
+} from './adminApi';
 import { HOUSEHOLD_ID, installFakeServer, json } from '../../test/fakeServer';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
-const account: Account = { userId: 'u-1', login: 'petr', role: 'member', signInMethods: { password: true, oidc: false } };
+const account: Account = { userId: 'u-1', login: 'petr', role: 'member', signInMethods: { password: true, oidc: false }, passwordReset: null };
 const problem = (status: number, code?: string) => json(status, { type: 'about:blank', title: 'x', status, ...(code ? { code } : {}) });
 
 afterEach(() => {
@@ -65,5 +67,42 @@ describe('adminApi', () => {
     expect(signInMethod({ ...account, signInMethods: { password: false, oidc: true } })).toBe('oidc');
     expect(signInMethod({ ...account, signInMethods: { password: true, oidc: true } })).toBe('both');
     expect(signInMethod({ ...account, signInMethods: { password: false, oidc: false } })).toBe('none');
+  });
+
+  it('issues a reset link with an empty body and separates the specific conflicts', async () => {
+    const reset = { token: 'T'.repeat(43), createdAt: '2026-11-10T10:00:00Z', expiresAt: '2026-11-11T10:00:00Z' };
+    const fake = installFakeServer({ [`POST ${base}/accounts/u-1/password-reset`]: json(201, reset) });
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'issued', reset });
+    expect(fake.requests[0].body).toBe('{}');
+
+    const refuse = (status: number, code: string) => installFakeServer({ [`POST ${base}/accounts/u-1/password-reset`]: problem(status, code) });
+    refuse(409, 'cannot_reset_self');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'self' });
+    refuse(409, 'no_local_password');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'noLocalPassword' });
+    refuse(409, 'member_person_changed');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rejected' });
+    refuse(403, 'admin_required');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'forbidden' });
+    refuse(403, 'forbidden_origin');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rejected' });
+    refuse(404, 'not_found');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'notFound' });
+    refuse(429, 'rate_limited');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rateLimited' });
+    refuse(503, 'unavailable');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'unavailable' });
+  });
+
+  it('cancels the outstanding link and treats an already empty reset as done', async () => {
+    installFakeServer({ [`DELETE ${base}/accounts/u-1/password-reset`]: json(204) });
+    await expect(cancelPasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'ok' });
+
+    installFakeServer({ [`DELETE ${base}/accounts/u-1/password-reset`]: problem(403, 'admin_required') });
+    await expect(cancelPasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'forbidden' });
+    installFakeServer({ [`DELETE ${base}/accounts/u-1/password-reset`]: problem(409, 'cannot_reset_self') });
+    await expect(cancelPasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'self' });
+    installFakeServer({ [`DELETE ${base}/accounts/u-1/password-reset`]: problem(429, 'rate_limited') });
+    await expect(cancelPasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rateLimited' });
   });
 });

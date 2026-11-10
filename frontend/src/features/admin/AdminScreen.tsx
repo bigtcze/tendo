@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { AccountActions } from '../../app/AccountActions';
-import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { useHouseholdData } from '../../app/HouseholdData';
-import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { AdminAccountList } from './AdminAccountList';
-import { AdminLoadError, AdminListSkeleton, AdminOnlyAdmins } from './AdminStates';
+import { AdminIntro, AdminLoadError, AdminListSkeleton, AdminOnlyAdmins, formatResetExpiry } from './AdminStates';
+import { PasswordResetDialog } from './PasswordResetDialog';
 import { RoleChangeDialog } from './RoleChangeDialog';
 import { useAccountList } from './useAccountList';
+import { usePasswordReset } from './usePasswordReset';
 import { useRoleChange, type NoticeSpec } from './useRoleChange';
 
 /**
@@ -21,41 +21,23 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
   login: string;
   onSignedOut: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const household = useHouseholdData();
-  const list = useAccountList(householdId, onSignedOut, () => {
-    // An authoritative `admin_required` means the viewerRole hint may be stale (another admin demoted the
-    // viewer), so re-read the household: the rail entry and the Account admin card follow the real role.
-    household?.refresh();
-  });
+  const list = useAccountList(householdId, onSignedOut, () => household?.refresh());
   const [notice, setNotice] = useState<NoticeSpec | null>(null);
+  // An authoritative `admin_required` means the viewerRole hint may be stale (another admin demoted the viewer),
+  // so re-read the household: the rail entry and the Account admin card follow the real role.
+  const forbidden = () => { list.markForbidden(); household?.refresh(); };
+  const shared = {
+    householdId, onSignedOut, onNotice: setNotice, onReload: list.reload, onAccount: list.replaceAccount, onForbidden: forbidden,
+  };
 
-  const change = useRoleChange({
-    householdId,
-    viewerId,
-    onSignedOut,
-    onNotice: setNotice,
-    onReload: list.reload,
-    onAccount: list.replaceAccount,
-    onForbidden: () => {
-      list.markForbidden();
-      household?.refresh();
-    },
-    onSelfDemoted: () => {
-      list.markForbidden();
-      // The navigation entry and this screen both follow the viewer's real role.
-      household?.refresh();
-    },
-  });
+  const change = useRoleChange({ ...shared, viewerId, onSelfDemoted: forbidden });
+  const reset = usePasswordReset(shared);
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <section className="settle">
-      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('admin.eyebrow')}</p>
-      <Heading className="mt-2 text-h1 leading-tight text-ink">{t('admin.title')}</Heading>
-      <p className="mt-2 max-w-prose text-base text-muted">{t('admin.subtitle')}</p>
-      <div role="status" aria-atomic="true" className="mt-5 empty:mt-0">
-        {notice ? <Notice tone={notice.tone === 'success' ? 'success' : 'neutral'} role={null}>{t(notice.key, notice.params)}</Notice> : null}
-      </div>
+      <AdminIntro notice={notice} t={t} />
       {list.state === 'loading' ? <AdminListSkeleton label={t('admin.loading')} /> : null}
       {list.state === 'error' ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retry} t={t} /> : null}
       {list.state === 'forbidden' ? <AdminOnlyAdmins t={t} /> : null}
@@ -63,13 +45,16 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
         <AdminAccountList
           accounts={list.accounts}
           viewerId={viewerId}
-          busy={list.busy || change.busy}
+          busy={list.busy || change.busy || reset.busy}
           headingRef={list.headingRef}
           stack={list.stack}
           nextCursor={list.nextCursor}
           onPrevious={list.previous}
           onNext={list.next}
           onChange={change.request}
+          onReset={reset.request}
+          onCancelReset={(account) => { void reset.cancelLink(account); }}
+          formatExpiry={(iso) => formatResetExpiry(iso, locale)}
           t={t}
         />
         {list.pageFailure ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retryPage} t={t} /> : null}
@@ -82,6 +67,15 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
       triggerRef={change.triggerRef}
       onConfirm={() => { void change.confirm(); }}
       onCancel={change.cancel}
+    />
+    <PasswordResetDialog
+      pending={reset.pending}
+      issued={reset.issued}
+      busy={reset.busy}
+      triggerRef={reset.triggerRef}
+      onConfirm={() => { void reset.confirm(); }}
+      onCancel={reset.cancelRequest}
+      onCloseLink={reset.closeLink}
     />
   </Layout>;
 }

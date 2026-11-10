@@ -92,7 +92,11 @@ function LoginForm({
   );
 }
 
-export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Session) => void; notice?: string }) {
+export function LoginScreen({ onSignedIn, notice, initialLogin }: {
+  onSignedIn: (session: Session) => void;
+  notice?: string;
+  initialLogin?: string;
+}) {
   const { t } = useI18n();
   const oidcButtonRef = useRef<HTMLButtonElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -103,6 +107,7 @@ export function LoginScreen({ onSignedIn, notice }: { onSignedIn: (session: Sess
   const { provider, status: oidcStatus, pending: oidcStatusPending, retryRef: statusRetryRef, retry: loadOidcStatus } = status;
   const actions = useLoginActions({
     onSignedIn,
+    initialLogin,
     focusPassword: () => passwordRef.current?.focus(),
     focusProvider: () => oidcButtonRef.current?.focus(),
     onProviderDisabled: status.disableProvider,

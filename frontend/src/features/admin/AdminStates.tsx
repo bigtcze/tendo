@@ -1,7 +1,26 @@
 import type { Translate } from '../../i18n';
+import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
 import { Notice } from '../../components/ui/notice';
 import { Skeleton } from '../../components/ui/skeleton';
+import type { NoticeSpec } from './useRoleChange';
+
+/** Page opening shared by every list state, with the one live host that speaks action outcomes. */
+export function AdminIntro({ notice, t }: { notice: NoticeSpec | null; t: Translate }) {
+  return <>
+    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('admin.eyebrow')}</p>
+    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('admin.title')}</Heading>
+    <p className="mt-2 max-w-prose text-base text-muted">{t('admin.subtitle')}</p>
+    <div role="status" aria-atomic="true" className="mt-5 empty:mt-0">
+      {notice ? <Notice tone={notice.tone === 'success' ? 'success' : 'neutral'} role={null}>{t(notice.key, notice.params)}</Notice> : null}
+    </div>
+  </>;
+}
+
+/** Reset expiries use the household's locale and name both the day and the time. */
+export function formatResetExpiry(iso: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+}
 
 /** A calm white surface stands in for the list while roles load, so the screen never jumps empty. */
 export function AdminListSkeleton({ label }: { label: string }) {

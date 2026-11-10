@@ -20,6 +20,7 @@ const statePath = join(stateDir, 'owner-state.json');
 test.afterAll(() => rmSync(stateDir, { recursive: true, force: true }));
 let household: Awaited<ReturnType<typeof firstRun>> | undefined;
 let fixture: Fixture | undefined;
+let visualResetLink = '';
 
 async function authenticated(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ ...CONTEXT, storageState: statePath, viewport: { width: 390, height: 844 } });
@@ -596,4 +597,102 @@ test('Large active dataset remains bounded', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await captureLargeDataset(page, requiredFixture());
   await context.close();
+});
+
+/** Opens the Admin center, asks for a reset, and returns the one-time link the dialog shows. */
+async function issueVisualReset(page: Page): Promise<string> {
+  const resetLabel = en['admin.reset.actionLabel'].replace('{login}', 'visual_member');
+  const renewLabel = en['admin.reset.renewLabel'].replace('{login}', 'visual_member');
+  const row = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })
+    .getByRole('listitem').filter({ hasText: 'visual_member' });
+  await row.getByRole('button', { name: resetLabel, exact: true }).or(row.getByRole('button', { name: renewLabel, exact: true })).click();
+  await page.getByRole('dialog').getByRole('button', { name: en['admin.reset.dialog.confirm'], exact: true }).click();
+  const linkDialog = page.getByRole('dialog', { name: en['admin.reset.link.title'].replace('{login}', 'visual_member') });
+  return linkDialog.getByRole('textbox', { name: en['admin.reset.link.label'] }).inputValue();
+}
+
+/** A fixed, valid-shaped token keeps the one-time-link dialog and the reset screen byte-identical between runs. */
+const VISUAL_RESET_TOKEN = 'V'.repeat(43);
+async function pinPasswordResetIssuing(context: BrowserContext) {
+  await context.route(
+    (url) => /^\/api\/v1\/households\/[^/]+\/accounts\/[^/]+\/password-reset$/.test(url.pathname),
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      // The visual capture never redeems the link, so it needs no server-side token; fixed times keep the
+      // expiry text stable while the real server clock would change it every day.
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          token: VISUAL_RESET_TOKEN,
+          createdAt: '2026-05-14T08:00:00Z',
+          expiresAt: '2026-05-15T08:00:00Z',
+        }),
+      });
+    },
+  );
+}
+
+test('Admin reset-link dialog', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { context, page } = await authenticated(browser);
+  await pinPasswordResetIssuing(context);
+  await page.goto('/admin');
+  await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
+
+  visualResetLink = await issueVisualReset(page);
+  expect(visualResetLink.startsWith(`${BASE_URL}/reset-password#`)).toBe(true);
+  await capture(page, 'admin-reset-link-light-1440', 1440, 900, false);
+  await capture(page, 'admin-reset-link-light-390', 390, 900, false);
+
+  // Saved dark theme survives the reload; a new issuance gives the same one-time-link dialog in dark.
+  await page.evaluate(() => localStorage.setItem('tendo.theme', 'dark'));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
+  visualResetLink = await issueVisualReset(page);
+  await capture(page, 'admin-reset-link-dark-390', 390, 900, false);
+
+  await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
+  await context.close();
+});
+
+test('Reset-password screen', async ({ browser }) => {
+  test.setTimeout(90_000);
+  expect(visualResetLink, 'the admin dialog test must issue the link first').not.toBe('');
+
+  async function openReset(path: string, init?: () => void) {
+    const context = await browser.newContext({ ...CONTEXT, viewport: { width: 1440, height: 900 } });
+    if (init) await context.addInitScript(init);
+    const page = await context.newPage();
+    await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
+    await page.goto(path);
+    return { context, page };
+  }
+
+  const light = await openReset(visualResetLink);
+  await expect(light.page.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+  await capture(light.page, 'reset-password-light-1440', 1440, 900, true);
+  await capture(light.page, 'reset-password-light-390', 390, 900, true);
+  await light.context.close();
+
+  const czech = await openReset(visualResetLink, () => localStorage.setItem('tendo.locale', 'cs'));
+  await expect(czech.page.getByRole('heading', { level: 1, name: cs['reset.title'] })).toBeVisible();
+  await capture(czech.page, 'reset-password-cs-390', 390, 900, true);
+  await czech.context.close();
+
+  const dark = await openReset(visualResetLink, () => localStorage.setItem('tendo.theme', 'dark'));
+  await expect(dark.page.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+  await expect(dark.page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await capture(dark.page, 'reset-password-dark-390', 390, 900, true);
+  await dark.context.close();
+
+  // A malformed fragment is an invalid link; nothing is submitted.
+  const invalid = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 900 } });
+  const invalidPage = await invalid.newPage();
+  await invalidPage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
+  await invalidPage.goto('/reset-password#not-a-real-token');
+  await expect(invalidPage.getByRole('heading', { level: 1, name: en['reset.invalid.title'] })).toBeVisible();
+  await capture(invalidPage, 'reset-password-invalid-390', 390, 900, true);
+  await invalid.close();
 });
