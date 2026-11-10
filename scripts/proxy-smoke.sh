@@ -51,7 +51,6 @@ setup_environment() {
   TENDO_PUBLIC_URL=https://tendo.test
   TENDO_TRUSTED_PROXY_CIDRS=
   compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" -f "$temp_dir/compose.yaml")
-  migrate=(docker compose --profile migration --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml" -f "$temp_dir/compose.yaml")
 }
 
 cleanup() {
@@ -141,9 +140,6 @@ services:
       interval: 2s
       timeout: 2s
       retries: 3
-  migrate:
-    networks:
-      - proxy-net
   app:
     environment:
       TENDO_PUBLIC_URL: https://tendo.test
@@ -208,7 +204,6 @@ poll_status() {
 
 bring_up_proxy_variant() {
   "${compose[@]}" up -d --build --wait --wait-timeout 150 postgres
-  "${migrate[@]}" run --rm migrate
   "${compose[@]}" up -d --build --wait --wait-timeout 150 oidc-provider app proxy
   curl_args=(--silent --show-error --noproxy '*' --max-time 5 --cacert "$cert_dir/ca.crt" --resolve "tendo.test:$TENDO_HOST_PORT:127.0.0.1" -H 'Host: tendo.test')
 }
@@ -453,7 +448,7 @@ PY
 }
 
 # Shared phase state: setup_environment provides project/temp_dir/cert_dir/smoke_dir,
-# compose/migrate, ports and secret_inventory; bring_up_proxy_variant provides curl_args.
+# compose, ports and secret_inventory; bring_up_proxy_variant provides curl_args.
 # probe_cookie_and_local_session provides base and session_cookie for later session/OIDC probes.
 # Later probes intentionally consume these smoke-scoped globals in sequence.
 setup_environment

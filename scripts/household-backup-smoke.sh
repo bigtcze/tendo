@@ -297,6 +297,10 @@ TENDO_SETUP_TOKEN=
 "${compose_b[@]}" up -d --wait --wait-timeout 90 postgres
 tables=$("${compose_b[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
 if [[ "$tables" != 0 ]]; then printf 'Restore target is not empty: %s tables\n' "$tables" >&2; exit 1; fi
+# initdb no longer creates the role, so bootstrap the restricted role before restoring.
+"${compose_b[@]}" run -T --rm --no-deps --build app ensure-role
+"${compose_b[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='tendo'" | grep -qx 0 \
+  || { printf 'ensure-role created role tendo with role memberships\n' >&2; exit 1; }
 "${compose_b[@]}" exec -T postgres pg_restore --exit-on-error --single-transaction -U postgres -d tendo <"$temp_dir/tendo-backup.dump"
 "${compose_b[@]}" up -d --build --wait --wait-timeout 120
 wait_ready
@@ -342,8 +346,10 @@ END $$;
 SQL
 # Restore safety, using the real household dump.
 psql_b=("${compose_b[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres)
-"${psql_b[@]}" -d tendo -At -c "SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls FROM pg_roles WHERE rolname='tendo'" | grep -qx f \
+"${psql_b[@]}" -d tendo -At -c "SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls OR rolreplication OR rolinherit FROM pg_roles WHERE rolname='tendo'" | grep -qx f \
   || { printf 'Restored runtime role tendo is privileged\n' >&2; exit 1; }
+"${psql_b[@]}" -d tendo -At -c "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='tendo'" | grep -qx 0 \
+  || { printf 'Restored runtime role tendo has role memberships\n' >&2; exit 1; }
 # Documented side-by-side backup test (docs/admin/backup-restore.md) succeeds into a new database.
 "${compose_b[@]}" exec -T postgres sh -ec 'createdb -U postgres tendo_restore_test && pg_restore --exit-on-error --single-transaction -U postgres -d tendo_restore_test' <"$temp_dir/tendo-backup.dump"
 restored_items=$("${psql_b[@]}" -d tendo_restore_test -At -c 'SELECT count(*) FROM items')

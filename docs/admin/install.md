@@ -1,6 +1,6 @@
 # Install Tendo
 
-This guide installs Tendo with Docker Compose on one server. Compose runs two long-lived containers: PostgreSQL and the Tendo app, which also serves the web interface. A short one-shot `migrate` container prepares the database before the app starts. The app image is published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64`; you do not need to build anything.
+This guide installs Tendo with Docker Compose on one server. Compose runs two containers: PostgreSQL and the Tendo app. On startup the app creates or validates its restricted database role, applies any pending database migrations, and only then serves the web interface. The app image is published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64`; you do not need to build anything.
 
 ## Before you start
 
@@ -53,13 +53,13 @@ The defaults serve Tendo at `http://localhost:8080`, only on this machine. To re
 docker compose up -d --wait
 ```
 
-Compose downloads the images, waits for PostgreSQL to become healthy and the migration to finish, then starts the app. Check that the app is ready:
+Compose downloads the images, waits for PostgreSQL to become healthy, and starts the app. The app prepares the database before it opens its HTTP port, and `--wait` returns only after its healthcheck reports healthy. Check that the app is ready:
 
 ```sh
 curl --fail --show-error http://localhost:8080/health/ready
 ```
 
-It prints `{"status":"ok"}`. If the app is still starting, wait a few seconds and run it again. If it does not, see [troubleshooting](troubleshooting.md).
+It prints `{"status":"ok"}`. If the app is still starting, wait a few seconds and run it again. Large databases take longer to migrate; `docker compose ps` shows the app with `(health: starting)` until startup finishes. If it does not become healthy, see [troubleshooting](troubleshooting.md).
 
 ## 4. Create your household
 
@@ -96,4 +96,4 @@ docker compose up -d --force-recreate --wait app
 
 ## How this is tested
 
-Required CI runs the exact commands on this page, extracted from these code blocks, in `scripts/quickstart-smoke.sh`. It replaces only the release download address with the files `scripts/release-assets.sh` stages from the checkout being tested, and runs them against an app image built from that checkout. It also performs the setup step over the same HTTP API used by the browser. Other deployment checks start this same `compose.yaml`, with `deploy/compose.build.yaml` building the app from source, using generated secrets in `scripts/setup-smoke.sh`; browser end-to-end tests create the first household through the setup screen.
+Required CI runs the exact commands on this page, extracted from these code blocks, in `scripts/quickstart-smoke.sh`. It replaces only the release download address with the files `scripts/release-assets.sh` stages from the checkout being tested, and runs them against an app image built from that checkout. It also performs the setup step over the same HTTP API used by the browser. Other deployment checks start this same `compose.yaml`, with `deploy/compose.build.yaml` building the app from source, using generated secrets in `scripts/setup-smoke.sh`; `scripts/compose-startup-smoke.sh` additionally covers role and schema bootstrap, restarts, concurrent starts and every startup failure path; browser end-to-end tests create the first household through the setup screen.

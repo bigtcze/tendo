@@ -22,6 +22,7 @@ TENDO_RESTART_POLICY=no
 TENDO_DB_TIMEOUT=2
 TENDO_SHUTDOWN_TIMEOUT=10
 compose=(docker compose --project-name "$project" -f "$root/compose.yaml" -f "$root/deploy/compose.build.yaml")
+"${compose[@]}" config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); assert set(c["services"])=={"postgres","app"}, sorted(c["services"]); assert "configs" not in c, sorted(c)'
 fixtures=$(mktemp)
 session_fixtures=$(mktemp)
 item_fixtures=$(mktemp)
@@ -63,6 +64,8 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if (( ready == 0 )); then printf 'App did not become ready: %s/health/ready\n' "$origin" >&2; exit 1; fi
+app_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$("${compose[@]}" ps -q app)")
+[[ "$app_health" == healthy ]] || { printf 'App container health is %s, expected healthy\n' "$app_health" >&2; exit 1; }
 python3 "$root/scripts/setup_smoke_api_capture.py" initial "$origin" "$TENDO_SETUP_TOKEN" "$fixtures"
 API_RESPONSE_FIXTURES="$fixtures" node "$root/api/check-health.mjs"
 "${compose[@]}" exec -T postgres psql -U postgres -d tendo \

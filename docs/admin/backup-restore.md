@@ -45,7 +45,7 @@ Use this after losing a server, or when moving Tendo to another one. The target 
 
 1. Prepare the new installation as in [install](install.md) steps 1–2, but **do not start it yet**. Use the same Tendo version (`TENDO_VERSION` and that release's `compose.yaml`), and a `.env` with the same `TENDO_PUBLIC_URL` and OIDC settings you had before. You can generate new database passwords; the backup does not depend on them. Leave `TENDO_SETUP_TOKEN` empty, because the restored data already has an administrator.
 
-2. Start only PostgreSQL. This creates the empty `tendo` database and the restricted `tendo` role:
+2. Start only PostgreSQL. This creates the empty `tendo` database:
 
    ```sh
    docker compose up -d --wait postgres
@@ -59,19 +59,25 @@ Use this after losing a server, or when moving Tendo to another one. The target 
 
    If it prints anything else, stop: this is not a fresh installation.
 
-4. Restore the backup. On any error, nothing is written:
+4. Create the restricted runtime role without applying migrations or touching data. The dump does not contain role passwords, so this uses the new `.env` passwords:
+
+   ```sh
+   docker compose run --rm --no-deps app ensure-role
+   ```
+
+5. Restore the backup. On any error, nothing is written:
 
    ```sh
    docker compose exec -T postgres pg_restore --exit-on-error --single-transaction -U postgres -d tendo < tendo-backup.dump
    ```
 
-5. Start Tendo:
+6. Start Tendo. The app validates the restored schema before it serves HTTP:
 
    ```sh
    docker compose up -d --wait
    ```
 
-6. Sign in with your usual login and check your household, people and things, items, and history.
+7. Sign in with your usual login and check your household, people and things, items, and history.
 
 To keep the old installation's data volume untouched while you check the restore on the same machine, give the new installation its own Compose project name, for example `docker compose -p tendo-restored …` in every command above. Stop the old app first, so both installations never use the same port.
 
