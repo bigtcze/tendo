@@ -370,6 +370,14 @@ SQL **before** `ORDER BY id LIMIT`, one clock sample per request, and the state 
 filtering is rejected: a page of only expired rows would render empty while `nextCursor` exists. Any
 future count must use the same predicate and instant. Server audit history is untouched.
 
+**Delivered (V4-12, #420):** a narrower boolean `includeExpired` (default `true`; the Members screen
+sends `false`) instead of the `state` enum, since V4 needs only "current" and no per-state tab. The
+predicate, pre-`LIMIT` placement and single clock sample are as proposed. The cursor stays ID-only and
+is not bound to the filter: ID keyset order is monotone, so switching the filter mid-walk can only
+show or hide expired rows, never duplicate or skip a non-expired one. The Members screen also drops
+any `expired` row it receives as a safety net. Contract: `api/openapi.yaml` `listInvitations`;
+`docs/development/api.md`.
+
 Existing tests to extend: `identity/postgres/invitations_expiry_test.go:10`,
 `identity/postgres/invitations_test.go:387,563`, `invitation_keyset_property_test.go:11`,
 `features/members/MembersScreen.test.tsx:170,480`, Playwright n7 (`journey.spec.ts:1170`).

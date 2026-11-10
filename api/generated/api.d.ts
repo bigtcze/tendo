@@ -218,7 +218,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List household invitations */
+        /**
+         * List household invitations
+         * @description Lists the household's invitations in stable ID order for an administrator. Status is derived at one server instant per request. With includeExpired=false, invitations that were never accepted or revoked and whose expiresAt is at or before that instant are excluded before the page limit is applied, so every page is filled from the remaining invitations and nextCursor is present only when more of them follow. Excluded rows stay stored and unusable; they are only omitted from this response.
+         */
         get: operations["listInvitations"];
         put?: never;
         /**
@@ -3355,6 +3358,8 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Opaque cursor copied from a previous nextCursor. Do not construct or parse it. */
                 cursor?: components["parameters"]["Cursor"];
+                /** @description true (default, for compatibility) lists every invitation; false omits expired invitations. A cursor may be reused with either value because it only names the last returned ID. */
+                includeExpired?: boolean;
             };
             header?: {
                 /**
@@ -3374,7 +3379,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Owner invitation list. Tokens are never included. */
+            /** @description Administrator invitation list. Tokens are never included. */
             200: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -3385,7 +3390,7 @@ export interface operations {
                     "application/json": components["schemas"]["InvitationList"];
                 };
             };
-            /** @description Invalid pagination query (invalid_query with parameter limit or cursor) or malformed forwarded metadata. */
+            /** @description Invalid pagination query (invalid_query with parameter limit, cursor or includeExpired; includeExpired accepts exactly one lowercase true or false) or malformed forwarded metadata. */
             400: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

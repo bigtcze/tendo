@@ -17,7 +17,7 @@ import (
 
 type invitationService interface {
 	CreateInvitation(context.Context, string, string, string) (identity.InvitationResult, error)
-	ListInvitations(context.Context, string, string, int, string) ([]identity.Invitation, string, error)
+	ListInvitations(ctx context.Context, actor, householdID string, limit int, cursor string, includeExpired bool) ([]identity.Invitation, string, error)
 	RevokeInvitation(context.Context, string, string, string) error
 	AcceptInvitationNewAccount(context.Context, string, string, string) (identity.InvitationUser, error)
 	AcceptInvitationExistingAccount(context.Context, string, string) (identity.InvitationUser, error)
@@ -76,11 +76,17 @@ func (h *InvitationHandler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// includeExpired defaults to true so existing /api/v1 clients keep the full list.
+	includeExpired, ok := httpx.ParseQueryBool(r.URL.Query()["includeExpired"], true)
+	if !ok {
+		httpx.QueryProblemResponse(w, "includeExpired")
+		return
+	}
 	limit := p.Limit
 	if limit == 0 {
 		limit = 50
 	}
-	items, next, e := h.service.ListInvitations(r.Context(), actor, chi.URLParam(r, "householdId"), limit, p.Cursor)
+	items, next, e := h.service.ListInvitations(r.Context(), actor, chi.URLParam(r, "householdId"), limit, p.Cursor, includeExpired)
 	if e != nil {
 		writeInvitationError(w, e)
 		return

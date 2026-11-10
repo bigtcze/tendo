@@ -440,8 +440,8 @@ describe('members and invitations', () => {
   it('invitation list error is retryable, not empty', async () => {
     let count = 0; installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: () => (++count === 1 ? problem(503) : page([])) });
     renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
-    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible(); expect(screen.queryByText('No invitations yet.')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' })); expect(await screen.findByText('No invitations yet.')).toBeVisible();
+    expect(await screen.findByText('Invitations couldn’t be loaded. Try again.')).toBeVisible(); expect(screen.queryByText('No invitations to show.')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' })); expect(await screen.findByText('No invitations to show.')).toBeVisible(); expect(screen.getByText('Expired invite links aren’t listed. Create a new link if someone still needs one.')).toBeVisible();
   });
 
   it('replays unresolved creation with the same key, and a deliberate create gets a new key', async () => {
@@ -579,6 +579,19 @@ describe('members and invitations', () => {
     expect(within(invitations).queryByText('Pending')).not.toBeInTheDocument();
     expect(fake.requests.filter((r) => r.path === `${base}/members`).map((r) => r.query.get('cursor'))).toContain('m2');
     expect(fake.requests.filter((r) => r.path === `${base}/invitations`).map((r) => r.query.get('cursor'))).toContain('i2');
+    // Expired invitations are filtered by the server before paging, so every page request must ask for it.
+    const invitationGets = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/invitations`);
+    expect(invitationGets.length).toBeGreaterThanOrEqual(2);
+    expect(invitationGets.every((r) => r.query.getAll('includeExpired').join() === 'false')).toBe(true);
+  });
+
+  it('never renders an expired invitation even if a page contains one', async () => {
+    installFakeServer({ ...defaults(), [`GET ${base}/invitations`]: page([invitation('one'), invitation('old', 'expired'), invitation('two', 'revoked')]) });
+    renderApp(); await userEvent.click(await screen.findByRole('link', { name: 'Household members' }));
+    const invitations = within(screen.getByRole('region', { name: 'Invite someone' })).getByRole('list', { name: 'Invitations' });
+    expect(await within(invitations).findByText('Revoked')).toBeVisible();
+    expect(within(invitations).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(invitations).queryByText('Expired')).not.toBeInTheDocument();
   });
 
   it('member and invitation paging supports three pages and return to first', async () => {

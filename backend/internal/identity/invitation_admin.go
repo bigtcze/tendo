@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/platform/ids"
@@ -71,7 +72,12 @@ func decodeInvitationCursor(c string) (string, error) {
 	}
 	return string(b), nil
 }
-func (s *InvitationService) ListInvitations(ctx context.Context, actor, householdID string, limit int, cursor string) ([]Invitation, string, error) {
+
+// ListInvitations pages the household's invitations in ID order. With includeExpired false,
+// invitations that are still unaccepted and unrevoked but past their expiry are filtered in the
+// query before the page limit, so a page is never padded or emptied by hidden rows. One clock
+// sample drives both the filter and every returned status.
+func (s *InvitationService) ListInvitations(ctx context.Context, actor, householdID string, limit int, cursor string, includeExpired bool) ([]Invitation, string, error) {
 	bounded, cancel := context.WithTimeout(ctx, invitationRepositoryBudget)
 	defer cancel()
 	ctx = bounded
@@ -91,19 +97,23 @@ func (s *InvitationService) ListInvitations(ctx context.Context, actor, househol
 	if limit > 100 {
 		limit = 100
 	}
+	now := invitationNow(s.clock)
+	var activeAt *time.Time
+	if !includeExpired {
+		activeAt = &now
+	}
 	var out []Invitation
 	e = s.repository.WithInvitationTransaction(ctx, func(tx InvitationTransaction) error {
 		if x := tx.RequireAdmin(ctx, actor, householdID); x != nil {
 			return x
 		}
 		var x error
-		out, _, x = tx.ListInvitations(ctx, householdID, id, limit+1)
+		out, _, x = tx.ListInvitations(ctx, householdID, id, activeAt, limit+1)
 		return x
 	})
 	if e != nil {
 		return nil, "", e
 	}
-	now := invitationNow(s.clock)
 	next := ""
 	if len(out) > limit {
 		out = out[:limit]

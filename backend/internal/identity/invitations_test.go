@@ -53,7 +53,7 @@ func (t *invitationFakeTx) CreateInvitation(_ context.Context, in CreateInvitati
 	t.f.created = true
 	return t.f.inv, true, nil
 }
-func (t *invitationFakeTx) ListInvitations(context.Context, string, string, int) ([]Invitation, string, error) {
+func (t *invitationFakeTx) ListInvitations(context.Context, string, string, *time.Time, int) ([]Invitation, string, error) {
 	return nil, "", nil
 }
 func (t *invitationFakeTx) RevokeInvitation(context.Context, string, string, time.Time) error {

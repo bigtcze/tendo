@@ -654,6 +654,22 @@ psql(f"UPDATE household_invitations SET created_at=now()-interval '8 days', expi
 assert psql(f"SELECT expires_at<now() FROM household_invitations WHERE id='{expired['id']}'")=='t','could not expire invitation fixture'
 st,_,expired_accept,_=xreq('POST',ACCEPT_NEW,ACCEPT_NEW,{'token':expired['token'],'login':'expired_smoke','password':'a sufficiently long expired passphrase'},{'Origin':origin})
 assert st==404 and expired_accept['code']=='invalid_invitation',('expired invitation',st,expired_accept)
+# The full list (default) keeps the expired row as history; includeExpired=false hides it before paging.
+def walk_invitations(query):
+ found,cursor=[],None
+ while True:
+  st,_,page,_=xreq('GET',invite_base+'?limit=1'+query+(f'&cursor={cursor}' if cursor else ''),INV,headers=owner_cookie)
+  assert st==200 and len(page['items'])<=1,('invitation walk',query,st,page)
+  found.extend(page['items']);cursor=page['nextCursor']
+  if not cursor: return found
+full_walk=walk_invitations('')
+active_walk=walk_invitations('&includeExpired=false')
+assert any(x['id']==expired['id'] and x['status']=='expired' for x in full_walk),('expired invitation kept in full list',full_walk)
+assert [x for x in full_walk if x['id']!=expired['id']]==active_walk and all(x['status']!='expired' for x in active_walk),('active invitation list',full_walk,active_walk)
+assert {'revoked','accepted'}<={x['status'] for x in active_walk},('active list keeps terminal history',active_walk)
+st,_,bad_filter,_=xreq('GET',invite_base+'?includeExpired=yes',INV,headers=owner_cookie)
+assert st==400 and bad_filter['code']=='invalid_query' and bad_filter['parameter']=='includeExpired',('bad includeExpired',st,bad_filter)
+assert psql(f"SELECT count(*) FROM household_invitations WHERE id='{expired['id']}' AND accepted_at IS NULL AND revoked_at IS NULL")=='1','expired invitation row must stay in the database'
 # Existing-account acceptance success uses a free account and a fresh invitation.
 free_user=psql("INSERT INTO user_accounts(login) VALUES ('free_smoke') RETURNING id").splitlines()[0]
 owner_hash=psql("SELECT password_hash FROM local_credentials WHERE user_id=(SELECT id FROM user_accounts WHERE login='owner_smoke')")

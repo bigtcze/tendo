@@ -1220,7 +1220,8 @@ test.describe('Tendo production journey', () => {
     const invitationList = page.getByRole('heading', { name: en['members.invitations.title'] }).locator('..');
     await expect(invitationList).toContainText(en['members.invitation.status.pending']);
     await expectNoAxeViolations(page, 'members-owner-invite-link');
-    const invitationPath = `/api/v1/households/${householdId}/invitations`;
+    // Row indexes below address the Members UI list, which hides expired invitations.
+    const invitationPath = `/api/v1/households/${householdId}/invitations?includeExpired=false`;
     const beforeSecondInvite = (await (await page.request.get(invitationPath)).json()).items as Array<{ id: string }>;
 
     await page.getByRole('button', { name: en['members.invite.action'] }).click();
@@ -3002,7 +3003,8 @@ test.describe('Tendo production journey', () => {
       return (await response.json()) as { items: Array<{ id: string; name: string; type: string; archived: boolean }>; nextCursor: string | null };
     };
     const invitationList = async () => {
-      const response = await page.request.get(invitationsPath, { params: { limit: '100' } });
+      // Same filter as the Members UI, so the last API row is the last UI row.
+      const response = await page.request.get(invitationsPath, { params: { limit: '100', includeExpired: 'false' } });
       expect(response.status()).toBe(200);
       return (await response.json()) as { items: Array<{ id: string; status: string }>; nextCursor: string | null };
     };
@@ -4232,7 +4234,8 @@ test.describe('Tendo production journey', () => {
       const result: Array<{ id: string; status: string }> = []; 
       let cursor: string | undefined;
       do {
-        const response = await page.request.get(invitationsPath, { params: { limit: '100', ...(cursor ? { cursor } : {}) } });
+        // Same filter as the Members UI, so API and UI page counts compare like for like.
+        const response = await page.request.get(invitationsPath, { params: { limit: '100', includeExpired: 'false', ...(cursor ? { cursor } : {}) } });
         expect(response.status()).toBe(200);
         const body = await response.json() as { items: Array<{ id: string; status: string }>; nextCursor: string | null };
         result.push(...body.items);
@@ -4431,7 +4434,9 @@ test.describe('Tendo production journey', () => {
   });
 
   // G7 browser evidence: a runner-seeded, isolated household (scripts/e2e_db_fixtures.py) holds 1001 people,
-  // 1002 members and 1001 pending invitations; every UI page must equal the matching authenticated API page.
+  // 1002 members and 1001 pending invitations interleaved by ID with 100 expired ones (V4-12). Every UI page must
+  // equal the matching authenticated API page; the Members UI asks for includeExpired=false, so expired rows never
+  // appear on any page and the 1001 remaining invitations still fill whole 50-row pages.
   test('n28. People, Members and invitations walk 1000+ rows with bounded pages and stable pager history', async ({ browser }) => {
     test.setTimeout(120_000);
     const large = `/api/v1/households/${largeHouseholdId}`;
@@ -4529,7 +4534,14 @@ test.describe('Tendo production journey', () => {
       expect(login.status(), 'n28 large-household owner signs in').toBe(201);
       const subjects = await apiPages(`${large}/subjects`, { archived: 'false' });
       const members = await apiPages(`${large}/members`);
-      const invitations = await apiPages(`${large}/invitations`);
+      const invitations = await apiPages(`${large}/invitations`, { includeExpired: 'false' });
+      // The default (full) list still returns the expired rows as history, interleaved between pending ones.
+      const fullInvitations = (await apiPages(`${large}/invitations`)).flat();
+      const activeIds = new Set(invitations.flat().map((row) => row.id));
+      const hiddenPositions = fullInvitations.flatMap((row, index) => (activeIds.has(row.id) ? [] : [index]));
+      expect(fullInvitations.length, 'n28 full invitation history keeps expired rows').toBe(1101);
+      expect(hiddenPositions, 'n28 expired invitations are hidden').toHaveLength(100);
+      expect(hiddenPositions.filter((index) => index % 50 !== 0 && index % 50 !== 49).length, 'n28 expired rows sit mid-page in the full list').toBeGreaterThan(50);
       for (const [name, pages, total] of [['subjects', subjects, 1001], ['members', members, 1002], ['invitations', invitations, 1001]] as const) {
         expect(pages.flat().length, `n28 ${name} fixture size`).toBe(total);
         expect(new Set(pages.flat().map((row) => row.id)).size, `n28 ${name} fixture IDs unique`).toBe(total);

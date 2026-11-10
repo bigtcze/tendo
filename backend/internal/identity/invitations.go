@@ -43,7 +43,9 @@ type InvitationTransaction interface {
 	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
 	CreateInvitation(context.Context, CreateInvitationInput) (Invitation, bool, error)
-	ListInvitations(context.Context, string, string, int) ([]Invitation, string, error)
+	// ListInvitations returns household invitations after the cursor ID in ID order. A non-nil
+	// activeAt omits rows that are still pending but no longer usable at that instant (expired).
+	ListInvitations(ctx context.Context, householdID, afterID string, activeAt *time.Time, limit int) ([]Invitation, string, error)
 	RevokeInvitation(context.Context, string, string, time.Time) error
 	FindInvitation(context.Context, []byte, bool) (Invitation, error)
 	FindLogin(context.Context, string) error

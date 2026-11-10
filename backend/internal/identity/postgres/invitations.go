@@ -121,7 +121,7 @@ func (t *invitationTx) CreateInvitation(ctx context.Context, input identity.Crea
 	}), err == nil, err
 }
 
-func (t *invitationTx) ListInvitations(ctx context.Context, householdValue, cursor string, limit int) ([]identity.Invitation, string, error) {
+func (t *invitationTx) ListInvitations(ctx context.Context, householdValue, cursor string, activeAt *time.Time, limit int) ([]identity.Invitation, string, error) {
 	var householdID, after pgtype.UUID
 	if err := householdID.Scan(householdValue); err != nil {
 		return nil, "", household.ErrNotFound
@@ -131,7 +131,11 @@ func (t *invitationTx) ListInvitations(ctx context.Context, householdValue, curs
 			return nil, "", &identity.ValidationError{Field: "cursor", Code: "invalid_format"}
 		}
 	}
-	rows, err := t.q.ListInvitations(ctx, identitydb.ListInvitationsParams{HouseholdID: householdID, Column2: after, Limit: int32(limit)})
+	var active pgtype.Timestamptz
+	if activeAt != nil {
+		active = ts(*activeAt)
+	}
+	rows, err := t.q.ListInvitations(ctx, identitydb.ListInvitationsParams{HouseholdID: householdID, AfterID: after, ActiveAt: active, RowLimit: int32(limit)})
 	if err != nil {
 		return nil, "", err
 	}

@@ -215,7 +215,7 @@ func TestInvitationMemberOwnerPoliciesDefaultMembershipAndNoChanges(t *testing.T
 	if _, e = svc.CreateInvitation(ctx, member, h, "denied"); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member create=%v", e)
 	}
-	if _, _, e = svc.ListInvitations(ctx, member, h, 10, ""); !errors.Is(e, household.ErrAdminRequired) {
+	if _, _, e = svc.ListInvitations(ctx, member, h, 10, "", true); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member list=%v", e)
 	}
 	if e = svc.RevokeInvitation(ctx, member, h, inv.Invitation.ID); !errors.Is(e, household.ErrAdminRequired) {

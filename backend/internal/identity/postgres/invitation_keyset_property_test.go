@@ -46,7 +46,7 @@ func TestInvitationKeysetWalkPostgres(t *testing.T) {
 		var got []string
 		cursor := ""
 		for pages := 0; pages < 200; pages++ {
-			invitations, next, err := service.ListInvitations(ctx, owner, house, limit, cursor)
+			invitations, next, err := service.ListInvitations(ctx, owner, house, limit, cursor, true)
 			if err != nil {
 				t.Fatal(err)
 			}

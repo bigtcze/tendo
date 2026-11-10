@@ -138,7 +138,10 @@ def seed_existing_invitation_accounts(
 def seed_large_paging_household(
     inherited: dict[str, str], register: Callable[[str], None]
 ) -> tuple[str, str]:
-    """Create an isolated household with 1001 records in each G7 paging collection."""
+    """Create an isolated household with 1001 records in each G7 paging collection.
+
+    Invitations get 100 extra expired rows (every 11th of 1101 in one statement, so their UUIDv7 IDs
+    appear throughout ID order among the 1001 pending ones): the Members UI must hide them mid-page."""
     register(EXISTING_ACCOUNT_PASSWORD)
     login = "large_paging_owner_e2e"
     seed = psql_admin(inherited, f"""WITH h AS (
@@ -172,26 +175,29 @@ def seed_large_paging_household(
       )
       SELECT membership.household_id, membership.user_id, 'large-paging-' || n,
         decode(md5('large-paging-token-' || n) || md5('large-paging-token-check-' || n), 'hex'),
-        now() - n * interval '1 day', now() + interval '7 days'
-      FROM generate_series(1, 1001) n CROSS JOIN membership
-      RETURNING id
+        now() - n * interval '1 day',
+        CASE WHEN n % 11 = 0 THEN now() - (n - 1) * interval '1 day' ELSE now() + interval '7 days' END
+      FROM generate_series(1, 1101) n CROSS JOIN membership
+      ORDER BY n
+      RETURNING id, expires_at
     ), materialized AS (
       SELECT
         (SELECT count(*) FROM member_rows) AS member_count,
         (SELECT count(*) FROM subjects) AS subject_count,
-        (SELECT count(*) FROM invitations) AS invitation_count
+        (SELECT count(*) FROM invitations WHERE expires_at > now()) AS invitation_count,
+        (SELECT count(*) FROM invitations WHERE expires_at <= now()) AS expired_invitation_count
     )
     SELECT membership.household_id::text || '|' || membership.user_id::text || '|'
       || materialized.member_count::text || '|' || materialized.subject_count::text || '|'
-      || materialized.invitation_count::text
+      || materialized.invitation_count::text || '|' || materialized.expired_invitation_count::text
     FROM membership CROSS JOIN materialized""")
     identifiers = seed.split("|")
     if (
-        len(identifiers) != 5
+        len(identifiers) != 6
         or any(not UUID_PATTERN.fullmatch(value) for value in identifiers[:2])
-        or identifiers[2:] != ["1001", "1001", "1001"]
+        or identifiers[2:] != ["1001", "1001", "1001", "100"]
     ):
-        raise RuntimeError("large paging seed did not return the household, owner and 1001-row fixture counts")
+        raise RuntimeError("large paging seed did not return the household, owner, 1001-row and 100-expired fixture counts")
     return identifiers[0], login
 
 
@@ -208,9 +214,11 @@ def assert_large_paging_household(
       (SELECT count(*) FROM subjects WHERE household_id='{household_id}'),
       (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}'),
       (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}' AND revoked_at IS NULL AND accepted_at IS NULL),
-      (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}' AND token_hash IS NULL)
+      (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}' AND token_hash IS NULL),
+      (SELECT count(*) FROM household_invitations WHERE household_id='{household_id}' AND expires_at <= now())
     )""")
-    if actual != "1002|1001|1001|1001|1001|0":
+    # Hidden expired invitations stay stored: 1001 pending plus 100 expired, none accepted or revoked.
+    if actual != "1002|1001|1001|1101|1101|0|100":
         raise RuntimeError(f"large paging fixture state mismatch: {actual!r}")
 
 

@@ -44,7 +44,7 @@ func TestInvitationExpiryBoundariesAndListStatuses(t *testing.T) {
 		t.Fatal(e)
 	}
 	clock = exact.Invitation.ExpiresAt.Add(time.Second)
-	rows, _, e := svc.ListInvitations(ctx, owner, house, 100, "")
+	rows, _, e := svc.ListInvitations(ctx, owner, house, 100, "", true)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -64,7 +64,7 @@ func TestInvitationExpiryBoundariesAndListStatuses(t *testing.T) {
 	if pending.Invitation.Status != "pending" {
 		t.Fatalf("pending status=%s", pending.Invitation.Status)
 	}
-	listed, _, e := svc.ListInvitations(ctx, owner, house, 100, "")
+	listed, _, e := svc.ListInvitations(ctx, owner, house, 100, "", true)
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -134,6 +134,21 @@ func TestParseListParamsFirstOffenderOrderAndFilterGating(t *testing.T) {
 	}
 }
 
+func TestParseQueryBoolStrictWithFallback(t *testing.T) {
+	for _, tc := range []struct {
+		query          string
+		fallback, want bool
+		ok             bool
+	}{{"", true, true, true}, {"", false, false, true}, {"flag=true", false, true, true}, {"flag=false", true, false, true},
+		{"flag", true, false, false}, {"flag=", true, false, false}, {"flag=TRUE", true, false, false}, {"flag=1", true, false, false},
+		{"flag=true&flag=true", true, false, false}} {
+		got, ok := ParseQueryBool(httptest.NewRequest("GET", "/?"+tc.query, nil).URL.Query()["flag"], tc.fallback)
+		if ok != tc.ok || ok && got != tc.want {
+			t.Fatalf("%q fallback=%v: got=%v ok=%v", tc.query, tc.fallback, got, ok)
+		}
+	}
+}
+
 func TestParseListParams(t *testing.T) {
 	parse := func(query string) (ListParams, string) {
 		w := httptest.NewRecorder()
