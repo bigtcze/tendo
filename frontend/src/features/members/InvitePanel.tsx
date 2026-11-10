@@ -3,7 +3,7 @@ import { EmptyState } from '../../components/ui/empty-state';
 import { NoticeRegion } from '../../components/ui/notice';
 import type { Translate } from '../../i18n';
 import { InvitationRows } from './InvitationRows';
-import { MembersPager } from './MembersPager';
+import { CursorPager } from '../../components/ui/cursor-pager';
 import type { InvitationList } from './useInvitationList';
 import type { InviteActions } from './useInviteActions';
 
@@ -65,7 +65,7 @@ export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: 
       <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="text-lg font-bold text-ink outline-none">{t('members.invitations.title')}</h3>
       <InvitationsBody inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
       {listReady && (invitationStack.length > 0 || invitationCursor)
-        ? <MembersPager kind="invitation" stack={invitationStack} cursor={invitationCursor} busy={invitationBusy}
+        ? <CursorPager kind="invitation" stack={invitationStack} cursor={invitationCursor} busy={invitationBusy}
           onPrevious={previousInvitations} onNext={nextInvitations} t={t} />
         : null}
     </div>

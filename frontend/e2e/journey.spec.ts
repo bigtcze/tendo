@@ -182,6 +182,7 @@ test.describe('Tendo production journey', () => {
   let householdId = '';
   let sessionToken = '';
   let vehicleId = '';
+  let lastAdminRefusal = '';
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
@@ -1320,6 +1321,103 @@ test.describe('Tendo production journey', () => {
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
     }
+  });
+
+  test('n7b. the Admin center changes roles, refuses the last admin, and stays closed to members', async ({ browser }) => {
+    test.setTimeout(120_000);
+    await page.goto('/');
+    await waitForSettledHome(page, householdName);
+    const householdNav = page.getByRole('navigation', { name: en['nav.label'] });
+    await expect(householdNav.getByRole('link', { name: en['nav.admin'], exact: true })).toBeVisible();
+    await householdNav.getByRole('link', { name: en['nav.admin'], exact: true }).click();
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+    const main = page.getByRole('main');
+    const accounts = main.getByRole('list', { name: en['admin.list.title'] });
+    const ownerRow = accounts.getByRole('listitem').filter({ hasText: ownerLogin });
+    const memberRow = accounts.getByRole('listitem').filter({ hasText: 'member_e2e' });
+    await expect(ownerRow).toContainText(en['members.role.admin']);
+    await expect(ownerRow).toContainText(en['members.you']);
+    await expect(ownerRow).toContainText(en['admin.signIn.password']);
+    await expect(memberRow).toContainText(en['members.role.member']);
+    await expectNoAxeViolations(page, 'admin-center-owner');
+
+    // Phones keep five bottom-bar destinations; the Admin center is reachable from Account instead.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/account');
+    await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+    await expect(main.getByRole('heading', { name: en['admin.account.title'] })).toBeVisible();
+    await expect(page.locator(`nav[aria-label="${en['nav.label']}"] a:visible`)).toHaveCount(5);
+    await expect(householdNav.getByRole('link', { name: en['admin.title'], exact: true })).toBeHidden();
+    await main.getByRole('link', { name: en['admin.account.link'], exact: true }).click();
+    await expect(page).toHaveURL(/\/admin$/);
+    await page.setViewportSize({ width: 320, height: 640 });
+    await expect(page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px Admin center overflow').toBeLessThanOrEqual(0);
+    const ownerControl = page.getByRole('main').getByRole('button', { name: en['admin.action.demoteLabel'].replace('{login}', ownerLogin) });
+    const controlBox = await ownerControl.boundingBox();
+    expect(controlBox!.height, 'role control target height at 320').toBeGreaterThanOrEqual(44);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Promote the existing member, then prove the member really gains the Admin center in another session.
+    await page.getByRole('main').getByRole('button', { name: en['admin.action.promoteLabel'].replace('{login}', 'member_e2e') }).click();
+    const promoteDialog = page.getByRole('dialog');
+    await expect(promoteDialog.getByRole('heading', { name: en['admin.dialog.promote.title'].replace('{login}', 'member_e2e') })).toBeVisible();
+    await promoteDialog.getByRole('button', { name: en['admin.action.promote'], exact: true }).click();
+    await expect(page.getByText(en['admin.notice.promoted'].replace('{login}', 'member_e2e'))).toBeVisible();
+    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: 'member_e2e' })).toContainText(en['members.role.admin']);
+
+    const memberContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const memberPage = await memberContext.newPage();
+    try {
+      await memberPage.goto('/');
+      await memberPage.locator('#login').fill('member_e2e');
+      await memberPage.locator('#password').fill(`${ownerPassword}-member`);
+      await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      await expect(memberPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const memberNav = memberPage.getByRole('navigation', { name: en['nav.label'] });
+      await expect(memberNav.getByRole('link', { name: en['admin.title'], exact: true })).toBeVisible();
+      await memberNav.getByRole('link', { name: en['admin.title'], exact: true }).click();
+      await expect(memberPage.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+      await expect(memberPage.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toBeVisible();
+
+      // Demote back. The demoted session keeps the open page but loses the entry and every read.
+      await page.getByRole('main').getByRole('button', { name: en['admin.action.demoteLabel'].replace('{login}', 'member_e2e') }).click();
+      const demoteDialog = page.getByRole('dialog');
+      await expect(demoteDialog.getByText(en['admin.dialog.demote.body'].replace('{login}', 'member_e2e'))).toBeVisible();
+      await demoteDialog.getByRole('button', { name: en['admin.action.demote'], exact: true }).click();
+      await expect(page.getByText(en['admin.notice.demoted'].replace('{login}', 'member_e2e'))).toBeVisible();
+
+      await memberPage.reload();
+      await expect(memberPage.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+      await expect(memberPage.getByRole('heading', { name: en['admin.onlyAdmins.title'] })).toBeVisible();
+      await expect(memberPage.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);
+      await expect(memberNav.getByRole('link', { name: en['admin.title'], exact: true })).toHaveCount(0);
+      const refusedList = await memberPage.request.get(`/api/v1/households/${householdId}/accounts`);
+      expect(refusedList.status()).toBe(403);
+      expect((await refusedList.json()).code).toBe('admin_required');
+    } finally {
+      await memberContext.close();
+    }
+
+    // The owner is the only administrator now: demoting themselves is refused and changes nothing.
+    const sessionResponse = await page.request.get('/api/v1/session');
+    const ownerId = (await sessionResponse.json() as { userId: string }).userId;
+    const ownerAccountPath = `/api/v1/households/${householdId}/accounts/${ownerId}`;
+    lastAdminRefusal = `PATCH ${ownerAccountPath} 409`;
+    // Chromium logs a console error for the refused change; the last test pins that exact failure.
+    expectedFailedPaths.add(ownerAccountPath);
+    await page.getByRole('main').getByRole('button', { name: en['admin.action.demoteLabel'].replace('{login}', ownerLogin) }).click();
+    const lastAdminDialog = page.getByRole('dialog');
+    await expect(lastAdminDialog).toContainText(en['admin.dialog.selfDemote.body']);
+    await lastAdminDialog.getByRole('button', { name: en['admin.action.demote'], exact: true }).click();
+    await expect(page.getByText(en['admin.error.lastAdmin'])).toBeVisible();
+    await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: ownerLogin })).toContainText(en['members.role.admin']);
+    await expect(householdNav.getByRole('link', { name: en['admin.title'], exact: true })).toBeVisible();
+    const stillAdmin = await page.request.get(`/api/v1/households/${householdId}/accounts`);
+    expect(stillAdmin.status()).toBe(200);
+    const ownerAfter = (await stillAdmin.json() as { items: Array<{ userId: string; role: string }> }).items.find((item) => item.userId === ownerId);
+    expect(ownerAfter?.role).toBe('admin');
   });
 
   test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
@@ -5510,7 +5608,7 @@ test.describe('Tendo production journey', () => {
     const subjectConflict = `PATCH /api/v1/households/${householdId}/subjects/${vehicleId} 412`;
     const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
     const n17FailedResponses = [`GET /api/v1/households/${householdId}/items/summary 503`, `GET /api/v1/households/${householdId}/members 403`];
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound].sort());
+    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal].sort());
     expect(problems).toEqual([]);
   });
 });

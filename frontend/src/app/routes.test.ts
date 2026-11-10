@@ -14,6 +14,7 @@ describe('readRoute', () => {
     ['/invite', { kind: 'invite' }],
     ['/login', { kind: 'login' }],
     ['/account', { kind: 'account' }],
+    ['/admin', { kind: 'admin' }],
     ['/unknown', { kind: 'notFound' }],
   ] as const)('parses %s', (path, route) => {
     expect(readRoute(path)).toEqual(route);
@@ -27,6 +28,7 @@ describe('householdNavRoute', () => {
     [{ kind: 'people' }, true, 'people'],
     [{ kind: 'members' }, true, 'members'],
     [{ kind: 'account' }, true, 'account'],
+    [{ kind: 'admin' }, true, 'admin'],
     [{ kind: 'login' }, true, 'home'],
     [{ kind: 'notFound' }, true, 'home'],
     [{ kind: 'invite' }, true, 'home'],
@@ -34,6 +36,7 @@ describe('householdNavRoute', () => {
     [{ kind: 'invalidItem' }, true, 'item'],
     [{ kind: 'allItems' }, false, 'home'],
     [{ kind: 'account' }, false, 'account'],
+    [{ kind: 'admin' }, false, 'home'],
   ] as const)('maps route to current navigation page', (route, hasHousehold, expected) => {
     expect(householdNavRoute(route, hasHousehold)).toBe(expected);
   });

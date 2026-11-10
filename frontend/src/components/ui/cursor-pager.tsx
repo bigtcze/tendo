@@ -1,10 +1,10 @@
 import type { MouseEvent } from 'react';
-import { Button } from '../../components/ui/button';
+import { Button } from './button';
 import type { Translate } from '../../i18n';
 
-/** Previous/next pager shared by the member and invitation lists; `kind` selects its data attribute. */
-export function MembersPager({ kind, stack, cursor, busy, onPrevious, onNext, t }: {
-  kind: 'member' | 'invitation';
+/** Previous/next pager shared by the member, invitation and account lists; `kind` selects its data attribute. */
+export function CursorPager({ kind, stack, cursor, busy, onPrevious, onNext, t }: {
+  kind: 'member' | 'invitation' | 'account';
   stack: string[];
   cursor: string | null;
   busy: boolean;
@@ -13,7 +13,7 @@ export function MembersPager({ kind, stack, cursor, busy, onPrevious, onNext, t 
   t: Translate;
 }) {
   const marker = { [`data-${kind}-page`]: true };
-  const label = kind === 'member' ? t('members.list.title') : t('members.invitations.title');
+  const label = kind === 'invitation' ? t('members.invitations.title') : kind === 'account' ? t('admin.list.title') : t('members.list.title');
   return <nav aria-label={label} className="mt-3 flex flex-wrap items-center justify-between gap-2">
     {stack.length
       ? <Button {...marker} variant="quiet" disabled={busy} onClick={onPrevious}>

@@ -9,11 +9,13 @@ import { AllItemsScreen } from '../features/items/AllItemsScreen';
 import { SubjectsScreen } from '../features/subjects/SubjectsScreen';
 import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
+import { AdminScreen } from '../features/admin/AdminScreen';
 import { ScreenTransitionContext } from './Heading';
 import { Layout } from './Layout';
 import { NotFoundScreen } from './StatusScreens';
 import { SignOutContext } from './SignOutContext';
 import { AccountActions } from './AccountActions';
+import { HouseholdDataProvider } from './HouseholdData';
 import { HouseholdNavigationContext, type NavigationActions } from './HouseholdNavigation';
 import { householdNavRoute, type Route } from './routes';
 import type { Session } from '../features/auth/sessionApi';
@@ -43,6 +45,7 @@ export function SignedInApp(props: Props) {
     people: navigation.openPeople,
     members: navigation.openMembers,
     account: navigation.openAccount,
+    admin: navigation.openAdmin,
   };
   if (route.kind === 'invite') return renderInvite(props);
   if (route.kind === 'notFound') return renderNotFound(props, householdId ?? null, navigationActions);
@@ -53,13 +56,15 @@ export function SignedInApp(props: Props) {
 function renderNotFound(props: Props, householdId: string | null, navigationActions: NavigationActions) {
   const { session, sessionActions } = props;
   return <SignOutContext value={sessionActions.signedOut}>
-    <HouseholdNavigationContext value={{ route: 'home', actions: navigationActions, household: Boolean(householdId) }}>
-      <ScreenTransitionContext value={props.transitioned}>
-        <Layout actions={<AccountActions login={session.login} onSignedOut={sessionActions.sessionEnded} />}>
-          <NotFoundScreen />
-        </Layout>
-      </ScreenTransitionContext>
-    </HouseholdNavigationContext>
+    <HouseholdDataProvider householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
+      <HouseholdNavigationContext value={{ route: 'home', actions: navigationActions, household: Boolean(householdId) }}>
+        <ScreenTransitionContext value={props.transitioned}>
+          <Layout actions={<AccountActions login={session.login} onSignedOut={sessionActions.sessionEnded} />}>
+            <NotFoundScreen />
+          </Layout>
+        </ScreenTransitionContext>
+      </HouseholdNavigationContext>
+    </HouseholdDataProvider>
   </SignOutContext>;
 }
 
@@ -78,79 +83,76 @@ function renderInvite(props: Props) {
   </ScreenTransitionContext>;
 }
 
+/** People, things, items and their details: the household records that need a household to exist. */
+function renderHouseholdRecords(props: Props, householdId: string) {
+  const { route, session, navigation, sessionActions } = props;
+  if (route.kind === 'people') {
+    return <SubjectsScreen userId={session.userId} householdId={householdId} login={session.login} onSignedOut={sessionActions.sessionEnded} />;
+  }
+  if (route.kind === 'members') {
+    return <MembersScreen householdId={householdId} userId={session.userId} login={session.login} onSignedOut={sessionActions.sessionEnded} />;
+  }
+  if (route.kind === 'allItems') {
+    return <AllItemsScreen
+      key={props.allItemsVisit}
+      householdId={householdId}
+      login={session.login}
+      userId={session.userId}
+      onBack={navigation.goHome}
+      onSignedOut={sessionActions.sessionEnded}
+      onOpenItem={navigation.openItemFromAllItems}
+    />;
+  }
+  if (route.kind === 'item' || route.kind === 'invalidItem') {
+    const itemId = route.kind === 'item' ? route.itemId : 'invalid';
+    return <ItemDetailScreen
+      key={`${householdId}:${itemId}`}
+      householdId={householdId}
+      itemId={itemId}
+      login={session.login}
+      userId={session.userId}
+      onBack={route.kind === 'item' ? navigation.goBackFromItem : navigation.goHome}
+      onSignedOut={sessionActions.sessionEnded}
+    />;
+  }
+  return null;
+}
+
+/** The destination screen for the current route; every household route falls back to Home without a household. */
+function renderRouteScreen(props: Props, householdId: string | null) {
+  const { route, session, navigation, sessionActions } = props;
+  if (route.kind === 'account') {
+    return <AccountScreen login={session.login} outcome={props.oidcOutcome} onSignedOut={sessionActions.sessionEnded} />;
+  }
+  if (route.kind === 'admin' && householdId) {
+    return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login} onSignedOut={sessionActions.sessionEnded} />;
+  }
+  const records = householdId ? renderHouseholdRecords(props, householdId) : null;
+  if (records) return records;
+  return <HomeScreen
+    session={session}
+    onSignedOut={sessionActions.sessionEnded}
+    onOpenPeople={navigation.openPeople}
+    onOpenAllItems={navigation.openAllItemsForStatus}
+    onOpenItem={navigation.openItemFromHome}
+    homeNotice={props.homeNotice}
+    onDismissNotice={props.onDismissNotice}
+    onContinuePending={props.onContinuePending}
+  />;
+}
+
 function renderHouseholdScreens(
   props: Props,
   householdId: string | null,
   navRoute: ReturnType<typeof householdNavRoute>,
   navigationActions: NavigationActions,
 ) {
-  const { route, session, navigation, sessionActions } = props;
+  const { sessionActions } = props;
   return <SignOutContext value={sessionActions.signedOut}>
-    <HouseholdNavigationContext value={{ route: navRoute, actions: navigationActions, household: Boolean(householdId) }}>
-      <ScreenTransitionContext value={props.transitioned}>
-        {route.kind === 'account' ? (
-          <AccountScreen
-            login={session.login}
-            outcome={props.oidcOutcome}
-            onSignedOut={sessionActions.sessionEnded}
-          />
-        ) : route.kind === 'people' && householdId ? (
-          <SubjectsScreen
-            userId={session.userId}
-            householdId={householdId}
-            login={session.login}
-            onSignedOut={sessionActions.sessionEnded}
-          />
-        ) : route.kind === 'members' && householdId ? (
-          <MembersScreen
-            householdId={householdId}
-            userId={session.userId}
-            login={session.login}
-            onSignedOut={sessionActions.sessionEnded}
-          />
-        ) : route.kind === 'allItems' && householdId ? (
-          <AllItemsScreen
-            key={props.allItemsVisit}
-            householdId={householdId}
-            login={session.login}
-            userId={session.userId}
-            onBack={navigation.goHome}
-            onSignedOut={sessionActions.sessionEnded}
-            onOpenItem={navigation.openItemFromAllItems}
-          />
-        ) : route.kind === 'item' && householdId ? (
-          <ItemDetailScreen
-            key={`${householdId}:${route.itemId}`}
-            householdId={householdId}
-            itemId={route.itemId}
-            login={session.login}
-            userId={session.userId}
-            onBack={navigation.goBackFromItem}
-            onSignedOut={sessionActions.sessionEnded}
-          />
-        ) : route.kind === 'invalidItem' && householdId ? (
-          <ItemDetailScreen
-            key={`${householdId}:invalid`}
-            householdId={householdId}
-            itemId="invalid"
-            login={session.login}
-            userId={session.userId}
-            onBack={navigation.goHome}
-            onSignedOut={sessionActions.sessionEnded}
-          />
-        ) : (
-          <HomeScreen
-            session={session}
-            onSignedOut={sessionActions.sessionEnded}
-            onOpenPeople={navigation.openPeople}
-            onOpenAllItems={navigation.openAllItemsForStatus}
-            onOpenItem={navigation.openItemFromHome}
-            homeNotice={props.homeNotice}
-            onDismissNotice={props.onDismissNotice}
-            onContinuePending={props.onContinuePending}
-          />
-        )}
-      </ScreenTransitionContext>
-    </HouseholdNavigationContext>
+    <HouseholdDataProvider householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
+      <HouseholdNavigationContext value={{ route: navRoute, actions: navigationActions, household: Boolean(householdId) }}>
+        <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId)}</ScreenTransitionContext>
+      </HouseholdNavigationContext>
+    </HouseholdDataProvider>
   </SignOutContext>;
 }

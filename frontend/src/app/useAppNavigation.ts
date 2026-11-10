@@ -14,6 +14,20 @@ type Options = {
   state: BootState;
 };
 
+/**
+ * /people and /admin without a household have nothing to show, and /login is only a landing path for sign-in
+ * results; in both cases the address bar is corrected to the destination the screen really shows.
+ */
+function useCanonicalUrl(route: Route, state: BootState) {
+  const noHouseholdScreen =
+    state.kind === 'signedIn' && (route.kind === 'people' || route.kind === 'admin') && !state.session.defaultHouseholdId;
+  const signedInOnLogin = state.kind === 'signedIn' && route.kind === 'login';
+  useEffect(() => {
+    if (noHouseholdScreen) window.history.replaceState(null, '', '/');
+    if (signedInOnLogin) window.history.replaceState(null, '', '/');
+  }, [noHouseholdScreen, signedInOnLogin]);
+}
+
 export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, clearHomeNotice, state }: Options) {
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
   const clearTransient = useCallback(() => {
@@ -49,6 +63,12 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
     window.history.pushState(null, '', '/members');
     setRoute({ kind: 'members' });
   }, [setRoute, transitionedRef]);
+  const openAdmin = useCallback(() => {
+    transitionedRef.current = true;
+    clearTransient();
+    window.history.pushState(null, '', '/admin');
+    setRoute({ kind: 'admin' });
+  }, [clearTransient, setRoute, transitionedRef]);
   const goHome = useCallback(() => {
     transitionedRef.current = true;
     clearTransient();
@@ -85,16 +105,8 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [clearTransient, setRoute, transitionedRef]);
-  // /people without a household has nothing to show, and /login is only a landing path for sign-in
-  // results; in both cases the address bar is corrected to the destination the screen really shows.
-  const noHouseholdOnPeople =
-    state.kind === 'signedIn' && route.kind === 'people' && !state.session.defaultHouseholdId;
-  const signedInOnLogin = state.kind === 'signedIn' && route.kind === 'login';
-  useEffect(() => {
-    if (noHouseholdOnPeople) window.history.replaceState(null, '', '/');
-    if (signedInOnLogin) window.history.replaceState(null, '', '/');
-  }, [noHouseholdOnPeople, signedInOnLogin]);
+  useCanonicalUrl(route, state);
 
-  return { openAllItems, openAllItemsForStatus, openPeople, openAccount, openMembers,
+  return { openAllItems, openAllItemsForStatus, openPeople, openAccount, openMembers, openAdmin,
     goHome, goBackFromItem, openItemFromAllItems, openItemFromHome };
 }

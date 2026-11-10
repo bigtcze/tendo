@@ -7,6 +7,7 @@ import { type OidcOutcome } from './oidcApi';
 import { AccountOidcSectionView } from './AccountOidcSectionView';
 import { useAccountOidcSection } from './useAccountOidcSection';
 import { AccountPreferences } from './AccountPreferences';
+import { AccountAdminLink } from './AccountAdminLink';
 
 function initialOf(login: string): string {
   return login.trim().charAt(0).toLocaleUpperCase() || '?';
@@ -46,6 +47,7 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
               </p>
             </div>
           </section>
+          <AccountAdminLink />
           <AccountOidcSectionView state={sectionState} onSignedOut={onSignedOut} />
           <AccountPreferences />
         </div>

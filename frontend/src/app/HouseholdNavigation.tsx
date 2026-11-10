@@ -1,14 +1,30 @@
 import { createContext, useContext } from 'react';
 import { useI18n, type MessageKey } from '../i18n';
+import { useViewerRole } from './HouseholdData';
 import { NavIcon } from './NavIcons';
 import { NavLink } from './NavLink';
 
-export type HouseholdRoute = 'home' | 'allItems' | 'people' | 'members' | 'account' | 'item';
-export type NavigationActions = { home: () => void; allItems: (subjectId?: string) => void; people: () => void; members: () => void; account: () => void };
+export type HouseholdRoute = 'home' | 'allItems' | 'people' | 'members' | 'account' | 'admin' | 'item';
+export type NavigationActions = {
+  home: () => void;
+  allItems: (subjectId?: string) => void;
+  people: () => void;
+  members: () => void;
+  account: () => void;
+  admin: () => void;
+};
 export const HouseholdNavigationContext = createContext<{ route: HouseholdRoute; actions: NavigationActions; household: boolean } | null>(null);
 
 type Destination = Exclude<HouseholdRoute, 'item'>;
-type LinkSpec = { route: Destination; href: string; label: MessageKey; compactLabel?: MessageKey; name: MessageKey };
+type LinkSpec = {
+  route: Destination;
+  href: string;
+  label: MessageKey;
+  compactLabel?: MessageKey;
+  name: MessageKey;
+  /** The desktop rail only: phones keep Home / Items / People / Members / Account in the bottom bar. */
+  desktopOnly?: boolean;
+};
 
 /** Full label on the desktop rail, short label in the phone bar; the accessible name always contains both (WCAG 2.5.3). */
 const HOME: LinkSpec = { route: 'home', href: '/', label: 'nav.home', name: 'nav.home' };
@@ -18,25 +34,29 @@ const HOUSEHOLD_LINKS: LinkSpec[] = [
   { route: 'members', href: '/members', label: 'nav.members', name: 'home.members' },
 ];
 const ACCOUNT: LinkSpec = { route: 'account', href: '/account', label: 'nav.account', name: 'home.account' };
+const ADMIN: LinkSpec = { route: 'admin', href: '/admin', label: 'nav.admin', name: 'nav.admin', desktopOnly: true };
 
 /**
  * One navigation landmark whose presentation changes with width: a fixed bottom bar on phone/tablet
  * (static after main on short viewports such as 200–400% zoom, so it never covers content) and a left rail from `lg`.
  * It follows main in the DOM so keyboard order matches the bottom bar; the rail keeps content-first order beside main.
  * `rail` is false for the household-less state, which keeps a small inline bar and never reserves rail space.
+ * The viewer's own role only decides whether the Admin center entry is offered; every admin request is re-authorized.
  */
 export function HouseholdNavigation({ rail }: { rail: boolean }) {
   const navigation = useContext(HouseholdNavigationContext);
+  const role = useViewerRole();
   const { t } = useI18n();
   if (!navigation) return null;
-  const links = [HOME, ...(navigation.household ? HOUSEHOLD_LINKS : []), ACCOUNT];
+  const admin = navigation.household && role === 'admin' ? [ADMIN] : [];
+  const links = [HOME, ...(navigation.household ? HOUSEHOLD_LINKS : []), ACCOUNT, ...admin];
   const active = navigation.route === 'item' ? 'allItems' : navigation.route;
   return (
     <nav aria-label={t('nav.label')} className={rail ? NAV_RAIL : NAV_INLINE}>
       {rail ? <p className="hidden px-7 pb-2 pt-6 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted lg:block">{t('nav.workspace')}</p> : null}
       <ul className={rail ? LIST_RAIL : LIST_INLINE}>
         {links.map((link) => (
-          <li key={link.route} className="min-w-0 flex-1 lg:flex-none">
+          <li key={link.route} className={link.desktopOnly ? 'hidden min-w-0 lg:block lg:border-t lg:border-line lg:pt-1' : 'min-w-0 flex-1 lg:flex-none'}>
             <NavLink href={link.href} onNavigate={navigation.actions[link.route]} aria-label={t(link.name)}
               aria-current={active === link.route ? 'page' : undefined}
               className={`${rail ? LINK_RAIL : LINK_INLINE} ${active === link.route ? 'bg-nav-selected font-semibold text-ink' : 'font-medium text-muted hover:bg-sand/60 hover:text-ink'}`}>
