@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prove a published release installation upgrades in place to this checkout without losing data.
-# TENDO_UPGRADE_FROM selects the published source release (default v1.0.0); CI runs v1.0.0 and v2.1.0.
+# TENDO_UPGRADE_FROM selects the published source release (default v1.0.0); CI runs v1.0.0, v2.1.0 and v3.0.0.
 set -Eeuo pipefail
 umask 077
 
@@ -52,8 +52,14 @@ TENDO_VERSION=$source_version
 case "$TENDO_VERSION" in
   v1.0.0) expected_source=14 ;;
   v2.1.0) expected_source=16 ;;
-  *) printf 'Unsupported TENDO_UPGRADE_FROM=%s (supported: v1.0.0, v2.1.0)\n' "$TENDO_VERSION" >&2; exit 2 ;;
+  v3.0.0) expected_source=16 ;;
+  *) printf 'Unsupported TENDO_UPGRADE_FROM=%s (supported: v1.0.0, v2.1.0, v3.0.0)\n' "$TENDO_VERSION" >&2; exit 2 ;;
 esac
+# Start the source release from the compose.yaml published with that exact release, not this checkout.
+source_compose="$temp_dir/source-compose.yaml"
+curl -fsSL -o "$source_compose" "https://github.com/bigtcze/tendo/releases/download/${TENDO_VERSION}/compose.yaml"
+grep -qx 'services:' "$source_compose" || { printf 'Published %s compose.yaml is not a Compose file\n' "$TENDO_VERSION" >&2; exit 1; }
+compose_source=(docker compose --project-name "$project" -f "$source_compose")
 expected_current=$(migration_max)
 (( 10#$expected_current >= expected_source )) || { printf 'Checkout migrations (%s) are older than %s (%s)\n' "$expected_current" "$TENDO_VERSION" "$expected_source" >&2; exit 1; }
 
@@ -248,39 +254,45 @@ TENDO_SETUP_TOKEN=$(openssl rand -base64 32)
 source_image="ghcr.io/bigtcze/tendo:${TENDO_VERSION}"
 docker pull "$source_image"
 pulled_image_id=$(docker image inspect "$source_image" --format '{{.Id}}')
-"${compose[@]}" up -d --wait --wait-timeout 120
+"${compose_source[@]}" up -d --wait --wait-timeout 120
 wait_ready
-app_container=$(docker compose --project-name "$project" -f "$root/compose.yaml" ps -q app)
+app_container=$("${compose_source[@]}" ps -q app)
 [[ -n "$app_container" ]]
 configured_image=$(docker inspect "$app_container" --format '{{.Config.Image}}')
 running_image_id=$(docker inspect "$app_container" --format '{{.Image}}')
 [[ "$configured_image" == "$source_image" ]] || { printf 'Source app configured image is %s, expected exactly %s\n' "$configured_image" "$source_image" >&2; exit 1; }
 [[ "$running_image_id" == "$pulled_image_id" ]] || { printf 'Source app image ID %s differs from pulled image ID %s\n' "$running_image_id" "$pulled_image_id" >&2; exit 1; }
-ledger=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
+ledger=$("${compose_source[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
 [[ "$ledger" == "${expected_source}:false" ]] || { printf 'Published %s schema unexpected: %s\n' "$TENDO_VERSION" "$ledger" >&2; exit 1; }
 api populate
 # Migration 018 provisions one canonical person for every membership without a
 # linked person and unlinks non-canonical duplicates. Compute the exact
 # expected deltas from the source schema before upgrading.
-has_linked_column=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='subjects' AND column_name='linked_user_id')")
+has_linked_column=$("${compose_source[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='subjects' AND column_name='linked_user_id')")
 if [[ "$has_linked_column" == "t" ]]; then
-  expected_backfill=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE NOT EXISTS (SELECT 1 FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id)")
-  expected_unlinks=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM (SELECT row_number() OVER (PARTITION BY household_id, linked_user_id ORDER BY created_at, id) AS position FROM subjects WHERE linked_user_id IS NOT NULL) ranked WHERE position > 1")
+  expected_backfill=$("${compose_source[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE NOT EXISTS (SELECT 1 FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id)")
+  expected_unlinks=$("${compose_source[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM (SELECT row_number() OVER (PARTITION BY household_id, linked_user_id ORDER BY created_at, id) AS position FROM subjects WHERE linked_user_id IS NOT NULL) ranked WHERE position > 1")
 else
-  expected_backfill=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships")
+  expected_backfill=$("${compose_source[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships")
   expected_unlinks=0
 fi
-"${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT id::text FROM subjects ORDER BY id" >"$temp_dir/subject-ids-before.txt"
-"${compose[@]}" stop app
-snapshot_counts "${compose[@]}" >"$temp_dir/counts-before.txt"
-snapshot_ledger "${compose[@]}" >"$temp_dir/ledger-before.txt"
+"${compose_source[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT id::text FROM subjects ORDER BY id" >"$temp_dir/subject-ids-before.txt"
+"${compose_source[@]}" stop app
+snapshot_counts "${compose_source[@]}" >"$temp_dir/counts-before.txt"
+snapshot_ledger "${compose_source[@]}" >"$temp_dir/ledger-before.txt"
 
-# Reuse the same Postgres service/volume; migration job must succeed before app starts.
+# Reuse the same Postgres service/volume. The checkout app bootstraps the role and schema
+# itself; --remove-orphans deletes the source release's one-shot migrate container.
 unset TENDO_VERSION
-"${compose_build[@]}" up -d --build --wait --wait-timeout 240
+"${compose_build[@]}" up -d --build --wait --wait-timeout 240 --remove-orphans
 wait_ready
 ledger=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
 [[ "$ledger" == "$((10#$expected_current)):false" ]] || { printf 'Upgrade ledger unexpected: %s (expected %s)\n' "$ledger" "$((10#$expected_current)):false" >&2; exit 1; }
+# The stored role password was not changed by the upgrade: the restricted login still works.
+role_user=$("${compose_build[@]}" exec -T -e "TENDO_DATABASE_PASSWORD=$TENDO_DATABASE_PASSWORD" postgres sh -c 'PGPASSWORD=$TENDO_DATABASE_PASSWORD psql -h 127.0.0.1 -U tendo -d tendo -At -c "SELECT current_user"')
+[[ "$role_user" == tendo ]] || { printf 'Upgraded restricted role login returned %s\n' "$role_user" >&2; exit 1; }
+[[ -z $(docker ps -aq --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=migrate") ]] \
+  || { printf 'Source release migrate container survived the upgrade\n' >&2; exit 1; }
 snapshot_counts "${compose_build[@]}" >"$temp_dir/counts-after.txt"
 subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM subjects")
 unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")

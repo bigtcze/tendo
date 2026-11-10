@@ -5,14 +5,8 @@ services:
       POSTGRES_DB: tendo
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set hexadecimal POSTGRES_PASSWORD in .env}
-      TENDO_DATABASE_PASSWORD: ${TENDO_DATABASE_PASSWORD:?Set hexadecimal TENDO_DATABASE_PASSWORD in .env}
     volumes:
       - postgres-data:/var/lib/postgresql
-    configs:
-      # Runs once, when the data volume is first created.
-      - source: postgres-init
-        target: /docker-entrypoint-initdb.d/010-role.sh
-        mode: 0555
     healthcheck:
       # TCP probe: the image's init-time temporary server listens only on the Unix socket.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d tendo"]
@@ -22,20 +16,13 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  migrate:
-    image: ghcr.io/bigtcze/tendo:${TENDO_VERSION:-latest}
-    entrypoint: ["/tendo", "migrate"]
-    environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?Set hexadecimal POSTGRES_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
   app:
     image: ghcr.io/bigtcze/tendo:${TENDO_VERSION:-latest}
     stop_grace_period: 70s
     environment:
+      # The app provisions the restricted role and applies embedded migrations over this
+      # privileged connection, closes it, then serves only through DATABASE_URL.
+      TENDO_DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?Set hexadecimal POSTGRES_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
       DATABASE_URL: postgres://tendo:${TENDO_DATABASE_PASSWORD:?Set hexadecimal TENDO_DATABASE_PASSWORD in .env}@postgres:5432/tendo?sslmode=disable
       TENDO_LISTEN_ADDR: 0.0.0.0:8080
       TENDO_PUBLIC_URL: ${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL to the canonical origin}
@@ -53,8 +40,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+    healthcheck:
+      # Runs in the distroless image without a shell; the app is healthy only after
+      # role bootstrap and migrations finish and /health/ready answers.
+      test: ["CMD", "/tendo", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30m
+      start_interval: 5s
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
@@ -62,20 +56,6 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
     restart: "${TENDO_RESTART_POLICY:-unless-stopped}"
-
-configs:
-  # Creates the restricted role the app connects as. `$$` keeps Compose from interpolating.
-  postgres-init:
-    content: |
-      #!/bin/sh
-      set -eu
-      psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" \
-        --set=application_password="$$TENDO_DATABASE_PASSWORD" <<'SQL'
-      CREATE ROLE tendo LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD :'application_password';
-      GRANT CONNECT ON DATABASE tendo TO tendo;
-      REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-      GRANT USAGE ON SCHEMA public TO tendo;
-      SQL
 
 volumes:
   postgres-data:

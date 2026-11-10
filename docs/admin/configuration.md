@@ -9,7 +9,7 @@ openssl rand -hex 32
 openssl rand -hex 32
 ```
 
-Set them in their respective variables, then start all services (including the one-shot migration):
+Set them in their respective variables, then start the two services. The app creates or validates the restricted database role and applies migrations before it serves HTTP:
 
 ```sh
 docker compose up -d --wait
@@ -40,14 +40,15 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 | `TENDO_OIDC_CLIENT_SECRET` | Required when OIDC enabled unless file is configured | Confidential secret; protect `.env` and never log or commit it. |
 | `TENDO_OIDC_CLIENT_SECRET_FILE` | Optional alternative to client secret | Secret-file path, normally supplied through a user Compose override mounting a read-only secret; also set `TENDO_OIDC_CLIENT_SECRET` empty when using the override. |
 | `TENDO_OIDC_DISPLAY_NAME` | `OpenID Connect` | Optional printable status label; max 80 bytes. |
-| `DATABASE_URL` | Compose constructs it | Migration service receives admin access separately; web app receives restricted DML role only. Compose uses `sslmode=disable` on its private bridge. |
+| `DATABASE_URL` | Compose constructs it | Restricted runtime connection as role `tendo`; used for normal requests. Compose uses `sslmode=disable` on its private bridge. |
+| `TENDO_DATABASE_ADMIN_URL` | Compose constructs it from `POSTGRES_PASSWORD`; not an `.env` setting | Privileged connection used only during startup to create or validate the restricted role and apply migrations. Compose sets it automatically; do not add it to `.env`. The app closes this connection before serving, but the password stays in the container environment for its lifetime (see the security note below). |
 | `TENDO_LISTEN_ADDR` | Compose sets `0.0.0.0:8080` | Container HTTP bind address; process defaults to `:8080` outside Compose. |
 
 ## Reserved for automated tests
 
 `TENDO_TEST_CLOCK_NOW` and `TENDO_TEST_CLOCK_ACK` are reserved for isolated automated tests. Leave both unset for real time; the normal `compose.yaml` does not pass them to the app. Setting only one, or setting either to an empty value, stops startup. Set both together; the instant must be whole-second UTC RFC3339 ending in `Z`, and the acknowledgement must be exactly `isolated-e2e-only`. When enabled, `TENDO_PUBLIC_URL` must use HTTP with `localhost` or a literal loopback IP, and `TENDO_TRUSTED_PROXY_CIDRS` must be empty. The clock affects item business dates only; sessions and runtime timeouts remain real-time. A changed value takes effect only when the app container is recreated, not restarted. Never set these variables in a real install.
 
-Compose migrates using administrator credentials in a successful one-shot migration dependency; the app itself does not receive database administrator credentials. On upgrades with an existing volume, migrations do not reset data or automatically repair old grants: follow the documented upgrade path and grant migration deliberately with administrator access if needed. See [reverse proxy deployment](reverse-proxy.md) before exposing HTTP behind TLS and [back up and restore](backup-restore.md) for data recovery. Setup creates the first administrator and household only. OIDC sign-in and account linking are optional; see the [OIDC guide](oidc.md). Household editing is not implemented.
+On startup the app connects once with the PostgreSQL administrator password in `TENDO_DATABASE_ADMIN_URL`, creates the restricted `tendo` role if it is absent (or validates it and refuses to run if it has elevated attributes or role memberships), applies pending migrations, and closes that privileged connection before opening HTTP. Normal requests use the restricted `DATABASE_URL` role only. **Security tradeoff:** because the same long-lived app container performs this startup work, it holds the PostgreSQL administrator password in its environment even after the privileged connection closes. The value is visible through `docker inspect` and to any code running in the container. This is a deliberate reduction in isolation compared with the separate, short-lived `migrate` container used before 4.0; never treat it as equivalent. Protect access to the Docker daemon and the app container accordingly. Changing `POSTGRES_PASSWORD` or `TENDO_DATABASE_PASSWORD` after the data volume exists does not rotate either database password. On upgrades with an existing volume, migrations do not reset data or automatically repair old grants: follow the documented upgrade path and grant migration deliberately with administrator access if needed. See [reverse proxy deployment](reverse-proxy.md) before exposing HTTP behind TLS and [back up and restore](backup-restore.md) for data recovery. Setup creates the first administrator and household only. OIDC sign-in and account linking are optional; see the [OIDC guide](oidc.md). Household editing is not implemented.
 
 ## Login sessions
 
