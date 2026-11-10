@@ -74,7 +74,13 @@ func (t *invitationFakeTx) FindLogin(context.Context, string) error {
 	}
 	return ErrNotFound
 }
-func (t *invitationFakeTx) LockUser(context.Context, string) (string, error) { return "", nil }
+func (t *invitationFakeTx) LockUser(context.Context, string) (string, string, error) {
+	return "", "invited_user", nil
+}
+func (t *invitationFakeTx) EnsureMemberPerson(context.Context, string, string, string) error {
+	t.f.writes++
+	return nil
+}
 func (t *invitationFakeTx) HasOtherMembership(context.Context, string, string) (bool, error) {
 	return false, nil
 }
@@ -119,7 +125,7 @@ func TestInvitationPasswordGateRejectsBeforeWritesThenAllowsAcceptance(t *testin
 	if _, e = s.AcceptInvitationNewAccount(context.Background(), token, "gate_user", "a sufficiently long gate password"); e != nil {
 		t.Fatal(e)
 	}
-	if f.writes != 4 {
+	if f.writes != 5 {
 		t.Fatalf("successful acceptance writes=%d", f.writes)
 	}
 }

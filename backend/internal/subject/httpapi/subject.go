@@ -26,6 +26,12 @@ var (
 		"archived":     {Kind: httpx.KindBool},
 		"linkedUserId": {Kind: httpx.KindNullableString},
 	}
+	transferFields = map[string]httpx.Field{
+		"subjectId":             {Kind: httpx.KindString, Required: true},
+		"subjectVersion":        {Kind: httpx.KindInteger, Required: true},
+		"currentSubjectId":      {Kind: httpx.KindString, Required: true},
+		"currentSubjectVersion": {Kind: httpx.KindInteger, Required: true},
+	}
 )
 
 type service interface {
@@ -33,6 +39,8 @@ type service interface {
 	Get(ctx context.Context, userID, householdID, subjectID string) (subject.Subject, error)
 	List(ctx context.Context, userID, householdID string, q subject.ListQuery) (subject.Page, error)
 	Update(ctx context.Context, userID, householdID, subjectID string, expectedVersion int64, p subject.Patch) (subject.Subject, error)
+	GetMemberPerson(ctx context.Context, actorUserID, householdID, memberUserID string) (subject.Subject, error)
+	Transfer(ctx context.Context, actorUserID, householdID, memberUserID string, request subject.TransferRequest) (subject.TransferResult, error)
 }
 
 // Handler serves subject resources. Authentication is injected so this package
@@ -54,6 +62,8 @@ func (h *Handler) Register(r chi.Router) {
 	r.With(h.auth).Get("/api/v1/households/{householdId}/subjects", h.list)
 	r.With(h.auth).Get("/api/v1/households/{householdId}/subjects/{subjectId}", h.get)
 	r.With(h.auth).Patch("/api/v1/households/{householdId}/subjects/{subjectId}", h.update)
+	r.With(h.auth).Get("/api/v1/households/{householdId}/members/{userId}/person", h.getMemberPerson)
+	r.With(h.auth).Put("/api/v1/households/{householdId}/members/{userId}/person", h.transfer)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +163,55 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toJSON(updated))
 }
 
+// getMemberPerson returns the member's canonical linked person so clients can
+// build a transfer request without paging the whole subject list.
+func (h *Handler) getMemberPerson(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.userID(r.Context())
+	if !ok {
+		problem(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	found, err := h.service.GetMemberPerson(r.Context(), userID, chi.URLParam(r, "householdId"), chi.URLParam(r, "userId"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.Header().Set("ETag", httpx.ETag(found.Version))
+	httpx.WriteJSON(w, http.StatusOK, toJSON(found))
+}
+
+// transfer swaps the member's linked person for an existing unlinked person.
+// Any household member may call it because subjects are household-shared; the
+// link remains descriptive and never grants access.
+func (h *Handler) transfer(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.userID(r.Context())
+	if !ok {
+		problem(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	values, ok := httpx.ReadObject(w, r, transferFields, bodyLimit)
+	if !ok {
+		return
+	}
+	request := subject.TransferRequest{
+		SubjectID:             values["subjectId"].(string),
+		SubjectVersion:        values["subjectVersion"].(int64),
+		CurrentSubjectID:      values["currentSubjectId"].(string),
+		CurrentSubjectVersion: values["currentSubjectVersion"].(int64),
+	}
+	result, err := h.service.Transfer(r.Context(), userID, chi.URLParam(r, "householdId"), chi.URLParam(r, "userId"), request)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, apimodel.MemberPersonTransfer{
+		Person:          toJSON(result.Person),
+		PersonVersion:   int(result.Person.Version),
+		Previous:        toJSON(result.Previous),
+		PreviousVersion: int(result.Previous.Version),
+	})
+}
+
 func validCreationKey(key string) bool {
 	if len(key) < 1 || len(key) > 128 {
 		return false
@@ -177,6 +236,12 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		problem(w, http.StatusBadRequest, "invalid_request")
 	case errors.Is(err, subject.ErrVersionMismatch):
 		problem(w, http.StatusPreconditionFailed, "precondition_failed")
+	case errors.Is(err, subject.ErrMemberPersonLocked):
+		problem(w, http.StatusConflict, "member_person_locked")
+	case errors.Is(err, subject.ErrMemberPersonExists):
+		problem(w, http.StatusConflict, "member_person_exists")
+	case errors.Is(err, subject.ErrMemberPersonChanged):
+		problem(w, http.StatusConflict, "member_person_changed")
 	case errors.As(err, &validation):
 		httpx.ValidationProblemResponse(w, validation.Field, validation.Code)
 	case errors.As(err, &query):

@@ -69,23 +69,27 @@ async function assertEndClearsBar(page: Page, m: Messages, label: string) {
   return clearance;
 }
 
-export async function capturePeopleEmpty(page: Page, browser: Browser, dir: string, capture: Capture) {
+/** A household always has at least the owner's auto-provisioned member person, so People is never empty. */
+export async function capturePeopleMemberOnly(page: Page, browser: Browser, dir: string, capture: Capture) {
   for (const width of [390, 1440]) {
     await openPeople(page, en, width);
-    await expect(page.getByRole('main').getByRole('heading', { name: en['subjects.empty.title'] })).toBeVisible();
-    await capture(page, join(dir, `audit-people-empty-en-${width}.png`), false);
+    await expect(page.getByRole('main').locator('[data-subject-member]').first()).toBeVisible();
+    await expect(page.getByRole('main').getByRole('heading', { name: en['subjects.empty.title'] })).toHaveCount(0);
+    await capture(page, join(dir, `audit-people-member-only-en-${width}.png`), false);
   }
   const { context, csPage } = await czechPage(browser, page, 390);
   await openPeople(csPage, cs, 390);
-  await expect(csPage.getByRole('main').getByRole('heading', { name: cs['subjects.empty.title'] })).toBeVisible();
-  await capture(csPage, join(dir, 'audit-people-empty-cs-390.png'), false);
+  await expect(csPage.getByRole('main').locator('[data-subject-member]').first()).toBeVisible();
+  await expect(csPage.getByRole('main').getByRole('heading', { name: cs['subjects.empty.title'] })).toHaveCount(0);
+  await capture(csPage, join(dir, 'audit-people-member-only-cs-390.png'), false);
   await context.close();
 }
 
-export async function seedPeopleExtras(page: Page, api: Api, root: string, linkedUserId: string) {
-  for (const [name, type, extra] of [[LONG_PERSON, 'person', { linkedUserId }], [LONG_PLACE, 'home', {}]] as const) {
+/** Long-name people/places are ordinary non-member records; the invited member's person is auto-provisioned. */
+export async function seedPeopleExtras(page: Page, api: Api, root: string) {
+  for (const [name, type] of [[LONG_PERSON, 'person'], [LONG_PLACE, 'home']] as const) {
     expect([...name].length, `${name} fits the 100 code point limit`).toBeLessThanOrEqual(100);
-    const response = await api(page, 'post', `${root}/subjects`, { name, type, ...extra }, { 'Idempotency-Key': key() });
+    const response = await api(page, 'post', `${root}/subjects`, { name, type }, { 'Idempotency-Key': key() });
     expect(response.status(), `create long-name subject ${name}`).toBe(201);
   }
 }
@@ -122,7 +126,7 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
   for (const width of WIDTHS) {
     await openPeople(page, en, width);
     await expect(page.getByRole('main').getByText(LONG_PERSON, { exact: true })).toBeVisible();
-    await expect(page.getByRole('main').getByText(en['subjects.link.row'].replace('{login}', 'audit_member'), { exact: true })).toBeVisible();
+    await expect(page.getByRole('main').getByText(en['subjects.member.row'].replace('{login}', 'audit_member'), { exact: true })).toBeVisible();
     await capture(page, join(dir, `audit-people-en-${width}.png`), false);
     evidence[`endClearance-en-${width}`] = await assertEndClearsBar(page, en, `en ${width}px`);
     const { context, csPage } = await czechPage(browser, page, width);
@@ -154,9 +158,9 @@ export async function capturePeopleStates(page: Page, browser: Browser, dir: str
     await expect(page.getByRole('dialog')).toHaveCount(0);
 
     await editDialog(page, en, LONG_PERSON);
-    await capture(page, join(dir, `audit-people-edit-linked-en-${width}.png`), false);
+    await capture(page, join(dir, `audit-people-edit-person-en-${width}.png`), false);
     if (width === 390) {
-      await darkCapture(browser, page, capture, join(dir, 'audit-people-edit-dark-en-390.png'), async (dark) => { await editDialog(dark, en, LONG_PERSON); });
+      await darkCapture(browser, page, capture, join(dir, 'audit-people-edit-person-dark-en-390.png'), async (dark) => { await editDialog(dark, en, LONG_PERSON); });
     }
     await page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', LONG_PERSON) })
       .getByRole('button', { name: en['subjects.cancel'], exact: true }).click();

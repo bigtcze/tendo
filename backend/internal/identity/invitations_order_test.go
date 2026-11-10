@@ -117,12 +117,16 @@ func (t *invitationRecordingTx) FindLogin(context.Context, string) error {
 	}
 	return ErrNotFound
 }
-func (t *invitationRecordingTx) LockUser(context.Context, string) (string, error) {
+func (t *invitationRecordingTx) LockUser(context.Context, string) (string, string, error) {
 	t.repo.record("user.lock")
 	if t.repo.lockUserErr != nil {
-		return "", t.repo.lockUserErr
+		return "", "", t.repo.lockUserErr
 	}
-	return t.repo.defaultHousehold, nil
+	return t.repo.defaultHousehold, "existing_login", nil
+}
+func (t *invitationRecordingTx) EnsureMemberPerson(_ context.Context, householdID, userID, name string) error {
+	t.repo.record("member.person:" + householdID + ":" + userID + ":" + name)
+	return t.fail("member.person")
 }
 func (t *invitationRecordingTx) HasOtherMembership(context.Context, string, string) (bool, error) {
 	t.repo.record("other.membership")
@@ -188,7 +192,7 @@ func TestAcceptInvitationNewAccountOrderedEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "default.set:" + inviteUserID + ":" + inviteHouseID, "invitation.accept:" + inviteID})
+	assertInvitationCalls(t, repo.calls, []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + inviteUserID + ":valid_login", "default.set:" + inviteUserID + ":" + inviteHouseID, "invitation.accept:" + inviteID})
 	assertLockedInvitationLookup(t, repo)
 	if result.UserID != inviteUserID || result.Login != "valid_login" || result.HouseholdID != inviteHouseID || result.Role != household.RoleMember {
 		t.Fatalf("result=%+v", result)
@@ -206,8 +210,9 @@ func TestAcceptInvitationWriteFailuresStopAtFailingStep(t *testing.T) {
 		{"user.create", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create"}},
 		{"credential.create", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create"}},
 		{"member.add", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID}},
-		{"default.set", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "default.set:" + inviteUserID + ":" + inviteHouseID}},
-		{"invitation.accept", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "default.set:" + inviteUserID + ":" + inviteHouseID, "invitation.accept:" + inviteID}},
+		{"member.person", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + inviteUserID + ":valid_login"}},
+		{"default.set", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + inviteUserID + ":valid_login", "default.set:" + inviteUserID + ":" + inviteHouseID}},
+		{"invitation.accept", []string{"preflight.find", "password.hash", "tx.begin", "locked.find", "login.find", "user.create", "credential.create", "member.add:" + inviteUserID + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + inviteUserID + ":valid_login", "default.set:" + inviteUserID + ":" + inviteHouseID, "invitation.accept:" + inviteID}},
 	} {
 		t.Run(failedStep.name, func(t *testing.T) {
 			cause := errors.New("write failed")
@@ -284,7 +289,7 @@ func TestAcceptInvitationExistingAccountOrderedEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership", "other.membership", "member.add:" + testActor + ":" + inviteHouseID, "default.set:" + testActor + ":" + inviteHouseID, "invitation.accept:" + inviteID})
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership", "other.membership", "member.add:" + testActor + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + testActor + ":existing_login", "default.set:" + testActor + ":" + inviteHouseID, "invitation.accept:" + inviteID})
 	assertLockedInvitationLookup(t, repo)
 	if result.UserID != testActor || result.Login != "" || result.HouseholdID != inviteHouseID || result.Role != household.RoleMember {
 		t.Fatalf("result=%+v", result)
@@ -445,6 +450,7 @@ func TestExistingAccountMembershipLookupErrorsPropagate(t *testing.T) {
 
 func TestExistingAccountWriteFailuresStopAtFailingStep(t *testing.T) {
 	member := "member.add:" + testActor + ":" + inviteHouseID
+	memberPerson := "member.person:" + inviteHouseID + ":" + testActor + ":existing_login"
 	defaultSet := "default.set:" + testActor + ":" + inviteHouseID
 	accepted := "invitation.accept:" + inviteID
 	for _, tc := range []struct {
@@ -452,8 +458,9 @@ func TestExistingAccountWriteFailuresStopAtFailingStep(t *testing.T) {
 		writes []string
 	}{
 		{"member.add", []string{member}},
-		{"default.set", []string{member, defaultSet}},
-		{"invitation.accept", []string{member, defaultSet, accepted}},
+		{"member.person", []string{member, memberPerson}},
+		{"default.set", []string{member, memberPerson, defaultSet}},
+		{"invitation.accept", []string{member, memberPerson, defaultSet, accepted}},
 	} {
 		t.Run(tc.step, func(t *testing.T) {
 			cause := errors.New("write failed")

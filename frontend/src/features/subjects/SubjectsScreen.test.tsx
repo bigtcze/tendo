@@ -63,6 +63,9 @@ const subject = (id: string, name: string, type: Subject['type'] = 'person', arc
 
 const anna = subject('s-1', 'Anna', 'person');
 const octavia = subject('s-2', 'Octavia', 'vehicle');
+/** A member's canonical person: an ordinary person subject whose link makes it locked. */
+const memberPerson = (id: string, name: string, userId = memberId): Subject => ({ ...subject(id, name, 'person'), linkedUserId: userId });
+const memberPersonPath = (userId: string) => `${base}/members/${userId}/person`;
 
 const page = (items: Subject[], nextCursor: string | null = null) => json(200, { items, nextCursor });
 const etagged = (s: Subject, etag: string) => json(200, s, { ETag: etag });
@@ -148,16 +151,16 @@ describe('navigation', () => {
 });
 
 describe('list', () => {
-  it('shows linked account login on a fresh visit without opening an editor', async () => {
-    const linked = { ...anna, linkedUserId: memberId };
+  it('marks a household member’s person on a fresh visit without opening an editor', async () => {
     installFakeServer({
       ...signedIn,
-      [listKey]: page([linked]),
+      [listKey]: page([memberPerson('s-1', 'Anna')]),
       [membersKey]: membersResponse(),
     });
     renderApp();
     await openPeople();
-    expect(await screen.findByText('Account: member_one')).toBeVisible();
+    expect(await screen.findByText('Household member · member_one')).toBeVisible();
+    expect(screen.getByText('Person')).toBeVisible();
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
   });
 
@@ -469,7 +472,8 @@ describe('add', () => {
       expect(within(form).getByRole('radio', { name: label })).toBeVisible();
     }
     expect(within(form).getAllByRole('textbox')).toHaveLength(1);
-    await screen.findByRole('combobox', { name: 'Their account in Tendo' });
+    // A member's person is created with the membership, so the create form never offers an account link.
+    expect(within(form).queryByRole('combobox')).not.toBeInTheDocument();
     await userEvent.type(within(form).getByLabelText('Name'), '  Zuzka ');
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
 
@@ -485,9 +489,10 @@ describe('add', () => {
     expect(screen.queryByText('Nothing here yet.')).not.toBeInTheDocument();
   });
 
-  it('recovers a stored linked create after remount when member loading is unavailable', async () => {
+  it('recovers a stored create after remount and drops a legacy account link from the replay', async () => {
     const key = 'a'.repeat(32);
     const pending = { version: 1, key, body: { name: 'Stored linked', type: 'person', linkedUserId: memberId } };
+    const storedBody = { name: 'Stored linked', type: 'person' };
     sessionStorage.setItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`, JSON.stringify(pending));
     let postCalls = 0;
     const fake = installFakeServer({
@@ -497,7 +502,7 @@ describe('add', () => {
       [createKey]: () => {
         postCalls++;
         expect(JSON.parse(sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)!)).toEqual(pending);
-        return postCalls === 1 ? Promise.reject(new Error('offline')) : json(201, { ...subject('from-storage', 'Stored linked'), linkedUserId: memberId });
+        return postCalls === 1 ? Promise.reject(new Error('offline')) : json(201, subject('from-storage', 'Stored linked'));
       },
     });
     cleanup();
@@ -508,7 +513,7 @@ describe('add', () => {
     await userEvent.click(within(firstForm).getByRole('button', { name: 'Check again' }));
     await waitFor(() => expect(sent(fake.requests, 'POST')).toHaveLength(1));
     const first = sent(fake.requests, 'POST')[0]!;
-    expect(JSON.parse(first.body)).toEqual(pending.body);
+    expect(JSON.parse(first.body)).toEqual(storedBody);
     expect(first.headers.get('Idempotency-Key')).toBe(key);
     await screen.findByRole('button', { name: 'Check again' });
     firstMount.unmount();
@@ -520,10 +525,10 @@ describe('add', () => {
     const posts = sent(fake.requests, 'POST');
     expect(posts).toHaveLength(2);
     expect(posts[1]!.headers.get('Idempotency-Key')).toBe(key);
-    expect(JSON.parse(posts[1]!.body)).toEqual(pending.body);
+    expect(JSON.parse(posts[1]!.body)).toEqual(storedBody);
   });
 
-  it('creates with an optional linked account and persists the exact attempt before the first POST', async () => {
+  it('persists the exact attempt before the first POST without an account link', async () => {
     let posts = 0;
     const key = 'b'.repeat(32);
     // Captured inside the handler and asserted outside: a throw in the handler would surface as a network error.
@@ -538,28 +543,27 @@ describe('add', () => {
           raw: sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`),
           requestKey: req.headers.get('Idempotency-Key'),
         });
-        return posts === 1 ? Promise.reject(new Error('offline')) : json(201, { ...subject('linked', 'Lena'), linkedUserId: memberId });
+        return posts === 1 ? Promise.reject(new Error('offline')) : json(201, subject('lena', 'Lena'));
       },
     });
     vi.spyOn(crypto, 'getRandomValues').mockImplementation((array) => { (array as Uint8Array).fill(0xbb); return array; });
     renderApp();
     const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Lena');
-    const account = await screen.findByRole('combobox', { name: 'Their account in Tendo' });
-    await userEvent.selectOptions(account, memberId);
+    expect(within(form).queryByRole('combobox')).not.toBeInTheDocument();
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(storedAtPost).toHaveLength(1));
     expect(storedAtPost[0]!.raw).not.toBeNull();
     const storedFirst = JSON.parse(storedAtPost[0]!.raw!);
-    expect(storedFirst.body).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
+    expect(storedFirst.body).toEqual({ name: 'Lena', type: 'person' });
     expect(storedFirst.key).toBe(key);
     expect(storedAtPost[0]!.requestKey).toBe(key);
     const first = sent(fake.requests, 'POST')[0]!;
-    expect(JSON.parse(first.body)).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
-    expect(JSON.parse(sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)!).body).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
+    expect(JSON.parse(first.body)).toEqual({ name: 'Lena', type: 'person' });
+    expect(JSON.parse(sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)!).body).toEqual({ name: 'Lena', type: 'person' });
     await userEvent.click(await screen.findByRole('button', { name: 'Check again' }));
     await screen.findByText('Lena was added.');
-    expect(JSON.parse(sent(fake.requests, 'POST')[1]!.body)).toEqual({ name: 'Lena', type: 'person', linkedUserId: memberId });
+    expect(JSON.parse(sent(fake.requests, 'POST')[1]!.body)).toEqual({ name: 'Lena', type: 'person' });
     expect(sessionStorage.getItem(`tendo.pendingSubjectCreate.v1:${session().userId}:${HOUSEHOLD_ID}`)).toBeNull();
   });
 
@@ -778,45 +782,36 @@ describe('edit', () => {
     expect(JSON.parse(calls[1]!.body)).toEqual({ name: 'Škoda Octavia' });
   });
 
-  it('patches a changed linked account, clears it explicitly, and clears automatically when changing type', async () => {
-    const linked = { ...anna, linkedUserId: memberId };
-    let current = linked;
-    let etag = '"1"';
+  it('edits only the name of a member’s person and hides archive, type and account controls', async () => {
+    const linked = memberPerson('s-1', 'Anna');
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([linked]),
       [membersKey]: membersResponse(),
-      [itemKey('s-1')]: () => etagged(current, etag),
-      [itemKey('s-1', 'PATCH')]: (req) => {
-        const changes = JSON.parse(req.body);
-        current = { ...current, ...changes };
-        etag = `"${Number(etag.replaceAll('"', '')) + 1}"`;
-        return json(200, current, { ETag: etag });
-      },
+      [itemKey('s-1')]: etagged(linked, '"1"'),
+      [itemKey('s-1', 'PATCH')]: json(200, { ...linked, name: 'Anna Marie' }, { ETag: '"2"' }),
     });
     renderApp();
     await openPeople();
+    expect(await screen.findByText('Household member · member_one')).toBeVisible();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    let form = await screen.findByRole('form', { name: 'Edit Anna' });
-    await within(form).findByRole('combobox', { name: 'Their account in Tendo' });
-    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Their account in Tendo' }), '');
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
-    expect(JSON.parse(sent(fake.requests, 'PATCH')[0]!.body)).toEqual({ linkedUserId: null });
+    const form = await screen.findByRole('form', { name: 'Edit Anna' });
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    form = await screen.findByRole('form', { name: 'Edit Anna' });
-    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Their account in Tendo' }), memberId);
+    expect(within(form).queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(within(form).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(form).queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    expect(within(form).getByText(/household member’s person/)).toBeVisible();
+
+    await userEvent.type(within(form).getByLabelText('Name'), ' Marie');
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    form = await screen.findByRole('form', { name: 'Edit Anna' });
-    await userEvent.click(within(form).getByRole('radio', { name: 'Vehicle' }));
-    expect(within(form).getByText('Changing this to something other than a person will clear the linked account.')).toBeVisible();
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
-    expect(JSON.parse(sent(fake.requests, 'PATCH')[2]!.body)).toEqual({ type: 'vehicle', linkedUserId: null });
+    expect(await screen.findByText('Anna Marie')).toBeVisible();
+    const patch = sent(fake.requests, 'PATCH')[0]!;
+    expect(patch.headers.get('If-Match')).toBe('"1"');
+    expect(JSON.parse(patch.body)).toEqual({ name: 'Anna Marie' });
   });
 
-  it('a failed member lookup does not block a name-only edit of a linked person', async () => {
-    const linked = { ...anna, linkedUserId: memberId };
+  it('keeps a member-person name edit working when the members list is unavailable', async () => {
+    const linked = memberPerson('s-1', 'Anna');
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([linked]),
@@ -826,58 +821,63 @@ describe('edit', () => {
     });
     renderApp();
     await openPeople();
+    expect(await screen.findByText('Household member')).toBeVisible();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     const form = await screen.findByRole('form', { name: 'Edit Anna' });
     await waitFor(() => expect(fake.requests.find((request) => request.method === 'GET' && request.path === `${base}/members`)).toBeDefined());
-    await waitFor(() => expect(within(form).queryByRole('combobox', { name: 'Their account in Tendo' })).not.toBeInTheDocument());
     await userEvent.type(within(form).getByLabelText('Name'), ' Marie');
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
     expect(JSON.parse(sent(fake.requests, 'PATCH')[0]!.body)).toEqual({ name: 'Anna Marie' });
   });
 
-  it('keeps an unknown linked member value while saving an unrelated field', async () => {
-    const linked = { ...anna, linkedUserId: memberId };
-    const fake = installFakeServer({
+  it('shows a clear message when the server says the member person is locked', async () => {
+    installFakeServer({
       ...signedIn,
-      [listKey]: page([linked]),
-      [membersKey]: json(200, { items: [{ userId: 'other-member', login: 'other', role: 'member' }], nextCursor: null }),
-      [itemKey('s-1')]: etagged(linked, '"9"'),
-      [itemKey('s-1', 'PATCH')]: json(200, { ...linked, name: 'Anna Marie' }),
+      [listKey]: page([memberPerson('s-1', 'Anna')]),
+      [membersKey]: membersResponse(),
+      [itemKey('s-1')]: etagged(memberPerson('s-1', 'Anna'), '"9"'),
+      [itemKey('s-1', 'PATCH')]: problem(409, { code: 'member_person_locked' }),
     });
     renderApp();
     await openPeople();
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     const form = await screen.findByRole('form', { name: 'Edit Anna' });
-    const account = await within(form).findByRole('combobox', { name: 'Their account in Tendo' });
-    expect(account).toHaveValue(memberId);
-    expect(within(account).getByRole('option', { name: 'Account not listed' })).toHaveValue(memberId);
     await userEvent.type(within(form).getByLabelText('Name'), ' Marie');
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
-    expect(JSON.parse(sent(fake.requests, 'PATCH')[0]!.body)).toEqual({ name: 'Anna Marie' });
+    expect(await within(form).findByRole('alert')).toHaveTextContent(/belongs to a household member/);
+    expect(within(form).getByLabelText('Name')).toHaveValue('Anna Marie');
   });
 
-  it('passes member cursors and stops paging at the page cap', async () => {
-    let listed = 0;
-    let countMembers = false;
-    const fake = installFakeServer({
+  it('explains a refused link to a member who already has a person', async () => {
+    installFakeServer({
       ...signedIn,
-      [listKey]: page([]),
-      [membersKey]: (req) => {
-        if (countMembers) listed++;
-        return req.query.get('cursor') === 'next'
-          ? json(200, { items: [{ userId: 'member-page-two', login: 'member_two', role: 'member' }], nextCursor: null })
-          : json(200, { items: [{ userId: memberId, login: 'member_one', role: 'member' }], nextCursor: 'next' });
-      },
+      [listKey]: page([anna]),
+      [itemKey('s-1')]: etagged(anna, '"9"'),
+      [itemKey('s-1', 'PATCH')]: problem(409, { code: 'member_person_exists' }),
     });
     renderApp();
     await openPeople();
-    countMembers = true;
-    await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    const form = await screen.findByRole('form', { name: 'Add a person or thing' });
-    await waitFor(() => expect(listed).toBe(2));
-    const memberRequests = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).slice(-2);
-    expect(memberRequests.map((request) => request.query.get('cursor'))).toEqual([null, 'next']);
-    await waitFor(() => expect(within(form).getByRole('option', { name: 'member_two' })).toHaveValue('member-page-two'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    const form = await screen.findByRole('form', { name: 'Edit Anna' });
+    await userEvent.type(within(form).getByLabelText('Name'), ' Marie');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent(/already has a person/);
+  });
+
+  it('loads every member page for row markers and stops at the page cap', async () => {
+    const fake = installFakeServer({
+      ...signedIn,
+      [listKey]: page([memberPerson('s-1', 'Anna', 'member-page-two')]),
+      [membersKey]: (req) => req.query.get('cursor') === 'next'
+        ? json(200, { items: [{ userId: 'member-page-two', login: 'member_two', role: 'member' }], nextCursor: null })
+        : json(200, { items: [{ userId: memberId, login: 'member_one', role: 'member' }], nextCursor: 'next' }),
+    });
+    renderApp();
+    await openPeople();
+    expect(await screen.findByText('Household member · member_two')).toBeVisible();
+    const memberRequests = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`);
+    // Home and People each walk the member list; every walk pages null then next.
+    expect(memberRequests.map((request) => request.query.get('cursor')).slice(-2)).toEqual([null, 'next']);
 
     cleanup();
     const capped = installFakeServer({
@@ -888,13 +888,7 @@ describe('edit', () => {
     window.history.replaceState(null, '', '/people');
     renderApp();
     await screen.findByRole('heading', { level: 1, name: 'People and things' });
-    // The screen also loads members on mount; let that capped walk finish so the baseline cannot race it.
     await waitFor(() => expect(capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length).toBe(20));
-    const beforeAdd = capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length;
-    await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    const capForm = await screen.findByRole('form', { name: 'Add a person or thing' });
-    await waitFor(() => expect(capped.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length - beforeAdd).toBe(20));
-    expect(within(capForm).queryByRole('combobox', { name: 'Their account in Tendo' })).not.toBeInTheDocument();
   });
 
   it('allows saving while member loading is unresolved', async () => {
@@ -918,23 +912,21 @@ describe('edit', () => {
   it('ignores an obsolete successful member result after switching editors', async () => {
     let releaseObsolete!: (response: Response) => void;
     const obsoleteMembers = new Promise<Response>((resolve) => { releaseObsolete = resolve; });
-    const linked = { ...anna, linkedUserId: memberId };
     let defer = false;
     let memberCall = 0;
     const currentMembers = () => json(200, { items: [{ userId: 'fresh-user', login: 'fresh_member', role: 'member' }], nextCursor: null });
     const fake = installFakeServer({
       ...signedIn,
-      [listKey]: page([linked]),
+      [listKey]: page([anna]),
       [membersKey]: () => {
         memberCall++;
         if (defer) return obsoleteMembers;
         return memberCall <= 2 ? membersResponse() : currentMembers();
       },
-      [itemKey('s-1')]: etagged(linked, '"1"'),
+      [itemKey('s-1')]: etagged(anna, '"1"'),
     });
     renderApp();
     await openPeople();
-    await screen.findByText('Account: member_one');
     defer = true;
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     const obsoleteForm = await screen.findByRole('form', { name: 'Edit Anna' });
@@ -943,10 +935,12 @@ describe('edit', () => {
     defer = false;
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     const form = await screen.findByRole('form', { name: 'Edit Anna' });
-    await waitFor(() => expect(within(form).getByRole('option', { name: 'fresh_member' })).toBeInTheDocument());
+    const dialog = within(form.closest('dialog')!);
+    await userEvent.click(dialog.getByRole('button', { name: 'This is a household member…' }));
+    await waitFor(() => expect(dialog.getByRole('option', { name: 'fresh_member' })).toBeInTheDocument());
     await act(async () => { releaseObsolete(json(200, { items: [{ userId: 'obsolete-user', login: 'obsolete_member', role: 'member' }], nextCursor: null })); });
-    expect(within(form).getByRole('option', { name: 'fresh_member' })).toBeInTheDocument();
-    expect(within(form).queryByRole('option', { name: 'obsolete_member' })).not.toBeInTheDocument();
+    expect(within(form.closest('dialog')!).getByRole('option', { name: 'fresh_member' })).toBeInTheDocument();
+    expect(within(form.closest('dialog')!).queryByRole('option', { name: 'obsolete_member' })).not.toBeInTheDocument();
     expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`).length).toBeGreaterThan(2);
   });
 
@@ -955,69 +949,65 @@ describe('edit', () => {
     const obsolete = new Promise<Response>((resolve) => { releaseObsolete = resolve; });
     let deferFirstEditor = false;
     let deferredStarted = false;
-    const linkedFirst = { ...anna, linkedUserId: memberId };
-    const linkedSecond = { ...subject('s-3', 'Bea'), linkedUserId: memberId };
+    const bea = subject('s-3', 'Bea');
     const currentMembers = () => json(200, { items: [{ userId: 'current-user', login: 'current_member', role: 'member' }], nextCursor: null });
-    const fake = installFakeServer({
+    installFakeServer({
       ...signedIn,
-      [listKey]: page([linkedFirst, linkedSecond]),
+      [listKey]: page([anna, bea]),
       [membersKey]: () => {
         if (deferFirstEditor) { deferredStarted = true; return obsolete; }
         return currentMembers();
       },
-      [itemKey('s-1')]: etagged(linkedFirst, '"1"'),
-      [itemKey('s-3')]: etagged(linkedSecond, '"1"'),
+      [itemKey('s-1')]: etagged(anna, '"1"'),
+      [itemKey('s-3')]: etagged(bea, '"1"'),
     });
     renderApp();
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
     await openPeople();
-    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(2));
     deferFirstEditor = true;
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     const firstForm = await screen.findByRole('form', { name: 'Edit Anna' });
     await waitFor(() => expect(deferredStarted).toBe(true));
-    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(3);
     await userEvent.click(within(firstForm).getByRole('button', { name: 'Cancel' }));
     deferFirstEditor = false;
-    const secondOpening = userEvent.click(await screen.findByRole('button', { name: 'Edit Bea' }));
-    await secondOpening;
-    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(5));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Bea' }));
     const currentForm = await screen.findByRole('form', { name: 'Edit Bea' });
-    await waitFor(() => expect(within(currentForm).getByRole('option', { name: 'current_member' })).toBeInTheDocument());
+    const currentDialog = within(currentForm.closest('dialog')!);
+    await userEvent.click(currentDialog.getByRole('button', { name: 'This is a household member…' }));
+    await waitFor(() => expect(currentDialog.getByRole('option', { name: 'current_member' })).toBeInTheDocument());
     await act(async () => { releaseObsolete(problem(401)); });
-    expect(within(currentForm).getByRole('option', { name: 'current_member' })).toBeInTheDocument();
-    expect(within(currentForm).queryByRole('option', { name: 'member_one' })).not.toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`)).toHaveLength(5);
+    expect(currentDialog.getByRole('option', { name: 'current_member' })).toBeInTheDocument();
+    expect(currentDialog.queryByRole('option', { name: 'member_one' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
   it('ignores a member 401 after navigating away while App remains mounted', async () => {
+    window.history.replaceState(null, '', '/people');
     let release!: (response: Response) => void;
     const delayed = new Promise<Response>((resolve) => { release = resolve; });
     let calls = 0;
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([]),
-      [membersKey]: () => {
-        const call = ++calls;
-        return call === 2 ? delayed : membersResponse();
-      },
+      [membersKey]: () => ++calls === 1 ? delayed : membersResponse(),
     });
+    const memberRequests = () => fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/members`);
     const app = renderApp();
-    await openPeople();
-    await userEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    await screen.findByRole('form', { name: 'Add a person or thing' });
-    await waitFor(() => expect(calls).toBe(3));
-    await waitFor(() => expect(fake.requests.some((request) => request.method === 'GET' && request.path === `${base}/members`)).toBe(true));
+    await screen.findByRole('heading', { level: 1, name: 'People and things' });
+    // Anchor the release to the People screen's own in-flight member read, not to a later Home read.
+    await waitFor(() => expect(memberRequests()).toHaveLength(1));
     await userEvent.click(await screen.findByRole('link', { name: /^Home$/ }));
     await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    await act(async () => { release(problem(401)); });
+    await waitFor(() => expect(memberRequests()).toHaveLength(2));
+    await act(async () => { release(problem(401)); await delayed; });
+    // The release really settled, and the unmounted People read must not sign the user out.
+    expect(calls).toBe(2);
     expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
     app.unmount();
   });
 
-  it('hides the account chooser after member loading fails but still saves', async () => {
+  it('has no account chooser in the create form even when members fail to load', async () => {
     const fake = installFakeServer({
       ...signedIn,
       [listKey]: page([]),
@@ -1027,7 +1017,7 @@ describe('edit', () => {
     renderApp();
     const form = await openAddForm();
     await userEvent.type(within(form).getByLabelText('Name'), 'Solo');
-    await waitFor(() => expect(within(form).queryByRole('combobox', { name: 'Their account in Tendo' })).not.toBeInTheDocument());
+    expect(within(form).queryByRole('combobox')).not.toBeInTheDocument();
     await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
     expect(JSON.parse(sent(fake.requests, 'POST')[0]!.body)).toEqual({ name: 'Solo', type: 'person' });
   });
@@ -1082,57 +1072,55 @@ describe('edit', () => {
     expect(JSON.parse(patchesSent[1]!.body)).toEqual({ name: 'Octavia RS 2' });
   });
 
-  it('412 summarizes the previous account choice and retry uses latest values and ETag', async () => {
-    const latestUserId = '0198a2f0-0000-7000-8000-000000000088';
-    const latest = { ...anna, linkedUserId: latestUserId };
+  it('412 summarizes the previous member-person name and retry uses the latest values and ETag', async () => {
+    const latest = memberPerson('s-1', 'Anna Nová');
     let reads = 0;
     let patches = 0;
     const fake = installFakeServer({
       ...signedIn,
-      [listKey]: page([anna]),
-      [membersKey]: json(200, { items: [
-        { userId: memberId, login: 'member_one', role: 'member' },
-        { userId: latestUserId, login: 'member_two', role: 'member' },
-      ], nextCursor: null }),
-      [itemKey('s-1')]: () => ++reads === 1 ? etagged(anna, '"1"') : etagged(latest, '"2"'),
-      [itemKey('s-1', 'PATCH')]: () => ++patches === 1 ? problem(412) : json(200, { ...latest, linkedUserId: memberId }),
+      [listKey]: page([memberPerson('s-1', 'Anna')]),
+      [membersKey]: membersResponse(),
+      [itemKey('s-1')]: () => ++reads === 1 ? etagged(memberPerson('s-1', 'Anna'), '"1"') : etagged(latest, '"2"'),
+      [itemKey('s-1', 'PATCH')]: () => ++patches === 1 ? problem(412) : json(200, { ...latest, name: 'Anna Marie' }),
     });
     renderApp();
     await openPeople();
-    const opening = userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
-    await opening;
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
     let form = await screen.findByRole('form', { name: 'Edit Anna' });
-    await userEvent.selectOptions(await within(form).findByRole('combobox', { name: 'Their account in Tendo' }), memberId);
+    await userEvent.type(within(form).getByLabelText('Name'), ' Marie');
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
-    form = await screen.findByRole('form', { name: 'Edit Anna' });
-    expect(await screen.findByText('You had: Anna (Person, Account: member_one)')).toBeVisible();
-    expect(within(form).getByRole('combobox', { name: 'Their account in Tendo' })).toHaveValue(latestUserId);
-    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Their account in Tendo' }), memberId);
+    expect(await screen.findByText('You had: Anna Marie (Person)')).toBeVisible();
+    form = await screen.findByRole('form', { name: 'Edit Anna Nová' });
+    expect(within(form).queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(within(form).getByLabelText('Name')).toHaveValue('Anna Nová');
+    await userEvent.clear(within(form).getByLabelText('Name'));
+    await userEvent.type(within(form).getByLabelText('Name'), 'Anna Marie');
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
     const patchesSent = sent(fake.requests, 'PATCH');
-    expect(JSON.parse(patchesSent[0]!.body)).toEqual({ linkedUserId: memberId });
-    expect(JSON.parse(patchesSent[1]!.body)).toEqual({ linkedUserId: memberId });
+    expect(JSON.parse(patchesSent[0]!.body)).toEqual({ name: 'Anna Marie' });
+    expect(JSON.parse(patchesSent[1]!.body)).toEqual({ name: 'Anna Marie' });
     expect(patchesSent.map((request) => request.headers.get('If-Match'))).toEqual(['"1"', '"2"']);
   });
 
-  it('422 linkedUserId focuses the account select and announces a field error', async () => {
+  it('422 on a member-person name focuses the name field and announces it', async () => {
     installFakeServer({
       ...signedIn,
-      [listKey]: page([]),
+      [listKey]: page([memberPerson('s-1', 'Anna')]),
       [membersKey]: membersResponse(),
-      [createKey]: problem(422, { field: 'linkedUserId', code: 'invalid_reference' }),
+      [itemKey('s-1')]: etagged(memberPerson('s-1', 'Anna'), '"9"'),
+      [itemKey('s-1', 'PATCH')]: problem(422, { field: 'name', code: 'invalid_length' }),
     });
     renderApp();
-    const form = await openAddForm();
-    await userEvent.type(within(form).getByLabelText('Name'), 'Lena');
-    const select = await screen.findByRole('combobox', { name: 'Their account in Tendo' });
-    await userEvent.selectOptions(select, memberId);
-    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    const form = await screen.findByRole('form', { name: 'Edit Anna' });
+    await userEvent.type(within(form).getByLabelText('Name'), '!');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
     const alert = await within(form).findByRole('alert');
-    await waitFor(() => expect(alert).toHaveTextContent('Choose an account that belongs to this household.'));
-    expect(select).toHaveFocus();
-    expect(select).toHaveAttribute('aria-invalid', 'true');
-    expect(select.getAttribute('aria-describedby')).toBe(alert.id);
+    await waitFor(() => expect(alert).toHaveTextContent('1 to 100 characters'));
+    expect(within(form).getByLabelText('Name')).toHaveFocus();
+    expect(within(form).getByLabelText('Name')).toHaveAttribute('aria-invalid', 'true');
+    expect(within(form).getByLabelText('Name').getAttribute('aria-describedby')).toBe(alert.id);
   });
 
   it('404 on save says it no longer exists and refreshes the list', async () => {
@@ -1183,6 +1171,81 @@ describe('edit', () => {
     await userEvent.click(within(await screen.findByRole('form', { name: 'Edit Anna' })).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
     expect(sent(fake.requests, 'PATCH')).toHaveLength(0);
+  });
+});
+
+describe('member person reassociation', () => {
+  const currentPerson = memberPerson('s-m', 'anna');
+  const routes = (put: Response | (() => Response), onPut?: (body: string) => void) => ({
+    ...signedIn,
+    [listKey]: page([anna, currentPerson]),
+    [membersKey]: membersResponse(),
+    [itemKey('s-1')]: etagged(anna, '"4"'),
+    [`GET ${memberPersonPath(memberId)}`]: etagged(currentPerson, '"7"'),
+    [`PUT ${memberPersonPath(memberId)}`]: (req: RecordedRequest) => {
+      onPut?.(req.body);
+      return typeof put === 'function' ? put() : put;
+    },
+  });
+
+  async function startTransfer() {
+    await openPeople();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    const form = await screen.findByRole('form', { name: 'Edit Anna' });
+    const element = form.closest('dialog')!;
+    const dialog = within(element);
+    await userEvent.click(dialog.getByRole('button', { name: 'This is a household member…' }));
+    await userEvent.selectOptions(dialog.getByRole('combobox', { name: 'Household member' }), memberId);
+    await dialog.findByText(/This is not a merge/);
+    return element;
+  }
+
+  it('sends the exact transfer with both versions, then shows this record as the member’s person', async () => {
+    let putBody = '';
+    const fake = installFakeServer(routes(json(200, {
+      person: { ...anna, linkedUserId: memberId },
+      previous: { ...currentPerson, linkedUserId: null },
+    }), (body) => { putBody = body; }));
+    renderApp();
+    const form = await startTransfer();
+    expect(within(form).getByText(/This is not a merge/)).toHaveTextContent('“anna”');
+    await userEvent.click(within(form).getByRole('button', { name: 'Connect' }));
+
+    expect(await screen.findByText('“Anna” is now member_one’s person. “anna” stays as an ordinary person with its items.')).toBeVisible();
+    expect(JSON.parse(putBody)).toEqual({
+      subjectId: 's-1', subjectVersion: 4, currentSubjectId: 's-m', currentSubjectVersion: 7,
+    });
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === memberPersonPath(memberId))).toHaveLength(2);
+    expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    const rows = within(screen.getByRole('main')).getAllByRole('listitem');
+    const annaRow = rows.find((row) => row.querySelector('[data-subject-name]')?.textContent === 'Anna')!;
+    expect(annaRow.querySelector('[data-subject-member]')?.textContent).toBe('Household member · member_one');
+    const previousRow = rows.find((row) => row.querySelector('[data-subject-name]')?.textContent === 'anna')!;
+    expect(previousRow.querySelector('[data-subject-member]')).toBeNull();
+  });
+
+  it.each([
+    ['member_person_changed', problem(409, { code: 'member_person_changed' }), /member’s person changed just now/],
+    ['precondition_failed', problem(412), /This record changed just now/],
+    ['not_eligible', problem(422, { field: 'subjectId', code: 'not_eligible' }), /can no longer become a member’s person/],
+    ['not_found', problem(404), /person or member no longer exists/],
+  ])('explains %s, closes the editor and refreshes the list', async (_name, response, message) => {
+    let lists = 0;
+    const fake = installFakeServer(routes(response));
+    fake.requests.length = 0;
+    renderApp();
+    await openPeople();
+    lists = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects` && request.query.get('limit') === '50').length;
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
+    const form = await screen.findByRole('form', { name: 'Edit Anna' });
+    const dialog = within(form.closest('dialog')!);
+    await userEvent.click(dialog.getByRole('button', { name: 'This is a household member…' }));
+    await userEvent.selectOptions(dialog.getByRole('combobox', { name: 'Household member' }), memberId);
+    await userEvent.click(await dialog.findByRole('button', { name: 'Connect' }));
+
+    expect(await screen.findByText(message)).toBeVisible();
+    expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    await waitFor(() => expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects` && request.query.get('limit') === '50').length).toBeGreaterThan(lists));
   });
 });
 
@@ -1571,16 +1634,26 @@ describe('refactor regressions', () => {
 });
 
 describe('Czech', () => {
-  it('renders the linked account labels in Czech', async () => {
+  it('marks a member’s person and keeps the account chooser out of the Czech create form', async () => {
     localStorage.setItem('tendo.locale', 'cs');
-    installFakeServer({ ...signedIn, [listKey]: page([]), [membersKey]: membersResponse() });
+    installFakeServer({
+      ...signedIn,
+      [listKey]: page([memberPerson('s-1', 'Anna')]),
+      [membersKey]: membersResponse(),
+      [itemKey('s-1')]: etagged(memberPerson('s-1', 'Anna'), '"1"'),
+    });
     renderApp();
     await userEvent.click(await screen.findByRole('link', { name: 'Lidé a věci' }));
     await screen.findByRole('heading', { level: 1, name: 'Lidé a věci' });
+    expect(await screen.findByText('Člen domácnosti · member_one')).toBeVisible();
+    await userEvent.click(await screen.findByRole('button', { name: 'Upravit: Anna' }));
+    const form = await screen.findByRole('form', { name: 'Upravit: Anna' });
+    expect(within(form).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(form).queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(within(form).getByText(/členem domácnosti/)).toBeVisible();
+    await userEvent.click(within(form).getByRole('button', { name: 'Zrušit' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Přidat' }));
-    const select = await screen.findByRole('combobox', { name: 'Jejich účet v Tendu' });
-    expect(select).toHaveValue('');
-    expect(within(screen.getByRole('form')).getByText('Pomáhá jen poznat, o koho jde. Nemění to, co kdo může vidět.')).toBeVisible();
+    expect(within(await screen.findByRole('form', { name: 'Přidat osobu nebo věc' })).queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('shows the uncertain-create notice in Czech', async () => {

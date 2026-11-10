@@ -15,13 +15,26 @@ import (
 
 type HouseholdRepositoryFactory func(*householddb.Queries) identity.OwnerHouseholdService
 
+// MemberPersonProvisionerFactory binds the subject provisioner to the same
+// transaction that writes the membership. The process composition root supplies
+// the concrete adapter; identity itself never imports the subject module.
+type MemberPersonProvisionerFactory func(householddb.DBTX) identity.MemberPersonProvisioner
+
 type Repository struct {
-	pool    *pgxpool.Pool
-	factory HouseholdRepositoryFactory
+	pool                *pgxpool.Pool
+	factory             HouseholdRepositoryFactory
+	memberPersonFactory MemberPersonProvisionerFactory
 }
 
-func New(pool *pgxpool.Pool, factory HouseholdRepositoryFactory) *Repository {
-	return &Repository{pool: pool, factory: factory}
+// New builds the identity repository. The member-person factory is required for
+// setup transactions; omitting it fails closed before any membership write.
+// Read-only adapters that never open a setup transaction may still pass none.
+func New(pool *pgxpool.Pool, factory HouseholdRepositoryFactory, memberPersonFactory ...MemberPersonProvisionerFactory) *Repository {
+	repository := &Repository{pool: pool, factory: factory}
+	if len(memberPersonFactory) > 0 {
+		repository.memberPersonFactory = memberPersonFactory[0]
+	}
+	return repository
 }
 
 func (r *Repository) IsRequired(ctx context.Context) (bool, error) {
@@ -42,10 +55,11 @@ func (r *Repository) WithSetupTransaction(ctx context.Context, work func(identit
 	}()
 	queries := identitydb.New(tx)
 	householdQueries := householddb.New(tx)
-	if r.factory == nil {
+	if r.factory == nil || r.memberPersonFactory == nil {
 		return errors.New("setup transaction unavailable")
 	}
-	if err = work(&setupTransaction{queries: queries}, r.factory(householdQueries)); err != nil {
+	provisioner := r.memberPersonFactory(tx)
+	if err = work(&setupTransaction{queries: queries, memberPersons: provisioner}, r.factory(householdQueries)); err != nil {
 		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -54,7 +68,10 @@ func (r *Repository) WithSetupTransaction(ctx context.Context, work func(identit
 	return nil
 }
 
-type setupTransaction struct{ queries *identitydb.Queries }
+type setupTransaction struct {
+	queries       *identitydb.Queries
+	memberPersons identity.MemberPersonProvisioner
+}
 
 func (t *setupTransaction) LockRequired(ctx context.Context) (bool, error) {
 	return t.queries.LockSetupState(ctx)
@@ -78,6 +95,9 @@ func (t *setupTransaction) SetDefaultHousehold(ctx context.Context, userID, hous
 		return err
 	}
 	return t.queries.SetDefaultHousehold(ctx, identitydb.SetDefaultHouseholdParams{ID: user, DefaultHouseholdID: household})
+}
+func (t *setupTransaction) EnsureMemberPerson(ctx context.Context, householdID, userID, name string) error {
+	return t.memberPersons.EnsureMemberPerson(ctx, householdID, userID, name)
 }
 func (t *setupTransaction) CompleteSetup(ctx context.Context) error {
 	return t.queries.CompleteSetup(ctx)

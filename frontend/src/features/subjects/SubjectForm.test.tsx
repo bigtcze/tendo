@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import { SubjectForm, type SubjectValues } from './SubjectForm';
 
-const initial: SubjectValues = { name: 'Anna', type: 'person', linkedUserId: null };
+const initial: SubjectValues = { name: 'Anna', type: 'person' };
 
 function renderSubjectForm(props: Partial<Parameters<typeof SubjectForm>[0]> = {}) {
   return render(
@@ -78,5 +78,29 @@ describe('SubjectForm behavior', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), ' Marie');
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('offers only the name for a household member’s person, with a short explanation', () => {
+    renderSubjectForm({ memberPerson: true });
+
+    expect(screen.getByLabelText('Name')).toBeVisible();
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByText(/household member’s person/)).toBeVisible();
+  });
+
+  it('keeps member-person lock and link conflicts visible as an alert', async () => {
+    const { rerender } = renderSubjectForm({ onSubmit: async () => ({ kind: 'locked' }) });
+    fireEvent.submit(screen.getByRole('form', { name: 'Edit Anna' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/belongs to a household member/));
+
+    rerender(
+      <I18nProvider>
+        <SubjectForm label="Edit Anna" initial={initial} submitLabel="Save" pendingLabel="Saving…"
+          onSubmit={async () => ({ kind: 'exists' })} onCancel={() => undefined} />
+      </I18nProvider>,
+    );
+    fireEvent.submit(screen.getByRole('form', { name: 'Edit Anna' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/already has a person/));
   });
 });

@@ -14,7 +14,12 @@ import (
 	identitypostgres "github.com/bigtcze/tendo/backend/internal/identity/postgres"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
+	subjectpostgres "github.com/bigtcze/tendo/backend/internal/subject/postgres"
 )
+
+func testMemberPeople(tx householddb.DBTX) identityapp.MemberPersonProvisioner {
+	return subjectpostgres.NewMemberPersonProvisioner(tx)
+}
 
 func TestAccountsAgainstPostgres(t *testing.T) {
 	appURL, adminURL := os.Getenv("TEST_DATABASE_URL"), os.Getenv("TEST_DATABASE_ADMIN_URL")
@@ -297,7 +302,7 @@ func TestAccountsAgainstPostgres(t *testing.T) {
 		}
 		repository := identitypostgres.NewInvitationRepository(app, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
 			return MembershipServiceFor(tx)
-		})
+		}, testMemberPeople)
 		invitations, err := identityapp.NewInvitationService(repository, clock)
 		if err != nil {
 			t.Fatal(err)
@@ -383,7 +388,7 @@ func TestInFlightDemotionForbidsAdminWrites(t *testing.T) {
 	accounts := AccountServiceFor(app, identitypostgres.New(app, nil), identitypostgres.New(app, nil), clock)
 	invitations, err := identityapp.NewInvitationService(identitypostgres.NewInvitationRepository(app, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
 		return MembershipServiceFor(tx)
-	}), clock)
+	}, testMemberPeople), clock)
 	if err != nil {
 		t.Fatal(err)
 	}

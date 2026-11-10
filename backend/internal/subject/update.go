@@ -2,7 +2,6 @@ package subject
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/ids"
@@ -37,12 +36,42 @@ func (s *Service) Update(ctx context.Context, userID, householdID, subjectID str
 	if p.Name == nil && p.Type == nil && p.Archived == nil && !p.LinkedUserIDSet {
 		return Subject{}, ErrEmptyPatch
 	}
-	normalized, err := normalizePatch(p)
-	if err != nil {
-		return Subject{}, s.validationAfterExistenceCheck(ctx, householdID, subjectID, err)
-	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+	// Existence first: a missing or foreign target is uniformly 404 even when
+	// the patch itself has field or link-reference errors.
+	stored, err := s.repository.Get(ctx, householdID, subjectID)
+	if err != nil {
+		return Subject{}, mapRepoErr(err)
+	}
+	// Field/link and member-person semantics are evaluated against the current
+	// stored row before staleness, so a stale invalid patch still reports the
+	// documented 422/409 result. The version guard below then prevents every
+	// write when the row changed: the guarded UPDATE can only modify this exact
+	// version, so a concurrent transfer cannot make a guessed future version
+	// unlink, archive or retype the new canonical person.
+	normalized, err := s.normalizeAndValidatePatch(ctx, householdID, stored, p)
+	if err != nil {
+		return Subject{}, err
+	}
+	if stored.Version != expectedVersion {
+		return Subject{}, ErrVersionMismatch
+	}
+	updated, err := s.repository.Update(ctx, householdID, subjectID, expectedVersion, normalized)
+	if err != nil {
+		return Subject{}, mapRepoErr(err)
+	}
+	return updated, nil
+}
+
+// normalizeAndValidatePatch applies field, reference and member-person checks
+// against the stored row. Field validation precedes reference validation, and
+// both precede member-person state conflicts, matching the documented order.
+func (s *Service) normalizeAndValidatePatch(ctx context.Context, householdID string, stored Subject, p Patch) (Patch, error) {
+	normalized, err := normalizePatch(p)
+	if err != nil {
+		return Patch{}, err
+	}
 	var normalizedLinked *string
 	if p.LinkedUserIDSet && p.LinkedUserID != nil {
 		checkType := TypePerson
@@ -51,77 +80,47 @@ func (s *Service) Update(ctx context.Context, userID, householdID, subjectID str
 		}
 		normalizedLinked, err = s.validateLinkedUser(ctx, householdID, checkType, p.LinkedUserID)
 		if err != nil {
-			return Subject{}, s.validationAfterExistenceCheck(ctx, householdID, subjectID, err)
+			return Patch{}, err
 		}
 	}
 	if p.LinkedUserIDSet {
 		normalized.LinkedUserIDSet = true
 		normalized.LinkedUserID = normalizedLinked
 	}
-	updated, err := s.repository.Update(ctx, householdID, subjectID, expectedVersion, normalized)
-	if err != nil {
-		return Subject{}, s.staleTypeLinkError(ctx, householdID, subjectID, p, err)
+	if err := validateMemberPersonPatch(stored, normalized); err != nil {
+		return Patch{}, err
 	}
-	return updated, nil
+	return normalized, nil
 }
 
-// validationAfterExistenceCheck keeps a bad PATCH on an existing subject as
-// 422 while preserving 404 for missing or foreign-household targets.
-func (s *Service) validationAfterExistenceCheck(ctx context.Context, householdID, subjectID string, validationErr error) error {
-	var validation *ValidationError
-	if !errors.As(validationErr, &validation) {
-		return validationErr
+// validateMemberPersonPatch enforces the canonical member-person invariants.
+// A linked subject belongs to its membership: it cannot be unlinked, relinked,
+// retyped away from person, or archived. Same-value no-ops and ordinary name
+// changes remain allowed. An unlinked subject cannot be linked directly to a
+// member because that member necessarily already has a person; the transfer
+// operation is the explicit reassociation path.
+func validateMemberPersonPatch(stored Subject, p Patch) error {
+	if stored.LinkedUserID == nil {
+		if p.LinkedUserIDSet && p.LinkedUserID != nil {
+			resultType := stored.Type
+			if p.Type != nil {
+				resultType = *p.Type
+			}
+			if resultType != TypePerson {
+				return &ValidationError{Field: "linkedUserId", Code: "requires_person"}
+			}
+			return ErrMemberPersonExists
+		}
+		return nil
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	_, err := s.repository.Get(probeCtx, householdID, subjectID)
-	if errors.Is(err, ErrNotFound) {
-		return ErrNotFound
+	if p.LinkedUserIDSet && (p.LinkedUserID == nil || *p.LinkedUserID != *stored.LinkedUserID) {
+		return ErrMemberPersonLocked
 	}
-	if err != nil {
-		return ErrUnavailable
+	if p.Type != nil && *p.Type != TypePerson {
+		return ErrMemberPersonLocked
 	}
-	return validationErr
-}
-
-// Stored type/link state matters only when the patch changes one side while
-// omitting the other; explicit type+link or unlinking fully determines validity.
-func subjectTypeLinkDependsOnStoredState(p Patch) bool {
-	return (p.Type != nil && !p.LinkedUserIDSet) || (p.Type == nil && p.LinkedUserIDSet && p.LinkedUserID != nil)
-}
-
-func resultingType(p Patch, storedType Type) Type {
-	if p.Type != nil {
-		return *p.Type
+	if p.Archived != nil && *p.Archived {
+		return ErrMemberPersonLocked
 	}
-	return storedType
-}
-
-func resultingLink(p Patch, storedLink *string) *string {
-	if p.LinkedUserIDSet {
-		return p.LinkedUserID
-	}
-	return storedLink
-}
-
-// staleTypeLinkError resolves the stored-state invariant only when one side is
-// omitted; otherwise the request already determines validity. The scoped probe
-// distinguishes 404, unavailable, requires_person, and ordinary stale 412.
-func (s *Service) staleTypeLinkError(ctx context.Context, householdID, subjectID string, p Patch, updateErr error) error {
-	if !errors.Is(updateErr, ErrVersionMismatch) || !subjectTypeLinkDependsOnStoredState(p) {
-		return mapRepoErr(updateErr)
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	stored, err := s.repository.Get(probeCtx, householdID, subjectID)
-	if errors.Is(err, ErrNotFound) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return ErrUnavailable
-	}
-	if resultingLink(p, stored.LinkedUserID) != nil && resultingType(p, stored.Type) != TypePerson {
-		return &ValidationError{"linkedUserId", "requires_person"}
-	}
-	return ErrVersionMismatch
+	return nil
 }

@@ -225,6 +225,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/households/{householdId}/members/{userId}/person": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a member's canonical person subject
+         * @description Returns the person subject linked to a household member, so clients can construct a transfer without paging the subject list. Any household member may read it. The ETag is the strong, quoted decimal subject version of the returned person, like GET subject. Malformed, foreign-household, non-member, or unlinked user identifiers all return the same 404 not_found. The link is descriptive and grants no access.
+         */
+        get: operations["getMemberPerson"];
+        /**
+         * Reassign a member's person subject
+         * @description Replaces the member's canonical linked person with an existing unlinked person subject in one transaction. Any household member may call it because subjects are household-shared; the link is descriptive and never authorizes access. Both the target and the current person are named with their versions so stale clients and concurrent transfers fail explicitly. The previous person becomes an ordinary unlinked, still-active person; items and history keep their subject_id and are not changed. Returns 409 member_person_changed when currentSubjectId is no longer the member's linked person, 412 when either supplied version is stale, and 422 not_eligible on subjectId when the target is archived, not a person, already linked, or the same subject. Malformed identifiers return 404. Requires the canonical Origin header.
+         */
+        put: operations["transferMemberPerson"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households/{householdId}/accounts": {
         parameters: {
             query?: never;
@@ -332,7 +356,7 @@ export interface paths {
         head?: never;
         /**
          * Update, archive, or unarchive a subject
-         * @description Partial update of name, type, linkedUserId, and archived. linkedUserId omission preserves and null unlinks; a member userId links descriptively only; only person subjects may be linked. If-Match with the current strong ETag is required; every successful update increments the version. Archive by sending archived true and unarchive by sending archived false. Archived subjects remain readable and editable. Requires the canonical Origin header.
+         * @description Partial update of name, type, linkedUserId, and archived. linkedUserId omission preserves the current value. An ordinary unlinked subject cannot be linked to a member directly (409 member_person_exists); a member person cannot be unlinked, relinked, retyped away from person, or archived (409 member_person_locked); use transferMemberPerson for reassociation. If-Match with the current strong ETag is required; every successful update increments the version. Archive by sending archived true and unarchive by sending archived false. Archived ordinary subjects remain readable and editable. Evaluation order after body validation is target existence (404), field/reference validation (422), member-person conflicts against the current stored row (409), then stale version (412); a stale but illegal transition reports 409/422, and a semantically valid stale patch reports 412 without any write. Requires the canonical Origin header.
          */
         patch: operations["updateSubject"];
         trace?: never;
@@ -685,7 +709,7 @@ export interface components {
             name: string;
             /**
              * Format: uuid
-             * @description Optional descriptive link to the members-list userId of a member of this household. Only person subjects may be linked. The link grants no access and is never used for authorization; null means unlinked.
+             * @description Canonical member person link: the members-list userId of the household member this person subject belongs to. Every member has exactly one linked person, created with the membership. The subject is then locked against unlink, relink, type change, and archive, and its name remains editable; reassociate a different existing person through transferMemberPerson. The link is descriptive and never authorizes access; null means an ordinary unlinked subject.
              */
             linkedUserId: string | null;
             archived: boolean;
@@ -703,7 +727,7 @@ export interface components {
             /** @description 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422. */
             name: string;
             type: components["schemas"]["SubjectType"];
-            /** @description Optional members-list userId of a member of this household. Omission or null means unlinked. A string links that member and requires type person (422 requires_person). Malformed, unknown, or foreign-household user IDs return 422 invalid_reference. */
+            /** @description Optional members-list userId of a member of this household. Omission or null means unlinked. Linking a valid member returns 409 member_person_exists because every member already has a canonical person; use transferMemberPerson to reassociate an existing person. A non-person request returns 422 requires_person; malformed, unknown, or foreign-household user IDs return 422 invalid_reference. */
             linkedUserId?: string | null;
         };
         UpdateSubjectRequest: {
@@ -711,18 +735,53 @@ export interface components {
             name?: string;
             type?: components["schemas"]["SubjectType"];
             archived?: boolean;
-            /** @description Omission leaves the link unchanged; null unlinks; a string links that member. The resulting subject must be type person when linked (422 requires_person); changing type away from person requires null in the same request. Malformed, unknown, or foreign-household user IDs return 422 invalid_reference. */
+            /** @description Omission leaves the link unchanged. For an ordinary unlinked subject, null is a no-op and a valid member ID returns 409 member_person_exists (use transferMemberPerson). For a member person, any actual unlink or relink, any type change away from person, and archived true return 409 member_person_locked; same-value no-ops and name changes are allowed. A non-person request returns 422 requires_person; malformed, unknown, or foreign-household user IDs return 422 invalid_reference. */
             linkedUserId?: string | null;
         };
         QueryProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             parameter?: "limit" | "cursor" | "archived" | "done" | "id" | "subjectId" | "responsibleUserId" | "workflowState" | "attention" | "recurring" | "sort" | "attentionDate" | "q" | "order";
         };
+        TransferMemberPersonRequest: {
+            /**
+             * Format: uuid
+             * @description Existing unlinked, active person subject to make the member's person.
+             */
+            subjectId: string;
+            /** @description Version of subjectId the client last read; a stale value returns 412. */
+            subjectVersion: number;
+            /**
+             * Format: uuid
+             * @description The member's currently linked person subject.
+             */
+            currentSubjectId: string;
+            /** @description Version of currentSubjectId the client last read; a stale value returns 412. */
+            currentSubjectVersion: number;
+        };
+        MemberPersonTransfer: {
+            person: components["schemas"]["Subject"];
+            /** @description New version of person, also available as an ETag when reading it. */
+            personVersion: number;
+            previous: components["schemas"]["Subject"];
+            /** @description New version of previous after it was unlinked. */
+            previousVersion: number;
+        };
         SubjectValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
             field: "name" | "type" | "linkedUserId";
             /** @enum {string} */
             code: "invalid_characters" | "invalid_length" | "invalid_type" | "invalid_reference" | "requires_person";
+        };
+        MemberPersonTransferValidationProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            field: "subjectId";
+            /** @enum {string} */
+            code: "not_eligible";
+        };
+        /** @description Subject member-person conflict. */
+        SubjectConflictProblem: components["schemas"]["Problem"] & {
+            /** @enum {string} */
+            code: "member_person_locked" | "member_person_exists" | "member_person_changed";
         };
         /** @description Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field. */
         SubjectCreateProblem: components["schemas"]["Problem"] & {
@@ -3397,6 +3456,460 @@ export interface operations {
             };
         };
     };
+    getMemberPerson: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Member user identifier within this household.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+                 */
+                userId: components["parameters"]["AccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member's linked person subject. */
+            200: {
+                headers: {
+                    /**
+                     * @description Strong entity tag derived from the subject version.
+                     * @example "1"
+                     */
+                    ETag?: string;
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *       "type": "person",
+                     *       "name": "Tomáš",
+                     *       "linkedUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *       "archived": false,
+                     *       "createdAt": "2026-10-07T10:00:00Z",
+                     *       "updatedAt": "2026-11-10T10:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Subject"];
+                };
+            };
+            /** @description Trusted forwarded request metadata is malformed or inconsistent. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, malformed, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The household or member identifier is malformed, the member is not in this household, the caller is not a member, or the member has no linked person. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    transferMemberPerson: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Member user identifier within this household.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+                 */
+                userId: components["parameters"]["AccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "subjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                 *       "subjectVersion": 1,
+                 *       "currentSubjectId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71",
+                 *       "currentSubjectVersion": 3
+                 *     }
+                 */
+                "application/json": components["schemas"]["TransferMemberPersonRequest"];
+            };
+        };
+        responses: {
+            /** @description Transfer committed; both subject representations carry their new versions. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "person": {
+                     *         "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b70",
+                     *         "type": "person",
+                     *         "name": "Tomáš",
+                     *         "linkedUserId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
+                     *         "archived": false,
+                     *         "createdAt": "2026-10-07T10:00:00Z",
+                     *         "updatedAt": "2026-11-10T10:00:00Z"
+                     *       },
+                     *       "personVersion": 2,
+                     *       "previous": {
+                     *         "id": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b71",
+                     *         "type": "person",
+                     *         "name": "tomas",
+                     *         "linkedUserId": null,
+                     *         "archived": false,
+                     *         "createdAt": "2026-10-07T09:00:00Z",
+                     *         "updatedAt": "2026-11-10T10:00:00Z"
+                     *       },
+                     *       "previousVersion": 2
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MemberPersonTransfer"];
+                };
+            };
+            /** @description Malformed JSON, unknown or duplicate keys, missing or wrong-typed fields, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, malformed, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The household, member, or subject identifier is malformed, the member or subject does not exist in that household, or the caller is not a member. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The current person is no longer the member's linked person (member_person_changed). */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "member_person_changed"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["SubjectConflictProblem"];
+                };
+            };
+            /** @description The supplied subjectVersion or currentSubjectVersion does not match the stored subject version. */
+            412: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Precondition Failed",
+                     *       "status": 412,
+                     *       "code": "precondition_failed"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Request Entity Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The target subject is not eligible: subjectId is archived, not a person, already linked, or the same as currentSubjectId. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "not_eligible",
+                     *       "field": "subjectId"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["MemberPersonTransferValidationProblem"];
+                };
+            };
+            /** @description Persistence unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listHouseholdAccounts: {
         parameters: {
             query?: {
@@ -4492,6 +5005,25 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description linkedUserId names a valid member who already has a canonical person (member_person_exists); use transferMemberPerson. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "member_person_exists"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["SubjectConflictProblem"];
+                };
+            };
             /** @description Request body exceeds 4 KiB. */
             413: {
                 headers: {
@@ -4891,6 +5423,17 @@ export interface operations {
                      *     }
                      */
                     "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The stored subject is a member person and the patch would unlink or relink it, change its type away from person, or archive it (member_person_locked); or an unlinked subject is being linked to a valid member (member_person_exists). Use transferMemberPerson for reassociation. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["SubjectConflictProblem"];
                 };
             };
             /** @description If-Match is malformed, weak, a list of tags, the wildcard *, or does not match the current subject version. If-Match: * and weak or list entity tags are not supported and are rejected with 412. */

@@ -336,6 +336,36 @@ func (e ItemValidationProblemField) Valid() bool {
 	}
 }
 
+// Defines values for MemberPersonTransferValidationProblemCode.
+const (
+	NotEligible MemberPersonTransferValidationProblemCode = "not_eligible"
+)
+
+// Valid indicates whether the value is a known member of the MemberPersonTransferValidationProblemCode enum.
+func (e MemberPersonTransferValidationProblemCode) Valid() bool {
+	switch e {
+	case NotEligible:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemberPersonTransferValidationProblemField.
+const (
+	MemberPersonTransferValidationProblemFieldSubjectId MemberPersonTransferValidationProblemField = "subjectId"
+)
+
+// Valid indicates whether the value is a known member of the MemberPersonTransferValidationProblemField enum.
+func (e MemberPersonTransferValidationProblemField) Valid() bool {
+	switch e {
+	case MemberPersonTransferValidationProblemFieldSubjectId:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemberRole.
 const (
 	MemberRoleAdmin  MemberRole = "admin"
@@ -525,6 +555,27 @@ func (e RecurrenceMode) Valid() bool {
 	case AfterCompletion:
 		return true
 	case Fixed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SubjectConflictProblemCode.
+const (
+	MemberPersonChanged SubjectConflictProblemCode = "member_person_changed"
+	MemberPersonExists  SubjectConflictProblemCode = "member_person_exists"
+	MemberPersonLocked  SubjectConflictProblemCode = "member_person_locked"
+)
+
+// Valid indicates whether the value is a known member of the SubjectConflictProblemCode enum.
+func (e SubjectConflictProblemCode) Valid() bool {
+	switch e {
+	case MemberPersonChanged:
+		return true
+	case MemberPersonExists:
+		return true
+	case MemberPersonLocked:
 		return true
 	default:
 		return false
@@ -899,7 +950,7 @@ type CreateItemRequest struct {
 
 // CreateSubjectRequest defines model for CreateSubjectRequest.
 type CreateSubjectRequest struct {
-	// LinkedUserId Optional members-list userId of a member of this household. Omission or null means unlinked. A string links that member and requires type person (422 requires_person). Malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
+	// LinkedUserId Optional members-list userId of a member of this household. Omission or null means unlinked. Linking a valid member returns 409 member_person_exists because every member already has a canonical person; use transferMemberPerson to reassociate an existing person. A non-person request returns 422 requires_person; malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
 	LinkedUserId **string `json:"linkedUserId,omitempty"`
 
 	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
@@ -1107,6 +1158,36 @@ type MemberList struct {
 	NextCursor *string  `json:"nextCursor"`
 }
 
+// MemberPersonTransfer defines model for MemberPersonTransfer.
+type MemberPersonTransfer struct {
+	Person Subject `json:"person"`
+
+	// PersonVersion New version of person, also available as an ETag when reading it.
+	PersonVersion int     `json:"personVersion"`
+	Previous      Subject `json:"previous"`
+
+	// PreviousVersion New version of previous after it was unlinked.
+	PreviousVersion int `json:"previousVersion"`
+}
+
+// MemberPersonTransferValidationProblem defines model for MemberPersonTransferValidationProblem.
+type MemberPersonTransferValidationProblem struct {
+	Code                 MemberPersonTransferValidationProblemCode  `json:"code"`
+	Detail               *string                                    `json:"detail,omitempty"`
+	Field                MemberPersonTransferValidationProblemField `json:"field"`
+	Instance             *string                                    `json:"instance,omitempty"`
+	Status               int                                        `json:"status"`
+	Title                string                                     `json:"title"`
+	Type                 string                                     `json:"type"`
+	AdditionalProperties map[string]interface{}                     `json:"-"`
+}
+
+// MemberPersonTransferValidationProblemCode defines model for MemberPersonTransferValidationProblem.Code.
+type MemberPersonTransferValidationProblemCode string
+
+// MemberPersonTransferValidationProblemField defines model for MemberPersonTransferValidationProblem.Field.
+type MemberPersonTransferValidationProblemField string
+
 // MemberRole defines model for MemberRole.
 type MemberRole string
 
@@ -1236,12 +1317,26 @@ type Subject struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Id        string    `json:"id"`
 
-	// LinkedUserId Optional descriptive link to the members-list userId of a member of this household. Only person subjects may be linked. The link grants no access and is never used for authorization; null means unlinked.
+	// LinkedUserId Canonical member person link: the members-list userId of the household member this person subject belongs to. Every member has exactly one linked person, created with the membership. The subject is then locked against unlink, relink, type change, and archive, and its name remains editable; reassociate a different existing person through transferMemberPerson. The link is descriptive and never authorizes access; null means an ordinary unlinked subject.
 	LinkedUserId *string     `json:"linkedUserId"`
 	Name         string      `json:"name"`
 	Type         SubjectType `json:"type"`
 	UpdatedAt    time.Time   `json:"updatedAt"`
 }
+
+// SubjectConflictProblem Subject member-person conflict.
+type SubjectConflictProblem struct {
+	Code                 SubjectConflictProblemCode `json:"code"`
+	Detail               *string                    `json:"detail,omitempty"`
+	Instance             *string                    `json:"instance,omitempty"`
+	Status               int                        `json:"status"`
+	Title                string                     `json:"title"`
+	Type                 string                     `json:"type"`
+	AdditionalProperties map[string]interface{}     `json:"-"`
+}
+
+// SubjectConflictProblemCode defines model for SubjectConflictProblem.Code.
+type SubjectConflictProblemCode string
 
 // SubjectCreateProblem Subject creation 422. Field validation problems carry field; idempotency_key_reused omits field.
 type SubjectCreateProblem struct {
@@ -1290,6 +1385,21 @@ type SubjectValidationProblemCode string
 // SubjectValidationProblemField defines model for SubjectValidationProblem.Field.
 type SubjectValidationProblemField string
 
+// TransferMemberPersonRequest defines model for TransferMemberPersonRequest.
+type TransferMemberPersonRequest struct {
+	// CurrentSubjectId The member's currently linked person subject.
+	CurrentSubjectId string `json:"currentSubjectId"`
+
+	// CurrentSubjectVersion Version of currentSubjectId the client last read; a stale value returns 412.
+	CurrentSubjectVersion int `json:"currentSubjectVersion"`
+
+	// SubjectId Existing unlinked, active person subject to make the member's person.
+	SubjectId string `json:"subjectId"`
+
+	// SubjectVersion Version of subjectId the client last read; a stale value returns 412.
+	SubjectVersion int `json:"subjectVersion"`
+}
+
 // UndoCompletionRequest defines model for UndoCompletionRequest.
 type UndoCompletionRequest struct {
 	Undone UndoCompletionRequestUndone `json:"undone"`
@@ -1331,7 +1441,7 @@ type UpdateItemRequest struct {
 type UpdateSubjectRequest struct {
 	Archived *bool `json:"archived,omitempty"`
 
-	// LinkedUserId Omission leaves the link unchanged; null unlinks; a string links that member. The resulting subject must be type person when linked (422 requires_person); changing type away from person requires null in the same request. Malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
+	// LinkedUserId Omission leaves the link unchanged. For an ordinary unlinked subject, null is a no-op and a valid member ID returns 409 member_person_exists (use transferMemberPerson). For a member person, any actual unlink or relink, any type change away from person, and archived true return 409 member_person_locked; same-value no-ops and name changes are allowed. A non-person request returns 422 requires_person; malformed, unknown, or foreign-household user IDs return 422 invalid_reference.
 	LinkedUserId **string `json:"linkedUserId,omitempty"`
 
 	// Name 1 to 100 characters after trimming leading and trailing whitespace. Control, format (zero-width and bidirectional), and line or paragraph separator characters are rejected. Other values are rejected with 422.
@@ -1653,6 +1763,18 @@ type ListMembersParams struct {
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
+// GetMemberPersonParams defines parameters for GetMemberPerson.
+type GetMemberPersonParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// TransferMemberPersonParams defines parameters for TransferMemberPerson.
+type TransferMemberPersonParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
 // ListSubjectsParams defines parameters for ListSubjects.
 type ListSubjectsParams struct {
 	// Limit Maximum number of items per page.
@@ -1763,6 +1885,9 @@ type CreateItemCompletionJSONRequestBody = CreateCompletionRequest
 
 // UndoItemCompletionJSONRequestBody defines body for UndoItemCompletion for application/json ContentType.
 type UndoItemCompletionJSONRequestBody = UndoCompletionRequest
+
+// TransferMemberPersonJSONRequestBody defines body for TransferMemberPerson for application/json ContentType.
+type TransferMemberPersonJSONRequestBody = TransferMemberPersonRequest
 
 // CreateSubjectJSONRequestBody defines body for CreateSubject for application/json ContentType.
 type CreateSubjectJSONRequestBody = CreateSubjectRequest
@@ -2374,6 +2499,154 @@ func (a ItemValidationProblem) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for MemberPersonTransferValidationProblem. Returns the specified
+// element and whether it was found
+func (a MemberPersonTransferValidationProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for MemberPersonTransferValidationProblem
+func (a *MemberPersonTransferValidationProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for MemberPersonTransferValidationProblem to handle AdditionalProperties
+func (a *MemberPersonTransferValidationProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["field"]; found {
+		err = json.Unmarshal(raw, &a.Field)
+		if err != nil {
+			return fmt.Errorf("error reading 'field': %w", err)
+		}
+		delete(object, "field")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for MemberPersonTransferValidationProblem to handle AdditionalProperties
+func (a MemberPersonTransferValidationProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	object["field"], err = json.Marshal(a.Field)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'field': %w", err)
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // Getter for additional properties for Problem. Returns the specified
 // element and whether it was found
 func (a Problem) Get(fieldName string) (value interface{}, found bool) {
@@ -2636,6 +2909,141 @@ func (a QueryProblem) MarshalJSON() ([]byte, error) {
 		object["parameter"], err = json.Marshal(a.Parameter)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'parameter': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for SubjectConflictProblem. Returns the specified
+// element and whether it was found
+func (a SubjectConflictProblem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for SubjectConflictProblem
+func (a *SubjectConflictProblem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for SubjectConflictProblem to handle AdditionalProperties
+func (a *SubjectConflictProblem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["code"]; found {
+		err = json.Unmarshal(raw, &a.Code)
+		if err != nil {
+			return fmt.Errorf("error reading 'code': %w", err)
+		}
+		delete(object, "code")
+	}
+
+	if raw, found := object["detail"]; found {
+		err = json.Unmarshal(raw, &a.Detail)
+		if err != nil {
+			return fmt.Errorf("error reading 'detail': %w", err)
+		}
+		delete(object, "detail")
+	}
+
+	if raw, found := object["instance"]; found {
+		err = json.Unmarshal(raw, &a.Instance)
+		if err != nil {
+			return fmt.Errorf("error reading 'instance': %w", err)
+		}
+		delete(object, "instance")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for SubjectConflictProblem to handle AdditionalProperties
+func (a SubjectConflictProblem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["code"], err = json.Marshal(a.Code)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'code': %w", err)
+	}
+
+	if a.Detail != nil {
+		object["detail"], err = json.Marshal(a.Detail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'detail': %w", err)
+		}
+	}
+
+	if a.Instance != nil {
+		object["instance"], err = json.Marshal(a.Instance)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'instance': %w", err)
 		}
 	}
 

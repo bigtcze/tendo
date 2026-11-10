@@ -28,16 +28,25 @@ type InvitationRepository struct {
 		Query(context.Context, string, ...any) (pgx.Rows, error)
 		QueryRow(context.Context, string, ...any) pgx.Row
 	}
-	factory InvitationHouseholdServiceFactory
+	factory             InvitationHouseholdServiceFactory
+	memberPersonFactory MemberPersonProvisionerFactory
 }
 
+// NewInvitationRepository builds the transaction repository. The member-person
+// factory is optional only for read-only test adapters; production wiring
+// supplies it so acceptance creates the canonical person in the same
+// transaction.
 func NewInvitationRepository(pool interface {
 	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
-}, factory InvitationHouseholdServiceFactory) *InvitationRepository {
-	return &InvitationRepository{pool, factory}
+}, factory InvitationHouseholdServiceFactory, memberPersonFactory ...MemberPersonProvisionerFactory) *InvitationRepository {
+	repository := &InvitationRepository{pool: pool, factory: factory}
+	if len(memberPersonFactory) > 0 {
+		repository.memberPersonFactory = memberPersonFactory[0]
+	}
+	return repository
 }
 
 func (r *InvitationRepository) WithInvitationTransaction(ctx context.Context, work func(identity.InvitationTransaction) error) error {
@@ -50,10 +59,10 @@ func (r *InvitationRepository) WithInvitationTransaction(ctx context.Context, wo
 		defer cancel()
 		_ = tx.Rollback(rollbackCtx)
 	}()
-	if r.factory == nil {
+	if r.factory == nil || r.memberPersonFactory == nil {
 		return errors.New("invitation transaction unavailable")
 	}
-	wrapped := &invitationTx{q: identitydb.New(tx), h: r.factory(tx)}
+	wrapped := &invitationTx{q: identitydb.New(tx), h: r.factory(tx), memberPersons: r.memberPersonFactory(tx)}
 	if err = work(wrapped); err != nil {
 		return err
 	}
@@ -65,8 +74,9 @@ func (r *InvitationRepository) FindInvitation(ctx context.Context, digest []byte
 }
 
 type invitationTx struct {
-	q *identitydb.Queries
-	h InvitationHouseholdService
+	q             *identitydb.Queries
+	h             InvitationHouseholdService
+	memberPersons identity.MemberPersonProvisioner
 }
 
 func (t *invitationTx) RequireAdmin(ctx context.Context, userID, householdID string) error {
@@ -170,16 +180,22 @@ func (t *invitationTx) FindLogin(ctx context.Context, login string) error {
 	}
 	return err
 }
-func (t *invitationTx) LockUser(ctx context.Context, userValue string) (string, error) {
+func (t *invitationTx) LockUser(ctx context.Context, userValue string) (string, string, error) {
 	var userID pgtype.UUID
 	if err := userID.Scan(userValue); err != nil {
-		return "", identity.ErrNotFound
+		return "", "", identity.ErrNotFound
 	}
 	row, err := t.q.LockUserForInvitation(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", identity.ErrNotFound
+		return "", "", identity.ErrNotFound
 	}
-	return row.DefaultHouseholdID, err
+	if err != nil {
+		return "", "", err
+	}
+	return row.DefaultHouseholdID, row.Login, nil
+}
+func (t *invitationTx) EnsureMemberPerson(ctx context.Context, householdID, userID, name string) error {
+	return t.memberPersons.EnsureMemberPerson(ctx, householdID, userID, name)
 }
 func (t *invitationTx) CreateUser(ctx context.Context, login string) (string, error) {
 	id, err := t.q.CreateUser(ctx, login)

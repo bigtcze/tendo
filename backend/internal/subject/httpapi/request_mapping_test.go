@@ -43,6 +43,16 @@ func (s *recordingService) Update(_ context.Context, _, _, _ string, _ int64, p 
 	return subject.Subject{Version: 3}, s.updateErr
 }
 
+func (s *recordingService) GetMemberPerson(context.Context, string, string, string) (subject.Subject, error) {
+	s.calls++
+	return subject.Subject{}, nil
+}
+
+func (s *recordingService) Transfer(context.Context, string, string, string, subject.TransferRequest) (subject.TransferResult, error) {
+	s.calls++
+	return subject.TransferResult{}, nil
+}
+
 func requestHandler(s *recordingService) http.Handler {
 	r := chi.NewRouter()
 	New(s, func(next http.Handler) http.Handler { return next }, func(context.Context) (string, bool) { return callerID, true }).Register(r)

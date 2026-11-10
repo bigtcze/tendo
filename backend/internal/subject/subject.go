@@ -26,6 +26,16 @@ var (
 	// ErrEmptyPatch means an update named no field. It is a malformed request,
 	// not a field validation failure.
 	ErrEmptyPatch = errors.New("empty patch")
+	// ErrMemberPersonLocked means the update tried to unlink, relink, retype
+	// away from person, or archive a subject that represents a household
+	// member. The member person is owned by the membership.
+	ErrMemberPersonLocked = errors.New("member person is locked")
+	// ErrMemberPersonExists means a create or patch tried to link a second
+	// person to a member who already has one. Use Transfer instead.
+	ErrMemberPersonExists = errors.New("member person already exists")
+	// ErrMemberPersonChanged means the transfer's current person is no longer
+	// the member's linked person (for example another transfer committed).
+	ErrMemberPersonChanged = errors.New("member person changed")
 )
 
 const (
@@ -95,6 +105,24 @@ type Page struct {
 	NextCursor *string
 }
 
+// TransferRequest reassociates an existing unlinked person subject with a
+// household member, replacing the member's current person in one transaction.
+// Both subjects are named explicitly so concurrent transfers and stale clients
+// fail instead of silently moving an unexpected record.
+type TransferRequest struct {
+	SubjectID             string
+	SubjectVersion        int64
+	CurrentSubjectID      string
+	CurrentSubjectVersion int64
+}
+
+// TransferResult is the new member person and the previous person, now an
+// ordinary unlinked subject. Both keep their items and history.
+type TransferResult struct {
+	Person   Subject
+	Previous Subject
+}
+
 // Repository persists subjects. Every method is scoped by household; Get and
 // Update return ErrNotFound for rows outside that household. Update returns
 // ErrVersionMismatch when the subject exists with another version. List returns
@@ -107,6 +135,13 @@ type Repository interface {
 	List(ctx context.Context, householdID string, archived bool, afterID string, limit int) ([]Subject, error)
 	ListByIDs(ctx context.Context, householdID string, archived bool, ids []string, afterID string, limit int) ([]Subject, error)
 	Update(ctx context.Context, householdID, subjectID string, expectedVersion int64, p Patch) (Subject, error)
+	// GetMemberPerson returns the canonical person linked to a member of the
+	// household, or ErrNotFound when the member or link does not exist there.
+	GetMemberPerson(ctx context.Context, householdID, userID string) (Subject, error)
+	// Transfer atomically unlinks the member's current person and links the
+	// target. It is household-scoped, locks the membership and both subjects,
+	// and verifies that current is exactly the member's linked person.
+	Transfer(ctx context.Context, householdID, userID string, request TransferRequest) (TransferResult, error)
 }
 
 // Authorizer returns nil when userID may act in householdID and ErrNotFound
@@ -148,7 +183,9 @@ func mapRepoErr(err error) error {
 	switch {
 	case errors.As(err, &validation):
 		return err
-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrVersionMismatch):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrVersionMismatch),
+		errors.Is(err, ErrMemberPersonLocked), errors.Is(err, ErrMemberPersonExists),
+		errors.Is(err, ErrMemberPersonChanged):
 		return err
 	default:
 		return ErrUnavailable

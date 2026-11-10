@@ -904,6 +904,19 @@ describe('All items', () => {
     expect(reqs(fake.requests, subjectsPath)).toHaveLength(count);
   });
 
+  it('includes a household member’s person in the subject filter', async () => {
+    installFakeServer({
+      ...bootRoutes,
+      [subjectsPath]: json(200, { items: [{ ...subject, linkedUserId: member.userId }], nextCursor: null }),
+      ...itemRoutes(base, [makeItem(1)]),
+    });
+    app();
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    await screen.findByText('Item 1');
+    const facet = screen.getByLabelText('For');
+    expect(within(facet).getByRole('option', { name: 'Café' })).toBeInTheDocument();
+  });
+
   it('signs out on facet 401 and records facet 404 as an error while hiding that facet', async () => {
     installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]), [membersPath]: json(401, {}) });
     app();

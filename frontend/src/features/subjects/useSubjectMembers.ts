@@ -3,9 +3,9 @@ import { listMembers, type Member } from '../members/membersApi';
 
 const MAX_MEMBER_PAGES = 20;
 
+/** Members are needed to label member persons and to choose a transfer target, so this loads on mount and per editor. */
 export function useSubjectMembers(
   householdId: string,
-  adding: boolean,
   editing: { subject: { id: string }; etag: string } | null,
   onSignedOut: () => void,
 ) {
@@ -31,7 +31,7 @@ export function useSubjectMembers(
       if (token === generationRef.current) { setMembers([]); setMembersLoaded(false); }
     })();
     return () => { if (generationRef.current === token) generationRef.current++; };
-  }, [householdId, adding, editing?.subject.id, editing?.etag, onSignedOut]);
+  }, [householdId, editing?.subject.id, editing?.etag, onSignedOut]);
 
   function resetMembers() {
     setMembers([]);

@@ -59,7 +59,7 @@ func (s *InvitationService) AcceptInvitationNewAccount(ctx context.Context, toke
 		if createErr = tx.CreateCredential(ctx, userID, hash); createErr != nil {
 			return createErr
 		}
-		if createErr = joinInvitedHousehold(ctx, tx, userID, locked.HouseholdID, locked.ID, now); createErr != nil {
+		if createErr = joinInvitedHousehold(ctx, tx, userID, login, locked.HouseholdID, locked.ID, now); createErr != nil {
 			return createErr
 		}
 		result = InvitationUser{userID, login, locked.HouseholdID, household.RoleMember}
@@ -87,7 +87,7 @@ func (s *InvitationService) AcceptInvitationExistingAccount(ctx context.Context,
 		if lockErr != nil {
 			return lockErr
 		}
-		defaultHouseholdID, lockErr := tx.LockUser(ctx, userID)
+		defaultHouseholdID, login, lockErr := tx.LockUser(ctx, userID)
 		if errors.Is(lockErr, ErrNotFound) {
 			return ErrNotFound
 		}
@@ -106,7 +106,7 @@ func (s *InvitationService) AcceptInvitationExistingAccount(ctx context.Context,
 		if defaultHouseholdID != "" || otherMembership {
 			return ErrHouseholdConflict
 		}
-		if err := joinInvitedHousehold(ctx, tx, userID, invitation.HouseholdID, invitation.ID, now); err != nil {
+		if err := joinInvitedHousehold(ctx, tx, userID, login, invitation.HouseholdID, invitation.ID, now); err != nil {
 			return err
 		}
 		result = InvitationUser{UserID: userID, HouseholdID: invitation.HouseholdID, Role: household.RoleMember}

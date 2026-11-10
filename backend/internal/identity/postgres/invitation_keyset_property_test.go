@@ -19,7 +19,7 @@ func TestInvitationKeysetWalkPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), func() time.Time { return time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC) })
+	service, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), func() time.Time { return time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC) })
 	if err != nil {
 		t.Fatal(err)
 	}

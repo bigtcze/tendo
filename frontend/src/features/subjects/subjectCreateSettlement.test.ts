@@ -19,7 +19,7 @@ function deferred<T>() {
 function context(pending: Awaited<ReturnType<typeof getPendingSubjectCreate>> | undefined) {
   return {
     userId: 'user', householdId: 'home', generation: { current: 0 }, addForm: { current: 0 }, pendingCreate: pending,
-    setPendingCreate: vi.fn(), setCreateUncertain: vi.fn(), setNotice: vi.fn(), setAdding: vi.fn(), setMembers: vi.fn(),
+    setPendingCreate: vi.fn(), setCreateUncertain: vi.fn(), setNotice: vi.fn(), setAdding: vi.fn(),
     loadingMore: false, mutationPending: false, busy: { current: false }, setEditing: vi.fn(), setActionFailed: vi.fn(),
     setLoadingMore: vi.fn(), pagingFocus: { current: null }, pageLoad: { current: 0 }, setCursorStack: vi.fn(),
     setCurrentCursor: vi.fn(), setList: vi.fn(), onSignedOut: vi.fn(),
@@ -38,7 +38,7 @@ describe('subject create settlement', () => {
     vi.mocked(createSubject).mockReturnValueOnce(response.promise);
     const ctx = context(original);
     const obsolete = renderHook(() => useSubjectCreate(ctx));
-    const submission = obsolete.result.current.add({ name: 'Original', type: 'person', linkedUserId: '' });
+    const submission = obsolete.result.current.add({ name: 'Original', type: 'person' });
     await waitFor(() => expect(createSubject).toHaveBeenCalled());
     obsolete.unmount();
 

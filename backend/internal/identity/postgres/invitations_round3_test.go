@@ -36,7 +36,7 @@ func TestInvitationMigrationV8Upgrade(t *testing.T) {
 	if e := database.Migrate(ctx, admin); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := admin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,9,10,11,12,13,14)`); e != nil {
+	if _, e := admin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS subjects_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS subjects_creation_key_valid, DROP CONSTRAINT IF EXISTS subjects_creation_metadata_all_or_none; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,9,10,11,12,13,14)`); e != nil {
 		t.Fatal(e)
 	}
 	if e := database.ValidateSchema(ctx, app); e == nil {
@@ -64,10 +64,10 @@ func TestInvitationMigrationV8Upgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if e := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); e != nil || version != 17 || dirty {
+	if e := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); e != nil || version != 18 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, e)
 	}
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, uid, hid, "upgrade-invite")
 	if e != nil {
 		t.Fatal(e)
@@ -86,7 +86,7 @@ func TestInvitationParallelExistingAccountInvitesAcrossHouseholds(t *testing.T) 
 	if _, e := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, owner, h2); e != nil {
 		t.Fatal(e)
 	}
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	for n := 0; n < 10; n++ {
 		var user string
 		if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("multi_house_user_%d", n)).Scan(&user); e != nil {
@@ -156,7 +156,7 @@ func TestInvitationDifferentDefaultAndElsewhereMembershipConflict(t *testing.T) 
 	if e := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('second conflict home','UTC') RETURNING id::text`).Scan(&h2); e != nil {
 		t.Fatal(e)
 	}
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	for n, withDefault := range []bool{true, false} {
 		var u string
 		if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES($1) RETURNING id::text`, fmt.Sprintf("conflict_user_%d", n)).Scan(&u); e != nil {
@@ -191,7 +191,7 @@ func TestInvitationDifferentDefaultAndElsewhereMembershipConflict(t *testing.T) 
 func TestInvitationMemberOwnerPoliciesDefaultMembershipAndNoChanges(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, h := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, h, "member-policy")
 	if e != nil {
 		t.Fatal(e)

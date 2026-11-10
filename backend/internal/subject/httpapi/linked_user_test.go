@@ -1,73 +1,108 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/bigtcze/tendo/backend/internal/subject"
 )
 
-func TestLinkedUserPatchPersonConstraintAndClear(t *testing.T) {
+func TestMemberPersonPatchIsLockedButRenameAndNoOpAreAllowed(t *testing.T) {
 	f := newFixture(true)
-	created := f.doAs("POST", base, `{"name":"Linked child","type":"person","linkedUserId":"`+callerID+`"}`, map[string]string{"Idempotency-Key": "linked-person"}, callerID)
-	if created.Code != 201 || !strings.Contains(created.Body.String(), `"linkedUserId":"`+callerID+`"`) {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body)
+	f.repo.Seed(subject.Subject{
+		ID: subjectID, HouseholdID: householdID, Type: subject.TypePerson, Name: "Member",
+		LinkedUserID: strPtr(callerID), Version: 1, CreatedAt: created, UpdatedAt: created,
+	})
+	path := base + "/" + subjectID
+	noop := f.doAs("PATCH", path, `{"linkedUserId":"`+callerID+`"}`, map[string]string{"If-Match": `"1"`}, callerID)
+	if noop.Code != 200 || !strings.Contains(noop.Body.String(), `"linkedUserId":"`+callerID+`"`) {
+		t.Fatalf("same-link no-op status=%d body=%s", noop.Code, noop.Body)
 	}
-	var body struct {
-		Id string `json:"id"`
+	renamed := f.doAs("PATCH", path, `{"name":"Member renamed"}`, map[string]string{"If-Match": `"2"`}, callerID)
+	if renamed.Code != 200 || !strings.Contains(renamed.Body.String(), `"name":"Member renamed"`) {
+		t.Fatalf("rename status=%d body=%s", renamed.Code, renamed.Body)
 	}
-	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct{ name, body string }{
+		{"unlink", `{"linkedUserId":null}`},
+		{"retype", `{"type":"vehicle"}`},
+		{"retype-and-clear", `{"type":"vehicle","linkedUserId":null}`},
+		{"archive", `{"archived":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, _ := f.repo.Row(subjectID)
+			w := f.doAs("PATCH", path, tc.body, map[string]string{"If-Match": `"3"`}, callerID)
+			want := problemBody(409, "Conflict", "member_person_locked")
+			if w.Code != 409 || !jsonEqual(t, w.Body.String(), want) {
+				t.Fatalf("status=%d body=%s want=%s", w.Code, w.Body, want)
+			}
+			if after, _ := f.repo.Row(subjectID); after != before {
+				t.Fatalf("rejected patch changed subject: before=%+v after=%+v", before, after)
+			}
+		})
 	}
-	path := base + "/" + body.Id
-	away := f.doAs("PATCH", path, `{"type":"vehicle"}`, map[string]string{"If-Match": `"1"`}, callerID)
-	if away.Code != 422 || !strings.Contains(away.Body.String(), `"field":"linkedUserId"`) || !strings.Contains(away.Body.String(), `"code":"requires_person"`) {
-		t.Fatalf("type change status=%d body=%s", away.Code, away.Body)
+}
+
+func TestPatchLinkOnUnlinkedPersonReturnsConflict(t *testing.T) {
+	f := newFixture(true)
+	f.repo.Seed(subject.Subject{ID: subjectID, HouseholdID: householdID, Type: subject.TypePerson, Name: "Unlinked", Version: 1, CreatedAt: created, UpdatedAt: created})
+	w := f.doAs("PATCH", base+"/"+subjectID, `{"linkedUserId":"`+callerID+`"}`, map[string]string{"If-Match": `"1"`}, callerID)
+	want := problemBody(409, "Conflict", "member_person_exists")
+	if w.Code != 409 || !jsonEqual(t, w.Body.String(), want) {
+		t.Fatalf("status=%d body=%s want=%s", w.Code, w.Body, want)
 	}
-	clearAndAway := f.doAs("PATCH", path, `{"type":"vehicle","linkedUserId":null}`, map[string]string{"If-Match": `"1"`}, callerID)
-	if clearAndAway.Code != 200 || !strings.Contains(clearAndAway.Body.String(), `"type":"vehicle"`) || !strings.Contains(clearAndAway.Body.String(), `"linkedUserId":null`) {
-		t.Fatalf("clear and type change status=%d body=%s", clearAndAway.Code, clearAndAway.Body)
+	row, _ := f.repo.Row(subjectID)
+	if row.LinkedUserID != nil || row.Version != 1 {
+		t.Fatalf("rejected link mutated row=%+v", row)
+	}
+}
+
+func TestCreateWithMemberLinkReturnsConflict(t *testing.T) {
+	f := newFixture(true)
+	before := f.repo.Count()
+	w := f.doAs("POST", base, `{"name":"Duplicate member","type":"person","linkedUserId":"`+callerID+`"}`, map[string]string{"Idempotency-Key": "member-link"}, callerID)
+	want := problemBody(409, "Conflict", "member_person_exists")
+	if w.Code != 409 || !jsonEqual(t, w.Body.String(), want) || f.repo.Count() != before {
+		t.Fatalf("create=%d %s rows=%d want=%s", w.Code, w.Body, f.repo.Count(), want)
 	}
 }
 
 func TestStaleLinkedSubjectInvariantAndPreconditionOrder(t *testing.T) {
 	f := newFixture(true)
-	created := f.doAs("POST", base, `{"name":"Linked child","type":"person","linkedUserId":"`+callerID+`"}`, map[string]string{"Idempotency-Key": "stale-linked"}, callerID)
-	if created.Code != 201 {
-		t.Fatalf("create=%d %s", created.Code, created.Body)
+	f.repo.Seed(subject.Subject{
+		ID: subjectID, HouseholdID: householdID, Type: subject.TypePerson, Name: "Member",
+		LinkedUserID: strPtr(callerID), Version: 2, CreatedAt: created, UpdatedAt: created,
+	})
+	path := base + "/" + subjectID
+	before, _ := f.repo.Row(subjectID)
+	// Member-person invariants are evaluated against the stored row before the
+	// stale version check, so illegal transitions are 409 rather than 412.
+	for _, body := range []string{`{"type":"vehicle"}`, `{"linkedUserId":null}`, `{"archived":true}`} {
+		w := f.doAs("PATCH", path, body, map[string]string{"If-Match": `"1"`}, callerID)
+		want := problemBody(409, "Conflict", "member_person_locked")
+		if w.Code != 409 || !jsonEqual(t, w.Body.String(), want) {
+			t.Fatalf("body=%s stale member-person patch=%d %s want=%s", body, w.Code, w.Body, want)
+		}
 	}
-	var body struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	row, ok := f.repo.Row(body.ID)
-	if !ok {
-		t.Fatal("created subject missing")
-	}
-	row.Type = subject.TypePerson
-	linkedID := callerID
-	row.LinkedUserID = &linkedID
-	row.Version = 2
-	f.repo.Seed(row)
-	path := base + "/" + body.ID
-	before, ok := f.repo.Row(body.ID)
-	if !ok {
-		t.Fatal("created subject missing")
-	}
-	invalid := f.doAs("PATCH", path, `{"type":"vehicle"}`, map[string]string{"If-Match": `"1"`}, callerID)
-	wantInvalid := `{"type":"about:blank","title":"Validation Failed","status":422,"code":"requires_person","field":"linkedUserId"}`
-	if invalid.Code != 422 || !jsonEqual(t, invalid.Body.String(), wantInvalid) {
-		t.Fatalf("invalid stale patch=%d %s", invalid.Code, invalid.Body)
-	}
+	// A valid same-value patch is only stale, so it reports 412.
 	valid := f.doAs("PATCH", path, `{"type":"person"}`, map[string]string{"If-Match": `"1"`}, callerID)
 	if valid.Code != 412 || !jsonEqual(t, valid.Body.String(), problemBody(412, "Precondition Failed", "precondition_failed")) {
 		t.Fatalf("valid stale patch=%d %s", valid.Code, valid.Body)
 	}
-	if after, _ := f.repo.Row(body.ID); after != before {
+	// A stale link-only patch on an unlinked non-person reports requires_person
+	// 422 before 412.
+	f.repo.Seed(subject.Subject{
+		ID: otherID, HouseholdID: householdID, Type: subject.TypeVehicle, Name: "Car", Version: 2, CreatedAt: created, UpdatedAt: created,
+	})
+	requiresPerson := f.doAs("PATCH", base+"/"+otherID, `{"linkedUserId":"`+callerID+`"}`, map[string]string{"If-Match": `"1"`}, callerID)
+	wantValidation := `{"type":"about:blank","title":"Validation Failed","status":422,"code":"requires_person","field":"linkedUserId"}`
+	if requiresPerson.Code != 422 || !jsonEqual(t, requiresPerson.Body.String(), wantValidation) {
+		t.Fatalf("stale link-only non-person=%d %s", requiresPerson.Code, requiresPerson.Body)
+	}
+	if after, _ := f.repo.Row(subjectID); after != before {
 		t.Fatalf("rejected stale PATCH changed subject: before=%+v after=%+v", before, after)
+	}
+	if after, _ := f.repo.Row(otherID); after.Version != 2 || after.LinkedUserID != nil {
+		t.Fatalf("rejected stale link changed subject: %+v", after)
 	}
 }
 
@@ -80,18 +115,12 @@ func TestLinkedUserWrongJSONTypesAre400AndDoNotMutate(t *testing.T) {
 			if post.Code != 400 || !strings.Contains(post.Body.String(), `"code":"invalid_request"`) || f.repo.Count() != before {
 				t.Fatalf("POST=%d %s count=%d", post.Code, post.Body, f.repo.Count())
 			}
-			created := f.doAs("POST", base, `{"name":"Valid linked","type":"person","linkedUserId":"`+callerID+`"}`, map[string]string{"Idempotency-Key": "valid-" + raw}, callerID)
-			if created.Code != 201 {
-				t.Fatalf("seed POST=%d %s", created.Code, created.Body)
-			}
-			var body struct {
-				Id string `json:"id"`
-			}
-			if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
-				t.Fatal(err)
-			}
-			patch := f.doAs("PATCH", base+"/"+body.Id, `{"linkedUserId":`+raw+`}`, map[string]string{"If-Match": `"1"`}, callerID)
-			row, _ := f.repo.Row(body.Id)
+			f.repo.Seed(subject.Subject{
+				ID: subjectID, HouseholdID: householdID, Type: subject.TypePerson, Name: "Member",
+				LinkedUserID: strPtr(callerID), Version: 1, CreatedAt: created, UpdatedAt: created,
+			})
+			patch := f.doAs("PATCH", base+"/"+subjectID, `{"linkedUserId":`+raw+`}`, map[string]string{"If-Match": `"1"`}, callerID)
+			row, _ := f.repo.Row(subjectID)
 			if patch.Code != 400 || !strings.Contains(patch.Body.String(), `"code":"invalid_request"`) || row.Version != 1 || row.LinkedUserID == nil || *row.LinkedUserID != callerID {
 				t.Fatalf("PATCH=%d %s row=%+v", patch.Code, patch.Body, row)
 			}
@@ -120,3 +149,5 @@ func TestCreateOmittedAndNullLinkedUserReplayEquivalently(t *testing.T) {
 		t.Fatalf("omitted=%d %s null=%d %s count=%d", first.Code, first.Body, second.Code, second.Body, f.repo.Count())
 	}
 }
+
+func strPtr(v string) *string { return &v }

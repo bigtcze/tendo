@@ -7,12 +7,11 @@ export function useAddSubjectForm(ctx: {
   loadingMore: boolean; mutationPending: boolean; busy: MutableRefObject<boolean>;
   setPendingCreate: Dispatch<SetStateAction<PendingSubjectCreate | undefined>>;
   setCreateUncertain: Dispatch<SetStateAction<boolean>>; setNotice: Dispatch<SetStateAction<Notice | null | undefined>>;
-  setAdding: Dispatch<SetStateAction<boolean>>; setMembers: () => void;
+  setAdding: Dispatch<SetStateAction<boolean>>;
   setEditing: Dispatch<SetStateAction<Editing | null>>; setActionFailed: Dispatch<SetStateAction<boolean>>;
 }) {
   function startAdding() {
     if (ctx.loadingMore || ctx.mutationPending || ctx.busy.current) return;
-    ctx.setMembers();
     const pending = getPendingSubjectCreate(ctx.userId, ctx.householdId);
     ctx.setPendingCreate(pending);
     if (pending) {

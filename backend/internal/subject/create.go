@@ -41,6 +41,13 @@ func (s *Service) Create(ctx context.Context, userID, householdID, key, name str
 	if err != nil {
 		return Subject{}, err
 	}
+	// Every member already has a canonical person (migration and membership
+	// provisioning guarantee it). Linking another person is a transfer, not a
+	// create. The idempotent replay lookup above still runs first so old
+	// retries keep working.
+	if linkedUserID != nil {
+		return Subject{}, ErrMemberPersonExists
+	}
 	created, inserted, err := s.repository.CreateIdempotent(ctx, householdID, strings.ToLower(userID), key, trimmed, t, linkedUserID, fingerprint)
 	if err != nil {
 		return Subject{}, mapRepoErr(err)

@@ -11,7 +11,7 @@ func TestInvitationExpiryBoundariesAndListStatuses(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	clock := time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), func() time.Time { return clock })
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), func() time.Time { return clock })
 	early, e := svc.CreateInvitation(ctx, owner, house, "expiry-early")
 	if e != nil {
 		t.Fatal(e)

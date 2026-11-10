@@ -814,11 +814,14 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, foreignHouseholdUser, homeB); err != nil {
 			t.Fatal(err)
 		}
-		service := subject.NewService(repo, func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil })
+		service := subject.NewService(repo, func(context.Context, string, string) error { return nil }, subjectMembers)
 		newLink := actorID
-		updated, err := service.Update(ctx, actorID, homeA, linked.ID, linked.Version, subject.Patch{LinkedUserID: &newLink, LinkedUserIDSet: true})
-		if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != actorID {
-			t.Fatalf("service link update=%+v err=%v", updated, err)
+		if _, err := service.Update(ctx, actorID, homeA, linked.ID, linked.Version, subject.Patch{LinkedUserID: &newLink, LinkedUserIDSet: true}); !errors.Is(err, subject.ErrMemberPersonLocked) {
+			t.Fatalf("service relink of member person err=%v", err)
+		}
+		updated, err := repo.Get(ctx, homeA, linked.ID)
+		if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != strings.ToLower(secondActor) || updated.Version != linked.Version {
+			t.Fatalf("locked relink changed row=%+v err=%v", updated, err)
 		}
 		versionBefore, linkBefore := updated.Version, *updated.LinkedUserID
 		var validation *subject.ValidationError
@@ -857,6 +860,12 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		if err != nil || unchangedNonPerson.Version != nonPerson.Version || unchangedNonPerson.LinkedUserID != nil || unchangedNonPerson.Type != subject.TypeHome {
 			t.Fatalf("non-person DB CHECK changed row=%+v err=%v", unchangedNonPerson, err)
 		}
+		newLink = actorID
+		personType := subject.TypePerson
+		_, err = service.Update(ctx, actorID, homeA, linked.ID, updated.Version, subject.Patch{LinkedUserID: &newLink, LinkedUserIDSet: true, Type: &personType})
+		if !errors.Is(err, subject.ErrMemberPersonLocked) {
+			t.Fatalf("member person relink to another valid member error=%v", err)
+		}
 		newLink = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"
 		vehicle := subject.TypeVehicle
 		_, err = service.Update(ctx, actorID, homeA, linked.ID, updated.Version, subject.Patch{LinkedUserID: &newLink, LinkedUserIDSet: true, Type: &vehicle})
@@ -868,6 +877,31 @@ func TestSubjectsAgainstPostgres(t *testing.T) {
 		}
 		if _, err = app.Exec(ctx, `UPDATE subjects SET linked_user_id=$1::uuid WHERE id=$2::uuid`, secondActor, linked.ID); err != nil {
 			t.Fatalf("runtime linked_user_id update: %v", err)
+		}
+	})
+
+	t.Run("member person unique index maps to conflict", func(t *testing.T) {
+		var uniqueMember string
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('subject_unique_member') RETURNING id::text`).Scan(&uniqueMember); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, uniqueMember, homeB); err != nil {
+			t.Fatal(err)
+		}
+		link := uniqueMember
+		fingerprint := make([]byte, 32)
+		if _, inserted, err := repo.CreateIdempotent(ctx, homeB, actorID, "unique-person-first", "First linked", subject.TypePerson, &link, fingerprint); err != nil || !inserted {
+			t.Fatalf("first linked insert=%v err=%v", inserted, err)
+		}
+		// Bypass the service pre-check: the repository must classify the unique
+		// partial-index violation as the documented member_person_exists.
+		_, inserted, err := repo.CreateIdempotent(ctx, homeB, actorID, "unique-person-second", "Second linked", subject.TypePerson, &link, fingerprint)
+		if !errors.Is(err, subject.ErrMemberPersonExists) || inserted {
+			t.Fatalf("unique violation inserted=%v err=%v", inserted, err)
+		}
+		var count int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM subjects WHERE household_id=$1::uuid AND linked_user_id=$2::uuid`, homeB, uniqueMember).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("linked rows=%d err=%v", count, err)
 		}
 	})
 
@@ -920,7 +954,7 @@ func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy linkless') RETURNING id::text`, householdID).Scan(&subjectID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`ALTER TABLE subjects DROP CONSTRAINT subjects_linked_user_person_only, DROP CONSTRAINT subjects_linked_membership_fk; DROP INDEX subjects_linked_membership_idx; ALTER TABLE subjects DROP COLUMN linked_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (14,15)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL+" ; "+`ALTER TABLE subjects DROP CONSTRAINT subjects_linked_user_person_only, DROP CONSTRAINT subjects_linked_membership_fk; DROP INDEX subjects_linked_membership_idx; ALTER TABLE subjects DROP COLUMN linked_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (14,15)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upApp); err == nil {
@@ -937,7 +971,7 @@ func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
 		t.Fatalf("runtime legacy link=%v err=%v", linked, err)
 	}
 	var max int
-	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 17 {
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 18 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 	var actor string
@@ -947,9 +981,16 @@ func TestMigrationUpgradeFromVersionThirteenPreservesNullLink(t *testing.T) {
 	if _, err = upAdmin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, actor, householdID); err != nil {
 		t.Fatal(err)
 	}
-	created, err := subject.NewService(NewRepository(upApp), func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actor, householdID, "upgrade-v13-linked", "After upgrade", subject.TypePerson, &actor)
-	if err != nil || created.LinkedUserID == nil || *created.LinkedUserID != actor {
-		t.Fatalf("linked create after upgrade=%+v err=%v", created, err)
+	created, err := subject.NewService(NewRepository(upApp), func(context.Context, string, string) error { return nil }, func(context.Context, string, string) error { return nil }).Create(ctx, actor, householdID, "upgrade-v13-linked", "After upgrade", subject.TypePerson, nil)
+	if err != nil || created.LinkedUserID != nil {
+		t.Fatalf("unlinked create after upgrade=%+v err=%v", created, err)
+	}
+	if err := NewMemberPersonProvisioner(upApp).EnsureMemberPerson(ctx, householdID, actor, "upgrade_v13_link_actor"); err != nil {
+		t.Fatalf("member person provisioning after upgrade: %v", err)
+	}
+	var linkedActor string
+	if err := upApp.QueryRow(ctx, `SELECT linked_user_id::text FROM subjects WHERE household_id=$1::uuid AND linked_user_id=$2::uuid`, householdID, actor).Scan(&linkedActor); err != nil || linkedActor != actor {
+		t.Fatalf("provisioned member person link=%q err=%v", linkedActor, err)
 	}
 }
 
@@ -989,7 +1030,7 @@ func TestMigrationUpgradeFromVersionElevenPreservesSubjectRows(t *testing.T) {
 	if err = upAdmin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Legacy') RETURNING id::text`, hid).Scan(&legacyID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,12,13,14)`); err != nil {
+	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL+" ; "+`ALTER TABLE IF EXISTS subjects DROP CONSTRAINT IF EXISTS subjects_linked_user_person_only, DROP CONSTRAINT IF EXISTS subjects_linked_membership_fk; DROP INDEX IF EXISTS subjects_linked_membership_idx; ALTER TABLE IF EXISTS subjects DROP COLUMN IF EXISTS linked_user_id; ALTER TABLE subjects DROP CONSTRAINT subjects_household_creator_creation_key_unique, DROP CONSTRAINT subjects_creation_fingerprint_length, DROP CONSTRAINT subjects_creation_key_valid, DROP CONSTRAINT subjects_creation_metadata_all_or_none; ALTER TABLE subjects DROP COLUMN creation_request_fingerprint, DROP COLUMN creation_key, DROP COLUMN created_by_user_id; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = database.ValidateSchema(ctx, upApp); err == nil {
@@ -1038,7 +1079,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rewind to the exact version 3 schema, then add pre-existing data.
-	if _, err := upAdmin.Exec(ctx, testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,4,5,6,7,8,9,10,11,12,13,14)`); err != nil {
+	if _, err := upAdmin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL+" ; "+`DROP TABLE IF EXISTS oidc_flows; DROP TABLE IF EXISTS oidc_identities; ALTER TABLE items DROP CONSTRAINT IF EXISTS items_responsible_membership_fk; DROP INDEX IF EXISTS items_responsible_membership_idx; ALTER TABLE items DROP COLUMN IF EXISTS responsible_user_id; DROP TABLE IF EXISTS household_invitations; DROP TABLE item_completions; DROP TABLE items; DROP TABLE subjects; ALTER TABLE IF EXISTS items DROP CONSTRAINT IF EXISTS items_household_creator_creation_key_unique, DROP CONSTRAINT IF EXISTS items_creation_fingerprint_length, DROP CONSTRAINT IF EXISTS items_creation_key_valid, DROP CONSTRAINT IF EXISTS items_creation_metadata_all_or_none; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS creation_request_fingerprint, DROP COLUMN IF EXISTS creation_key, DROP COLUMN IF EXISTS created_by_user_id; DROP TRIGGER IF EXISTS items_search_text ON items; DROP FUNCTION IF EXISTS tendo_items_search_text(); DROP INDEX IF EXISTS items_search_text_trgm_idx; ALTER TABLE IF EXISTS items DROP COLUMN IF EXISTS search_text; DROP FUNCTION IF EXISTS tendo_item_search_pattern(text); DROP FUNCTION IF EXISTS tendo_item_search_normalize(text); DELETE FROM tendo_schema_migrations WHERE version=16; DROP INDEX IF EXISTS items_household_archived_done_attention_id_idx; DELETE FROM tendo_schema_migrations WHERE version IN (15,4,5,6,7,8,9,10,11,12,13,14)`); err != nil {
 		t.Fatal(err)
 	}
 	var hid string
@@ -1076,7 +1117,7 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 17 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 18 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

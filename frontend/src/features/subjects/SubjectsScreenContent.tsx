@@ -7,17 +7,19 @@ import type { Editing, ListState, Notice } from './subjectsModel';
 import type { Member } from '../members/membersApi';
 import type { Subject } from './subjectsApi';
 import type { SubjectValues, SubmitOutcome } from './SubjectForm';
+import type { MemberPersonTransferApi } from './useMemberPersonTransfer';
 import type { MessageKey } from '../../i18n';
 import { pendingFormInitial } from './subjectsModel';
 
 export function SubjectsScreenContent({
   showArchived, list, notice, noticeRef, interactionLocked, actionFailed, retryLoad, adding, empty, items,
-  cursorStack, members, membersLoaded, editing, createUncertain, pendingCreate, t, yourEntry, addDisabled, startAdding,
+  cursorStack, members, membersLoaded, editing, transfer, createUncertain, pendingCreate, t, yourEntry, addDisabled, startAdding,
   cancelAdding, add, startEditing, changeArchived, save, closeEditing, previousPage, nextPage, switchView, undoArchive,
 }: {
   showArchived: boolean; list: ListState; notice: Notice | null | undefined; noticeRef: React.MutableRefObject<HTMLDivElement | null>;
   interactionLocked: boolean; addDisabled: boolean; actionFailed: boolean; retryLoad: () => void; adding: boolean; empty: boolean;
   items: Subject[]; cursorStack: string[]; members: Member[]; membersLoaded: boolean; editing: Editing | null;
+  transfer: MemberPersonTransferApi;
   createUncertain: boolean; pendingCreate: import('./pendingSubjectCreate').PendingSubjectCreate | undefined;
   t: (key: MessageKey, values?: Record<string, string>) => string; yourEntry?: string;
   startAdding: () => void; cancelAdding: () => void; add: (values: SubjectValues) => Promise<SubmitOutcome>;
@@ -42,7 +44,7 @@ export function SubjectsScreenContent({
     {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
     <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
     <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
-      cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing}
+      cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing} transfer={transfer}
       createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
       pendingInitial={pendingFormInitial(createUncertain, pendingCreate)}
       interactionLocked={interactionLocked} addDisabled={addDisabled} t={t} yourEntry={yourEntry} onAdd={startAdding} onCancelAdd={cancelAdding}

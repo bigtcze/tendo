@@ -103,11 +103,15 @@ func (t *transportInvitationTx) FindLogin(_ context.Context, l string) error {
 	}
 	return identity.ErrNotFound
 }
-func (t *transportInvitationTx) LockUser(_ context.Context, u string) (string, error) {
-	if _, ok := t.r.users[u]; !ok {
-		return "", identity.ErrNotFound
+func (t *transportInvitationTx) LockUser(_ context.Context, u string) (string, string, error) {
+	login, ok := t.r.users[u]
+	if !ok {
+		return "", "", identity.ErrNotFound
 	}
-	return t.r.defaults[u], nil
+	return t.r.defaults[u], login, nil
+}
+func (*transportInvitationTx) EnsureMemberPerson(context.Context, string, string, string) error {
+	return nil
 }
 func (t *transportInvitationTx) HasOtherMembership(_ context.Context, u, h string) (bool, error) {
 	for hh, m := range t.r.members {
