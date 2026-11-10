@@ -1508,9 +1508,9 @@ test.describe('Tendo production journey', () => {
       watch(resetPage);
       try {
         await resetPage.goto(link);
-        expect(new URL(resetPage.url()).pathname).toBe('/reset-password');
-        expect(new URL(resetPage.url()).hash).toBe('');
         await expect(resetPage.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+        // The scrub runs in a mount effect, so wait for the address bar instead of reading it right after goto.
+        await expect(resetPage).toHaveURL((url) => url.pathname === '/reset-password' && url.hash === '');
         await expectNoAxeViolations(resetPage, 'reset-password');
 
         // One real 320 CSS px pass: no page overflow and a clean accessibility scan at phone width.
@@ -1544,14 +1544,15 @@ test.describe('Tendo production journey', () => {
         await expect(resetPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
 
         // The member's earlier session is refused and explains the sign-out.
-        expectedFailedStatuses.add(`GET ${membersPath} 401`);
-        await memberPage.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['nav.members'], exact: true }).click();
+        // Console filter keys are `<path> <status>`; the exact method-qualified ledger is asserted in step r.
+        expectedFailedStatuses.add(`${membersPath} 401`);
+        await memberPage.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['members.title'], exact: true }).click();
         await expect(memberPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
         await expect(memberPage.getByRole('status').filter({ hasText: en['login.sessionEnded'] })).toBeVisible();
         expect((await memberPage.request.get('/api/v1/session')).status()).toBe(401);
 
         // The same link works once: even a signed-in visitor cannot redeem it again.
-        expectedFailedStatuses.add('POST /api/v1/auth/password-reset 404');
+        expectedFailedStatuses.add('/api/v1/auth/password-reset 404');
         await resetPage.goto(link);
         await expect(resetPage.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
         await resetPage.getByLabel(en['reset.password'], { exact: true }).fill(`${newPassword}-again`);
