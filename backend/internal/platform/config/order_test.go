@@ -45,6 +45,9 @@ func TestLoadFromErrorMessagesInValidationOrder(t *testing.T) {
 		{"database query", nil, map[string]string{"DATABASE_URL": "postgres://u:p@h/db?sslmode=%zz"}, "DATABASE_URL must contain a valid query"},
 		{"database ssl alias", nil, map[string]string{"DATABASE_URL": "postgres://u:p@h/db?sslmode=disable&ssl=1"}, "DATABASE_URL must set exactly one sslmode and must not use ssl"},
 		{"database sslmode value", nil, map[string]string{"DATABASE_URL": "postgres://u:p@h/db?sslmode=strict"}, "DATABASE_URL must set a valid sslmode"},
+		{"database admin URL", map[string]string{"DATABASE_URL": validDatabaseURL}, map[string]string{"TENDO_DATABASE_ADMIN_URL": "mysql://u:p@h/db?sslmode=disable"}, "TENDO_DATABASE_ADMIN_URL must be a valid PostgreSQL URI with credentials and database"},
+		{"database before admin URL", nil, map[string]string{"DATABASE_URL": "mysql://u:p@h/db?sslmode=disable", "TENDO_DATABASE_ADMIN_URL": "bad"}, "DATABASE_URL must be a valid PostgreSQL URI with credentials and database"},
+		{"database admin before public URL", map[string]string{"DATABASE_URL": validDatabaseURL}, map[string]string{"TENDO_DATABASE_ADMIN_URL": "not-a-url", "TENDO_PUBLIC_URL": "ftp://bad"}, "TENDO_DATABASE_ADMIN_URL must be a valid PostgreSQL URI with credentials and database"},
 		{"public missing", map[string]string{"DATABASE_URL": validDatabaseURL}, map[string]string{"TENDO_PUBLIC_URL": ""}, "TENDO_PUBLIC_URL is required"},
 		{"public origin", map[string]string{"DATABASE_URL": validDatabaseURL}, nil, "TENDO_PUBLIC_URL must be an absolute HTTP(S) root origin"},
 		{"oidc orphan", map[string]string{"DATABASE_URL": validDatabaseURL, "TENDO_PUBLIC_URL": "http://localhost"}, nil, "OIDC settings require TENDO_OIDC_ISSUER"},
@@ -132,6 +135,7 @@ func TestLoadFromCompleteValidConfiguration(t *testing.T) {
 	}
 	cfg, err := LoadFrom(lookupFrom(map[string]string{
 		"DATABASE_URL":                  validDatabaseURL,
+		"TENDO_DATABASE_ADMIN_URL":      "postgres://admin:admin-secret@localhost:5432/tendo?sslmode=verify-full",
 		"TENDO_PUBLIC_URL":              "https://Tendo.Test:443/",
 		"TENDO_OIDC_ISSUER":             "https://issuer.test/realm",
 		"TENDO_OIDC_CLIENT_ID":          "client",
@@ -148,6 +152,7 @@ func TestLoadFromCompleteValidConfiguration(t *testing.T) {
 	}
 	want := Config{
 		DatabaseURL:       validDatabaseURL,
+		DatabaseAdminURL:  "postgres://admin:admin-secret@localhost:5432/tendo?sslmode=verify-full",
 		ListenAddr:        "127.0.0.1:9000",
 		PublicURL:         "https://tendo.test",
 		TrustedProxyCIDRs: []string{"192.0.2.0/24", "2001:db8::/32"},
@@ -225,6 +230,7 @@ func TestOIDCMessagesInValidationOrder(t *testing.T) {
 // stages returned the partially filled struct.
 func TestLoadFromReturnsZeroConfigOnError(t *testing.T) {
 	for name, set := range map[string]map[string]string{
+		"admin URL":  {"TENDO_DATABASE_ADMIN_URL": "not-a-url"},
 		"public URL": {"TENDO_PUBLIC_URL": "ftp://x"},
 		"proxies":    {"TENDO_TRUSTED_PROXY_CIDRS": "bad"},
 		"listen":     {"TENDO_LISTEN_ADDR": "bad"},

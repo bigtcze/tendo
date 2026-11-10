@@ -140,6 +140,62 @@ func TestTestClockConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadFromDatabaseAdminURL(t *testing.T) {
+	const runtimeURL = "postgres://tendo:runtime-secret@db.internal:5432/tendo?sslmode=verify-full"
+	sameTarget := "TENDO_DATABASE_ADMIN_URL must target the same host, port and database as DATABASE_URL"
+	for _, tc := range []struct {
+		name  string
+		admin string
+		want  string
+	}{
+		{name: "absent"},
+		{name: "blank", admin: " \t "},
+		{name: "valid", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/tendo?sslmode=verify-full"},
+		{name: "postgresql scheme", admin: "postgresql://tendo_admin:admin-secret@db.internal:5432/tendo?sslmode=disable"},
+		{name: "default port", admin: "postgres://tendo_admin:admin-secret@db.internal/tendo?sslmode=disable"},
+		{name: "host case", admin: "postgres://tendo_admin:admin-secret@DB.Internal:5432/tendo?sslmode=disable"},
+		{name: "different database", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/other?sslmode=disable", want: sameTarget},
+		{name: "different host", admin: "postgres://tendo_admin:admin-secret@other.internal:5432/tendo?sslmode=disable", want: sameTarget},
+		{name: "different port", admin: "postgres://tendo_admin:admin-secret@db.internal:6432/tendo?sslmode=disable", want: sameTarget},
+		{name: "same user", admin: "postgres://tendo:admin-secret@db.internal:5432/tendo?sslmode=verify-full", want: "TENDO_DATABASE_ADMIN_URL must use a different user than DATABASE_URL"},
+		{name: "missing credentials", admin: "postgres://db.internal:5432/tendo?sslmode=disable", want: "TENDO_DATABASE_ADMIN_URL must be a valid PostgreSQL URI with credentials and database"},
+		{name: "missing database", admin: "postgres://tendo_admin:admin-secret@db.internal:5432?sslmode=disable", want: "TENDO_DATABASE_ADMIN_URL must be a valid PostgreSQL URI with credentials and database"},
+		{name: "invalid scheme", admin: "mysql://tendo_admin:admin-secret@db.internal/tendo?sslmode=disable", want: "TENDO_DATABASE_ADMIN_URL must be a valid PostgreSQL URI with credentials and database"},
+		{name: "missing sslmode", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/tendo", want: "TENDO_DATABASE_ADMIN_URL must set exactly one sslmode and must not use ssl"},
+		{name: "duplicate sslmode", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/tendo?sslmode=disable&sslmode=verify-full", want: "TENDO_DATABASE_ADMIN_URL must set exactly one sslmode and must not use ssl"},
+		{name: "ssl alias", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/tendo?sslmode=disable&ssl=true", want: "TENDO_DATABASE_ADMIN_URL must set exactly one sslmode and must not use ssl"},
+		{name: "invalid query", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/tendo?sslmode=%zz", want: "TENDO_DATABASE_ADMIN_URL must contain a valid query"},
+		{name: "invalid sslmode", admin: "postgres://tendo_admin:admin-secret@db.internal:5432/tendo?sslmode=strict", want: "TENDO_DATABASE_ADMIN_URL must set a valid sslmode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]string{"DATABASE_URL": runtimeURL, "TENDO_PUBLIC_URL": "https://tendo.test"}
+			if tc.admin != "" {
+				values["TENDO_DATABASE_ADMIN_URL"] = tc.admin
+			}
+			cfg, err := LoadFrom(lookupFrom(values))
+			if tc.want != "" {
+				if err == nil || err.Error() != tc.want {
+					t.Fatalf("err=%v want %q", err, tc.want)
+				}
+				if strings.Contains(err.Error(), "admin-secret") || strings.Contains(err.Error(), "runtime-secret") {
+					t.Fatalf("secret leaked: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantAdmin := tc.admin
+			if strings.TrimSpace(wantAdmin) == "" {
+				wantAdmin = ""
+			}
+			if cfg.DatabaseAdminURL != wantAdmin {
+				t.Fatalf("admin URL=%q want %q", cfg.DatabaseAdminURL, wantAdmin)
+			}
+		})
+	}
+}
+
 func TestLoadFrom(t *testing.T) {
 	base := map[string]string{"DATABASE_URL": "postgres://user:pass@localhost:5432/tendo?sslmode=verify-full", "TENDO_PUBLIC_URL": "https://tendo.test"}
 	for _, tc := range []struct {

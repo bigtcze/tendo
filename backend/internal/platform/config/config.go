@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	DatabaseURL       string
+	DatabaseAdminURL  string
 	ListenAddr        string
 	PublicURL         string
 	TrustedProxyCIDRs []string
@@ -42,6 +43,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	var c Config
 	stages := []func(*Config, envLookup) error{
 		loadDatabaseURL,
+		loadDatabaseAdminURL,
 		loadPublicURL,
 		func(c *Config, lookup envLookup) error { return loadOIDC(c, lookup, c.PublicURL) },
 		loadTrustedProxies,
@@ -63,24 +65,74 @@ func loadDatabaseURL(c *Config, lookup envLookup) error {
 	if !ok || strings.TrimSpace(raw) == "" {
 		return errors.New("DATABASE_URL is required")
 	}
+	if _, err := postgresURL(raw, "DATABASE_URL"); err != nil {
+		return err
+	}
+	c.DatabaseURL = raw
+	return nil
+}
+
+// loadDatabaseAdminURL loads the optional privileged connection used once at
+// startup to bootstrap the runtime role and apply migrations. It must target
+// the same server and database as DATABASE_URL through a different role, so a
+// mistyped value cannot point startup at another deployment or silently reuse
+// the restricted runtime credential as administrator.
+func loadDatabaseAdminURL(c *Config, lookup envLookup) error {
+	raw, ok := lookup("TENDO_DATABASE_ADMIN_URL")
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	admin, err := postgresURL(raw, "TENDO_DATABASE_ADMIN_URL")
+	if err != nil {
+		return err
+	}
+	runtime, err := url.Parse(c.DatabaseURL)
+	if err != nil || runtime.User == nil {
+		return errors.New("TENDO_DATABASE_ADMIN_URL must target the same host, port and database as DATABASE_URL")
+	}
+	if !sameEndpoint(runtime, admin) {
+		return errors.New("TENDO_DATABASE_ADMIN_URL must target the same host, port and database as DATABASE_URL")
+	}
+	if runtime.User.Username() == admin.User.Username() {
+		return errors.New("TENDO_DATABASE_ADMIN_URL must use a different user than DATABASE_URL")
+	}
+	c.DatabaseAdminURL = raw
+	return nil
+}
+
+// postgresURL validates one PostgreSQL connection URL without ever including
+// its value or credentials in the returned error.
+func postgresURL(raw, name string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || !isPostgresURI(u) {
-		return errors.New("DATABASE_URL must be a valid PostgreSQL URI with credentials and database")
+		return nil, fmt.Errorf("%s must be a valid PostgreSQL URI with credentials and database", name)
 	}
 	query, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return errors.New("DATABASE_URL must contain a valid query")
+		return nil, fmt.Errorf("%s must contain a valid query", name)
 	}
 	if len(query["sslmode"]) != 1 || len(query["ssl"]) != 0 {
-		return errors.New("DATABASE_URL must set exactly one sslmode and must not use ssl")
+		return nil, fmt.Errorf("%s must set exactly one sslmode and must not use ssl", name)
 	}
 	switch query["sslmode"][0] {
 	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
 	default:
-		return errors.New("DATABASE_URL must set a valid sslmode")
+		return nil, fmt.Errorf("%s must set a valid sslmode", name)
 	}
-	c.DatabaseURL = raw
-	return nil
+	return u, nil
+}
+
+func sameEndpoint(a, b *url.URL) bool {
+	return strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		portOrPGDefault(a) == portOrPGDefault(b) &&
+		strings.TrimPrefix(a.Path, "/") == strings.TrimPrefix(b.Path, "/")
+}
+
+func portOrPGDefault(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	return "5432"
 }
 
 func isPostgresURI(u *url.URL) bool {
