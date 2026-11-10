@@ -343,10 +343,24 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await page.goto('/items');
   await waitForAllItemsSummary(page);
   for (const width of [320, 390, 768, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
+  // Density guard: a two-line result row (title + one metadata line) stays as compact as a Home row at 1440.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const compactRow = page.locator('main li[data-item-id]').filter({ hasText: 'Výměna filtru' });
+  const compactRowHeight = await compactRow.evaluate((row) => row.getBoundingClientRect().height);
+  console.info(`visual-all-items-row-height height=${compactRowHeight}`);
+  expect(compactRowHeight, 'two-line All items row height at 1440').toBeGreaterThanOrEqual(48);
+  expect(compactRowHeight, 'two-line All items row height at 1440').toBeLessThanOrEqual(58);
   await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('no-such-visual-item');
   await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
   await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
   await captureScreen(page, 'all-no-match');
+  // Czech phone evidence for the same toolbar, list and states.
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.goto('/items');
+  await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('listitem').first()).toBeVisible();
+  await capture(page, 'all-items-cs-390', 390, 900, false);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await darkScreen(browser, statePath, '/items', 'all-items');
   await context.close();
 });
@@ -396,6 +410,8 @@ test('Edit form and optimistic conflict', async ({ browser }) => {
   expect(concurrent.status()).toBe(200);
   await conflictForm.getByRole('button', { name: en['itemDetail.save'], exact: true }).click();
   await expect(page.getByText(en['itemDetail.edit.conflict'], { exact: true })).toBeVisible();
+  // Evidence shows the conflict summary and the rebased form from the top of the dialog.
+  await page.getByRole('dialog').evaluate((dialog) => dialog.scrollTo({ top: 0 }));
   await captureScreen(page, 'edit-conflict');
   await context.close();
 });
@@ -403,6 +419,13 @@ test('Edit form and optimistic conflict', async ({ browser }) => {
 test('People current and archived', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await page.goto('/people'); await captureScreen(page, 'people-current', true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
+  await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
+  await capture(page, 'people-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await page.reload();
   const subject = requiredFixture().subjects[0];
   const current = await api(page, 'get', `${requiredFixture().apiRoot}/subjects/${subject.id}`);
   const response = await api(page, 'patch', `${requiredFixture().apiRoot}/subjects/${subject.id}`, { archived: true }, { 'If-Match': current.headers()['etag'] ?? '' });

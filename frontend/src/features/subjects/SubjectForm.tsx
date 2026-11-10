@@ -41,11 +41,11 @@ export function SubjectForm({
 
   return (
     <form ref={formRef} onSubmit={state.submit} aria-label={label} noValidate
-      className="space-y-5 p-1">
+      className="space-y-5">
       {notice && state.showNotice ? (
-        <div ref={noticeRef} tabIndex={-1} role="status" className="space-y-1 rounded-xl bg-sand px-4 py-3 text-ink outline-none">
+        <div ref={noticeRef} tabIndex={-1} role="status" className="space-y-1 rounded-xl border border-line bg-sand px-4 py-3 text-ink outline-none">
           <p>{notice}</p>
-          {yourEntry ? <p className="break-words text-sm text-muted">{yourEntry}</p> : null}
+          {yourEntry ? <p className="break-words text-small text-muted">{yourEntry}</p> : null}
         </div>
       ) : null}
       <SubjectFormFields
@@ -53,7 +53,7 @@ export function SubjectForm({
         uid={uid} nameId={nameId} errorId={errorId} target={state.target} name={state.name} changeName={state.changeName}
         type={state.type} changeType={state.changeType} locked={locked} memberPerson={memberPerson}
       />
-      <div id={errorId} role="alert" className="text-base text-danger">
+      <div id={errorId} role="alert" className={state.error ? 'rounded-xl border border-danger bg-danger-bg px-4 py-3 text-danger' : undefined}>
         {state.error ? t(errorKey(state.error)) : null}
       </div>
       <SubjectFormActions pending={state.pending} pendingAttempt={state.pendingAttempt} locked={locked}
@@ -72,7 +72,7 @@ function SubjectFormActions({ pending, pendingAttempt, locked, submitLabel, pend
   const submitText = locked
     ? (pending && pendingAttempt ? pendingLabel : retryLabel ?? submitLabel)
     : (pending ? pendingLabel : submitLabel);
-  return <div className="flex flex-wrap gap-2">
+  return <div className="flex flex-wrap items-center gap-2 border-t border-line pt-5">
     {onArchive && archiveLabel ? <div className="mr-auto">
       <Button type="button" variant="quiet" onClick={onArchive} disabled={pending || locked}>
         {archiveLabel}

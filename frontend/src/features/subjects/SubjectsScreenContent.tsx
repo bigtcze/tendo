@@ -29,15 +29,16 @@ export function SubjectsScreenContent({
   previousPage: (event: React.MouseEvent<HTMLButtonElement>) => void; nextPage: (event: React.MouseEvent<HTMLButtonElement>) => void;
   switchView: () => void;
 }) {
-  return <section className="settle relative min-w-0">
-    <div className="max-w-5xl md:pr-32">
-      <Heading className="font-display text-h1 leading-tight">{t('subjects.title')}</Heading>
-      <p className="mt-2 text-muted">{t('subjects.subtitle')}</p>
-    </div>
-    <div className="mt-8 max-w-5xl">
-    {showArchived && list.kind !== 'noHousehold' ? <div className="space-y-1">
-      <h2 className="font-display text-2xl leading-snug">{t('subjects.archived.title')}</h2>
-      <p className="mt-1 text-muted">{t('subjects.archived.body')}</p>
+  return <section className="settle min-w-0">
+    <header className="min-w-0">
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('subjects.eyebrow')}</p>
+      <Heading className="mt-2 text-h1 leading-tight text-ink">{t('subjects.title')}</Heading>
+      <p className="mt-2 max-w-prose text-base text-muted">{t('subjects.subtitle')}</p>
+    </header>
+    <div className="mt-6 min-w-0">
+    {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
+      <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
+      <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>
     </div> : null}
     <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t}
       onUndo={undoArchive} />

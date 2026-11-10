@@ -36,54 +36,65 @@ function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
   </>;
 }
 
-function LiveActions({ busy, editLoading, editRef, t, onEdit, stale }: Props) {
-  return <>
-    {editLoading ? <p role="status" className="mt-3 text-sm text-muted">{t('itemDetail.edit.loading')}</p> : null}
-    <Button ref={editRef} type="button" variant="quiet" className="mt-5" disabled={busy || editLoading || stale} onClick={onEdit}>
+function StaleItemNotice({ busy, onReload, t }: Pick<Props, 'busy' | 'onReload' | 't'>) {
+  return <div className="mt-3 space-y-2">
+    <p role="alert" className="text-small text-muted">{t('itemDetail.refreshFailed')}</p>
+    <Button type="button" variant="quiet" disabled={busy} onClick={onReload}>{t('itemDetail.reload')}</Button>
+  </div>;
+}
+
+/** The quiet Edit stays first in the tab order, then the obvious Done with the workflow options beside it. */
+function LiveRow(props: Props) {
+  const { item, busy, editLoading, editRef, t, onEdit, onDone, stale } = props;
+  return <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <Button ref={editRef} type="button" variant="quiet" disabled={busy || editLoading || stale} onClick={onEdit}>
       {t('itemDetail.edit.button')}
     </Button>
-  </>;
-}
-
-function StaleItemNotice({ busy, onReload, t }: Pick<Props, 'busy' | 'onReload' | 't'>) {
-  return <>
-    <p role="alert" className="mt-4 text-sm text-muted">{t('itemDetail.refreshFailed')}</p>
-    <Button type="button" variant="quiet" className="mt-2" disabled={busy} onClick={onReload}>{t('itemDetail.reload')}</Button>
-  </>;
-}
-
-/** Read-mode actions: Edit and workflow while the item is live, then archive or restore. */
-export function ItemDetailActions(props: Props) {
-  const { item, busy, t, onArchive, onRestore, onDone } = props;
-  const { completionNotice, undoAvailable, retryAvailable, stale, onReload, completionNoticeRef, onUndo, onRetry } = props;
-  const live = !item.done && !item.archived;
-  const staleNotice = stale ? <StaleItemNotice busy={busy} onReload={onReload} t={t} /> : null;
-  return <>
-    {completionNotice ? null : staleNotice}
-    {live ? <LiveActions {...props} /> : null}
-    {live ? <div className="mt-5 flex flex-wrap gap-2">
+    <span aria-hidden="true" className="hidden h-6 w-px bg-line sm:block" />
+    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
       <Button
-        type="button" data-action="detail-done"
+        type="button" data-action="detail-done" className="w-full sm:w-auto"
         aria-label={t('items.done.label', { title: item.title })} disabled={busy || stale} onClick={onDone}
       >
         {t('items.done')}
       </Button>
       <WorkflowButtons {...props} busy={busy || stale} />
-    </div> : null}
-    {completionNotice ? <div className="mt-5 space-y-2">
-      <Notice role="status" ref={completionNoticeRef} tabIndex={-1}>{completionNotice}</Notice>
-      {undoAvailable
-        ? <Button type="button" variant="quiet" disabled={busy} onClick={onUndo}>{t('items.undo')}</Button>
-        : null}
-      {retryAvailable
-        ? <Button type="button" variant="quiet" data-action="detail-retry" disabled={busy || stale} onClick={onRetry}>{t('items.retry')}</Button>
-        : null}
-      {staleNotice}
-    </div> : null}
-    {!item.archived
-      ? <div className="mt-5 border-t border-line pt-4">
-        <Button type="button" variant="quiet" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>
-      </div>
-      : <Button type="button" variant="quiet" className="mt-5" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>}
-  </>;
+    </div>
+  </div>;
+}
+
+function CompletionNotice(props: Props) {
+  const { busy, t, completionNotice, undoAvailable, retryAvailable, stale, onReload, completionNoticeRef, onUndo, onRetry } = props;
+  return <div className="space-y-2">
+    <Notice role="status" ref={completionNoticeRef} tabIndex={-1}>{completionNotice}</Notice>
+    {undoAvailable ? <Button type="button" variant="quiet" disabled={busy} onClick={onUndo}>{t('items.undo')}</Button> : null}
+    {retryAvailable ? <Button type="button" variant="quiet" data-action="detail-retry" disabled={busy || stale} onClick={onRetry}>{t('items.retry')}</Button> : null}
+    {stale ? <StaleItemNotice busy={busy} onReload={onReload} t={t} /> : null}
+  </div>;
+}
+
+function ArchiveControl({ item, busy, stale, t, onArchive, onRestore }: Pick<Props, 'item' | 'busy' | 'stale' | 't' | 'onArchive' | 'onRestore'>) {
+  return item.archived
+    ? <Button type="button" variant="quiet" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
+    : <Button type="button" variant="quiet" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
+}
+
+/** One action band: Edit, the obvious Done and the workflow options, with Archive/Restore kept apart below. */
+export function ItemDetailActions(props: Props) {
+  const { item, busy, t } = props;
+  const live = !item.done && !item.archived;
+  const staleNotice = props.stale && !props.completionNotice
+    ? <StaleItemNotice busy={busy} onReload={props.onReload} t={t} /> : null;
+  const archive = <ArchiveControl item={item} busy={busy} stale={props.stale} t={t} onArchive={props.onArchive} onRestore={props.onRestore} />;
+  if (!live && !props.completionNotice) {
+    // Nothing to do on a finished or archived item beyond its facts, so keep a quiet footer row instead of an empty card.
+    return <div className="mt-4 flex flex-wrap items-center gap-2">{staleNotice}{archive}</div>;
+  }
+  return <section data-item-actions className="mt-4 rounded-2xl border border-line bg-raised p-4 sm:p-5">
+    {staleNotice}
+    {props.editLoading ? <p role="status" className="mb-3 text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
+    {live ? <LiveRow {...props} /> : null}
+    {props.completionNotice ? <CompletionNotice {...props} /> : null}
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-3">{archive}</div>
+  </section>;
 }

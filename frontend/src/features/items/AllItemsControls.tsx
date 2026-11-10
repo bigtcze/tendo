@@ -9,24 +9,24 @@ import type { AllItemsFacets } from './useAllItemsFacets';
 import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const selectClass = `mt-1 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 ${focusRing}`;
-const statusSelectClass = `${selectClass} max-[360px]:px-2 max-[360px]:text-small`;
+const labelClass = 'block min-w-0 text-label font-semibold text-ink';
+const controlClass = `mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 text-ink ${focusRing}`;
 
 export function AllItemsSearch({ draft, page, actions, searchRef }: {
   draft: Draft; page: PageState; actions: AllItemsActions; searchRef: RefObject<HTMLInputElement | null>;
 }) {
   const { t } = useI18n();
   return <form role="search" aria-label={t('allItems.search')} onSubmit={actions.submit} className="min-w-0">
-    <label htmlFor="all-items-search" className="mb-1 block text-label font-semibold">{t('allItems.search')}</label>
-    <div className="flex min-w-0 gap-2">
+    <label htmlFor="all-items-search" className={labelClass}>{t('allItems.search')}</label>
+    <div className="mt-1.5 flex min-w-0 gap-2">
       <input ref={searchRef} id="all-items-search" type="search" value={draft.search}
         onChange={(event) => actions.editSearch(event.target.value)}
         aria-invalid={page.searchError} aria-describedby={page.searchError ? 'all-items-search-error' : undefined}
-        className={`min-h-11 min-w-0 flex-1 rounded-xl border border-field bg-raised px-3 text-control ${focusRing}`} />
-      <Button type="submit" className="min-h-11">{t('allItems.searchButton')}</Button>
+        className={`min-h-11 min-w-0 flex-1 rounded-xl border border-field bg-raised px-3 text-control text-ink ${focusRing}`} />
+      <Button type="submit" className="min-h-11 shrink-0 px-4 sm:px-6">{t('allItems.searchButton')}</Button>
     </div>
     {page.searchError
-      ? <p key={page.searchErrorAttempt} id="all-items-search-error" role="alert" className="mt-1 text-small text-danger">{t('allItems.searchTooLong')}</p>
+      ? <p key={page.searchErrorAttempt} id="all-items-search-error" role="alert" className="mt-1.5 text-small text-danger">{t('allItems.searchTooLong')}</p>
       : null}
   </form>;
 }
@@ -34,9 +34,9 @@ export function AllItemsSearch({ draft, page, actions, searchRef }: {
 type FilterSelectProps = { label: string; value: string; onChange: (value: string) => void; children: ReactNode };
 
 function FilterSelect({ label, value, onChange, children }: FilterSelectProps) {
-  return <label className="block min-w-0 text-label">
+  return <label className={labelClass}>
     {label}
-    <select value={value} onChange={(event) => onChange(event.target.value)} className={selectClass}>{children}</select>
+    <select value={value} onChange={(event) => onChange(event.target.value)} className={controlClass}>{children}</select>
   </label>;
 }
 
@@ -62,7 +62,7 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
   const clear = hasActiveFilters && showClear
     ? <Button type="button" data-all-items-clear variant="quiet" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
     : null;
-  const fields = <div className="space-y-4">
+  const fields = <>
     {subjects.state === 'ready' ? <FilterSelect label={t('items.subject')} value={draft.subjectId}
       onChange={select('subjectId', (value) => ({ subjectId: value || undefined }))}>
       <option value="">{t('allItems.any')}</option>
@@ -85,30 +85,34 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
       <option value="true">{t('allItems.repeating')}</option>
       <option value="false">{t('allItems.oneOff')}</option>
     </FilterSelect>
-  </div>;
-  return <div className="space-y-3">
-    <label className="block min-w-0 text-label">
-      {t('allItems.status.label')}
-      <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
-        className={statusSelectClass}>
-        {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
-      </select>
-    </label>
-    <div className="lg:hidden">
-      <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
-        className="min-h-11 w-full justify-start rounded-md border border-field bg-raised px-3 text-ink"
-        data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
-        {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
-        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" data-all-items-filter-chevron
-          className={`ml-auto size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}>
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </Button>
+  </>;
+  return <div className="min-w-0 space-y-3">
+    <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+      <label className={`${labelClass} min-w-0 flex-1 sm:w-60 sm:flex-none`}>
+        {t('allItems.status.label')}
+        <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
+          className={controlClass}>
+          {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
+        </select>
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="lg:hidden">
+          <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
+            className="min-h-11 justify-start rounded-xl border border-field bg-raised px-4 text-ink"
+            data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
+            {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" data-all-items-filter-chevron
+              className={`ml-1 size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}>
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </Button>
+        </div>
+        {clear}
+      </div>
     </div>
-    {clear}
-    <div id={panelId} className={`${expanded ? 'mt-4 block' : 'hidden'} space-y-4 lg:mt-0 lg:block`}>
-      {fields}
+    <div id={panelId} className={`${expanded ? 'mt-3 block' : 'hidden'} lg:mt-0 lg:block`}>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{fields}</div>
     </div>
   </div>;
 }

@@ -47,8 +47,8 @@ const FIELDS: FieldSpec[] = [
 
 /** After a 412: one line per field where the latest saved value differs from the rebased draft. */
 export function ItemEditConflictSummary(props: Props) {
-  return <div className="space-y-1 rounded-xl border border-line bg-sand px-4 py-3 text-sm text-ink">
-    <p className="font-medium">{props.t('itemDetail.edit.conflict')}</p>
+  return <div className="space-y-1.5 rounded-xl border border-waiting/40 bg-waiting-bg px-4 py-3 text-small text-ink">
+    <p className="font-semibold">{props.t('itemDetail.edit.conflict')}</p>
     {FIELDS.filter((field) => field.changed(props)).map((field) => (
       <p key={field.key} className={field.wrap ? 'whitespace-pre-wrap break-words' : undefined}>{field.text(props)}</p>
     ))}

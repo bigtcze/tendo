@@ -382,14 +382,20 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
 
-  it('renders item title links at a minimum 44px target with metadata separated beneath', async () => {
+  it('renders compact rows with a 44px title target, a real subject tile and the state in words', async () => {
     await openAllItems([makeItem(1, { title: 'A long Czech title: nejneobhospodarovavatelnejsiho příslušenství'.repeat(2) })]);
     const link = screen.getByRole('link', { name: /A long Czech title/ });
     const row = link.closest('li')!;
-    const metadata = row.querySelector('p')!;
+    const metadata = row.querySelector('[data-item-meta]')!;
     expect(link).toHaveClass('min-h-11');
-    expect(row).toHaveClass('py-3');
-    expect(metadata).toHaveClass('mt-1');
+    expect(row).toHaveClass('pt-[11px]', 'pb-2');
+    expect(metadata).toHaveClass('mt-0.5');
+    // The tile derives from the real subject type, and the state is written next to an icon rather than colour alone.
+    expect(row.querySelector('[data-subject-icon]')).toHaveAttribute('data-subject-icon', 'person');
+    expect(within(row as HTMLElement).getByText('Café')).toHaveAttribute('data-subject-pill');
+    const state = row.querySelector('[data-item-state]')!;
+    expect(state).toHaveTextContent('Needs attention');
+    expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     link.focus();
     expect(link).toHaveFocus();
     expect(link).toHaveClass('focus-visible:outline-2');

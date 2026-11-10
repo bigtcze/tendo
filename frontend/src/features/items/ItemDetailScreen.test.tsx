@@ -116,9 +116,12 @@ describe('item details', () => {
     await screen.findByText('Looked after by petr');
     expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(1);
     const main = within(screen.getByRole('main'));
-    const card = main.getByText('Bring old passport').closest('div.rounded-2xl')!;
+    // The state is a header pill written out beside an icon; the facts card keeps the dated facts in order.
+    const state = main.getByText('Needs attention', { exact: true });
+    expect(state).toHaveAttribute('data-item-state');
+    expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    const card = main.getByText('Bring old passport').closest('[data-item-facts]')!;
     const text = card.textContent!;
-    expect(text.indexOf('Needs attention')).toBeLessThan(text.indexOf('Due Oct 10, 2026'));
     expect(text.indexOf('Due Oct 10, 2026')).toBeLessThan(text.indexOf('Last done Oct 10, 2025'));
     expect(text.indexOf('Last done Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
     expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('Looked after by petr'));

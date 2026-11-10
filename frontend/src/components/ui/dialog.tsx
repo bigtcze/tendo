@@ -107,7 +107,7 @@ export function Dialog({
       )}
     >
       <header className="flex min-w-0 items-start justify-between gap-4">
-        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words font-display text-h2 font-bold">{title}</h2>
+        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words text-h2 font-bold text-ink">{title}</h2>
         <Button
           type="button"
           variant="quiet"

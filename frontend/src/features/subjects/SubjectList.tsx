@@ -27,9 +27,11 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
   const addNameRef = useRef<HTMLInputElement | null>(null);
   const [createPending, setCreatePending] = useState(false);
   if (list.kind !== 'ready') return null;
-  return <div className="mt-8 space-y-6">
-    {!showArchived ? <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled}
-      onClick={onAdd} className="w-full sm:w-auto md:absolute md:right-0 md:top-0 md:w-auto">{t('subjects.add')}</Button> : null}
+  return <div className="mt-5 space-y-4">
+    {!showArchived ? <div className="flex justify-end">
+      <Button ref={addRef} type="button" data-focus="add" disabled={addDisabled}
+        onClick={onAdd} className="w-full sm:w-auto">{t('subjects.add')}</Button>
+    </div> : null}
     <Dialog open={adding} onOpenChange={(open) => { if (!open) onCancelAdd(); }} title={t('subjects.add.formLabel')}
       closeLabel={t('subjects.cancel')} busy={createPending} sheet triggerRef={addRef} initialFocusRef={addNameRef}>
       {adding ? <SubjectForm key={String(adding)} label={t('subjects.add.formLabel')} initial={pendingInitial}
@@ -39,7 +41,7 @@ export function SubjectList({ list, showArchived, adding, empty, items, cursorSt
         onPendingChange={setCreatePending} /> : null}
     </Dialog>
     {empty ? <SubjectsEmpty showArchived={showArchived} cursorStackEmpty={cursorStack.length === 0} adding={adding} t={t} /> : null}
-    {items.length > 0 ? <ul className="grid gap-3 lg:grid-cols-2">
+    {items.length > 0 ? <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
       {items.map((subject) => <SubjectRow key={subject.id} subject={subject} editing={editing} transfer={transfer} members={members}
         membersLoaded={membersLoaded} showArchived={showArchived} interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
         onStartEditing={onStartEditing} onArchive={onArchive} onRestore={onRestore} onSave={onSave} onCancelEditing={onCancelEditing} />)}

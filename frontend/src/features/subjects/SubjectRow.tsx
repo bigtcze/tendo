@@ -3,6 +3,7 @@ import { NavLink } from '../../app/NavLink';
 import { HouseholdNavigationContext } from '../../app/HouseholdNavigation';
 import { Button } from '../../components/ui/button';
 import { SubjectEditDialog } from './SubjectEditDialog';
+import { SubjectTypeIcon } from './SubjectTypeIcon';
 import type { Member } from '../members/membersApi';
 import { typeLabelKey } from './SubjectForm';
 import type { SubjectValues, SubmitOutcome } from './SubjectForm';
@@ -23,22 +24,27 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
   const navigation = useContext(HouseholdNavigationContext);
   const memberPerson = isMemberPerson(subject);
   const member = memberPerson ? members.find((entry) => entry.userId === subject.linkedUserId) : undefined;
-  return <li className="min-w-0 rounded-2xl border border-line bg-raised p-3 sm:p-4">
+  return <li className="min-w-0">
     {editing && editing.subject.id === subject.id ? <SubjectEditDialog subject={editing.subject} etag={editing.etag}
       conflict={editing.conflict} transfer={transfer} members={members} membersLoaded={membersLoaded} yourEntry={yourEntry}
       triggerRef={editRef} t={t} onSave={onSave} onArchive={() => onArchive(subject, true, false)}
-      onCancel={() => onCancelEditing(subject.id)} /> : <div className={`flex min-w-0 gap-2 ${showArchived ? 'flex-row items-start justify-between' : 'flex-col sm:flex-row sm:items-center sm:justify-between sm:gap-3 lg:flex-col lg:items-start xl:flex-row xl:items-center'}`}>
-      <div className="min-w-0 flex-1">
-        <p className="break-words text-lg font-semibold leading-snug" data-subject-name>{subject.name}</p>
-        <p className="mt-1 text-sm text-muted" data-subject-type>{t(typeLabelKey(subject.type))}</p>
-        {memberPerson ? <p className="break-words text-sm text-muted" data-subject-member>
+      onCancel={() => onCancelEditing(subject.id)} /> : <div className="grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-3 px-4 py-3 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto]">
+      <span aria-hidden="true" data-subject-icon={subject.type}
+        className="grid size-9 place-items-center rounded-xl bg-sand text-muted">
+        <SubjectTypeIcon type={subject.type} />
+      </span>
+      <div className="min-w-0">
+        <p className="[overflow-wrap:anywhere] text-row-title font-semibold leading-snug text-ink" data-subject-name>{subject.name}</p>
+        <p className="mt-0.5 text-meta text-muted" data-subject-type>{t(typeLabelKey(subject.type))}</p>
+        {memberPerson ? <p className="text-meta text-muted [overflow-wrap:anywhere]" data-subject-member>
           {member ? t('subjects.member.row', { login: member.login }) : t('subjects.member')}
         </p> : null}
       </div>
-      <div className={`flex flex-wrap items-center gap-1 ${showArchived ? 'shrink-0' : 'sm:shrink-0 lg:w-full lg:shrink lg:justify-start xl:w-auto xl:shrink-0'}`}>
+      <div className="col-start-2 row-start-2 flex flex-wrap items-center gap-1 sm:col-start-3 sm:row-start-1 sm:shrink-0 sm:justify-end">
         {!showArchived && navigation ? <NavLink href={`/items?subject=${encodeURIComponent(subject.id)}`}
           onNavigate={() => navigation.actions.allItems(subject.id)}
-          aria-label={t('subjects.seeItems.label', { name: subject.name })} className="inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-medium text-accent transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
+          aria-label={t('subjects.seeItems.label', { name: subject.name })}
+          className="inline-flex min-h-11 items-center rounded-xl px-3 text-small font-semibold text-accent transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
           {t('subjects.seeItems')}
         </NavLink> : null}
         {showArchived ? <Button type="button" variant="quiet" size="small" data-focus={`row:${subject.id}`}

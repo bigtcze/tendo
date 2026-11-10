@@ -10,6 +10,16 @@ import { buildQuery } from './allItemsUrl';
 import { useAllItems } from './useAllItems';
 import { useAllItemsFacets } from './useAllItemsFacets';
 
+/** Eyebrow, screen heading and supporting sentence, matching the Home and settings header band. */
+function AllItemsHeader() {
+  const { t } = useI18n();
+  return <header className="min-w-0">
+    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('allItems.eyebrow')}</p>
+    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('allItems.title')}</Heading>
+    <p className="mt-2 max-w-prose text-base text-muted">{t('allItems.subtitle')}</p>
+  </header>;
+}
+
 export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut, onOpenItem }: {
   householdId: string;
   login: string;
@@ -23,24 +33,25 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const facets = useAllItemsFacets(householdId, onSignedOut, onNoHousehold);
   const view = resultsView(context, page, buildQuery(context));
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));
+  const subjectTypes = new Map(facets.subjects.values.map((subject) => [subject.id, subject.type]));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle space-y-4">
+    <section className="settle min-w-0 space-y-6">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
-      <Heading className="font-display text-h1 leading-tight">{t('allItems.title')}</Heading>
-      <div className="grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:items-start lg:gap-8">
-        <aside className="min-w-0 space-y-3 lg:sticky lg:top-6">
-          <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
+      <AllItemsHeader />
+      <div className="min-w-0 rounded-2xl border border-line bg-raised p-4 sm:p-5">
+        <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
+        <div className="mt-4 border-t border-line pt-4">
           <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
             actions={actions} showClear={view !== 'noMatch'} />
-        </aside>
-        <div className="min-w-0 space-y-4">
-          {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}
-          {page.loading ? <p role="status" className="text-muted">{t('items.loading')}</p> : null}
-          {page.error ? <Notice tone="error" role={null} className="space-y-3"><p>{t('app.error.body')}</p>
-            <Button data-all-items-retry type="button" variant="secondary" onClick={actions.retry}>{t('app.error.retry')}</Button></Notice> : null}
-          <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} members={facets.members.values}
-            actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
         </div>
+      </div>
+      <div className="min-w-0 space-y-4">
+        {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}
+        {page.loading ? <p role="status" className="text-small text-muted">{t('items.loading')}</p> : null}
+        {page.error ? <Notice tone="error" role={null} className="space-y-3"><p>{t('app.error.body')}</p>
+          <Button data-all-items-retry type="button" variant="secondary" onClick={actions.retry}>{t('app.error.retry')}</Button></Notice> : null}
+        <AllItemsResults view={view} context={context} page={page} subjectNames={subjectNames} subjectTypes={subjectTypes}
+          members={facets.members.values} actions={actions} resultRef={resultRef} onBack={onBack} onOpenItem={onOpenItem} />
       </div>
     </section>
   </Layout>;
