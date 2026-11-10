@@ -302,6 +302,7 @@ def run_seeded_suite(root, app_path, provider_path, inherited, log, artifact_dir
         "E2E_OIDC_CLIENT_ID": client, "E2E_OIDC_CLIENT_SECRET": secret,
         "E2E_OIDC_REDIRECT_URI": f"{app_origin}/api/v1/auth/oidc/callback",
         "E2E_OIDC_SUBJECTS": "owner-subject,unknown-subject,second-unknown-subject,invited-subject",
+        "E2E_OIDC_SUBJECT_EMAILS": "owner-subject=owner@example.test:true,second-unknown-subject=owner@example.test:true,unknown-subject=owner@example.test:string",
     })
     base = env.copy()
     base.update({

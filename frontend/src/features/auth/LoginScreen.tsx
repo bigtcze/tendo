@@ -19,7 +19,6 @@ const errorKeys: Record<'invalid' | 'rateLimited' | 'unavailable', MessageKey> =
 
 type StartFailure = Exclude<StartResult['kind'], 'redirect'>;
 const startErrorKeys: Record<StartFailure, MessageKey> = {
-  wrongPassword: 'oidc.start.unavailable',
   unauthenticated: 'oidc.start.unavailable',
   alreadySignedIn: 'oidc.error.session_changed',
   disabled: 'oidc.start.disabled',

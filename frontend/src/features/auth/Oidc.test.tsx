@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -251,10 +251,11 @@ describe('callback results', () => {
   });
 
   it.each([
-    ['identity_not_linked', 'This sign-in isn’t connected to a Tendo account yet. Sign in with your password, then connect it from Account.'],
-    ['cancelled', 'Sign-in was cancelled. You can try again or use your password.'],
-    ['session_changed', 'You signed in or out in another tab while this was in progress. Please start again.'],
-    ['<script>', 'Something went wrong with that sign-in. Please try again.'],
+    ['identity_not_linked', en['oidc.error.identity_not_linked']],
+    ['identity_conflict', en['oidc.error.identity_conflict']],
+    ['cancelled', en['oidc.error.cancelled']],
+    ['session_changed', en['oidc.error.session_changed']],
+    ['<script>', en['oidc.error.unknown']],
   ])('/login#oidcError=%s shows a calm notice and scrubs the fragment', async (code, message) => {
     window.history.replaceState(null, '', `/login#oidcError=${code}`);
     installFakeServer({ ...signedOut, ...enabled });
@@ -266,12 +267,35 @@ describe('callback results', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it('a signed-out /account error lands on login with the notice', async () => {
+  it('a legacy identity_not_linked notice no longer points at Account', async () => {
+    window.history.replaceState(null, '', '/login#oidcError=identity_not_linked');
+    installFakeServer({ ...signedOut, ...enabled });
+    renderApp();
+    const main = await screen.findByRole('main');
+    expect(await within(main).findByText(en['oidc.error.identity_not_linked'], { exact: true })).toBeVisible();
+    expect(within(main).queryByText(/Account/)).not.toBeInTheDocument();
+  });
+
+  it('explains an identity that cannot be linked automatically in English and Czech', async () => {
+    window.history.replaceState(null, '', '/login#oidcError=identity_conflict');
+    installFakeServer({ ...signedOut, ...enabled });
+    renderApp();
+    expect(await screen.findByText(en['oidc.error.identity_conflict'], { exact: true })).toBeVisible();
+    cleanup();
+    localStorage.setItem('tendo.locale', 'cs');
+    window.history.replaceState(null, '', '/login#oidcError=identity_conflict');
+    installFakeServer({ ...signedOut, ...enabled });
+    renderApp();
+    expect(await screen.findByText(cs['oidc.error.identity_conflict'], { exact: true })).toBeVisible();
+  });
+
+  it('a signed-out /account fragment is scrubbed and shows the ordinary login form without a notice', async () => {
     window.history.replaceState(null, '', '/account#oidcError=identity_conflict');
     installFakeServer({ ...signedOut, ...enabled });
     renderApp();
-    expect(await screen.findByText('That sign-in is already connected to another Tendo account.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.queryByText(en['oidc.error.identity_conflict'], { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
     expect(window.location.hash).toBe('');
   });
 
@@ -292,7 +316,7 @@ describe('callback results', () => {
 });
 
 describe('account screen', () => {
-  it('offers an in-page language switch in English and Czech when sign-in linking is unavailable', async () => {
+  it('offers an in-page language switch in English and Czech', async () => {
     for (const [locale, title, body, activeLabel, nextLabel] of [
         ['en', 'Language', 'Choose the language you’d like to use in Tendo.', 'English', 'Čeština'],
       ['cs', 'Jazyk', 'Vyberte si jazyk, ve kterém chcete Tendo používat.', 'Čeština', 'English'],
@@ -300,7 +324,6 @@ describe('account screen', () => {
       localStorage.setItem('tendo.locale', locale);
       window.history.replaceState(null, '', '/account');
       installFakeServer({ ...signedIn, 'GET /api/v1/auth/oidc': json(200, { enabled: false }) });
-      window.history.replaceState(null, '', '/account');
       renderApp();
       await waitFor(() => expect(screen.getByRole('main').querySelector('h1')?.textContent).toBe(locale === 'cs' ? 'Váš účet' : 'Your account'));
       const main = screen.getByRole('main');
@@ -318,358 +341,50 @@ describe('account screen', () => {
       localStorage.removeItem('tendo.locale');
     }
   });
-  it('opens from home, explains, and links with exactly {purpose:"link",currentPassword}', async () => {
+
+  it('shows the signed-in identity and settings without manual sign-in linking or legacy requests', async () => {
+    // The identity and start fixtures are deliberately available: the assertions below prove Account never calls them.
     const fake = installFakeServer({
       ...signedIn,
       ...enabled,
       'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
       'POST /api/v1/auth/oidc/start': json(200, { authorizationUrl }),
     });
-    renderApp();
-    await userEvent.click(await screen.findByRole('link', { name: 'Your account' }));
-    expect(window.location.pathname).toBe('/account');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
-    expect(screen.getByText('You’re signed in as anna.')).toBeInTheDocument();
-    expect(await screen.findByText('Connect Pocket ID to sign in without typing your password. Your password keeps working too.')).toBeInTheDocument();
-    const password = screen.getByLabelText('Current password');
-    expect(password).toHaveAttribute('autocomplete', 'current-password');
-    await userEvent.type(password, 'correct horse battery');
-    await userEvent.click(screen.getByRole('button', { name: 'Connect Pocket ID' }));
-    await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizationUrl));
-    const start = fake.requests.find((r) => r.path === '/api/v1/auth/oidc/start')!;
-    expect(JSON.parse(start.body)).toEqual({ purpose: 'link', currentPassword: 'correct horse battery' });
-  });
-
-  it('sends only one link-start request for synchronous duplicate submits', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-      'POST /api/v1/auth/oidc/start': () => delayed,
-    });
     window.history.replaceState(null, '', '/account');
     renderApp();
-    const password = await screen.findByLabelText('Current password');
-    await userEvent.type(password, 'pw');
-    const form = password.closest('form');
-    expect(form).not.toBeNull();
-    act(() => {
-      fireEvent.submit(form!);
-      fireEvent.submit(form!);
-    });
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/start')).toHaveLength(1));
-    await act(async () => { release(json(200, { authorizationUrl })); });
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/start')).toHaveLength(1);
+    expect(await screen.findByText('You’re signed in as anna.')).toBeVisible();
+    const main = screen.getByRole('main');
+    expect(within(main).getByRole('heading', { level: 2, name: 'Appearance' })).toBeVisible();
+    expect(within(main).getByRole('heading', { level: 2, name: 'Language' })).toBeVisible();
+    expect(within(main).queryByLabelText('Current password')).not.toBeInTheDocument();
+    expect(within(main).queryByRole('button', { name: /Connect/ })).not.toBeInTheDocument();
+    expect(within(main).queryByRole('heading', { name: /sign-in with/i })).not.toBeInTheDocument();
+    // The provider is enabled, yet the retired identity lookup and link start are never issued.
+    expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc')).toBe(false);
+    expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc/identity')).toBe(false);
+    expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc/start')).toBe(false);
   });
 
-  it('retries a status network failure and shows the connect form', async () => {
-    const fake = installFakeServer({
-      ...signedIn,
-      'GET /api/v1/auth/oidc': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return count === 1 ? Promise.reject(new TypeError('network failure')) : json(200, { enabled: true, displayName: 'Pocket ID' });
-      },
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByLabelText('Current password')).toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(1);
-  });
-
-  it('does not start identity lookup from a stale StrictMode status response', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer({
-      ...signedIn,
-      'GET /api/v1/auth/oidc': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return count === 1 ? delayed : json(200, { enabled: true, displayName: 'Pocket ID' });
-      },
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-    });
-    window.history.replaceState(null, '', '/account');
-    render(<I18nProvider><StrictMode><App /></StrictMode></I18nProvider>);
-    await screen.findByLabelText('Current password');
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2));
-    await act(async () => { release(json(200, { enabled: true, displayName: 'Stale Pocket ID' })); });
-    expect(screen.getByLabelText('Current password')).toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(1);
-  });
-
-  it('retries an identity 503 and shows the linked state', async () => {
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return json(count === 1 ? 503 : 200, count === 1 ? { title: 'unavailable' } : { linked: true });
-      },
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(2);
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2);
-  });
-
-  it('ignores an earlier retry response that arrives after a newer retry', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        if (count === 1) return problem(503, 'unavailable');
-        if (count === 2) return delayed;
-        return json(200, { linked: true });
-      },
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await screen.findByText('Couldn’t check the connection right now.');
-    const retry = screen.getByRole('button', { name: 'Try again' });
-    await userEvent.click(retry);
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
-    await userEvent.click(retry);
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(3));
-    expect(await screen.findByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument();
-    release(json(200, { linked: false }));
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(3));
-    await waitFor(() => expect(screen.getByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument());
-    expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument();
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc')).toHaveLength(3);
-    expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(3);
-  });
-
-  it('keeps focus on Retry during a retry and after a subsequent failure', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return count === 1 ? problem(503, 'unavailable') : count === 2 ? delayed : json(200, { linked: false });
-      },
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    const retry = await screen.findByRole('button', { name: 'Try again' });
-    await userEvent.click(retry);
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
-    expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
-    expect(document.activeElement).not.toBe(document.body);
-    release(problem(503, 'unavailable'));
-    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus();
-  });
-
-  it('moves focus from Retry to the loaded section after a successful retry', async () => {
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return count === 1 ? problem(503, 'unavailable') : json(200, { linked: true });
-      },
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
-    const heading = await screen.findByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' });
-    await waitFor(() => expect(heading).toHaveFocus());
-  });
-
-  it('moves focus to the signed-in line when a retry finds sign-in links turned off', async () => {
-    const fake = installFakeServer({
-      ...signedIn,
-      'GET /api/v1/auth/oidc': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return count === 1 ? problem(503, 'unavailable') : json(200, { enabled: false });
-      },
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument());
-    expect(screen.getByText(/You’re signed in as/)).toHaveFocus();
-  });
-
-  it('does not take focus after a retry when the user has moved elsewhere', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': (req) => {
-        const count = fake.requests.filter((entry) => entry.path === req.path).length;
-        return count === 1 ? problem(503, 'unavailable') : delayed;
-      },
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(fake.requests.filter((request) => request.path === '/api/v1/auth/oidc/identity')).toHaveLength(2));
-    const signOut = screen.getByRole('button', { name: 'Sign out' });
-    signOut.focus();
-    release(json(200, { linked: true }));
-    await screen.findByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' });
-    expect(signOut).toHaveFocus();
-  });
-
-  it('renders the Retry label in Czech', async () => {
-    localStorage.setItem('tendo.locale', 'cs');
-    installFakeServer({ ...signedIn, 'GET /api/v1/auth/oidc': problem(503) });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    expect(await screen.findByRole('button', { name: 'Zkusit znovu' })).toBeInTheDocument();
-  });
-
-  it('a wrong current password marks the field, clears it, and focuses it', async () => {
-    installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-      'POST /api/v1/auth/oidc/start': problem(401, 'invalid_credentials'),
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    const password = await screen.findByLabelText('Current password');
-    expect(document.getElementById('account-oidc-error'), 'persistent OIDC alert host exists before any error').toBeInTheDocument();
-    await userEvent.type(password, 'nope{Enter}');
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('That password isn’t right.');
-    expect(password).toHaveAttribute('aria-invalid', 'true');
-    expect(password).toHaveAttribute('aria-describedby', alert.id);
-    expect(password).toHaveValue('');
-    expect(password).toHaveFocus();
-    expect(assign).not.toHaveBeenCalled();
-  });
-
-  it('does not redirect after leaving Account while a link start is pending', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-      'POST /api/v1/auth/oidc/start': () => delayed,
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await userEvent.type(await screen.findByLabelText('Current password'), 'pw');
-    await userEvent.click(screen.getByRole('button', { name: 'Connect Pocket ID' }));
-    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    await act(async () => { release(json(200, { authorizationUrl })); });
-    expect(assign).not.toHaveBeenCalled();
-  });
-
-  it('ignores an expired link-start session after leaving Account', async () => {
-    let release!: (response: Response) => void;
-    const delayed = new Promise<Response>((resolve) => { release = resolve; });
-    const fake = installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-      'POST /api/v1/auth/oidc/start': () => delayed,
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await userEvent.type(await screen.findByLabelText('Current password'), 'pw');
-    await userEvent.click(screen.getByRole('button', { name: 'Connect Pocket ID' }));
-    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    const sessionChecks = fake.requests.filter((request) => request.path === '/api/v1/session').length;
-    await act(async () => { release(problem(401, 'unauthenticated')); });
-    expect(fake.requests.filter((request) => request.path === '/api/v1/session')).toHaveLength(sessionChecks);
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-  });
-
-  it('an expired session during link start signs out', async () => {
-    installFakeServer({
-      ...signedIn,
-      ...enabled,
-      'GET /api/v1/auth/oidc/identity': json(200, { linked: false }),
-      'POST /api/v1/auth/oidc/start': problem(401, 'unauthenticated'),
-      'GET /api/v1/auth/setup': json(200, { required: false }),
-    });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    await userEvent.type(await screen.findByLabelText('Current password'), 'pw{Enter}');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/');
-  });
-
-  it('shows the connected state without a form', async () => {
-    installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': json(200, { linked: true }) });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    expect(await screen.findByText('Your account is connected to Pocket ID. You can sign in with it or with your password.')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument();
-  });
-
-  it('/account#oidc=connected shows success once and scrubs the fragment', async () => {
+  it('/account#oidc=connected scrubs the fragment and shows the normal account screen without a notice', async () => {
     window.history.replaceState(null, '', '/account#oidc=connected');
-    installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': json(200, { linked: true }) });
+    const fake = installFakeServer({ ...signedIn, ...enabled });
     renderApp();
-    expect(await screen.findByText('Connected. Next time you can use it to sign in.')).toBeInTheDocument();
-    // The persistent Account status is the only live owner; the visible notice inside it must not nest another.
-    await waitFor(() => expect(document.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(1));
-    expect(screen.getByRole('status')).toHaveTextContent('Connected. Next time you can use it to sign in.');
-    expect(window.location.hash).toBe('');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+    await waitFor(() => expect(window.location.hash).toBe(''));
     expect(window.location.pathname).toBe('/account');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connected\./)).not.toBeInTheDocument();
+    expect(fake.requests.some((request) => request.path === '/api/v1/auth/oidc/identity')).toBe(false);
   });
 
-  it('the callback notice is shown once: leaving and returning to /account does not repeat it', async () => {
-    window.history.replaceState(null, '', '/account#oidc=connected');
-    installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': json(200, { linked: true }) });
-    renderApp();
-    expect(await screen.findByText('Connected. Next time you can use it to sign in.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    window.history.back();
-    await waitFor(() => expect(window.location.pathname).toBe('/account'));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeInTheDocument();
-    await screen.findByText('Your account is connected to Pocket ID. You can sign in with it or with your password.');
-    expect(screen.queryByText('Connected. Next time you can use it to sign in.')).not.toBeInTheDocument();
-  });
-
-  it('a signed-in /account error is shown on the account screen', async () => {
+  it('a signed-in /account error fragment is scrubbed without a callback notice', async () => {
     window.history.replaceState(null, '', '/account#oidcError=identity_conflict');
-    installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': json(200, { linked: false }) });
+    installFakeServer({ ...signedIn, ...enabled });
     renderApp();
-    expect(await screen.findByText('That sign-in is already connected to another Tendo account.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: 'Your account' })).toBeInTheDocument();
-  });
-
-  it('with the provider disabled, shows the account without any sign-in section', async () => {
-    const fake = installFakeServer({ ...signedIn, 'GET /api/v1/auth/oidc': json(200, { enabled: false }) });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    expect(await screen.findByText('You’re signed in as anna.')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText('Checking…')).not.toBeInTheDocument());
-    expect(screen.queryByRole('heading', { level: 2, name: 'Sign-in with Pocket ID' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: 'Language' })).toBeVisible();
-    expect(fake.requests.some((r) => r.path === '/api/v1/auth/oidc/identity')).toBe(false);
-  });
-
-  it('an identity lookup failure is quiet and keeps the screen usable', async () => {
-    installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': problem(503, 'unavailable') });
-    window.history.replaceState(null, '', '/account');
-    renderApp();
-    expect(await screen.findByText('Couldn’t check the connection right now.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /^Home$/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(screen.queryByText(en['oidc.error.identity_conflict'], { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('renders Czech', async () => {

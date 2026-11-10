@@ -1,5 +1,4 @@
 import { AccountScreen } from '../features/auth/AccountScreen';
-import type { OidcOutcome } from '../features/auth/oidcApi';
 import type { MessageKey } from '../i18n';
 import type { useAppNavigation } from './useAppNavigation';
 import type { useAppSession } from './useAppSession';
@@ -27,7 +26,6 @@ type Props = {
   inviteToken: string | null;
   allItemsVisit: number;
   transitioned: { current: boolean };
-  oidcOutcome: OidcOutcome | null;
   homeNotice: MessageKey | null;
   onDismissNotice: () => void;
   onContinuePending: () => void;
@@ -122,7 +120,7 @@ function renderHouseholdRecords(props: Props, householdId: string) {
 function renderRouteScreen(props: Props, householdId: string | null) {
   const { route, session, navigation, sessionActions } = props;
   if (route.kind === 'account') {
-    return <AccountScreen login={session.login} outcome={props.oidcOutcome} onSignedOut={sessionActions.sessionEnded} />;
+    return <AccountScreen login={session.login} onSignedOut={sessionActions.sessionEnded} />;
   }
   if (route.kind === 'admin' && householdId) {
     return <AdminScreen householdId={householdId} viewerId={session.userId} login={session.login} onSignedOut={sessionActions.sessionEnded} />;

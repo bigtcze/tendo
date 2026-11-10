@@ -200,6 +200,33 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   await expect(oidcOutcomePage.getByRole('status')).toContainText(en['oidc.error.cancelled']);
   expect(new URL(oidcOutcomePage.url()).hash, 'OIDC callback fragment is scrubbed').toBe('');
   await shot(oidcOutcomePage, dir, 'auth-login-oidc-outcome-en-390.png', capture, 390);
+
+  // identity_conflict: the callback refuses an identity whose verified address belongs to an account
+  // with a different subject. Copy is asserted from the catalogs so audit and product stay in sync.
+  await oidcOutcomePage.goto('/login#oidcError=identity_conflict');
+  await expect(oidcOutcomePage.getByRole('status')).toHaveText(en['oidc.error.identity_conflict']);
+  expect(new URL(oidcOutcomePage.url()).hash, 'conflict callback fragment is scrubbed').toBe('');
+  await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-en-390');
+  await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-en-390.png', capture, 390);
+
+  await oidcOutcomePage.setViewportSize({ width: 1440, height: heightFor(1440) });
+  await expect(oidcOutcomePage.getByRole('status')).toHaveText(en['oidc.error.identity_conflict']);
+  await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-en-1440');
+  await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-en-1440.png', capture, 1440);
+
+  await oidcOutcomePage.setViewportSize({ width: 390, height: heightFor(390) });
+  await applySavedDarkPreference(oidcOutcomePage);
+  await oidcOutcomePage.goto('/login#oidcError=identity_conflict');
+  await expect(oidcOutcomePage.getByRole('status')).toHaveText(en['oidc.error.identity_conflict']);
+  await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-dark-en-390');
+  await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-dark-en-390.png', capture, 390);
+  await applySystemAppearance(oidcOutcomePage);
+
+  await oidcOutcomePage.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await oidcOutcomePage.goto('/login#oidcError=identity_conflict');
+  await expect(oidcOutcomePage.getByRole('status')).toHaveText(cs['oidc.error.identity_conflict']);
+  await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-cs-390');
+  await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-cs-390.png', capture, 390);
   await oidcContext.close();
 
   for (const width of [390, 1440] as const) {
@@ -207,18 +234,18 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
     const accountPage = await accountContext.newPage();
     await accountPage.route('**/api/v1/session', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ userId: '0198a2f0-0000-7000-8000-000000000001', login: 'audit_owner', expiresAt: '2030-01-01T00:00:00Z' }) }));
     await accountPage.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
-    await accountPage.route('**/api/v1/auth/oidc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, displayName: 'OIDC Smoke Provider' }) }));
-    await accountPage.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: false }) }));
     await accountPage.goto('/account');
     const page = accountPage;
     await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
-    await expect(page.getByLabel(en['account.oidc.password'], { exact: true })).toBeVisible();
+    await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toContainText(en['account.signedInAs'].replace('{login}', 'audit_owner'));
+    await expect(page.getByRole('main').locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByRole('main').getByRole('button', { name: /OIDC Smoke Provider/ })).toHaveCount(0);
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toHaveClass(/rounded-2xl/);
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-identity-heading"]')).toHaveClass(/bg-raised/);
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-language-heading"]')).toHaveClass(/rounded-2xl/);
     await expect(page.getByRole('main').locator('section[aria-labelledby="account-language-heading"]')).toHaveClass(/bg-raised/);
-    await expectNoAxeViolations(page, `auth-account-unlinked-${width}`);
-    await shot(page, dir, `auth-account-unlinked-en-${width}.png`, capture, width);
+    await expectNoAxeViolations(page, `auth-account-${width}`);
+    await shot(page, dir, `auth-account-en-${width}.png`, capture, width);
     if (width === 390) {
       const focusedLight = await focusAppearanceChoiceByKeyboard(page, en['account.appearance.light']);
       await page.screenshot({ path: join(dir, 'auth-account-appearance-focus-light-en-390.png'), fullPage: true });
@@ -234,27 +261,6 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
       await applySavedDarkPreference(page);
     }
     await applySystemAppearance(page);
-    await page.unroute('**/api/v1/auth/oidc/identity');
-    await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: true }) }));
-    await page.reload();
-    await expect(page.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))).toBeVisible();
-    await shot(page, dir, `auth-account-linked-en-${width}.png`, capture, width);
-    if (width === 390) {
-      await page.unroute('**/api/v1/auth/oidc/identity');
-      await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: false }) }));
-      await page.route('**/api/v1/auth/oidc/start', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401, code: 'invalid_credentials' }) }));
-      await page.reload();
-      await page.getByLabel(en['account.oidc.password'], { exact: true }).fill('bad-synthetic-password');
-      await page.getByRole('button', { name: en['account.oidc.connect'].replace('{provider}', 'OIDC Smoke Provider') }).click();
-      await expect(page.getByRole('alert')).toContainText(en['account.oidc.wrongPassword']);
-      await shot(page, dir, 'auth-account-link-error-en-390.png', capture, 390);
-    }
-    if (width === 390) await page.unroute('**/api/v1/auth/oidc/start');
-    if (width === 390) {
-      await page.unroute('**/api/v1/auth/oidc/start');
-      await page.unroute('**/api/v1/auth/oidc/identity');
-      await page.route('**/api/v1/auth/oidc/identity', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ linked: false }) }));
-    }
     await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
     await page.reload();
     await expect(page.getByRole('heading', { level: 1, name: cs['account.title'] })).toBeVisible();

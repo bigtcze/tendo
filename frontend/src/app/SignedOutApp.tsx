@@ -6,7 +6,7 @@ import { ErrorScreen, LoadingScreen, NotFoundScreen } from './StatusScreens';
 import { Layout } from './Layout';
 import { readRoute } from './routes';
 import type { BootState } from './useAppSession';
-import type { OidcOutcome } from '../features/auth/oidcApi';
+import type { OidcErrorCode } from '../features/auth/oidcApi';
 import type { Session } from '../features/auth/sessionApi';
 
 export type Props = {
@@ -15,7 +15,7 @@ export type Props = {
   signedIn: (session: Session, notice?: MessageKey | null) => void;
   signedOut: () => void;
   accountReadyNotice: boolean;
-  oidcOutcome: OidcOutcome | null;
+  oidcOutcome: OidcErrorCode | null;
   sessionEndedNotice: boolean;
   passwordResetNotice: boolean;
   loginPrefill: string | null;
@@ -49,7 +49,7 @@ export function SignedOutApp(props: Props) {
 export function getLoginNotice(props: Props, t: Translate): string | undefined {
   if (props.passwordResetNotice) return t('reset.notice.success');
   if (props.accountReadyNotice) return t('invite.error.accountReady');
-  if (props.oidcOutcome?.kind === 'error') return t(`oidc.error.${props.oidcOutcome.code}`);
+  if (props.oidcOutcome) return t(`oidc.error.${props.oidcOutcome}`);
   if (props.oidcContinueExpired) return t('oidc.continue.expired');
   if (props.sessionEndedNotice) return t('login.sessionEnded');
   return undefined;

@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Translate } from '../i18n';
+import { en } from '../i18n/en';
 import { App } from './App';
 import { getLoginNotice, type Props as SignedOutProps } from './SignedOutApp';
 import { I18nProvider } from '../i18n';
@@ -67,7 +68,7 @@ describe('App route characterization', () => {
     const noticeProps = {
       state: { kind: 'signedOut' as const }, retry: vi.fn(), signedIn: vi.fn(), signedOut: vi.fn(),
       accountReadyNotice: true,
-      oidcOutcome: { kind: 'error' as const, code: 'identity_conflict' },
+      oidcOutcome: 'identity_conflict' as const,
       sessionEndedNotice: true,
       passwordResetNotice: false,
       loginPrefill: null,
@@ -91,7 +92,7 @@ describe('App route characterization', () => {
       'GET /api/v1/auth/oidc': json(200, { enabled: false }),
     });
     renderApp();
-    expect(await screen.findByText('That sign-in is already connected to another Tendo account.')).toBeVisible();
+    expect(await screen.findByText(en['oidc.error.identity_conflict'])).toBeVisible();
   });
 
   it('signed-out boot clears pending completion, subject-create, and item-create storage', async () => {

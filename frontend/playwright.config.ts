@@ -46,6 +46,7 @@ const webServer = process.env.E2E_APP_BINARY ? [
       CLIENT_SECRET: process.env.E2E_OIDC_CLIENT_SECRET,
       REDIRECT_URI: process.env.E2E_OIDC_REDIRECT_URI,
       SUBJECTS: process.env.E2E_OIDC_SUBJECTS,
+      SUBJECT_EMAILS: process.env.E2E_OIDC_SUBJECT_EMAILS,
     }),
     reuseExistingServer: false,
     stdout: 'pipe' as const,
