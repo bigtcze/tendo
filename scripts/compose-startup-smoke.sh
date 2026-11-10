@@ -112,9 +112,20 @@ expect_failure() {
   }
   printf 'Failure case %s refused startup as expected.\n' "$label"
 }
+wait_app_healthy() {
+  # HTTP readiness can precede the first Docker healthcheck after a restart.
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    [[ "$(app_health)" == healthy ]] && return 0
+    sleep 1
+  done
+  printf 'App container did not report healthy: %s\n' "$(app_health)" >&2
+  return 1
+}
 restart_and_wait() {
   "${compose[@]}" restart app >/dev/null
   wait_ready
+  wait_app_healthy
 }
 wait_oneoff_healthy() {
   local name=$1 deadline=$((SECONDS + 180)) state health
