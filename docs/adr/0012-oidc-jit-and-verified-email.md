@@ -28,4 +28,4 @@ ADR 0008 allowed OIDC sign-in only for identities already connected from the Acc
 - `identity_not_linked` is no longer emitted; it stays in the documented callback pattern as a legacy value.
 - An account created through OIDC has no password; its recovery depends on the provider or on an administrator.
 - A provider that changes the case of a local part, or reissues an address to a new subject, cannot take over an account: such sign-ins reach the continuation or a conflict.
-- The Account-screen connection flow from ADR 0008 still works in this release and is removed separately.
+- The Account-screen connection UI from ADR 0008 is removed from the web app (V4-11); the password confirmation on **Finish signing in** is the only consolidation path the UI offers. The `link` start purpose and `GET /auth/oidc/identity` stay in `/api/v1`, marked deprecated, because removing them would break existing API clients; identities linked through them keep signing in by `(issuer, subject)`.

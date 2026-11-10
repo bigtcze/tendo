@@ -22,23 +22,8 @@ export async function fetchOidcStatus(): Promise<OidcStatus> {
   return { kind: 'error' };
 }
 
-export type IdentityResult = { kind: 'linked' } | { kind: 'notLinked' } | { kind: 'disabled' } | { kind: 'unauthenticated' } | { kind: 'error' };
-
-export async function fetchOidcIdentity(): Promise<IdentityResult> {
-  try {
-    const { data, response } = await api.GET('/api/v1/auth/oidc/identity');
-    if (data && response.status === 200) return data.linked ? { kind: 'linked' } : { kind: 'notLinked' };
-    if (response.status === 401) return { kind: 'unauthenticated' };
-    if (response.status === 404) return { kind: 'disabled' };
-  } catch {
-    // fall through
-  }
-  return { kind: 'error' };
-}
-
 export type StartResult =
   | { kind: 'redirect'; url: string }
-  | { kind: 'wrongPassword' }
   | { kind: 'unauthenticated' }
   | { kind: 'alreadySignedIn' }
   | { kind: 'disabled' }
@@ -62,7 +47,7 @@ export async function problemCode(response: Response, error: unknown): Promise<u
  * A login attempt may carry an invitation token so the invitation survives the provider round trip.
  */
 export async function startOidc(
-  input: { purpose: 'login'; invitationToken?: string } | { purpose: 'link'; currentPassword: string },
+  input: { purpose: 'login'; invitationToken?: string },
 ): Promise<StartResult> {
   try {
     const { data, error, response } = await api.POST('/api/v1/auth/oidc/start', {
@@ -72,7 +57,7 @@ export async function startOidc(
     });
     if (data && response.status === 200) return { kind: 'redirect', url: data.authorizationUrl };
     const code = await problemCode(response, error);
-    if (response.status === 401) return code === 'invalid_credentials' ? { kind: 'wrongPassword' } : { kind: 'unauthenticated' };
+    if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 409) return { kind: 'alreadySignedIn' };
     if (response.status === 404) return { kind: 'disabled' };
     if (response.status === 422 && code === 'invalid_invitation') return { kind: 'invalidInvitation' };
@@ -84,16 +69,17 @@ export async function startOidc(
   return { kind: 'unavailable' };
 }
 
-/** Error codes the callback may place in the fragment; anything else maps to a generic message. */
+/**
+ * Error codes the callback may place in the fragment; anything else maps to a generic message.
+ * `identity_not_linked` is a legacy v3 code no longer emitted, kept so a stale v3 redirect still
+ * gets a calm message instead of the generic fallback.
+ */
 export const oidcErrorCodes = ['cancelled', 'invalid_flow', 'identity_not_linked', 'identity_conflict', 'session_changed', 'authentication_failed', 'unavailable'] as const;
 export type OidcErrorCode = (typeof oidcErrorCodes)[number] | 'unknown';
-export type OidcOutcome = { kind: 'connected' } | { kind: 'error'; code: OidcErrorCode };
 
 /** Reads the callback result fragment once. Values are fixed by the server and never reflected verbatim. */
-export function parseOidcFragment(hash: string): OidcOutcome | null {
-  if (hash === '#oidc=connected') return { kind: 'connected' };
+export function parseOidcFragment(hash: string): OidcErrorCode | null {
   const match = /^#oidcError=(.*)$/.exec(hash);
   if (!match) return null;
-  const code = (oidcErrorCodes as readonly string[]).includes(match[1]!) ? (match[1] as OidcErrorCode) : 'unknown';
-  return { kind: 'error', code };
+  return (oidcErrorCodes as readonly string[]).includes(match[1]!) ? (match[1] as OidcErrorCode) : 'unknown';
 }

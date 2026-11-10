@@ -49,7 +49,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read whether the current account has a linked OIDC identity */
+        /**
+         * Read whether the current account has a linked OIDC identity
+         * @deprecated
+         * @description Deprecated. The web app no longer uses it since manual Account-screen linking was retired; it is kept unchanged for existing API clients within /api/v1.
+         */
         get: operations["getOidcIdentity"];
         put?: never;
         post?: never;
@@ -70,7 +74,7 @@ export interface paths {
         put?: never;
         /**
          * Start OIDC login or account linking
-         * @description Requires canonical Origin. Link requires an active session and current local password. Duplicate flow cookies are ignored; one valid flow cookie enables latest-attempt-wins replacement.
+         * @description Requires canonical Origin. The `link` purpose is deprecated; the web app no longer offers manual Account-screen linking and first sign-ins connect existing accounts through the pending continuation instead. It is kept unchanged for existing API clients within /api/v1. Link requires an active session and current local password. Duplicate flow cookies are ignored; one valid flow cookie enables latest-attempt-wins replacement.
          */
         post: operations["startOidc"];
         delete?: never;
@@ -656,7 +660,7 @@ export interface components {
         OIDCIdentityStatus: {
             linked: boolean;
         };
-        /** @description currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem. invitationToken is accepted only for login, must reference a pending invitation, and is otherwise rejected with 422 invalid_invitation. */
+        /** @description The link purpose is deprecated (see startOidc). currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem. invitationToken is accepted only for login, must reference a pending invitation, and is otherwise rejected with 422 invalid_invitation. */
         OIDCStartRequest: {
             /** @enum {string} */
             purpose: "login" | "link";

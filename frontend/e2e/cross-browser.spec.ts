@@ -13,8 +13,7 @@ async function ready(page: Page, heading: string, path: string) {
   const loadingText = path === '/' ? en['app.loading']
     : path === '/items' || path.startsWith('/items/') ? en['items.loading']
       : path === '/people' ? en['subjects.loading']
-        : path === '/members' ? en['members.loading']
-          : path === '/account' ? en['account.oidc.loading'] : undefined;
+        : path === '/members' ? en['members.loading'] : undefined;
   if (loadingText) await expect(main.getByRole('status').filter({ hasText: loadingText })).toBeHidden();
   await expect(main.locator('[aria-busy="true"]')).toHaveCount(0);
   if (path === '/people') {

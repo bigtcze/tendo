@@ -919,7 +919,6 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.account'], exact: true }).click();
         await expect(page.getByRole('heading', { name: en['account.title'] })).toBeVisible();
         await expect(page.getByText(en['account.signedInAs'].replace('{login}', 'audit_owner'), { exact: true })).toBeVisible();
-        await expect(page.getByText(en['account.oidc.loading'], { exact: true })).toHaveCount(0);
         await capture(page, join(dir, `audit-account-en-${width}.png`));
       }
       await page.setViewportSize({ width: 640, height: 900 }); await page.goto('/');

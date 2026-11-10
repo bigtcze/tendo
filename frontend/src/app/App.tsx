@@ -53,7 +53,6 @@ export function App() {
         inviteToken={invite.inviteToken}
         allItemsVisit={routeState.allItemsVisit}
         transitioned={routeState.transitioned}
-        oidcOutcome={oidcOutcome}
         homeNotice={entry.notice}
         onDismissNotice={entry.clearNotice}
         onContinuePending={session.pendingSignedOut}

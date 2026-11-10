@@ -1,4 +1,4 @@
-import { chromium, expect, request, test, type BrowserContext, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
+import { chromium, expect, request, test, type BrowserContext, type ConsoleMessage, type Frame, type Locator, type Page, type Request } from '@playwright/test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1742,42 +1742,44 @@ test.describe('Tendo production journey', () => {
     } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
   });
 
-  test('n9. the owner connects the test identity provider from Account, then signs in with it; first logins choose an account', async ({ browser }) => {
+  test('n9. one-click provider sign-in replaces Account pairing; first logins choose an account', async ({ browser }) => {
     const provider = 'OIDC Smoke Provider';
     await page.goto('/');
-    await page.getByRole('link', { name: en['home.account'], exact: true }).click();
-    await expect(page).toHaveURL(/\/account$/);
-    await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
-    await waitForSettledHouseholdRequests(page);
-    const before = await page.request.get('/api/v1/auth/oidc/identity');
-    expect(await before.json()).toEqual({ linked: false });
-    await page.getByLabel(en['account.oidc.password']).fill(ownerPassword);
-    await page.getByRole('button', { name: en['account.oidc.connect'].replace('{provider}', provider) }).click();
-    // Real redirect chain: Tendo start -> provider authorize -> Tendo callback -> /account#oidc=connected.
-    await expect(page.getByText(en['account.oidc.connected'])).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe('/account');
-    expect(new URL(page.url()).hash).toBe('');
-    await expect(page.getByText(en['account.oidc.linked'].replace('{provider}', provider))).toBeVisible();
-    expect(await (await page.request.get('/api/v1/auth/oidc/identity')).json()).toEqual({ linked: true });
-    // Linking replaces the session: the earlier cookie is revoked server-side.
-    const fresh = await request.newContext({ baseURL });
+    const oidcRequests: string[] = [];
+    const recordOidcRequest = (request: Request) => {
+      const path = new URL(request.url()).pathname;
+      if (path.startsWith('/api/v1/auth/oidc')) oidcRequests.push(path);
+    };
+    page.on('request', recordOidcRequest);
     try {
-      expect((await fresh.get('/api/v1/session', { headers: { Cookie: `tendo_session=${sessionToken}` } })).status()).toBe(401);
+      await page.getByRole('link', { name: en['home.account'], exact: true }).click();
+      await expect(page).toHaveURL(/\/account$/);
+      await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(page);
+
+      // Account is settings only: no password field, no Connect button and no frontend request to the
+      // retired pairing endpoints. The legacy identity API is retained for other clients.
+      const main = page.getByRole('main');
+      await expect(main.getByText(en['account.signedInAs'].replace('{login}', ownerLogin), { exact: true })).toBeVisible();
+      await expect(main.getByRole('heading', { level: 2, name: en['account.identity.title'] })).toBeVisible();
+      await expect(main.locator('input')).toHaveCount(0);
+      await expect(main.getByRole('button', { name: /connect/i })).toHaveCount(0);
+      await expect(main.getByRole('heading', { name: new RegExp(provider) })).toHaveCount(0);
+      expect(oidcRequests, 'Account must not call the retired OIDC frontend API').toEqual([]);
+      // legacy API retained for existing clients (deprecated)
+      expect(await (await page.request.get('/api/v1/auth/oidc/identity')).json()).toEqual({ linked: false });
+      await page.setViewportSize({ width: 360, height: 740 });
+      try {
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
     } finally {
-      await fresh.dispose();
+      page.off('request', recordOidcRequest);
     }
-    sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
-    expect(sessionToken).not.toBe('');
-    await page.setViewportSize({ width: 360, height: 740 });
-    try {
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-    } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
 
     await page.getByRole('button', { name: en['header.signOut'] }).click();
     await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
     const oidcButton = page.getByRole('button', { name: en['login.oidc.submit'].replace('{provider}', provider) });
 
-    // An identity nobody connected is not refused any more: it lands on the first-login choice.
     const issuer = process.env.E2E_OIDC_ISSUER;
     if (!issuer) throw new Error('E2E_OIDC_ISSUER is required; run scripts/e2e-smoke.sh');
     const authorize = `${issuer}/authorize**`;
@@ -1788,7 +1790,17 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByText(en['oidc.error.cancelled'])).toBeVisible();
     await page.unroute(authorize);
 
+    // The legacy owner account has no stored email, so the first provider sign-in asks how to continue
+    // instead of attaching the identity automatically.
+    await page.route(authorize, (route) => route.continue({ url: `${route.request().url()}&sub=owner-subject` }));
     await oidcButton.click();
+    await expect(page.getByRole('heading', { level: 1, name: en['oidc.continue.title'].replace('{provider}', provider) })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/login');
+    await expect.poll(() => new URL(page.url()).hash).toBe('');
+    await page.getByRole('button', { name: en['oidc.continue.link.action'], exact: true }).click();
+    await page.getByLabel(en['oidc.continue.link.login'], { exact: true }).fill(ownerLogin);
+    await page.getByLabel(en['oidc.continue.link.password'], { exact: true }).fill(ownerPassword);
+    await page.getByRole('button', { name: en['oidc.continue.link.submit'], exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/');
     const signedIn = (await (await page.request.get('/api/v1/session')).json()) as { login: string; defaultHouseholdId: string };
@@ -1797,18 +1809,40 @@ test.describe('Tendo production journey', () => {
     sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
     expect(sessionToken).not.toBe('');
 
-    // Two fresh provider subjects exercise the first-login choice on isolated pages, so the shared
-    // console/response ledgers of this journey stay untouched.
-    const firstLoginContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
-    const visitor = await firstLoginContext.newPage();
+    // A previously linked identity signs in with one click and no continuation.
+    const continuationNavigations: string[] = [];
+    const recordMainFrameNavigation = (frame: Frame) => {
+      if (frame === page.mainFrame()) continuationNavigations.push(frame.url());
+    };
+    page.on('framenavigated', recordMainFrameNavigation);
+    try {
+      await page.getByRole('button', { name: en['header.signOut'] }).click();
+      await expect(page.getByRole('heading', { name: en['login.title'] })).toBeVisible();
+      await oidcButton.click();
+      await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe('/');
+    } finally {
+      page.off('framenavigated', recordMainFrameNavigation);
+    }
+    expect(
+      continuationNavigations.some((url) => new URL(url).hash === '#oidc=continue'),
+      'a linked identity never lands on the continuation',
+    ).toBe(false);
+    sessionToken = (await page.context().cookies()).find((cookie) => cookie.name === 'tendo_session')?.value ?? '';
+    expect(sessionToken).not.toBe('');
+    await page.unroute(authorize);
+
+    // First-login choice and the conflict row run on isolated pages, so the shared console/response
+    // ledgers of this journey stay untouched.
+    const visitorContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const visitor = await visitorContext.newPage();
     const visitorIssues: string[] = [];
     const visitorFailures: string[] = [];
     visitor.on('console', (message) => {
       if (message.type() !== 'error') return;
       const path = new URL(message.location().url || 'about:blank').pathname;
-      // The signed-out boot probe is expected; the deliberate 409 is asserted below.
+      // The signed-out boot probe is expected on every login landing.
       if (path === '/api/v1/session') return;
-      if (path === '/api/v1/auth/oidc/pending/link' && message.text().includes('409')) return;
       visitorIssues.push(`console: ${message.text()}`);
     });
     visitor.on('pageerror', (error) => visitorIssues.push(`pageerror: ${error.message}`));
@@ -1825,11 +1859,13 @@ test.describe('Tendo production journey', () => {
     try {
       await visitor.goto('/login');
       await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+
+      // An unverified provider email never auto-attaches to the account that already uses that address.
       await authorizeFor('unknown-subject');
       await providerButton.click();
       await expect(visitor.getByRole('heading', { level: 1, name: en['oidc.continue.title'].replace('{provider}', provider) })).toBeVisible();
       expect(new URL(visitor.url()).pathname).toBe('/login');
-      expect(new URL(visitor.url()).hash).toBe('');
+      await expect.poll(() => new URL(visitor.url()).hash).toBe('');
       await visitor.getByRole('button', { name: en['oidc.continue.create.action'], exact: true }).click();
       await expect(visitor.getByRole('heading', { level: 1, name: en['home.noHousehold.title'] })).toBeVisible();
       await expect(visitor.getByRole('button', { name: en['home.noHousehold.discard.action'] })).toBeVisible();
@@ -1838,31 +1874,38 @@ test.describe('Tendo production journey', () => {
       await visitor.setViewportSize({ width: 360, height: 740 });
       expect(await visitor.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '360px join-screen overflow').toBeLessThanOrEqual(0);
       await visitor.setViewportSize({ width: 1280, height: 720 });
-      const fresh = await visitor.request.get('/api/v1/session');
-      expect(fresh.status()).toBe(200);
-      const freshSession = await fresh.json() as { defaultHouseholdId?: string; login: string };
-      expect(freshSession.defaultHouseholdId).toBeUndefined();
-      expect(freshSession.login).toMatch(/^member-/);
+      const visitorSession = await visitor.request.get('/api/v1/session');
+      expect(visitorSession.status()).toBe(200);
+      const visitorBody = await visitorSession.json() as { defaultHouseholdId?: string; login: string };
+      expect(visitorBody.defaultHouseholdId).toBeUndefined();
+      expect(visitorBody.login).toMatch(/^member-/);
       await visitor.getByRole('button', { name: en['header.signOut'] }).click();
       await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
 
-      // Confirming with the owner's local credentials conflicts: the owner already uses this issuer.
+      // A verified address that belongs to an account with a different subject is refused at the callback:
+      // no continuation, no account, and a calm explanation on the ordinary password form.
       await authorizeFor('second-unknown-subject');
       await providerButton.click();
-      await expect(visitor.getByRole('heading', { level: 1, name: en['oidc.continue.title'].replace('{provider}', provider) })).toBeVisible();
-      await visitor.getByRole('button', { name: en['oidc.continue.link.action'], exact: true }).click();
-      await visitor.getByLabel(en['oidc.continue.link.login'], { exact: true }).fill(ownerLogin);
-      await visitor.getByLabel(en['oidc.continue.link.password'], { exact: true }).fill(ownerPassword);
-      await visitor.getByRole('button', { name: en['oidc.continue.link.submit'], exact: true }).click();
-      await expect(visitor.getByText(en['oidc.continue.error.conflict'], { exact: true })).toBeVisible();
-      await expect(visitor.getByRole('button', { name: en['oidc.continue.backToSignIn'] })).toBeVisible();
-      await visitor.getByRole('button', { name: en['oidc.continue.backToSignIn'] }).click();
-      await expect(visitor.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+      await expect(visitor.getByText(en['oidc.error.identity_conflict'], { exact: true })).toBeVisible();
+      expect(new URL(visitor.url()).pathname).toBe('/login');
+      await expect.poll(() => new URL(visitor.url()).hash).toBe('');
+      const passwordForm = visitor.getByRole('form', { name: en['login.heading'] });
+      await expect(passwordForm).toBeVisible();
+      expect((await visitor.request.get('/api/v1/session')).status(), 'the conflicted callback created no account or session').toBe(401);
 
-      expect(visitorFailures).toEqual(['POST /api/v1/auth/oidc/pending/link 409']);
+      // The password path still works when the provider cannot finish this sign-in.
+      await visitor.getByLabel(en['login.login'], { exact: true }).fill(ownerLogin);
+      await visitor.getByLabel(en['login.password'], { exact: true }).fill(ownerPassword);
+      await passwordForm.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      await expect(visitor.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+      const fallback = await visitor.request.get('/api/v1/session');
+      expect(fallback.status()).toBe(200);
+      expect(((await fallback.json()) as { login: string }).login).toBe(ownerLogin);
+
+      expect(visitorFailures).toEqual([]);
       expect(visitorIssues).toEqual([]);
     } finally {
-      await firstLoginContext.close();
+      await visitorContext.close();
     }
   });
 
@@ -2858,8 +2901,8 @@ test.describe('Tendo production journey', () => {
         await check(`Members ${width}`, [main.getByRole('button', { name: en['members.invite.action'], exact: true })], [main.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: ownerLogin }).first()]);
         await page.goto('/account');
         await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
-        // n9 already linked the owner, so Account has no primary action: assert the linked section content instead.
-        await check(`Account ${width}`, [], [main.getByRole('heading', { level: 2, name: en['account.oidc.title'].replace('{provider}', 'OIDC Smoke Provider') }), main.getByText(en['account.oidc.linked'].replace('{provider}', 'OIDC Smoke Provider'))]);
+        // Account is settings only since one-click provider sign-in retired the pairing section.
+        await check(`Account ${width}`, [], [main.getByRole('heading', { level: 2, name: en['account.identity.title'] }), main.getByText(en['account.signedInAs'].replace('{login}', ownerLogin))]);
 
         // SPA routes must also work as direct deep links after a reload and remain traversable
         // through the browser history. Every implemented signed-in route is sampled at each width;
@@ -3777,7 +3820,7 @@ test.describe('Tendo production journey', () => {
       { path: '/account', name: 'account', heading: en['account.title'], content: (target) => target.getByRole('main').getByRole('heading', { level: 2, name: en['account.identity.title'] }) },
     ];
     // A route is ready when its h1 and route-specific content are shown and no loading status remains.
-    const loadingTexts = [...new Set([en['app.loading'], en['home.loading'], en['items.loading'], en['members.loading'], en['subjects.loading'], en['account.oidc.loading']])];
+    const loadingTexts = [...new Set([en['app.loading'], en['home.loading'], en['items.loading'], en['members.loading'], en['subjects.loading']])];
     const expectReady = async (target: Page, route: { name: string; heading: string; content: (target: Page) => Locator }) => {
       await expect(target.getByRole('heading', { level: 1, name: route.heading }), `${route.name} heading`).toBeVisible();
       await expect(route.content(target), `${route.name} content`).toBeVisible();

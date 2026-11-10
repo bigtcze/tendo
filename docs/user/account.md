@@ -12,14 +12,14 @@ Some households set up a shared sign-in service, such as Pocket ID. When the adm
 
 ### The first time
 
-Select **Sign in with …** and approve the request at the identity provider. If this sign-in is already connected to your Tendo account, you go straight to your household. Otherwise Tendo shows **Finish signing in** with two choices:
+Select **Sign in with …** and approve the request at the identity provider. If this sign-in is already connected to your Tendo account, or the provider confirms an email address that Tendo already trusts for exactly one account, you go straight to your household. Otherwise Tendo shows **Finish signing in** with two choices:
 
 - **Use my existing account:** enter your Tendo username and password, then select **Connect and sign in**. Tendo connects the sign-in to that account and saves the verified email address from the identity provider, so you are recognized next time. If someone else's account already uses that address, Tendo signs you in but does not save it and tells you so.
 - **Create a new Tendo account:** Tendo creates an account with a generated username such as `member-k3x9q2ab` and no password. You sign in to it only with **Sign in with …**.
 
 **Finish signing in** lasts 10 minutes in the browser where you started. To leave without choosing, select **Cancel and sign in another way**.
 
-You can also connect from **Your account**: sign in with your password, enter it again under the identity provider section, and select **Connect …**.
+This is the only way to connect a sign-in to an account you already have; **Your account** has no separate connect step. After that one-time confirmation, **Sign in with …** takes you straight in, and your Tendo password keeps working too.
 
 ### Joining a household
 
@@ -39,13 +39,13 @@ While the new account has no household, select **I already have a Tendo account 
 
 | Message | What to do |
 | --- | --- |
-| That sign-in is already connected to another Tendo account. | Each provider account can be connected to only one Tendo login. Use the Tendo login it is already connected to. |
+| This sign-in can't be connected automatically … | The provider's email address belongs to a Tendo account that already uses a different sign-in from this provider, so Tendo did not connect or create anything. If that is your account, sign in with your Tendo password. If you don't have a Tendo account yet, ask your household administrator for an invite link. |
 | This sign-in is already connected to a Tendo account. Sign in with your password instead. | While you were finishing, this sign-in was connected elsewhere, for example in another tab. Start again. |
 | This sign-in attempt has expired. Sign in again to continue. | **Finish signing in** timed out, was completed in another tab, or had too many wrong passwords. Select **Sign in with …** again. |
 | You're signed in, but your email address wasn't saved to this account. | Another account already uses that address. The sign-in is connected and keeps working; only the address was not saved. |
 | That invitation is no longer valid. | You are signed in, but the invite had expired, was revoked, or was already used. Ask an administrator for a new link. |
 | Sign-in was cancelled. | Try again, or use your password. |
-| That sign-in attempt expired or was already used. | Start again from the sign-in or account screen. |
+| That sign-in attempt expired or was already used. / That sign-in attempt is no longer valid. | Start again: select **Sign in with …** on the sign-in screen. |
 | You signed in or out in another tab while this was in progress. | Start again in one tab. |
 | … can't be reached right now. | The identity provider is unavailable. Use your password. |
 | Other sign-in options couldn't be loaded. | Tendo couldn't check for the **Sign in with …** button. Choose **Try again**, or use your password. |

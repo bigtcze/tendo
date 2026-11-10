@@ -8,7 +8,6 @@ type StartFailure = Exclude<StartResult['kind'], 'redirect'>;
 
 const failureKeys: Record<StartFailure, MessageKey> = {
   invalidInvitation: 'invite.error.invalid',
-  wrongPassword: 'oidc.start.unavailable',
   unauthenticated: 'oidc.start.unavailable',
   alreadySignedIn: 'oidc.start.unavailable',
   disabled: 'oidc.start.disabled',

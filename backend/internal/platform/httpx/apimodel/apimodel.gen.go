@@ -1280,7 +1280,7 @@ type OIDCPendingStatus struct {
 	Invitation bool `json:"invitation"`
 }
 
-// OIDCStartRequest currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem. invitationToken is accepted only for login, must reference a pending invitation, and is otherwise rejected with 422 invalid_invitation.
+// OIDCStartRequest The link purpose is deprecated (see startOidc). currentPassword is required when purpose is link and must be absent when purpose is login; otherwise the server returns 422 OIDCValidationProblem. invitationToken is accepted only for login, must reference a pending invitation, and is otherwise rejected with 422 invalid_invitation.
 type OIDCStartRequest struct {
 	// CurrentPassword Maximum 512 UTF-8 bytes.
 	CurrentPassword *string `json:"currentPassword,omitempty"`
