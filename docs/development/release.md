@@ -6,7 +6,7 @@
 
 1. Work on a focused branch; `main` is protected and accepts changes only through pull requests.
 2. Run the complete local gate: `bash scripts/dev-exec.sh -- bash scripts/verify-local.sh` (see [testing](testing.md)).
-3. Open a pull request. The `required` GitHub Actions workflow (`.github/workflows/required.yml`) must pass, and the branch must be current with `main`, before merge. It covers backend unit, race, and real-PostgreSQL integration tests; sqlc and API generation drift; OpenAPI validation; frontend checks; and production-image smokes for runtime, setup, OIDC, all three reverse proxies, backup and restore, the documented quick start, and the Playwright browser journeys.
+3. Open a pull request. The `required` GitHub Actions workflow (`.github/workflows/required.yml`) must pass, and the branch must be current with `main`, before merge. It covers backend unit, race, and real-PostgreSQL integration tests; sqlc and API generation drift; OpenAPI validation; frontend checks; and production-image smokes for runtime, setup, database startup, OIDC, all three reverse proxies, backup and restore, the documented quick start, and the Playwright browser journeys.
 4. After merge, the same workflow runs on `main`. A red `main` is fixed before other work.
 
 The deployment smokes build the app from the checkout with `deploy/compose.build.yaml` layered over `compose.yaml`. Use the same override to run a local build: `docker compose -f compose.yaml -f deploy/compose.build.yaml up -d --build --wait`.
@@ -40,6 +40,6 @@ Tags are never moved or reused. A fix is a new patch release.
 - Database migrations are forward-only and must upgrade an existing database without data loss. Each new migration ships with an upgrade test from the previous schema version.
 - The app refuses to start on a database that is older, newer, or partially migrated (see [troubleshooting](../admin/troubleshooting.md#the-database-is-not-ready)).
 - Configuration changes update `.env.example`, `compose.yaml`, and the [configuration reference](../admin/configuration.md) in the same pull request. New settings default to safe behavior when unset.
-- `compose.yaml` is a release asset that self-hosters run unchanged. It must not reference files from the repository; the PostgreSQL role setup is inlined for that reason.
+- `compose.yaml` is a release asset that self-hosters run unchanged. It must not reference files from the repository; the database role bootstrap and embedded migrations live inside the app image for that reason.
 - Public API changes follow `api/openapi.yaml` and the [API conventions](api.md).
 - Behavior changes update the user or admin guide that describes them.

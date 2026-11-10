@@ -7,8 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
@@ -27,7 +25,6 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/platform/httporigin"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
-	"github.com/bigtcze/tendo/backend/internal/platform/webui"
 	subjectapp "github.com/bigtcze/tendo/backend/internal/subject"
 	subjecthttp "github.com/bigtcze/tendo/backend/internal/subject/httpapi"
 	subjectpostgres "github.com/bigtcze/tendo/backend/internal/subject/postgres"
@@ -46,15 +43,30 @@ type runtimeResources struct {
 }
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == "migrate" {
-		if err := migrate(); err != nil {
-			slog.Error("migration failed", "error", err)
-			os.Exit(1)
+	if len(os.Args) == 2 {
+		switch os.Args[1] {
+		case "migrate":
+			// Used by the native end-to-end runner, where DATABASE_URL is the
+			// administrator connection.
+			exitOnError("migration failed", migrate)
+			return
+		case "ensure-role":
+			exitOnError("role bootstrap failed", ensureRole)
+			return
+		case "healthcheck":
+			exitOnError("healthcheck failed", healthcheck)
+			return
 		}
-		return
 	}
-	if err := run(); err != nil {
-		slog.Error("runtime failed", "error", err)
+	exitOnError("runtime failed", run)
+}
+
+// exitOnError reports the operator-facing failure and exits non-zero. The
+// command functions return value-free messages, so credentials never reach the
+// log.
+func exitOnError(message string, command func() error) {
+	if err := command(); err != nil {
+		slog.Error(message, "error", err)
 		os.Exit(1)
 	}
 }
@@ -75,48 +87,6 @@ func migrate() error {
 		return errors.New("migration database unavailable")
 	}
 	return database.Migrate(ctx, pool)
-}
-
-func run() error {
-	return runWithConfig(config.Load)
-}
-
-func runWithConfig(loadConfig func() (config.Config, error)) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		return errors.New("invalid database configuration")
-	}
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		return errors.New("database pool initialization failed")
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	startupCtx, startupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := database.ValidateSchema(startupCtx, pool); err != nil {
-		startupCancel()
-		pool.Close()
-		return errors.New("database schema validation failed")
-	}
-	startupCancel()
-	draining := make(chan struct{})
-	routes := chi.NewRouter()
-	if err := registerAPI(routes, cfg, pool); err != nil {
-		pool.Close()
-		return err
-	}
-	app := httpx.NewAppWithUI(pool, cfg.DBTimeout, draining, httpx.OriginPolicy{PublicURL: cfg.PublicURL, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs}, func(r chi.Router) { r.Mount("/", routes) }, webui.Handler())
-	srv := newRuntimeServer(cfg.ListenAddr, app, cfg.DBTimeout)
-	listener, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		pool.Close()
-		return err
-	}
-	return serve(ctx, listener, runtimeResources{server: srv, pool: pool}, draining, cfg.ShutdownTimeout)
 }
 
 // registerAPI composes every /api/v1 route with its authentication middleware.

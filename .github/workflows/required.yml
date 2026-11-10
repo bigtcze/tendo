@@ -294,6 +294,8 @@ jobs:
       matrix:
         include:
           - smoke: setup-smoke
+          - smoke: compose-startup-smoke
+            timeout: 900
           - smoke: oidc-smoke
           - smoke: proxy-smoke
             timeout: 720
@@ -304,6 +306,9 @@ jobs:
             timeout: 900
           - smoke: upgrade-smoke
             from: v2.1.0
+            timeout: 900
+          - smoke: upgrade-smoke
+            from: v3.0.0
             timeout: 900
           - smoke: quickstart-smoke
     steps:
