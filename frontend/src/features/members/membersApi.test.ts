@@ -65,3 +65,15 @@ describe('403 without a recognised admin code', () => {
     expect(await revokeInvitation('household', 'invitation')).toBe('rejected');
   });
 });
+
+describe('listInvitations query', () => {
+  it('asks the server to hide expired invitations on every page', async () => {
+    get.mockResolvedValue({ data: { items: [], nextCursor: null }, response: { status: 200 } });
+    await listInvitations('household');
+    await listInvitations('household', 'next-page');
+    expect(get.mock.calls.map(([, init]) => (init as { params: { query: unknown } }).params.query)).toEqual([
+      { limit: 50, includeExpired: false },
+      { limit: 50, includeExpired: false, cursor: 'next-page' },
+    ]);
+  });
+});

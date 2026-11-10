@@ -25,12 +25,13 @@ func (*membersStub) ListMembers(context.Context, string, string, string, int) ([
 }
 
 type invitationFakeService struct {
-	create identity.InvitationResult
-	items  []identity.Invitation
-	next   string
-	user   identity.InvitationUser
-	err    error
-	calls  int
+	create         identity.InvitationResult
+	items          []identity.Invitation
+	next           string
+	user           identity.InvitationUser
+	err            error
+	calls          int
+	includeExpired bool
 }
 
 func (f *invitationFakeService) CreateInvitation(context.Context, string, string, string) (identity.InvitationResult, error) {
@@ -41,8 +42,9 @@ func (f *invitationFakeService) CreateInvitation(context.Context, string, string
 	}
 	return r, f.err
 }
-func (f *invitationFakeService) ListInvitations(context.Context, string, string, int, string) ([]identity.Invitation, string, error) {
+func (f *invitationFakeService) ListInvitations(_ context.Context, _, _ string, _ int, _ string, includeExpired bool) ([]identity.Invitation, string, error) {
 	f.calls++
+	f.includeExpired = includeExpired
 	return f.items, f.next, f.err
 }
 func (f *invitationFakeService) RevokeInvitation(context.Context, string, string, string) error {
@@ -201,6 +203,28 @@ func TestInvitationHTTPCreateRetryListAndRevokeExactResponses(t *testing.T) {
 	w = req(r, "DELETE", "/api/v1/households/"+hid+"/invitations/"+iid, "", "", nil)
 	if w.Code != 204 || w.Body.Len() != 0 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("revoke=%d headers=%v body=%q", w.Code, w.Header(), w.Body.String())
+	}
+}
+func TestInvitationListIncludeExpiredQuery(t *testing.T) {
+	hid := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+	path := "/api/v1/households/" + hid + "/invitations"
+	for _, tc := range []struct {
+		name, query string
+		want        bool
+	}{{"absent defaults to full list", "", true}, {"explicit true", "?includeExpired=true", true}, {"explicit false", "?includeExpired=false&limit=5", false}} {
+		f := &invitationFakeService{includeExpired: !tc.want}
+		w := req(makeRouter(f, nilAuth, true), "GET", path+tc.query, "", "", nil)
+		if w.Code != 200 || f.calls != 1 || f.includeExpired != tc.want {
+			t.Fatalf("%s: status=%d calls=%d includeExpired=%v body=%s", tc.name, w.Code, f.calls, f.includeExpired, w.Body.String())
+		}
+	}
+	for _, query := range []string{"?includeExpired=", "?includeExpired=yes", "?includeExpired=TRUE", "?includeExpired=1", "?includeExpired=true&includeExpired=false"} {
+		f := &invitationFakeService{}
+		w := req(makeRouter(f, nilAuth, true), "GET", path+query, "", "", nil)
+		assertInvitationProblem(t, w, 400, "invalid_query")
+		if m := bodyMap(t, w); m["parameter"] != "includeExpired" || f.calls != 0 {
+			t.Fatalf("%s: body=%v calls=%d", query, m, f.calls)
+		}
 	}
 }
 func nilAuth(next http.Handler) http.Handler { return next }

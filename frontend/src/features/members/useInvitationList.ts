@@ -30,7 +30,8 @@ export function useInvitationList(householdId: string, core: MembersCore) {
     if (page.kind === 'ok') {
       // Only administrators can list invitations, so a successful list also settles an unknown role.
       setAdmin(true);
-      setInvitations(page.items);
+      // The server already omits expired invitations before paging; this guard keeps any that slip through hidden.
+      setInvitations(page.items.filter((invitation) => invitation.status !== 'expired'));
       setInvitationCursor(page.nextCursor);
       setCurrentInvitationCursor(cursor || undefined);
       setInvitationStack(stack ?? []);

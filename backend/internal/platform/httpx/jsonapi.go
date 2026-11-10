@@ -135,6 +135,16 @@ func parseCursor(values []string, present bool) (string, bool) {
 	return values[0], true
 }
 
+// ParseQueryBool parses an endpoint-specific boolean query parameter (url.Values[name])
+// with the same strict rules as the common filters: one lowercase true or false value.
+// An absent parameter yields fallback; ok is false for any other shape.
+func ParseQueryBool(values []string, fallback bool) (value, ok bool) {
+	if len(values) == 0 {
+		return fallback, true
+	}
+	return parseQueryBool(values, true)
+}
+
 func parseQueryBool(values []string, present bool) (bool, bool) {
 	if !present {
 		return false, true

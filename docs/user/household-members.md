@@ -20,7 +20,7 @@ Each link:
 - expires after seven days,
 - always joins the person as a member, not an administrator.
 
-The **Invitations** list shows each invite as pending, accepted, revoked, or expired. Select **Revoke** on a pending invite if it should no longer be used. Tendo asks **Revoke?**; choose **Yes** to continue or **Cancel** to keep the invite. Revoking an accepted invite does not remove the member.
+The **Invitations** list shows each invite as pending, accepted, or revoked. An invite that expired before anyone used it no longer appears in the list or its pages; it still cannot be used, and Tendo keeps its record. If you still want that person to join, create a new invite link. Select **Revoke** on a pending invite if it should no longer be used. Tendo asks **Revoke?**; choose **Yes** to continue or **Cancel** to keep the invite. Revoking an accepted invite does not remove the member.
 
 If the link could not be shown, for example because the connection dropped, select **Check again**. If the invite was created, Tendo cannot show its link again, but it offers to revoke that invite so you can create a new one.
 

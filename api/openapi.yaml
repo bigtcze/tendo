@@ -535,6 +535,7 @@ paths:
     get:
       operationId: listInvitations
       summary: List household invitations
+      description: Lists the household's invitations in stable ID order for an administrator. Status is derived at one server instant per request. With includeExpired=false, invitations that were never accepted or revoked and whose expiresAt is at or before that instant are excluded before the page limit is applied, so every page is filled from the remaining invitations and nextCursor is present only when more of them follow. Excluded rows stay stored and unusable; they are only omitted from this response.
       tags: [Households]
       security: [{ SessionCookie: [] }]
       parameters:
@@ -542,14 +543,19 @@ paths:
         - { $ref: '#/components/parameters/HouseholdId' }
         - { $ref: '#/components/parameters/Limit' }
         - { $ref: '#/components/parameters/Cursor' }
+        - name: includeExpired
+          in: query
+          required: false
+          description: true (default, for compatibility) lists every invitation; false omits expired invitations. A cursor may be reused with either value because it only names the last returned ID.
+          schema: { type: boolean, default: true }
       responses:
         '200':
-          description: Owner invitation list. Tokens are never included.
+          description: Administrator invitation list. Tokens are never included.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/json: { schema: { $ref: '#/components/schemas/InvitationList' } }
         '400':
-          description: Invalid pagination query (invalid_query with parameter limit or cursor) or malformed forwarded metadata.
+          description: Invalid pagination query (invalid_query with parameter limit, cursor or includeExpired; includeExpired accepts exactly one lowercase true or false) or malformed forwarded metadata.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:

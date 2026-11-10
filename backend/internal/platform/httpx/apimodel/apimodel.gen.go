@@ -1695,6 +1695,9 @@ type ListInvitationsParams struct {
 	// Cursor Opaque cursor copied from a previous nextCursor. Do not construct or parse it.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
+	// IncludeExpired true (default, for compatibility) lists every invitation; false omits expired invitations. A cursor may be reused with either value because it only names the last returned ID.
+	IncludeExpired *bool `form:"includeExpired,omitempty" json:"includeExpired,omitempty"`
+
 	// XRequestID Optional caller-supplied correlation ID.
 	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }

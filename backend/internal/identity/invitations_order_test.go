@@ -27,6 +27,7 @@ type invitationRecordingRepo struct {
 	other                                                     bool
 	writeErr                                                  map[string]error
 	listRows                                                  []Invitation
+	listActiveAt                                              *time.Time
 	listLimit                                                 int
 	now                                                       time.Time
 	listHousehold, listCursor                                 string
@@ -81,8 +82,9 @@ func (t *invitationRecordingTx) CreateInvitation(_ context.Context, in CreateInv
 	}
 	return Invitation{ID: testHouse, HouseholdID: in.HouseholdID, CreatedByUserID: in.ActorID, CreatedAt: in.CreatedAt, ExpiresAt: in.ExpiresAt}, true, nil
 }
-func (t *invitationRecordingTx) ListInvitations(_ context.Context, householdID, cursor string, limit int) ([]Invitation, string, error) {
+func (t *invitationRecordingTx) ListInvitations(_ context.Context, householdID, cursor string, activeAt *time.Time, limit int) ([]Invitation, string, error) {
 	t.repo.record("list")
+	t.repo.listActiveAt = activeAt
 	t.repo.listLimit = limit
 	t.repo.listHousehold, t.repo.listCursor = householdID, cursor
 	return t.repo.listRows, "", nil
@@ -325,7 +327,7 @@ func TestInvitationListUsesBoundedLookaheadAndOwnerAuthorization(t *testing.T) {
 	rows := []Invitation{{ID: testActor, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}}
 	repo := &invitationRecordingRepo{invitationFake: invitationFake{}, listRows: rows, writeErr: map[string]error{}}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
-	items, next, err := service.ListInvitations(context.Background(), testActor, testHouse, 1000, "")
+	items, next, err := service.ListInvitations(context.Background(), testActor, testHouse, 1000, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +338,7 @@ func TestInvitationListUsesBoundedLookaheadAndOwnerAuthorization(t *testing.T) {
 
 	repo.calls = nil
 	repo.listRows = rows
-	items, next, err = service.ListInvitations(context.Background(), testActor, testHouse, 1, "")
+	items, next, err = service.ListInvitations(context.Background(), testActor, testHouse, 1, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +515,7 @@ func TestInvitationListCursorLookaheadAndValidation(t *testing.T) {
 	rows := []Invitation{{ID: testActor}, {ID: testHouse}, {ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b6f"}}
 	repo := &invitationRecordingRepo{listRows: rows}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
-	items, next, err := service.ListInvitations(context.Background(), testActor, testHouse, 2, "")
+	items, next, err := service.ListInvitations(context.Background(), testActor, testHouse, 2, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,21 +523,41 @@ func TestInvitationListCursorLookaheadAndValidation(t *testing.T) {
 		t.Fatalf("items=%+v next=%q", items, next)
 	}
 	cursor := encodeInvitationCursor(testActor)
-	_, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 2, cursor)
+	_, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 2, cursor, true)
 	if err != nil || repo.listCursor != testActor {
 		t.Fatalf("cursor=%q err=%v", repo.listCursor, err)
 	}
-	_, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 0, "")
+	_, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 0, "", true)
 	if err != nil || repo.listLimit != 51 {
 		t.Fatalf("limit=%d err=%v", repo.listLimit, err)
 	}
 	repo.calls = nil
-	_, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 2, "invalid")
+	_, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 2, "invalid", true)
 	var validation *ValidationError
 	if !errors.As(err, &validation) || validation.Field != "cursor" || validation.Code != "invalid_format" {
 		t.Fatalf("error=%v", err)
 	}
 	assertInvitationCalls(t, repo.calls, nil)
+}
+
+func TestInvitationListActiveFilterUsesOneClockSample(t *testing.T) {
+	sampled := invitationInstant.Add(1500 * time.Millisecond)
+	clockCalls := 0
+	repo := &invitationRecordingRepo{listRows: []Invitation{{ID: testActor, ExpiresAt: sampled}}}
+	service, _ := NewInvitationService(repo, func() time.Time { clockCalls++; return sampled })
+	items, _, err := service.ListInvitations(context.Background(), testActor, testHouse, 2, "", false)
+	want := sampled.UTC().Truncate(time.Second)
+	if err != nil || clockCalls != 1 || repo.listActiveAt == nil || !repo.listActiveAt.Equal(want) {
+		t.Fatalf("err=%v clockCalls=%d activeAt=%v want %v", err, clockCalls, repo.listActiveAt, want)
+	}
+	// The same sample decides status: a row expiring after the truncated instant is still pending.
+	if len(items) != 1 || items[0].Status != "pending" {
+		t.Fatalf("items=%+v", items)
+	}
+	clockCalls = 0
+	if _, _, err = service.ListInvitations(context.Background(), testActor, testHouse, 2, "", true); err != nil || clockCalls != 1 || repo.listActiveAt != nil {
+		t.Fatalf("full list err=%v clockCalls=%d activeAt=%v", err, clockCalls, repo.listActiveAt)
+	}
 }
 
 func TestRevokePassesUTCSecondPrecision(t *testing.T) {

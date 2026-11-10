@@ -216,14 +216,17 @@ func (q *Queries) InvitationExistsInHousehold(ctx context.Context, arg Invitatio
 
 const listInvitations = `-- name: ListInvitations :many
 SELECT id::text, household_id::text, created_by_user_id::text, creation_key, token_hash, created_at, expires_at, accepted_at, revoked_at
-FROM household_invitations WHERE household_id=$1 AND ($2::uuid IS NULL OR id > $2::uuid)
-ORDER BY id LIMIT $3
+FROM household_invitations
+WHERE household_id=$1 AND ($2::uuid IS NULL OR id > $2::uuid)
+  AND ($3::timestamptz IS NULL OR accepted_at IS NOT NULL OR revoked_at IS NOT NULL OR expires_at > $3::timestamptz)
+ORDER BY id LIMIT $4
 `
 
 type ListInvitationsParams struct {
 	HouseholdID pgtype.UUID
-	Column2     pgtype.UUID
-	Limit       int32
+	AfterID     pgtype.UUID
+	ActiveAt    pgtype.Timestamptz
+	RowLimit    int32
 }
 
 type ListInvitationsRow struct {
@@ -239,7 +242,12 @@ type ListInvitationsRow struct {
 }
 
 func (q *Queries) ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error) {
-	rows, err := q.db.Query(ctx, listInvitations, arg.HouseholdID, arg.Column2, arg.Limit)
+	rows, err := q.db.Query(ctx, listInvitations,
+		arg.HouseholdID,
+		arg.AfterID,
+		arg.ActiveAt,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

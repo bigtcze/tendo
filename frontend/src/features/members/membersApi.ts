@@ -25,9 +25,10 @@ export async function listMembers(householdId: string, cursor?: string): Promise
   return { kind: 'error' };
 }
 
+/** Lists invitations an administrator can still act on or needs as history; expired pending links are hidden server-side before paging. */
 export async function listInvitations(householdId: string, cursor?: string): Promise<PageResult<Invitation>> {
   try {
-    const { data, error, response } = await api.GET(invitationsPath, { params: { path: { householdId }, query: { limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) } } });
+    const { data, error, response } = await api.GET(invitationsPath, { params: { path: { householdId }, query: { limit: PAGE_SIZE, includeExpired: false, ...(cursor ? { cursor } : {}) } } });
     if (data && response.status === 200) return { kind: 'ok', items: data.items, nextCursor: data.nextCursor };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };

@@ -70,7 +70,7 @@ func (t *transportInvitationTx) CreateInvitation(_ context.Context, in identity.
 	t.r.digests[string(in.TokenHash)] = id
 	return inv, true, nil
 }
-func (t *transportInvitationTx) ListInvitations(context.Context, string, string, int) ([]identity.Invitation, string, error) {
+func (t *transportInvitationTx) ListInvitations(context.Context, string, string, *time.Time, int) ([]identity.Invitation, string, error) {
 	var out []identity.Invitation
 	for _, v := range t.r.rows {
 		out = append(out, v)

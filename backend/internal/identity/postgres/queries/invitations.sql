@@ -17,8 +17,10 @@ FROM household_invitations WHERE token_hash=$1 FOR UPDATE;
 
 -- name: ListInvitations :many
 SELECT id::text, household_id::text, created_by_user_id::text, creation_key, token_hash, created_at, expires_at, accepted_at, revoked_at
-FROM household_invitations WHERE household_id=$1 AND ($2::uuid IS NULL OR id > $2::uuid)
-ORDER BY id LIMIT $3;
+FROM household_invitations
+WHERE household_id=sqlc.arg('household_id') AND (sqlc.narg('after_id')::uuid IS NULL OR id > sqlc.narg('after_id')::uuid)
+  AND (sqlc.narg('active_at')::timestamptz IS NULL OR accepted_at IS NOT NULL OR revoked_at IS NOT NULL OR expires_at > sqlc.narg('active_at')::timestamptz)
+ORDER BY id LIMIT sqlc.arg('row_limit');
 
 -- name: RevokeInvitation :execrows
 UPDATE household_invitations SET revoked_at=$3 WHERE household_id=$1 AND id=$2 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $3;

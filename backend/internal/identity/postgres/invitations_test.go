@@ -402,7 +402,7 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	seen := map[string]bool{}
 	var ids []string
 	for p := 0; p < 3; p++ {
-		rows, next, e := svc.ListInvitations(ctx, owner, house, 2, cursor)
+		rows, next, e := svc.ListInvitations(ctx, owner, house, 2, cursor, true)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -418,7 +418,7 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	if len(seen) != 5 {
 		t.Fatalf("rows=%d", len(seen))
 	}
-	if _, _, e := svc.ListInvitations(ctx, owner, house, 2, "bad"); e == nil {
+	if _, _, e := svc.ListInvitations(ctx, owner, house, 2, "bad", true); e == nil {
 		t.Fatal("invalid cursor accepted")
 	}
 	var other string
@@ -491,7 +491,7 @@ func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 		_, createErr := service.CreateInvitation(ctx, outsider, foreignHouse, "outsider-create")
 		return createErr
 	}}, {"foreign list", func() error {
-		_, _, listErr := service.ListInvitations(ctx, outsider, foreignHouse, 20, "")
+		_, _, listErr := service.ListInvitations(ctx, outsider, foreignHouse, 20, "", true)
 		return listErr
 	}}, {"foreign revoke", func() error {
 		return service.RevokeInvitation(ctx, outsider, foreignHouse, foreignCreated.Invitation.ID)
@@ -547,7 +547,7 @@ func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.
 	if _, e = svc.CreateInvitation(ctx, member, house, "denied"); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member create=%v", e)
 	}
-	if _, _, e = svc.ListInvitations(ctx, member, house, 10, ""); !errors.Is(e, household.ErrAdminRequired) {
+	if _, _, e = svc.ListInvitations(ctx, member, house, 10, "", true); !errors.Is(e, household.ErrAdminRequired) {
 		t.Fatalf("member list=%v", e)
 	}
 	if e = svc.RevokeInvitation(ctx, member, house, inv.Invitation.ID); !errors.Is(e, household.ErrAdminRequired) {
@@ -601,7 +601,7 @@ func TestInvitationPostgresExpiryStatusesAndClockBoundaries(t *testing.T) {
 		t.Fatal(e)
 	}
 	clock = boundary.Invitation.ExpiresAt.Add(time.Second)
-	rows, _, e := svc.ListInvitations(ctx, owner, house, 100, "")
+	rows, _, e := svc.ListInvitations(ctx, owner, house, 100, "", true)
 	if e != nil {
 		t.Fatal(e)
 	}

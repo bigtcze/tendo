@@ -36,7 +36,7 @@ function InvitationsBody({ inv, actions, listReady, notice, formatDate, t }: {
   if (!listReady) return <p role="status" className="mt-3 text-small text-muted">{t('members.loading')}</p>;
   if (inv.invitationsError) return <InvitationsError className="mt-3 rounded-xl border border-line bg-paper p-4" notice={notice} onRetry={inv.refreshInvitations} t={t} />;
   if (inv.invitations.length) return <InvitationRows invitations={inv.invitations} actions={actions} formatDate={formatDate} t={t} />;
-  return <div className="mt-3"><EmptyState title={t('members.invitations.empty')} /></div>;
+  return <div className="mt-3"><EmptyState title={t('members.invitations.empty')}>{t('members.invitations.emptyExpiredNote')}</EmptyState></div>;
 }
 
 export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: {
