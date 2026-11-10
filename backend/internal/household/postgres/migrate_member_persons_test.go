@@ -173,6 +173,14 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='subjects_member_person_unique')`).Scan(&uniqueIndex); err != nil || !uniqueIndex {
 		t.Fatalf("unique member-person index=%v err=%v", uniqueIndex, err)
 	}
+	var runtimeSelect, runtimeInsert, runtimeUpdate, runtimeDelete bool
+	if err := admin.QueryRow(ctx, `SELECT
+		has_table_privilege('tendo','member_person_migration_unlinks','SELECT'),
+		has_table_privilege('tendo','member_person_migration_unlinks','INSERT'),
+		has_table_privilege('tendo','member_person_migration_unlinks','UPDATE'),
+		has_table_privilege('tendo','member_person_migration_unlinks','DELETE')`).Scan(&runtimeSelect, &runtimeInsert, &runtimeUpdate, &runtimeDelete); err != nil || runtimeSelect || runtimeInsert || runtimeUpdate || runtimeDelete {
+		t.Fatalf("runtime audit privileges select=%v insert=%v update=%v delete=%v err=%v", runtimeSelect, runtimeInsert, runtimeUpdate, runtimeDelete, err)
+	}
 
 	// Re-running Migrate is a no-op.
 	var ledgerBefore int

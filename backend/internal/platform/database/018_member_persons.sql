@@ -8,13 +8,15 @@ LOCK TABLE household_memberships, subjects IN SHARE ROW EXCLUSIVE MODE;
 
 -- Lossless audit of non-canonical duplicate links. Rows are never deleted or
 -- merged; only the descriptive linked_user_id is cleared. Administrator-only.
+-- No grants: PostgreSQL tables grant PUBLIC nothing by default and the runtime
+-- role `tendo` receives no privilege here. Removing the explicit REVOKE keeps
+-- the ACL default (NULL relacl), so pg_dump/restore reproduce it exactly.
 CREATE TABLE member_person_migration_unlinks (
  subject_id uuid PRIMARY KEY REFERENCES subjects(id) ON DELETE CASCADE,
  household_id uuid NOT NULL,
  user_id uuid NOT NULL,
  unlinked_at timestamptz NOT NULL DEFAULT now()
 );
-REVOKE ALL ON member_person_migration_unlinks FROM PUBLIC;
 
 -- Canonical link per (household, member) is the earliest-created subject.
 -- Every other linked duplicate is unlinked and recorded; names, creation
