@@ -200,8 +200,10 @@ psql_at "REVOKE pg_write_all_data FROM tendo" >/dev/null
 restart_and_wait
 printf 'Existing role membership refusal and recovery passed.\n'
 
-# DATABASE_URL naming the administrator is refused even with a valid admin URL.
-expect_failure admin-serving-role 'database serving role is not restricted' -e "DATABASE_URL=$admin_url"
+# Serving as the administrator is refused: with both URLs naming the same user configuration
+# validation rejects it, and without the admin URL the serving-role check refuses the superuser.
+expect_failure admin-same-user 'TENDO_DATABASE_ADMIN_URL must use a different user than DATABASE_URL' -e "DATABASE_URL=$admin_url"
+expect_failure admin-serving-role 'database serving role has elevated privileges or role memberships' -e "DATABASE_URL=$admin_url" -e TENDO_DATABASE_ADMIN_URL=
 [[ "$(psql_at "SELECT setup_required FROM installation_state")" == f ]] || { printf 'Failure cases lost database data\n' >&2; exit 1; }
 
 # Concurrent starts on a fresh volume: the advisory lock serializes the ledger; both serve.
@@ -217,7 +219,7 @@ concurrent_ledger=$(psql_at "SELECT count(*)::text||':'||max(version)::text||':'
 [[ "$concurrent_ledger" == "${migration_count}:${migration_count}:false" ]] \
   || { printf 'Concurrent ledger is %s, expected %s\n' "$concurrent_ledger" "${migration_count}:${migration_count}:false" >&2; exit 1; }
 for name in "$name_a" "$name_b"; do
-  docker logs "$name" >"$temp_dir/$name.log" 2>&1 || true
+  docker logs "$name" >"$temp_dir/$name.log" 2>&1
   if grep -Fq 'runtime failed' "$temp_dir/$name.log"; then
     printf 'Concurrent app %s logged a startup failure\n' "$name" >&2
     cat "$temp_dir/$name.log" >&2

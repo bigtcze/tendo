@@ -19,7 +19,7 @@ The 4.0 design simplifies the deployment to exactly two services, PostgreSQL and
   4. apply the existing embedded migrations with their advisory lock, ledger, transaction and dirty/newer refusal semantics;
   5. close the privileged connection;
   6. open the restricted pool, run the serving-role restriction check, validate the schema, and only then listen.
-- Any failure exits non-zero with a safe message such as `database administrator connection failed`, `database runtime role tendo has elevated privileges or role memberships`, `database serving role is not restricted`, `database has a dirty migration` or `database schema is newer than this application`.
+- Any failure exits non-zero with a safe message such as `database administrator connection failed`, `database runtime role tendo has elevated privileges or role memberships`, `database serving role has elevated privileges or role memberships`, `database has a dirty migration` or `database schema is newer than this application`.
 - Without the admin URL, as in native tests and `go run`, no bootstrap or migration runs; the app performs the serving-role check and schema validation before serving.
 - The image's `/tendo healthcheck` subcommand lets Compose prove readiness without a shell in the distroless image. Compose uses it to make `docker compose up -d --wait` wait until bootstrap and migrations have completed.
 - Restoring a dump into an empty database uses `/tendo ensure-role`, which bootstraps only the role, before `pg_restore` and the normal app start.

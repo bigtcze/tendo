@@ -29,7 +29,7 @@ The deployment has exactly two services, `postgres` and `app`; there is no `migr
 | `database schema validation failed` | See [the database is not ready](#the-database-is-not-ready) below. |
 | `database administrator connection failed` | The app could not connect as the PostgreSQL administrator during startup. Check that `postgres` is healthy and that `POSTGRES_PASSWORD` still matches the value the data volume was created with. |
 | `database runtime role tendo has elevated privileges or role memberships` | The restricted role was changed outside Tendo. Remove the elevated attributes or role memberships, or restore a backup. |
-| `database serving role is not restricted` | `DATABASE_URL` does not name the restricted `tendo` role, for example because a custom Compose override points it at the administrator. Restore the published `compose.yaml` environment. |
+| `database serving role has elevated privileges or role memberships` | `DATABASE_URL` does not name the restricted `tendo` role, for example because a custom Compose override points it at the administrator. Restore the published `compose.yaml` environment. |
 
 After fixing `.env`, apply it with `docker compose up -d --wait`.
 
@@ -42,7 +42,7 @@ The app logs `database schema validation failed` when it cannot use the database
 3. **Did the administrator connection fail?** `database administrator connection failed` means the app could not connect as the PostgreSQL administrator to create the runtime role or migrate. Check `docker compose ps postgres` and `POSTGRES_PASSWORD`.
 4. **Is the database schema newer than the app supports?** After going back to an older Tendo across a schema change, startup logs `database schema is newer than this application`. Return to the newer Tendo, or restore a backup that matches the older version; see [update](update.md#go-back-to-an-earlier-version).
 5. **Does startup report `database has a dirty migration`?** Tendo refuses to use this database and never repairs it silently. Do not clear migration flags or edit the schema by hand. Restore your latest backup into a fresh installation; see [back up and restore](backup-restore.md).
-6. **Does startup report an elevated or connected runtime role?** `database runtime role tendo has elevated privileges or role memberships` or `database serving role is not restricted` means the restricted role or `DATABASE_URL` was changed outside the published setup. Revert the change, or restore a backup.
+6. **Does startup report an elevated or connected runtime role?** `database runtime role tendo has elevated privileges or role memberships` or `database serving role has elevated privileges or role memberships` means the restricted role or `DATABASE_URL` was changed outside the published setup. Revert the change, or restore a backup.
 
 ## Readiness returns 503
 
