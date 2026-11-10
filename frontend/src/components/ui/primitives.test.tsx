@@ -56,6 +56,11 @@ describe('UI primitive behavior', () => {
     expect(dialogs[0].className).toContain('md:mx-auto');
     expect(dialogs[0].className).toContain('md:-translate-y-1/2');
     expect(dialogs[0].className).not.toContain('max-w-xl rounded-2xl');
+    // Non-sheet dialogs win back the centring the UA reset loses to preflight's zero margin.
+    expect(dialogs[1].className.split(' ')).toContain('m-auto');
+    // The sheet keeps its own full-viewport margins; twMerge drops the base centring instead of stacking.
+    expect(dialogs[0].className.split(' ')).toContain('m-0');
+    expect(dialogs[0].className.split(' ')).not.toContain('m-auto');
   });
   it('dialog honors an explicit initial focus target over generic autofocus/default focus and lets the form replace it after mount', async () => {
     const initialFocusRef: { current: HTMLElement | null } = { current: null };

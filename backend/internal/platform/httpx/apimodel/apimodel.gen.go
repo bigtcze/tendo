@@ -886,10 +886,13 @@ type AcceptInvitationRequest struct {
 
 // Account defines model for Account.
 type Account struct {
-	Login         string               `json:"login"`
-	Role          AccountRole          `json:"role"`
-	SignInMethods AccountSignInMethods `json:"signInMethods"`
-	UserId        string               `json:"userId"`
+	Login string `json:"login"`
+
+	// PasswordReset Outstanding admin-issued reset link for this account, or null when there is no usable link. Expired, revoked and used links are never reported.
+	PasswordReset *AccountPasswordReset `json:"passwordReset"`
+	Role          AccountRole           `json:"role"`
+	SignInMethods AccountSignInMethods  `json:"signInMethods"`
+	UserId        string                `json:"userId"`
 }
 
 // AccountList defines model for AccountList.
@@ -898,6 +901,12 @@ type AccountList struct {
 
 	// NextCursor Opaque cursor for the next page; null on the last page.
 	NextCursor *string `json:"nextCursor"`
+}
+
+// AccountPasswordReset defines model for AccountPasswordReset.
+type AccountPasswordReset struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // AccountRole defines model for AccountRole.
@@ -1313,6 +1322,29 @@ type OIDCValidationProblemField string
 // OIDCValidationProblemStatus defines model for OIDCValidationProblem.Status.
 type OIDCValidationProblemStatus int
 
+// PasswordResetCreated defines model for PasswordResetCreated.
+type PasswordResetCreated struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// ExpiresAt At most 24 hours after createdAt.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Token Single-use bearer secret. Present only in this response.
+	Token string `json:"token"`
+}
+
+// PasswordResetRedeemRequest defines model for PasswordResetRedeemRequest.
+type PasswordResetRedeemRequest struct {
+	// Password Maximum 512 UTF-8 bytes.
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
+// PasswordResetRedeemed defines model for PasswordResetRedeemed.
+type PasswordResetRedeemed struct {
+	Login string `json:"login"`
+}
+
 // Problem defines model for Problem.
 type Problem struct {
 	// Code Stable machine-readable code, for example admin_required, last_admin, not_found, invalid_request, invalid_query, invalid_value, precondition_required, precondition_failed, unauthenticated, forbidden_origin, unavailable.
@@ -1639,6 +1671,15 @@ type StartOidcParams struct {
 	Origin     string     `json:"Origin"`
 }
 
+// RedeemPasswordResetParams defines parameters for RedeemPasswordReset.
+type RedeemPasswordResetParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+
+	// Origin Must match the configured canonical public origin.
+	Origin string `json:"Origin"`
+}
+
 // GetInitialSetupParams defines parameters for GetInitialSetup.
 type GetInitialSetupParams struct {
 	// XRequestID Optional caller-supplied correlation ID.
@@ -1685,6 +1726,18 @@ type UpdateHouseholdAccountRoleParams struct {
 
 	// IfMatch Strong membership version from the account ETag. Missing is 428; malformed, weak, listed, or stale is 412.
 	IfMatch string `json:"If-Match"`
+}
+
+// RevokeHouseholdAccountPasswordResetParams defines parameters for RevokeHouseholdAccountPasswordReset.
+type RevokeHouseholdAccountPasswordResetParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
+}
+
+// IssueHouseholdAccountPasswordResetParams defines parameters for IssueHouseholdAccountPasswordReset.
+type IssueHouseholdAccountPasswordResetParams struct {
+	// XRequestID Optional caller-supplied correlation ID.
+	XRequestID *RequestId `json:"X-Request-ID,omitempty"`
 }
 
 // ListInvitationsParams defines parameters for ListInvitations.
@@ -1973,11 +2026,17 @@ type ConfirmOidcPendingLinkJSONRequestBody = OIDCPendingLinkRequest
 // StartOidcJSONRequestBody defines body for StartOidc for application/json ContentType.
 type StartOidcJSONRequestBody = OIDCStartRequest
 
+// RedeemPasswordResetJSONRequestBody defines body for RedeemPasswordReset for application/json ContentType.
+type RedeemPasswordResetJSONRequestBody = PasswordResetRedeemRequest
+
 // CreateInitialOwnerJSONRequestBody defines body for CreateInitialOwner for application/json ContentType.
 type CreateInitialOwnerJSONRequestBody = SetupRequest
 
 // UpdateHouseholdAccountRoleJSONRequestBody defines body for UpdateHouseholdAccountRole for application/json ContentType.
 type UpdateHouseholdAccountRoleJSONRequestBody = UpdateAccountRoleRequest
+
+// IssueHouseholdAccountPasswordResetJSONRequestBody defines body for IssueHouseholdAccountPasswordReset for application/json ContentType.
+type IssueHouseholdAccountPasswordResetJSONRequestBody = EmptyObject
 
 // CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
 type CreateInvitationJSONRequestBody = EmptyObject

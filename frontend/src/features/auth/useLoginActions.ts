@@ -5,13 +5,14 @@ import { login, type Session } from './sessionApi';
 type LoginFailure = 'invalid' | 'rateLimited' | 'unavailable';
 type OidcFailure = Exclude<StartResult['kind'], 'redirect'>;
 
-export function useLoginActions({ onSignedIn, focusPassword, focusProvider, onProviderDisabled }: {
+export function useLoginActions({ onSignedIn, initialLogin, focusPassword, focusProvider, onProviderDisabled }: {
   onSignedIn: (session: Session) => void;
+  initialLogin?: string;
   focusPassword: () => void;
   focusProvider: () => void;
   onProviderDisabled: () => void;
 }) {
-  const [loginName, setLoginName] = useState('');
+  const [loginName, setLoginName] = useState(initialLogin ?? '');
   const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<LoginFailure | null>(null);

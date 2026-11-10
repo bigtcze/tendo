@@ -17,6 +17,8 @@ export type Props = {
   accountReadyNotice: boolean;
   oidcOutcome: OidcOutcome | null;
   sessionEndedNotice: boolean;
+  passwordResetNotice: boolean;
+  loginPrefill: string | null;
   oidcContinue: boolean;
   oidcContinueExpired: boolean;
   continueCancelled: () => void;
@@ -39,12 +41,13 @@ export function SignedOutApp(props: Props) {
           onCancelled={props.continueCancelled}
           onExpired={props.continueExpired}
         />
-        : <LoginScreen onSignedIn={props.signedIn} notice={notice} />
+        : <LoginScreen onSignedIn={props.signedIn} notice={notice} initialLogin={props.loginPrefill ?? undefined} />
     ) : null}
   </Layout>;
 }
 
 export function getLoginNotice(props: Props, t: Translate): string | undefined {
+  if (props.passwordResetNotice) return t('reset.notice.success');
   if (props.accountReadyNotice) return t('invite.error.accountReady');
   if (props.oidcOutcome?.kind === 'error') return t(`oidc.error.${props.oidcOutcome.code}`);
   if (props.oidcContinueExpired) return t('oidc.continue.expired');

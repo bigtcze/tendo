@@ -189,6 +189,7 @@ test.describe('Tendo production journey', () => {
   let vehicleId = '';
   let lastAdminRefusal = '';
   let memberAdminRefusal = '';
+  let passwordResetFailures: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'America/New_York' });
@@ -1440,6 +1441,140 @@ test.describe('Tendo production journey', () => {
     } finally {
       if (originalViewport) await page.setViewportSize(originalViewport);
     }
+  });
+
+  test('n7c. an administrator resets a member’s password, and the one-time link signs the member out', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const accountsPath = `/api/v1/households/${householdId}/accounts`;
+    const membersPath = `/api/v1/households/${householdId}/members`;
+    const memberLogin = 'member_e2e';
+    const oldPassword = `${ownerPassword}-member`;
+    const newPassword = `${ownerPassword}-member-reset`;
+    const openReset = en['admin.reset.actionLabel'].replace('{login}', memberLogin);
+
+    // Start on the Admin center from Home; nothing from the previous step is assumed.
+    await page.goto('/');
+    await waitForSettledHome(page, householdName);
+    const householdNav = page.getByRole('navigation', { name: en['nav.label'] });
+    await householdNav.getByRole('link', { name: en['nav.admin'], exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
+    const memberRow = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] })
+      .getByRole('listitem').filter({ hasText: memberLogin });
+    await expect(memberRow).toContainText(en['admin.signIn.password']);
+    await expect(memberRow.getByRole('button', { name: openReset, exact: true })).toBeVisible();
+
+    // A signed-in member session proves later that using the link really ends it.
+    const memberContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+    const memberPage = await memberContext.newPage();
+    await trackInFlightApiFetches(memberPage);
+    watch(memberPage);
+    try {
+      await memberPage.goto('/');
+      await memberPage.locator('#login').fill(memberLogin);
+      await memberPage.locator('#password').fill(oldPassword);
+      await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+      await expect(memberPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await memberRow.getByRole('button', { name: openReset, exact: true }).click();
+      const confirmDialog = page.getByRole('dialog');
+      await expect(confirmDialog.getByRole('heading', {
+        name: en['admin.reset.dialog.title'].replace('{login}', memberLogin),
+      })).toBeVisible();
+      await expect(confirmDialog).toContainText(en['admin.reset.dialog.oldPassword']);
+      await expect(confirmDialog).toContainText(en['admin.reset.dialog.signsOut']);
+      await confirmDialog.getByRole('button', { name: en['admin.reset.dialog.confirm'], exact: true }).click();
+
+      const linkDialog = page.getByRole('dialog', { name: en['admin.reset.link.title'].replace('{login}', memberLogin) });
+      const linkField = linkDialog.getByRole('textbox', { name: en['admin.reset.link.label'] });
+      const link = await linkField.inputValue();
+      expect(link.startsWith(`${baseURL}/reset-password#`)).toBe(true);
+      expect(new URL(link).hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
+      await expect(memberRow).toContainText(en['admin.reset.active'].replace(' {date}', ''));
+      await expectNoAxeViolations(page, 'admin-reset-link-dialog');
+
+      await linkDialog.getByRole('button', { name: en['admin.reset.link.copy'], exact: true }).click();
+      await expect(linkDialog.getByRole('button', { name: en['admin.reset.link.copiedButton'], exact: true })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+      await linkDialog.getByRole('button', { name: en['admin.reset.link.done'], exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(await page.locator('body').textContent()).not.toContain(new URL(link).hash.slice(1));
+      expect(new URL(page.url()).hash).toBe('');
+
+      // A fresh browser context opens the link: the fragment is already gone from the address bar.
+      const resetContext = await browser.newContext({ baseURL, locale: 'en-US', timezoneId: 'Europe/Prague' });
+      const resetPage = await resetContext.newPage();
+      await trackInFlightApiFetches(resetPage);
+      watch(resetPage);
+      try {
+        await resetPage.goto(link);
+        await expect(resetPage.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+        // The scrub runs in a mount effect, so wait for the address bar instead of reading it right after goto.
+        await expect(resetPage).toHaveURL((url) => url.pathname === '/reset-password' && url.hash === '');
+        await expectNoAxeViolations(resetPage, 'reset-password');
+
+        // One real 320 CSS px pass: no page overflow and a clean accessibility scan at phone width.
+        const resetViewport = resetPage.viewportSize();
+        await resetPage.setViewportSize({ width: 320, height: 640 });
+        try {
+          expect(await resetPage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px reset-password overflow').toBeLessThanOrEqual(0);
+          await expectNoAxeViolations(resetPage, 'reset-password-320');
+        } finally {
+          if (resetViewport) await resetPage.setViewportSize(resetViewport);
+        }
+
+        // A confirmation mismatch never reaches the server.
+        await resetPage.getByLabel(en['reset.password'], { exact: true }).fill(newPassword);
+        await resetPage.getByLabel(en['reset.password.confirm'], { exact: true }).fill(`${newPassword}-different`);
+        await resetPage.getByRole('button', { name: en['reset.submit'], exact: true }).click();
+        await expect(resetPage.getByText(en['reset.error.mismatch'])).toBeVisible();
+
+        await resetPage.getByLabel(en['reset.password.confirm'], { exact: true }).fill(newPassword);
+        await resetPage.getByRole('button', { name: en['reset.submit'], exact: true }).click();
+        await expect(resetPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+        await expect(resetPage.getByLabel(en['login.login'], { exact: true })).toHaveValue(memberLogin);
+        await expect(resetPage.getByRole('status').filter({ hasText: en['reset.notice.success'] })).toBeVisible();
+
+        // The old password is gone; the new one works.
+        await resetPage.getByLabel(en['login.password'], { exact: true }).fill(oldPassword);
+        await resetPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+        await expect(resetPage.getByRole('alert').filter({ hasText: en['login.error.invalid'] })).toBeVisible();
+        await resetPage.getByLabel(en['login.password'], { exact: true }).fill(newPassword);
+        await resetPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
+        await expect(resetPage.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
+
+        // The member's earlier session is refused and explains the sign-out.
+        // Console filter keys are `<path> <status>`; the exact method-qualified ledger is asserted in step r.
+        expectedFailedStatuses.add(`${membersPath} 401`);
+        await memberPage.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['members.title'], exact: true }).click();
+        await expect(memberPage.getByRole('heading', { level: 1, name: en['login.title'] })).toBeVisible();
+        await expect(memberPage.getByRole('status').filter({ hasText: en['login.sessionEnded'] })).toBeVisible();
+        expect((await memberPage.request.get('/api/v1/session')).status()).toBe(401);
+
+        // The same link works once: even a signed-in visitor cannot redeem it again.
+        expectedFailedStatuses.add('/api/v1/auth/password-reset 404');
+        await resetPage.goto(link);
+        await expect(resetPage.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+        await resetPage.getByLabel(en['reset.password'], { exact: true }).fill(`${newPassword}-again`);
+        await resetPage.getByLabel(en['reset.password.confirm'], { exact: true }).fill(`${newPassword}-again`);
+        await resetPage.getByRole('button', { name: en['reset.submit'], exact: true }).click();
+        await expect(resetPage.getByRole('heading', { level: 1, name: en['reset.invalid.title'] })).toBeVisible();
+        await expect(resetPage.getByText(en['reset.invalid.body'])).toBeVisible();
+        await expect(resetPage.getByRole('link', { name: en['reset.invalid.home'], exact: true })).toHaveAttribute('href', '/');
+
+        passwordResetFailures = [`POST /api/v1/auth/password-reset 404`, `GET ${membersPath} 401`];
+      } finally {
+        await resetContext.close();
+      }
+    } finally {
+      await memberContext.close();
+    }
+    // Redeeming the link consumed it, so the account no longer reports an outstanding reset.
+    const accounts = await page.request.get(accountsPath);
+    expect(accounts.status()).toBe(200);
+    const memberAccount = ((await accounts.json()) as { items: Array<{ login: string; passwordReset: unknown }> })
+      .items.find((item) => item.login === memberLogin);
+    expect(memberAccount?.passwordReset).toBeNull();
   });
 
   test('n8. an owner assigns a member to an item and can clear the assignment', async () => {
@@ -5642,7 +5777,7 @@ test.describe('Tendo production journey', () => {
     const foreignDetailNotFound = `GET /api/v1/households/${householdId}/items/${foreignItemId} 404`;
     const n17FailedResponses = [`GET /api/v1/households/${householdId}/items/summary 503`, `GET /api/v1/households/${householdId}/members 403`];
     // The two refusals are only ledgered by the tests that proved them, so a skipped proof cannot pass here.
-    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal].sort());
+    expect([...failedResponses].sort()).toEqual([...allowedFailedResponses, ...n17FailedResponses, subjectConflict, foreignDetailNotFound, lastAdminRefusal, memberAdminRefusal, ...passwordResetFailures].sort());
     expect(problems).toEqual([]);
   });
 });

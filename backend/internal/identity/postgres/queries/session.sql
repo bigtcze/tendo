@@ -1,6 +1,9 @@
 -- name: FindLogin :one
-SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, c.password_hash
+SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, c.password_hash, c.credential_version
 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1;
+
+-- name: LockCredentialForLogin :one
+SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1 FOR SHARE;
 
 -- name: MemberLogins :many
 SELECT id::text AS user_id, login FROM user_accounts WHERE id = ANY($1::uuid[]);

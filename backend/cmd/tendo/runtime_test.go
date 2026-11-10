@@ -153,7 +153,7 @@ func (*startupOIDCSessionRepo) FindLogin(context.Context, string) (identityapp.L
 	return identityapp.LoginRecord{}, identityapp.ErrNotFound
 }
 func (*startupOIDCSessionRepo) PruneExpired(context.Context, string, time.Time) error { return nil }
-func (*startupOIDCSessionRepo) CreateSession(context.Context, identityapp.NewSession) (string, error) {
+func (*startupOIDCSessionRepo) CreateVerifiedSession(context.Context, identityapp.VerifiedSession) (string, error) {
 	return "", nil
 }
 func (*startupOIDCSessionRepo) FindActive(context.Context, []byte, time.Time) (identityapp.SessionInfo, error) {

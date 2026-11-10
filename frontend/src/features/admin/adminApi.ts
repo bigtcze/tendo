@@ -3,10 +3,12 @@ import { api } from '../../lib/api';
 
 export type Account = components['schemas']['Account'];
 export type AccountRole = components['schemas']['AccountRole'];
+export type PasswordResetCreated = components['schemas']['PasswordResetCreated'];
 
 const PAGE_SIZE = 50;
 const accountsPath = '/api/v1/households/{householdId}/accounts';
 const accountPath = '/api/v1/households/{householdId}/accounts/{userId}';
+const passwordResetPath = '/api/v1/households/{householdId}/accounts/{userId}/password-reset';
 
 function problemCode(error: unknown): string | undefined {
   return (error as { code?: string } | undefined)?.code;
@@ -67,6 +69,53 @@ export async function changeAccountRole(householdId: string, userId: string, rol
     if (response.status === 412) return { kind: 'stale' };
   } catch { /* fall through */ }
   return { kind: 'error' };
+}
+
+export type PasswordResetIssue =
+  | { kind: 'issued'; reset: PasswordResetCreated }
+  | { kind: 'self' | 'noLocalPassword' }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rateLimited' | 'unavailable' | 'rejected' };
+
+/** Issues a single-use link; the raw token appears only in this 201 response and is never stored by the client. */
+export async function issuePasswordReset(householdId: string, userId: string): Promise<PasswordResetIssue> {
+  try {
+    const { data, error, response } = await api.POST(passwordResetPath, {
+      params: { path: { householdId, userId } },
+      body: {},
+    });
+    if (data && response.status === 201) return { kind: 'issued', reset: data };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 409) {
+      const code = problemCode(error);
+      if (code === 'cannot_reset_self') return { kind: 'self' };
+      if (code === 'no_local_password') return { kind: 'noLocalPassword' };
+      return { kind: 'rejected' };
+    }
+    if (response.status === 429) return { kind: 'rateLimited' };
+  } catch { /* fall through */ }
+  return { kind: 'unavailable' };
+}
+
+export type PasswordResetCancel =
+  | { kind: 'ok' }
+  | { kind: 'self' }
+  | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rateLimited' | 'unavailable' | 'rejected' };
+
+/** Cancels the outstanding link; the server also answers 204 when there was nothing left to cancel. */
+export async function cancelPasswordReset(householdId: string, userId: string): Promise<PasswordResetCancel> {
+  try {
+    const { error, response } = await api.DELETE(passwordResetPath, { params: { path: { householdId, userId } } });
+    if (response.status === 204) return { kind: 'ok' };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 403) return isAdminRequired(problemCode(error)) ? { kind: 'forbidden' } : { kind: 'rejected' };
+    if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 409 && problemCode(error) === 'cannot_reset_self') return { kind: 'self' };
+    if (response.status === 409) return { kind: 'rejected' };
+    if (response.status === 429) return { kind: 'rateLimited' };
+  } catch { /* fall through */ }
+  return { kind: 'unavailable' };
 }
 
 export function signInMethod(account: Account): 'password' | 'oidc' | 'both' | 'none' {

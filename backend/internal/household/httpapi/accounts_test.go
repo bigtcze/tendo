@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
@@ -135,6 +136,16 @@ func TestGetAccountHTTPETagAndNotFound(t *testing.T) {
 	want := apimodel.Account{UserId: "u2", Login: "bob", Role: apimodel.AccountRoleMember, SignInMethods: apimodel.AccountSignInMethods{Password: true}}
 	if !equalJSON(body, want) {
 		t.Fatalf("body=%s", w.Body)
+	}
+	created := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	service.account.PasswordReset = &household.PasswordReset{CreatedAt: created, ExpiresAt: created.Add(24 * time.Hour)}
+	w = serve(t, r, http.MethodGet, "/api/v1/households/h/accounts/u2", "", nil)
+	body = apimodel.Account{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.PasswordReset == nil || !body.PasswordReset.ExpiresAt.Equal(created.Add(24*time.Hour)) || !body.PasswordReset.CreatedAt.Equal(created) {
+		t.Fatalf("passwordReset body=%s", w.Body)
 	}
 	service.err = household.ErrNotFound
 	w = serve(t, r, http.MethodGet, "/api/v1/households/h/accounts/u2", "", nil)

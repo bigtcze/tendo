@@ -31,6 +31,19 @@ type SignInMethodsLookup interface {
 	SignInMethodsByUserIDs(context.Context, []string) (map[string]SignInMethods, error)
 }
 
+// PasswordReset is one outstanding admin-issued reset link for an account.
+type PasswordReset struct {
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+// PasswordResetLookup is an identity-owned batched lookup of usable reset
+// links. A user ID missing from the result means no outstanding reset, because
+// the lookup returns only rows that currently exist and are usable.
+type PasswordResetLookup interface {
+	PasswordResetsByUserIDs(context.Context, string, []string) (map[string]PasswordReset, error)
+}
+
 // AccountRecord is the household-owned part of a member account.
 type AccountRecord struct {
 	UserID  string
@@ -45,6 +58,7 @@ type Account struct {
 	Role          string
 	Version       int64
 	SignInMethods SignInMethods
+	PasswordReset *PasswordReset
 }
 
 // RoleChange is one audited membership role transition.
@@ -75,14 +89,15 @@ type AccountService struct {
 	repository AccountRepository
 	logins     LoginLookup
 	signIn     SignInMethodsLookup
+	resets     PasswordResetLookup
 	clock      func() time.Time
 }
 
-func NewAccountService(repository AccountRepository, logins LoginLookup, signIn SignInMethodsLookup, clock func() time.Time) *AccountService {
+func NewAccountService(repository AccountRepository, logins LoginLookup, signIn SignInMethodsLookup, resets PasswordResetLookup, clock func() time.Time) *AccountService {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &AccountService{repository: repository, logins: logins, signIn: signIn, clock: clock}
+	return &AccountService{repository: repository, logins: logins, signIn: signIn, clock: clock, resets: resets}
 }
 
 func EncodeAccountCursor(id string) string {
@@ -129,7 +144,7 @@ func (s *AccountService) ListAccounts(ctx context.Context, actorID, householdID,
 	if err != nil {
 		return nil, "", err
 	}
-	accounts, e := s.decorate(bounded, records)
+	accounts, e := s.decorate(bounded, householdID, records)
 	if e != nil {
 		return nil, "", e
 	}
@@ -155,7 +170,7 @@ func (s *AccountService) GetAccount(ctx context.Context, actorID, householdID, t
 	if err != nil {
 		return Account{}, err
 	}
-	accounts, e := s.decorate(bounded, []AccountRecord{record})
+	accounts, e := s.decorate(bounded, householdID, []AccountRecord{record})
 	if e != nil {
 		return Account{}, e
 	}
@@ -213,17 +228,19 @@ func (s *AccountService) ChangeRole(ctx context.Context, actorID, householdID, t
 	if err != nil {
 		return Account{}, err
 	}
-	accounts, err := s.decorate(bounded, []AccountRecord{record})
+	accounts, err := s.decorate(bounded, householdID, []AccountRecord{record})
 	if err != nil {
 		return Account{}, err
 	}
 	return accounts[0], nil
 }
 
-// decorate joins identity-owned login and sign-in facts. Missing facts fail
-// closed instead of being reported as false.
-func (s *AccountService) decorate(ctx context.Context, records []AccountRecord) ([]Account, error) {
-	if s.logins == nil || s.signIn == nil {
+// decorate joins identity-owned login, sign-in and outstanding-reset facts.
+// Missing login or sign-in facts fail closed instead of being reported as
+// false. A missing reset entry is not an error: the lookup returns only rows
+// that exist, so absence means there is no usable reset.
+func (s *AccountService) decorate(ctx context.Context, householdID string, records []AccountRecord) ([]Account, error) {
+	if s.logins == nil || s.signIn == nil || s.resets == nil {
 		return nil, errors.New("account identity lookup unavailable")
 	}
 	ids := make([]string, 0, len(records))
@@ -238,6 +255,10 @@ func (s *AccountService) decorate(ctx context.Context, records []AccountRecord) 
 	if err != nil {
 		return nil, err
 	}
+	resets, err := s.resets.PasswordResetsByUserIDs(ctx, householdID, ids)
+	if err != nil {
+		return nil, err
+	}
 	accounts := make([]Account, 0, len(records))
 	for _, record := range records {
 		login, ok := logins[record.UserID]
@@ -248,7 +269,11 @@ func (s *AccountService) decorate(ctx context.Context, records []AccountRecord) 
 		if !ok {
 			return nil, errors.New("account sign-in methods missing")
 		}
-		accounts = append(accounts, Account{UserID: record.UserID, Login: login, Role: record.Role, Version: record.Version, SignInMethods: method})
+		account := Account{UserID: record.UserID, Login: login, Role: record.Role, Version: record.Version, SignInMethods: method}
+		if reset, ok := resets[record.UserID]; ok {
+			account.PasswordReset = &reset
+		}
+		accounts = append(accounts, account)
 	}
 	return accounts, nil
 }

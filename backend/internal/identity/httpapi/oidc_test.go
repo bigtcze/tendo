@@ -170,7 +170,7 @@ func (oidcPasswordVerifierRepo) FindLogin(context.Context, string) (identity.Log
 	return identity.LoginRecord{}, identity.ErrNotFound
 }
 func (oidcPasswordVerifierRepo) PruneExpired(context.Context, string, time.Time) error { return nil }
-func (oidcPasswordVerifierRepo) CreateSession(context.Context, identity.NewSession) (string, error) {
+func (oidcPasswordVerifierRepo) CreateVerifiedSession(context.Context, identity.VerifiedSession) (string, error) {
 	return "", identity.ErrNotFound
 }
 func (oidcPasswordVerifierRepo) FindActive(context.Context, []byte, time.Time) (identity.SessionInfo, error) {

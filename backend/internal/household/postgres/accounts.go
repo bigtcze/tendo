@@ -23,8 +23,8 @@ func NewAccountRepository(pool accountPool) *AccountRepository {
 	return &AccountRepository{pool: pool}
 }
 
-func AccountServiceFor(pool accountPool, logins household.LoginLookup, signIn household.SignInMethodsLookup, clock func() time.Time) *household.AccountService {
-	return household.NewAccountService(NewAccountRepository(pool), logins, signIn, clock)
+func AccountServiceFor(pool accountPool, logins household.LoginLookup, signIn household.SignInMethodsLookup, resets household.PasswordResetLookup, clock func() time.Time) *household.AccountService {
+	return household.NewAccountService(NewAccountRepository(pool), logins, signIn, resets, clock)
 }
 
 func (r *AccountRepository) WithAccountTransaction(ctx context.Context, work func(household.AccountTransaction) error) error {

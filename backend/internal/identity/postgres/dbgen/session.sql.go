@@ -90,7 +90,7 @@ func (q *Queries) FindActiveSession(ctx context.Context, arg FindActiveSessionPa
 }
 
 const findLogin = `-- name: FindLogin :one
-SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, c.password_hash
+SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, c.password_hash, c.credential_version
 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1
 `
 
@@ -99,6 +99,7 @@ type FindLoginRow struct {
 	Login              string
 	DefaultHouseholdID string
 	PasswordHash       string
+	CredentialVersion  int64
 }
 
 func (q *Queries) FindLogin(ctx context.Context, login string) (FindLoginRow, error) {
@@ -109,7 +110,24 @@ func (q *Queries) FindLogin(ctx context.Context, login string) (FindLoginRow, er
 		&i.Login,
 		&i.DefaultHouseholdID,
 		&i.PasswordHash,
+		&i.CredentialVersion,
 	)
+	return i, err
+}
+
+const lockCredentialForLogin = `-- name: LockCredentialForLogin :one
+SELECT password_hash, credential_version FROM local_credentials WHERE user_id=$1 FOR SHARE
+`
+
+type LockCredentialForLoginRow struct {
+	PasswordHash      string
+	CredentialVersion int64
+}
+
+func (q *Queries) LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error) {
+	row := q.db.QueryRow(ctx, lockCredentialForLogin, userID)
+	var i LockCredentialForLoginRow
+	err := row.Scan(&i.PasswordHash, &i.CredentialVersion)
 	return i, err
 }
 

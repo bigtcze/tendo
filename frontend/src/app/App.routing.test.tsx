@@ -69,6 +69,8 @@ describe('App route characterization', () => {
       accountReadyNotice: true,
       oidcOutcome: { kind: 'error' as const, code: 'identity_conflict' },
       sessionEndedNotice: true,
+      passwordResetNotice: false,
+      loginPrefill: null,
       oidcContinue: false,
       oidcContinueExpired: false,
       continueCancelled: vi.fn(),

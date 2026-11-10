@@ -55,6 +55,10 @@ type SessionInfo struct {
 type LoginRecord struct {
 	Principal    Principal
 	PasswordHash string
+	// CredentialVersion is the stored version of PasswordHash at the time of
+	// the read. Login revalidates both under a share lock before inserting the
+	// session, so a password reset cannot be outrun by an in-flight sign-in.
+	CredentialVersion int64
 }
 
 type NewSession struct {
@@ -63,13 +67,22 @@ type NewSession struct {
 	CreatedAt, ExpiresAt time.Time
 }
 
+// VerifiedSession is a session insert bound to the exact credential state that
+// produced the password verification.
+type VerifiedSession struct {
+	Session           NewSession
+	PasswordHash      string
+	CredentialVersion int64
+}
+
 // SessionRepository is the single persistence port of the session service.
 // Lookups that find nothing return ErrNotFound; any other error is treated as
-// an infrastructure failure.
+// an infrastructure failure. CreateVerifiedSession returns ErrInvalidCredentials
+// when the stored credential no longer matches the verified one.
 type SessionRepository interface {
 	FindLogin(ctx context.Context, login string) (LoginRecord, error)
 	PruneExpired(ctx context.Context, userID string, now time.Time) error
-	CreateSession(ctx context.Context, s NewSession) (string, error)
+	CreateVerifiedSession(ctx context.Context, s VerifiedSession) (string, error)
 	FindActive(ctx context.Context, tokenHash []byte, now time.Time) (SessionInfo, error)
 	DeleteByTokenHash(ctx context.Context, tokenHash []byte) error
 }
@@ -136,6 +149,11 @@ func credentialOutcome(valid bool, err error) error {
 	return nil
 }
 
+// Login verifies the password without holding any lock (Argon2 is slow), then
+// re-reads the credential under a share lock in one transaction with the
+// session insert. A password reset that lands in between makes the revalidation
+// fail exactly like a wrong password instead of leaving a session that outlives
+// the reset.
 func (s *SessionService) Login(ctx context.Context, login, password string) (Session, error) {
 	if !utf8.ValidString(login) || !loginPattern.MatchString(login) || !utf8.ValidString(password) || len(password) == 0 || len(password) > maxPasswordBytes {
 		return Session{}, ErrInvalidCredentials
@@ -166,7 +184,14 @@ func (s *SessionService) Login(ctx context.Context, login, password string) (Ses
 	if err := s.repository.PruneExpired(ctx, record.Principal.UserID, now); err != nil {
 		return Session{}, errors.New("session persistence failed")
 	}
-	id, err := s.repository.CreateSession(ctx, NewSession{UserID: record.Principal.UserID, TokenHash: tokenDigest(token), CreatedAt: now, ExpiresAt: expires})
+	id, err := s.repository.CreateVerifiedSession(ctx, VerifiedSession{
+		Session:           NewSession{UserID: record.Principal.UserID, TokenHash: tokenDigest(token), CreatedAt: now, ExpiresAt: expires},
+		PasswordHash:      record.PasswordHash,
+		CredentialVersion: record.CredentialVersion,
+	})
+	if errors.Is(err, ErrInvalidCredentials) {
+		return Session{}, ErrInvalidCredentials
+	}
 	if err != nil {
 		return Session{}, errors.New("session persistence failed")
 	}

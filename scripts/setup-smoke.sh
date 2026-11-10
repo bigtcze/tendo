@@ -690,6 +690,37 @@ assert st==201,('owner conflict invitation',st,own_invite)
 st,_,owner_conflict,_=xreq('POST',ACCEPT_EXISTING,ACCEPT_EXISTING,{'token':own_invite['token']},owner_mut)
 assert st==409 and owner_conflict['code']=='already_member',('owner already belongs to target household',st,owner_conflict)
 assert psql(f"SELECT accepted_at IS NULL AND revoked_at IS NULL FROM household_invitations WHERE id='{own_invite['id']}'")=='t','already-member failure consumed invitation'
+# Admin-issued local-password reset: token returned once, stored only as a
+# digest, superseded by a re-issue, cancellable idempotently, and redeemable
+# exactly once. Redemption replaces the hash and deletes the member's sessions.
+RESET='/api/v1/households/{householdId}/accounts/{userId}/password-reset'
+reset_base=f'{accounts_base}/{member_account_id}/password-reset'
+st,_,reset_self=areq('POST',accounts_base+'/'+owner_account_id+'/password-reset',RESET,{},owner_mut)
+assert st==409 and reset_self['code']=='cannot_reset_self',('self password reset',st,reset_self)
+st,_,reset_issued=areq('POST',reset_base,RESET,{},owner_mut)
+assert st==201 and len(reset_issued['token'])==43 and reset_issued['expiresAt']>reset_issued['createdAt'],('issue password reset',st,reset_issued)
+reset_digest=hashlib.sha256(reset_issued['token'].encode()).hexdigest()
+assert psql(f"SELECT count(*) FROM password_reset_tokens WHERE target_user_id='{member_account_id}' AND token_hash=decode('{reset_digest}','hex') AND used_at IS NULL AND revoked_at IS NULL")=='1','password reset digest not stored'
+assert psql(f"SELECT count(*) FROM password_reset_tokens prt WHERE prt.target_user_id='{member_account_id}' AND to_jsonb(prt)::text LIKE '%'||'{reset_issued['token']}'||'%'")=='0','raw password reset token appears in database row'
+st,_,reset_cancel_self=areq('DELETE',accounts_base+'/'+owner_account_id+'/password-reset',RESET,headers=owner_mut)
+assert st==409 and reset_cancel_self['code']=='cannot_reset_self',('self password reset cancel',st,reset_cancel_self)
+st,_,reset_cancelled=areq('DELETE',reset_base,RESET,headers=owner_mut)
+assert st==204,('cancel password reset',st)
+st,_,reset_cancelled_again=areq('DELETE',reset_base,RESET,headers=owner_mut)
+assert st==204,('idempotent cancel password reset',st)
+st,_,reset_issued=areq('POST',reset_base,RESET,{},owner_mut)
+assert st==201,('re-issue password reset',st)
+st,_,reset_replay=areq('POST','/api/v1/auth/password-reset','/api/v1/auth/password-reset',{'token':'short','password':'a sufficiently long reset passphrase'},{'Origin':origin})
+assert st==404 and reset_replay['code']=='invalid_password_reset',('malformed reset token',st,reset_replay)
+reset_password='a sufficiently long reset passphrase'
+st,_,reset_redeemed=areq('POST','/api/v1/auth/password-reset','/api/v1/auth/password-reset',{'token':reset_issued['token'],'password':reset_password},{'Origin':origin})
+assert st==200 and reset_redeemed=={'login':'member_smoke'},('redeem password reset',st,reset_redeemed)
+st,_,reset_used=areq('GET',accounts_base,ACC,headers=member_cookie)
+assert st==401 and reset_used['code']=='unauthenticated',('reset must delete target sessions',st,reset_used)
+st,_,old_password,_=req('POST',member_login,{'Origin':origin},record=False)
+assert st==401 and old_password['code']=='invalid_credentials',('old password after reset',st,old_password)
+st,_,_,_=req('POST',{'login':'member_smoke','password':reset_password},{'Origin':origin},record=False)
+assert st==201,('new password after reset',st)
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
 fixtures.append({'path':'/api/v1/session','method':'delete','status':status,'headers':dict(h.items())})

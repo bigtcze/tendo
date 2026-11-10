@@ -66,7 +66,7 @@ func (r *Repository) FindLogin(ctx context.Context, login string) (identity.Logi
 	if err != nil {
 		return identity.LoginRecord{}, err
 	}
-	return identity.LoginRecord{Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID}, PasswordHash: row.PasswordHash}, nil
+	return identity.LoginRecord{Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID}, PasswordHash: row.PasswordHash, CredentialVersion: row.CredentialVersion}, nil
 }
 
 func (r *Repository) PruneExpired(ctx context.Context, userID string, now time.Time) error {
@@ -77,12 +77,48 @@ func (r *Repository) PruneExpired(ctx context.Context, userID string, now time.T
 	return identitydb.New(r.pool).DeleteExpiredSessions(ctx, identitydb.DeleteExpiredSessionsParams{UserID: id, ExpiresAt: timestamptz(now)})
 }
 
-func (r *Repository) CreateSession(ctx context.Context, s identity.NewSession) (string, error) {
-	var id pgtype.UUID
-	if err := id.Scan(s.UserID); err != nil {
+func (r *Repository) CreateVerifiedSession(ctx context.Context, s identity.VerifiedSession) (string, error) {
+	var user pgtype.UUID
+	if err := user.Scan(s.Session.UserID); err != nil {
 		return "", err
 	}
-	return identitydb.New(r.pool).CreateSession(ctx, identitydb.CreateSessionParams{UserID: id, TokenHash: s.TokenHash, CreatedAt: timestamptz(s.CreatedAt), ExpiresAt: timestamptz(s.ExpiresAt)})
+	if r.beforeSessionInsert != nil {
+		r.beforeSessionInsert()
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+	queries := identitydb.New(tx)
+	// The credential row stays share-locked until the session is committed, so
+	// a concurrent password change either waits for this commit (and then
+	// deletes the session) or makes the revalidation below fail.
+	locked, err := queries.LockCredentialForLogin(ctx, user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", identity.ErrInvalidCredentials
+	}
+	if err != nil {
+		return "", err
+	}
+	if locked.PasswordHash != s.PasswordHash || locked.CredentialVersion != s.CredentialVersion {
+		return "", identity.ErrInvalidCredentials
+	}
+	id, err := queries.CreateSession(ctx, identitydb.CreateSessionParams{UserID: user, TokenHash: s.Session.TokenHash, CreatedAt: timestamptz(s.Session.CreatedAt), ExpiresAt: timestamptz(s.Session.ExpiresAt)})
+	if err != nil {
+		return "", err
+	}
+	if r.beforeSessionCommit != nil {
+		r.beforeSessionCommit()
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func (r *Repository) FindActive(ctx context.Context, tokenHash []byte, now time.Time) (identity.SessionInfo, error) {

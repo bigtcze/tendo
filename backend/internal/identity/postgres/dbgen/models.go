@@ -55,9 +55,10 @@ type Item struct {
 }
 
 type LocalCredential struct {
-	UserID       pgtype.UUID
-	PasswordHash string
-	CreatedAt    pgtype.Timestamptz
+	UserID            pgtype.UUID
+	PasswordHash      string
+	CreatedAt         pgtype.Timestamptz
+	CredentialVersion int64
 }
 
 type OidcFlow struct {
@@ -93,6 +94,18 @@ type OidcPendingLogin struct {
 	CreatedAt       pgtype.Timestamptz
 	ExpiresAt       pgtype.Timestamptz
 	Attempts        int32
+}
+
+type PasswordResetToken struct {
+	ID              pgtype.UUID
+	HouseholdID     pgtype.UUID
+	TargetUserID    pgtype.UUID
+	CreatedByUserID pgtype.UUID
+	TokenHash       []byte
+	CreatedAt       pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	UsedAt          pgtype.Timestamptz
+	RevokedAt       pgtype.Timestamptz
 }
 
 type Subject struct {

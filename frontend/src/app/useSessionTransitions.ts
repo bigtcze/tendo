@@ -32,6 +32,8 @@ type Deps = {
   setSessionEndedNotice: (notice: boolean) => void;
   setOidcContinueExpired: (expired: boolean) => void;
   setInviteFocusLogin: (focus: boolean) => void;
+  setLoginPrefill: (login: string | null) => void;
+  setPasswordResetNotice: (notice: boolean) => void;
 };
 
 type LeaveOptions = { path: string; route?: Route; expired?: boolean; sessionEnded?: boolean };
@@ -59,6 +61,7 @@ export function useSessionTransitions(deps: Deps) {
   const {
     setRoute, transitionedRef, setOidcOutcome, entry, setState, advanceSessionGeneration,
     setAccountReadyNotice, setSessionEndedNotice, setOidcContinueExpired, setInviteFocusLogin,
+    setLoginPrefill, setPasswordResetNotice,
   } = deps;
   const { clearContinue, requestContinue, clearNotice, showNotice } = entry;
   // Latest dependencies without making every callback change identity on each render.
@@ -113,6 +116,13 @@ export function useSessionTransitions(deps: Deps) {
     leave({ path: LOGIN_PATH, route: { kind: 'login' }, expired: true });
   }, [leave]);
 
+  /** The link replaced the password and deleted that account's sessions, so the only next step is sign-in. */
+  const passwordResetCompleted = useCallback((login: string) => {
+    leave({ path: LOGIN_PATH, route: { kind: 'login' } });
+    setLoginPrefill(login);
+    setPasswordResetNotice(true);
+  }, [leave, setLoginPrefill, setPasswordResetNotice]);
+
   const signedIn = useCallback((session: Session, notice: MessageKey | null = null) => {
     advanceSessionGeneration();
     clearContinue();
@@ -121,14 +131,17 @@ export function useSessionTransitions(deps: Deps) {
     setSessionEndedNotice(false);
     setInviteFocusLogin(false);
     setOidcContinueExpired(false);
+    setLoginPrefill(null);
+    setPasswordResetNotice(false);
     transitionedRef.current = true;
     if (window.location.pathname !== '/') window.history.replaceState(null, '', '/');
     setRoute({ kind: 'home' });
     setOidcOutcome(null);
     setState({ kind: 'signedIn', session });
-  }, [advanceSessionGeneration, clearContinue, setAccountReadyNotice, setOidcContinueExpired, setOidcOutcome, setRoute, setSessionEndedNotice, setState, setInviteFocusLogin, showNotice, transitionedRef]);
+  }, [advanceSessionGeneration, clearContinue, setAccountReadyNotice, setOidcContinueExpired, setOidcOutcome, setRoute, setSessionEndedNotice, setState, setInviteFocusLogin, setLoginPrefill, setPasswordResetNotice, showNotice, transitionedRef]);
 
   return {
-    inviteSignedOut, accountReady, signedOut, sessionEnded, pendingSignedOut, continueCancelled, continueExpired, signedIn,
+    inviteSignedOut, accountReady, signedOut, sessionEnded, pendingSignedOut, continueCancelled, continueExpired,
+    passwordResetCompleted, signedIn,
   };
 }
