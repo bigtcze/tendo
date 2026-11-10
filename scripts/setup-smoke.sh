@@ -702,6 +702,8 @@ assert st==201 and len(reset_issued['token'])==43 and reset_issued['expiresAt']>
 reset_digest=hashlib.sha256(reset_issued['token'].encode()).hexdigest()
 assert psql(f"SELECT count(*) FROM password_reset_tokens WHERE target_user_id='{member_account_id}' AND token_hash=decode('{reset_digest}','hex') AND used_at IS NULL AND revoked_at IS NULL")=='1','password reset digest not stored'
 assert psql(f"SELECT count(*) FROM password_reset_tokens prt WHERE prt.target_user_id='{member_account_id}' AND to_jsonb(prt)::text LIKE '%'||'{reset_issued['token']}'||'%'")=='0','raw password reset token appears in database row'
+st,_,reset_cancel_self=areq('DELETE',accounts_base+'/'+owner_account_id+'/password-reset',RESET,headers=owner_mut)
+assert st==409 and reset_cancel_self['code']=='cannot_reset_self',('self password reset cancel',st,reset_cancel_self)
 st,_,reset_cancelled=areq('DELETE',reset_base,RESET,headers=owner_mut)
 assert st==204,('cancel password reset',st)
 st,_,reset_cancelled_again=areq('DELETE',reset_base,RESET,headers=owner_mut)
@@ -715,9 +717,9 @@ st,_,reset_redeemed=areq('POST','/api/v1/auth/password-reset','/api/v1/auth/pass
 assert st==200 and reset_redeemed=={'login':'member_smoke'},('redeem password reset',st,reset_redeemed)
 st,_,reset_used=areq('GET',accounts_base,ACC,headers=member_cookie)
 assert st==401 and reset_used['code']=='unauthenticated',('reset must delete target sessions',st,reset_used)
-st,_,old_password=req('POST',member_login,{'Origin':origin},record=False)
+st,_,old_password,_=req('POST',member_login,{'Origin':origin},record=False)
 assert st==401 and old_password['code']=='invalid_credentials',('old password after reset',st,old_password)
-st,_,new_password=req('POST',{'login':'member_smoke','password':reset_password},{'Origin':origin})
+st,_,_,_=req('POST',{'login':'member_smoke','password':reset_password},{'Origin':origin},record=False)
 assert st==201,('new password after reset',st)
 status,h,_,_=req('DELETE',headers={'Origin':origin,'Cookie':f'tendo_session={token}'})
 assert status==204,('logout',status)
