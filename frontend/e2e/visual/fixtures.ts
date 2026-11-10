@@ -36,9 +36,10 @@ export async function firstRun(page: Page) {
 
 export async function seed(page: Page, identity: Awaited<ReturnType<typeof firstRun>>): Promise<Fixture> {
   const subjects: Subject[] = [];
+  // Šárka is a non-member person (a child); Tomáš is the invited member, so his person is the auto-provisioned one.
   for (const subject of [
     { name: 'Šárka Černá – neobyčejně dlouhé jméno', type: 'person' },
-    { name: 'Tomáš Dvořák', type: 'person' }, { name: 'Škoda Octavia', type: 'vehicle' }, { name: 'Domácnost', type: 'home' },
+    { name: 'Škoda Octavia', type: 'vehicle' }, { name: 'Domácnost', type: 'home' },
   ]) {
     const response = await api(page, 'post', `${identity.apiRoot}/subjects`, subject, { 'Idempotency-Key': idempotencyKey() });
     expect(response.status(), `create subject ${subject.name}`).toBe(201);
@@ -50,6 +51,14 @@ export async function seed(page: Page, identity: Awaited<ReturnType<typeof first
   const accepted = await api(page, 'post', '/api/v1/auth/invitations/accept', { token: inviteToken, login: 'visual_member', password: `${OWNER_PASSWORD}-member` });
   expect(accepted.status()).toBe(201);
   const memberId = (await accepted.json() as { userId: string }).userId;
+  // Reuse the member's canonical person, renamed for readable visual copy, instead of a duplicate standalone person.
+  const memberPerson = await api(page, 'get', `${identity.apiRoot}/members/${memberId}/person`);
+  expect(memberPerson.status(), 'read visual member person').toBe(200);
+  const memberPersonBody = await memberPerson.json() as { id: string };
+  const renamedMember = await api(page, 'patch', `${identity.apiRoot}/subjects/${memberPersonBody.id}`,
+    { name: 'Tomáš Dvořák' }, { 'If-Match': memberPerson.headers()['etag'] ?? '' });
+  expect(renamedMember.status(), 'rename visual member person').toBe(200);
+  subjects.push({ name: 'Tomáš Dvořák', id: memberPersonBody.id });
   const items: VisualItem[] = [];
   const create = async (title: string, subject: string, extra: Record<string, unknown> = {}) => {
     const response = await api(page, 'post', `${identity.apiRoot}/items`, { title, subjectId: subjects.find(value => value.name === subject)?.id, recurrence: null, ...extra }, { 'Idempotency-Key': idempotencyKey() });

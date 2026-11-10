@@ -4,31 +4,22 @@ import { Label } from '../../components/ui/label';
 import { cn } from '../../lib/cn';
 import { useI18n } from '../../i18n';
 import { subjectTypes, type SubjectType } from './subjectsApi';
-import {
-  hasUnknownMember, shouldShowClearedLinkNotice, shouldShowLinkedAccount, type ErrorTarget,
-  type SubjectValues, typeLabelKey,
-} from './subjectFormModel';
+import { type ErrorTarget, typeLabelKey } from './subjectFormModel';
 
 type FieldProps = {
   initialFocusRef?: RefObject<HTMLInputElement | null>;
-  uid: string; nameId: string; linkedId: string; errorId: string; target: ErrorTarget; name: string; changeName: (name: string) => void;
-  type: SubjectType; changeType: (type: SubjectType) => void; linkedUserId: string | null;
-  changeLinkedUserId: (id: string | null) => void; locked: boolean;
-  members: { userId: string; login: string }[]; membersLoaded: boolean; initial: SubjectValues;
+  uid: string; nameId: string; errorId: string; target: ErrorTarget; name: string; changeName: (name: string) => void;
+  type: SubjectType; changeType: (type: SubjectType) => void; locked: boolean; memberPerson: boolean;
 };
 
 export function SubjectFormFields(props: FieldProps) {
   const { t } = useI18n();
-  const { initialFocusRef, name, changeName, errorId, target, type, changeType, linkedUserId, changeLinkedUserId, uid, nameId, linkedId, locked,
-    members, membersLoaded, initial } = props;
+  const { initialFocusRef, name, changeName, errorId, target, type, changeType, uid, nameId, locked, memberPerson } = props;
   return <>
     <NameField {...{ name, changeName, errorId, target, locked }} id={nameId} inputRef={initialFocusRef} />
-    <TypeField {...{ uid, type, changeType, target, errorId, locked }} />
-    {shouldShowLinkedAccount(type, membersLoaded, members.length, linkedUserId) ? (
-      <LinkedAccountField {...{ linkedUserId, changeLinkedUserId, members, locked, target, errorId }} id={linkedId} />
-    ) : null}
-    {shouldShowClearedLinkNotice(type, initial.linkedUserId, linkedUserId)
-      ? <p className="text-sm text-muted">{t('subjects.link.clearedByType')}</p> : null}
+    {memberPerson
+      ? <p className="text-sm text-muted">{t('subjects.member.editHint')}</p>
+      : <TypeField {...{ uid, type, changeType, target, errorId, locked }} />}
   </>;
 }
 
@@ -66,28 +57,4 @@ function TypeField({ uid, type, changeType, target, errorId, locked }: {
       </label>)}
     </div>
   </fieldset>;
-}
-
-function LinkedAccountField({ id, linkedUserId, changeLinkedUserId, members, locked, target, errorId }: {
-  id: string; linkedUserId: string | null; changeLinkedUserId: (id: string | null) => void;
-  members: { userId: string; login: string }[]; locked: boolean; target: ErrorTarget;
-  errorId: string;
-}) {
-  const { t } = useI18n();
-  const hintId = `${id}-hint`;
-  return <div className="space-y-2">
-    <Label htmlFor={id} className="text-muted">{t('subjects.link.label')}</Label>
-    <select id={id} value={linkedUserId ?? ''}
-      onChange={(event) => changeLinkedUserId(event.target.value || null)} disabled={locked}
-      aria-invalid={target === 'linkedUserId'} aria-describedby={target === 'linkedUserId' ? errorId : hintId}
-      className={cn(
-        'min-h-11 w-full rounded-xl border border-field bg-raised px-3 text-ink',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-      )}>
-      <option value="">{t('subjects.link.none')}</option>
-      {hasUnknownMember(linkedUserId, members) ? <option value={linkedUserId}>{t('subjects.link.unknown')}</option> : null}
-      {members.map((member) => <option key={member.userId} value={member.userId}>{member.login}</option>)}
-    </select>
-    <p id={hintId} className="text-sm text-muted">{t('subjects.link.hint')}</p>
-  </div>;
 }

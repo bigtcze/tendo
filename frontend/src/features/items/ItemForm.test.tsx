@@ -30,6 +30,11 @@ const title = () => screen.getByLabelText('What needs doing?');
     expect(initialDraft(undefined, subjects)).toMatchObject({ interval: '1', unit: 'year', repeat: false });
   });
 
+  it('offers a household member’s person in the subject choices like any other person', () => {
+    renderForm({ subjects: [{ ...subjects[0]!, linkedUserId: 'u-1' }] });
+    expect(screen.getByRole('option', { name: 'Kitchen' })).toBeVisible();
+  });
+
   it.each([
     { locale: 'en', value: '1', unit: 'month', expected: '1 month' },
     { locale: 'en', value: '2', unit: 'month', expected: '2 months' },

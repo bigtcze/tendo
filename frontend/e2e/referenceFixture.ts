@@ -46,8 +46,9 @@ export async function seedReferenceFixture(
 ): Promise<ReferenceSeed> {
   const { householdId, apiRoot, ownerPassword } = options;
   const subjects = new Map<string, string>();
+  // Anna is a household member, so her person is auto-provisioned when the invitation is accepted (below).
+  // Tom is a child and stays an ordinary unlinked person; the rest are non-person subjects.
   for (const subject of [
-    { name: 'Anna', type: 'person' },
     { name: 'Tom', type: 'person' },
     { name: 'Home', type: 'home' },
     { name: 'Škoda Octavia', type: 'vehicle' },
@@ -80,6 +81,15 @@ export async function seedReferenceFixture(
   const memberId = members.find((member) => member.login === REFERENCE_MEMBER_LOGIN)?.userId;
   expect(ownerId, 'owner member id').toBeTruthy();
   expect(memberId, 'Anna member id').toBeTruthy();
+
+  // Use Anna's canonical member person (created with the membership) and rename it for the reference copy,
+  // rather than creating a second standalone "Anna" person that would duplicate the member.
+  const annaPerson = await page.request.get(`${apiRoot}/members/${memberId}/person`);
+  expect(annaPerson.status(), 'read Anna member person').toBe(200);
+  const annaPersonBody = await annaPerson.json() as { id: string };
+  const renamedAnna = await ownerRequest(page, 'patch', `${apiRoot}/subjects/${annaPersonBody.id}`, { name: 'Anna' }, { 'If-Match': annaPerson.headers()['etag']! });
+  expect(renamedAnna.status(), 'rename Anna member person').toBe(200);
+  subjects.set('Anna', annaPersonBody.id);
 
   const fixedYear = { intervalValue: 1, intervalUnit: 'year', mode: 'fixed' as const };
   const fixedQuarter = { intervalValue: 3, intervalUnit: 'month', mode: 'fixed' as const };

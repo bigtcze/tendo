@@ -25,8 +25,11 @@ func checkPendingInvitation(invitation Invitation, err error, clock func() time.
 	return invitation, now, nil
 }
 
-func joinInvitedHousehold(ctx context.Context, tx InvitationTransaction, userID, householdID, invitationID string, now time.Time) error {
+func joinInvitedHousehold(ctx context.Context, tx InvitationTransaction, userID, login, householdID, invitationID string, now time.Time) error {
 	if err := tx.AddInvitedMember(ctx, userID, householdID); err != nil {
+		return err
+	}
+	if err := tx.EnsureMemberPerson(ctx, householdID, userID, login); err != nil {
 		return err
 	}
 	if err := tx.SetDefaultHousehold(ctx, userID, householdID); err != nil {

@@ -146,6 +146,7 @@ assert other_id!=household and psql(f"SELECT count(*) FROM households WHERE id='
 status,h,b_other=hreq(other_id,cookie_header);assert status==404 and b_other==b_missing and 'ETag' not in h,('non-member household must match nonexistent 404',status,b_other,b_missing)
 COLL='/api/v1/households/{householdId}/subjects'
 ITEM='/api/v1/households/{householdId}/subjects/{subjectId}'
+MEMBER_PERSON='/api/v1/households/{householdId}/members/{userId}/person'
 def sreq(method,url,template,body=None,headers=None,record=True):
  return call(method,url,template=template,body=body,headers=headers,sink=fixtures if record else None,ensure_ascii=False)[:3]
 sbase=f'/api/v1/households/{household}/subjects'
@@ -170,12 +171,16 @@ status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'robot'},{**mut,'Idempotenc
 assert status==422 and b['field']=='type' and b['code']=='invalid_type',('bad type',status,b)
 status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'pet','extra':1},{**mut,'Idempotency-Key':'setup-malformed-body'})
 assert status==400 and b['code']=='invalid_request',('unknown key',status,b)
+owner_person_id=psql(f"SELECT s.id::text FROM subjects s JOIN household_memberships m ON m.user_id=s.linked_user_id AND m.household_id=s.household_id WHERE s.household_id='{household}' AND s.type='person' AND m.role='admin'")
+assert owner_person_id, 'setup must provision the owner person'
 status,h,lst=sreq('GET',sbase,COLL,headers=cookie_header)
-assert status==200 and [i['id'] for i in lst['items']]==[person['id'],car['id']] and lst['nextCursor'] is None,('list',status,lst)
+assert status==200 and [i['id'] for i in lst['items']]==[owner_person_id,person['id'],car['id']] and lst['nextCursor'] is None,('list',status,lst)
 status,h,p1=sreq('GET',sbase+'?limit=1',COLL,headers=cookie_header)
-assert status==200 and [i['id'] for i in p1['items']]==[person['id']] and isinstance(p1['nextCursor'],str) and p1['nextCursor'],('page 1',status,p1)
+assert status==200 and [i['id'] for i in p1['items']]==[owner_person_id] and isinstance(p1['nextCursor'],str) and p1['nextCursor'],('page 1',status,p1)
 status,h,p2=sreq('GET',sbase+'?limit=1&cursor='+p1['nextCursor'],COLL,headers=cookie_header)
-assert status==200 and [i['id'] for i in p2['items']]==[car['id']] and p2['nextCursor'] is None,('page 2',status,p2)
+assert status==200 and [i['id'] for i in p2['items']]==[person['id']] and isinstance(p2['nextCursor'],str) and p2['nextCursor'],('page 2',status,p2)
+status,h,p3=sreq('GET',sbase+'?limit=1&cursor='+p2['nextCursor'],COLL,headers=cookie_header)
+assert status==200 and [i['id'] for i in p3['items']]==[car['id']] and p3['nextCursor'] is None,('page 3',status,p3)
 status,_,b=sreq('GET',sbase+'?limit=0',COLL,headers=cookie_header);assert status==400 and b['code']=='invalid_query' and b['parameter']=='limit',('limit',status,b)
 status,_,b=sreq('GET',sbase+'?cursor=%2A%2A',COLL,headers=cookie_header);assert status==400 and b['parameter']=='cursor',('cursor',status,b)
 status,_,b=sreq('GET',sbase+'?archived=maybe',COLL,headers=cookie_header);assert status==400 and b['parameter']=='archived',('archived',status,b)
@@ -197,7 +202,7 @@ assert psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")==
 status,h,archived=sreq('PATCH',spath,ITEM,{'archived':True},{**mut,'If-Match':'"2"'})
 assert status==200 and archived['archived'] is True and h['ETag']=='"3"',('archive',status,archived)
 status,_,lst=sreq('GET',sbase,COLL,headers=cookie_header)
-assert [i['id'] for i in lst['items']]==[person['id']],('default list must exclude archived',lst)
+assert [i['id'] for i in lst['items']]==[owner_person_id,person['id']],('default list must exclude archived',lst)
 status,_,lst=sreq('GET',sbase+'?archived=true',COLL,headers=cookie_header)
 assert [i['id'] for i in lst['items']]==[car['id']] and lst['nextCursor'] is None,('archived list',lst)
 status,_,got=sreq('GET',spath,ITEM,headers=cookie_header);assert status==200 and got['archived'] is True,('archived get',status,got)
@@ -222,7 +227,7 @@ status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{'Origin':origin,'I
 status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'Origin':'http://foreign.example','Idempotency-Key':'setup-foreign-origin'});assert status==403,('foreign Origin POST',status,b)
 status,_,b=sreq('POST',sbase,COLL,{'name':'x','type':'home'},{**cookie_header,'Idempotency-Key':'setup-missing-origin'});assert status==403,('missing Origin POST',status,b)
 status,_,b=sreq('PATCH',spath,ITEM,{'name':'x'},{**cookie_header,'Origin':'http://foreign.example','If-Match':'"4"'});assert status==403,('foreign Origin PATCH',status,b)
-assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")=='2' and psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|4','rejected requests changed subjects'
+assert psql(f"SELECT count(*) FROM subjects WHERE household_id='{household}'")=='3' and psql(f"SELECT name||'|'||version FROM subjects WHERE id='{car['id']}'")=='Škoda Octavia|4','rejected requests changed subjects'
 # Item API smoke: persistence, derived attention, ETags, archive, and boundaries.
 ICOLL='/api/v1/households/{householdId}/items'
 IITEM='/api/v1/households/{householdId}/items/{itemId}'
@@ -543,21 +548,45 @@ st,_,member_owner_patch=areq('PATCH',accounts_base+'/'+owner_account_id,ACC_ITEM
 assert st==403 and member_owner_patch['code']=='admin_required',('member changes owner role',st,member_owner_patch)
 assert psql(f"SELECT user_id::text||'|'||role||'|'||version FROM household_memberships WHERE household_id='{household}' ORDER BY user_id")==member_roles_before,'member account writes changed membership roles/versions'
 assert psql(f"SELECT count(*) FROM household_role_changes WHERE household_id='{household}'")==member_audit_before,'member account writes added audit rows'
-# Linked person-account descriptive association and person-only invariant smoke.
+# Canonical member-person smoke: setup provisioned exactly one person for the
+# owner; member links are locked, and an existing unlinked person is reassigned
+# only through the explicit transfer operation.
 owner_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='owner_smoke')
 assert owner_user_id==psql(f"SELECT user_id::text FROM household_memberships WHERE household_id='{household}' AND role='admin'"),'members list userId is the stored admin user id'
-linked_person_body={'name':'Linked person smoke','type':'person','linkedUserId':owner_user_id.upper()}
-st,lh,linked_person=sreq('POST',sbase,COLL,linked_person_body,{**mut,'Idempotency-Key':'setup-subject-linked-person'})
-assert st==201 and linked_person['linkedUserId']==owner_user_id,('linked subject create',st,linked_person)
-linked_subject_path=sbase+'/'+linked_person['id']
-st,lh,unlinked_person=sreq('PATCH',linked_subject_path,ITEM,{'linkedUserId':None},{**mut,'If-Match':'"1"'})
-assert st==200 and unlinked_person['linkedUserId'] is None and lh['ETag']=='"2"',('unlink subject',st,unlinked_person)
+owner_person_row=psql(f"SELECT id::text||'|'||version FROM subjects WHERE household_id='{household}' AND linked_user_id='{owner_user_id}'")
+assert owner_person_row, 'setup must provision the owner person'
+owner_person_id,owner_person_version=owner_person_row.split('|')
+assert psql(f"SELECT name||'|'||type FROM subjects WHERE id='{owner_person_id}'")=='owner_smoke|person','owner person name/login'
+member_person_url=f'/api/v1/households/{household}/members/{owner_user_id}/person'
+st,gh,owner_person_get=sreq('GET',member_person_url,MEMBER_PERSON,headers=cookie_header)
+assert st==200 and owner_person_get['id']==owner_person_id and gh['ETag']==('"'+owner_person_version+'"'),('get member person',st,owner_person_get)
+st,_,missing_member_person=sreq('GET',f'/api/v1/households/{household}/members/{random_id}/person',MEMBER_PERSON,headers=cookie_header)
+assert st==404 and missing_member_person['code']=='not_found',('get member person missing',st,missing_member_person)
+st,_,duplicate_member=sreq('POST',sbase,COLL,{'name':'Duplicate member','type':'person','linkedUserId':owner_user_id.upper()},{**mut,'Idempotency-Key':'setup-subject-linked-person'})
+assert st==409 and duplicate_member['code']=='member_person_exists',('create member link conflict',st,duplicate_member)
 st,_,requires_person_create=sreq('POST',sbase,COLL,{'name':'Invalid linked vehicle','type':'vehicle','linkedUserId':owner_user_id},{**mut,'Idempotency-Key':'setup-subject-linked-vehicle'})
 assert st==422 and requires_person_create['field']=='linkedUserId' and requires_person_create['code']=='requires_person',('linked vehicle create rejected',st,requires_person_create)
-st,_,requires_person_patch=sreq('PATCH',linked_subject_path,ITEM,{'linkedUserId':owner_user_id},{**mut,'If-Match':'"2"'})
-assert st==200 and requires_person_patch['linkedUserId']==owner_user_id,('relink person',st,requires_person_patch)
-st,_,requires_person_type=sreq('PATCH',linked_subject_path,ITEM,{'type':'vehicle'},{**mut,'If-Match':'"3"'})
-assert st==422 and requires_person_type['field']=='linkedUserId' and requires_person_type['code']=='requires_person',('linked person type change rejected',st,requires_person_type)
+st,_,transfer_person=sreq('POST',sbase,COLL,{'name':'Tomáš','type':'person'},{**mut,'Idempotency-Key':'setup-subject-transfer-person'})
+assert st==201,'create transfer target'
+st,_,transferred=sreq('PUT',member_person_url,MEMBER_PERSON,{'subjectId':transfer_person['id'],'subjectVersion':1,'currentSubjectId':owner_person_id,'currentSubjectVersion':int(owner_person_version)},{**mut})
+assert st==200 and transferred['person']['id']==transfer_person['id'] and transferred['person']['linkedUserId']==owner_user_id and transferred['person']['name']=='Tomáš',('transfer success',st,transferred)
+assert transferred['personVersion']==2 and transferred['previousVersion']==int(owner_person_version)+1,('transfer versions',transferred)
+assert transferred['previous']['id']==owner_person_id and transferred['previous']['linkedUserId'] is None and transferred['previous']['archived'] is False,('transfer previous person',transferred)
+assert psql(f"SELECT version FROM subjects WHERE id='{transfer_person['id']}'")=='2','new person version'
+assert psql(f"SELECT COALESCE(linked_user_id::text,'NULL')||'|'||version FROM subjects WHERE id='{owner_person_id}'")=='NULL|'+str(int(owner_person_version)+1),'previous person unlinked/version'
+st,gh,transferred_get=sreq('GET',member_person_url,MEMBER_PERSON,headers=cookie_header)
+assert st==200 and transferred_get['id']==transfer_person['id'] and gh['ETag']=='"2"',('get member person after transfer',st,transferred_get)
+linked_subject_path=sbase+'/'+transfer_person['id']
+st,_,unlinked_person=sreq('PATCH',linked_subject_path,ITEM,{'linkedUserId':None},{**mut,'If-Match':'"2"'})
+assert st==409 and unlinked_person['code']=='member_person_locked',('unlink member person rejected',st,unlinked_person)
+st,_,retyped_person=sreq('PATCH',linked_subject_path,ITEM,{'type':'vehicle'},{**mut,'If-Match':'"2"'})
+assert st==409 and retyped_person['code']=='member_person_locked',('member person type change rejected',st,retyped_person)
+st,lh,renamed_person=sreq('PATCH',linked_subject_path,ITEM,{'name':'Tomáš Novák'},{**mut,'If-Match':'"2"'})
+assert st==200 and renamed_person['name']=='Tomáš Novák' and lh['ETag']=='"3"',('member person rename allowed',st,renamed_person)
+st,_,archived_person=sreq('PATCH',linked_subject_path,ITEM,{'archived':True},{**mut,'If-Match':'"3"'})
+assert st==409 and archived_person['code']=='member_person_locked',('member person archive rejected',st,archived_person)
+st,_,stale_transfer=sreq('PUT',member_person_url,MEMBER_PERSON,{'subjectId':person['id'],'subjectVersion':1,'currentSubjectId':transfer_person['id'],'currentSubjectVersion':2},{**mut})
+assert st==412 and stale_transfer['code']=='precondition_failed',('stale transfer rejected',st,stale_transfer)
 # Responsible-member API persistence and membership-validation smoke.
 member_user_id=next(m['userId'] for m in owner_members['items'] if m['login']=='member_smoke')
 responsible_item={'title':'Responsible member smoke','subjectId':person['id'],'responsibleUserId':member_user_id}

@@ -222,6 +222,19 @@ describe('item creation', () => {
     expect(resent.body).toBe(firstPost.body);
   });
 
+  it('offers a household member’s person in the Add subject chooser', async () => {
+    installFakeServer({
+      ...routes, ...itemRoutes(base, []),
+      [subjectList]: json(200, { items: [{ ...subject, linkedUserId: session().userId }], nextCursor: null }),
+      [memberList]: memberPage(),
+    });
+    app();
+    await screen.findByRole('heading', { name: 'Veselí' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
+    const form = await screen.findByRole('form', { name: 'Add an item' });
+    expect(within(form).getByRole('option', { name: 'Anna' })).toBeVisible();
+  });
+
   it('Add loads subject pages only when opened and shows chooser only after full paging', async () => {
     const second = { ...subject, id: 's-2', name: 'Garage' };
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: (request) => {

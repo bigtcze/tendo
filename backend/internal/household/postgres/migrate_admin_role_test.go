@@ -41,7 +41,7 @@ func TestMigrationSeventeenUpgradesOwnerRolesAndPreservesData(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, testpostgres.RevertVersion17SQL); err != nil {
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL); err != nil {
 		t.Fatalf("rewind to version 16: %v", err)
 	}
 	var householdID, ownerID, memberID string
@@ -69,7 +69,7 @@ func TestMigrationSeventeenUpgradesOwnerRolesAndPreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 17 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 18 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var admins, members, versionOne int
@@ -169,8 +169,11 @@ func TestMigrationSeventeenDownReversesPopulatedSchema(t *testing.T) {
 		t.Fatalf("audit table after Down=%v err=%v", auditTable, err)
 	}
 
-	// Round trip: remove the 17 ledger row (as an upgrade fixture does) and
-	// migrate forward again over the populated version 16 schema.
+	// Round trip: reverse 18 as well so the highest applied version allows 17
+	// to run again, then migrate forward over the populated version 16 schema.
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion18SQL); err != nil {
+		t.Fatalf("revert 18 for round trip: %v", err)
+	}
 	if _, err := admin.Exec(ctx, `DELETE FROM tendo_schema_migrations WHERE version=17`); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +182,7 @@ func TestMigrationSeventeenDownReversesPopulatedSchema(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 17 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 18 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	if err := admin.QueryRow(ctx, `SELECT role FROM household_memberships WHERE user_id=$1::uuid`, adminID).Scan(&adminRole); err != nil || adminRole != "admin" {
@@ -198,7 +201,7 @@ func TestMigrationSeventeenFailsClosedWithoutAdmin(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, testpostgres.RevertVersion17SQL); err != nil {
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion18SQL+" ; "+testpostgres.RevertVersion17SQL); err != nil {
 		t.Fatalf("rewind to version 16: %v", err)
 	}
 	var householdID, memberID string
@@ -247,7 +250,7 @@ func TestMigrationSeventeenFailsClosedWithoutAdmin(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("migrate after repair: %v", err)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 17 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 18 || dirty {
 		t.Fatalf("after repair version=%d dirty=%v err=%v", version, dirty, err)
 	}
 }

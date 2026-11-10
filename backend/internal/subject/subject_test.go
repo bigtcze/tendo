@@ -192,6 +192,61 @@ func (m *memRepo) Update(_ context.Context, hid, sid string, expected int64, p P
 	return Subject{}, ErrNotFound
 }
 
+func (m *memRepo) GetMemberPerson(_ context.Context, hid, user string) (Subject, error) {
+	m.calls++
+	m.getCalls++
+	if m.getErr != nil {
+		return Subject{}, m.getErr
+	}
+	if m.err != nil {
+		return Subject{}, m.err
+	}
+	for _, r := range m.rows {
+		if r.HouseholdID == hid && r.Type == TypePerson && r.LinkedUserID != nil && *r.LinkedUserID == user {
+			return r, nil
+		}
+	}
+	return Subject{}, ErrNotFound
+}
+
+func (m *memRepo) Transfer(_ context.Context, hid, user string, req TransferRequest) (TransferResult, error) {
+	m.calls++
+	if m.err != nil {
+		return TransferResult{}, m.err
+	}
+	currentIndex, targetIndex := -1, -1
+	for i, r := range m.rows {
+		if r.HouseholdID != hid {
+			continue
+		}
+		if r.ID == req.CurrentSubjectID {
+			currentIndex = i
+		}
+		if r.ID == req.SubjectID {
+			targetIndex = i
+		}
+	}
+	if currentIndex < 0 || targetIndex < 0 {
+		return TransferResult{}, ErrNotFound
+	}
+	current, target := m.rows[currentIndex], m.rows[targetIndex]
+	if current.LinkedUserID == nil || *current.LinkedUserID != user {
+		return TransferResult{}, ErrMemberPersonChanged
+	}
+	if target.Version != req.SubjectVersion || current.Version != req.CurrentSubjectVersion {
+		return TransferResult{}, ErrVersionMismatch
+	}
+	if target.ID == current.ID || target.Type != TypePerson || target.Archived || target.LinkedUserID != nil {
+		return TransferResult{}, &ValidationError{Field: "subjectId", Code: "not_eligible"}
+	}
+	current.LinkedUserID = nil
+	current.Version++
+	target.LinkedUserID = &user
+	target.Version++
+	m.rows[currentIndex], m.rows[targetIndex] = current, target
+	return TransferResult{Person: target, Previous: current}, nil
+}
+
 func allow(context.Context, string, string) error { return nil }
 
 func TestValidateName(t *testing.T) {
@@ -387,7 +442,7 @@ func TestMembersLookupReceivesOperationDeadline(t *testing.T) {
 			if _, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &id, LinkedUserIDSet: true}); err != nil {
 				t.Fatalf("Update: %v", err)
 			}
-		} else if _, err := svc.Create(context.Background(), userID, householdID, "deadline", "Child", TypePerson, &id); err != nil {
+		} else if _, err := svc.Create(context.Background(), userID, householdID, "deadline", "Child", TypePerson, &id); !errors.Is(err, ErrMemberPersonExists) {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -402,19 +457,23 @@ func TestLinkedUserChangeReusesIdempotencyKeyAsDifferentIntent(t *testing.T) {
 	svc := NewService(repo, allow, memberLookup)
 	firstLink := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
 	secondLink := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b63"
-	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, &firstLink); err != nil {
+	first, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, &secondLink); !errors.Is(err, ErrIdempotencyKeyReused) {
+	// Replay lookup runs before the member-person conflict check, so a key
+	// committed for an unlinked create still reports intent reuse rather than
+	// member_person_exists when the retry adds a link.
+	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, &firstLink); !errors.Is(err, ErrIdempotencyKeyReused) {
 		t.Fatalf("different link replay err=%v", err)
 	}
-	uppercase := strings.ToUpper(firstLink)
-	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, &uppercase); err != nil {
-		t.Fatalf("uppercase replay err=%v", err)
+	if replayed, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, nil); err != nil || replayed.ID != first.ID {
+		t.Fatalf("unlinked replay=%+v err=%v", replayed, err)
 	}
-	if _, err := svc.Create(context.Background(), userID, householdID, "link-key", "Child", TypePerson, nil); !errors.Is(err, ErrIdempotencyKeyReused) {
-		t.Fatalf("link-to-null replay err=%v", err)
+	if _, err := svc.Create(context.Background(), userID, householdID, "new-key", "Child", TypePerson, &secondLink); !errors.Is(err, ErrMemberPersonExists) {
+		t.Fatalf("new key with member link err=%v", err)
 	}
+	_ = strings.ToUpper(firstLink)
 }
 
 func TestLinkedUserReplayAfterEditSkipsMembershipLookup(t *testing.T) {
@@ -428,21 +487,21 @@ func TestLinkedUserReplayAfterEditSkipsMembershipLookup(t *testing.T) {
 		return nil
 	}
 	svc := NewService(repo, allow, members)
-	first, err := svc.Create(context.Background(), userID, householdID, "linked-replay", "Child", TypePerson, &candidate)
+	first, err := svc.Create(context.Background(), userID, householdID, "linked-replay", "Child", TypePerson, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	vehicle := TypeVehicle
-	current, err := svc.Update(context.Background(), userID, householdID, first.ID, 1, Patch{Type: &vehicle, LinkedUserIDSet: true})
-	if err != nil || current.LinkedUserID != nil {
-		t.Fatalf("unlink and retype=%+v err=%v", current, err)
+	current, err := svc.Update(context.Background(), userID, householdID, first.ID, 1, Patch{Name: ptr("Renamed after create")})
+	if err != nil || current.Name != "Renamed after create" {
+		t.Fatalf("rename=%+v err=%v", current, err)
 	}
 	calls, count := repo.findCalls, len(repo.rows)
 	lookupFails = true
-	replayed, err := svc.Create(context.Background(), userID, householdID, "linked-replay", "Child", TypePerson, &candidate)
-	if err != nil || replayed.Version != 2 || replayed.Type != TypeVehicle || replayed.LinkedUserID != nil || repo.findCalls != calls+1 || len(repo.rows) != count {
+	replayed, err := svc.Create(context.Background(), userID, householdID, "linked-replay", "Child", TypePerson, nil)
+	if err != nil || replayed.Version != 2 || replayed.Name != "Renamed after create" || repo.findCalls != calls+1 || len(repo.rows) != count {
 		t.Fatalf("current replay=%+v err=%v calls=%d rows=%d", replayed, err, repo.findCalls, len(repo.rows))
 	}
+	_ = candidate
 }
 
 func TestLinkedUserValidationAndPatchSemantics(t *testing.T) {
@@ -456,17 +515,21 @@ func TestLinkedUserValidationAndPatchSemantics(t *testing.T) {
 	}
 	repo := &memRepo{}
 	svc := NewService(repo, allow, memberLookup)
-	created, err := svc.Create(context.Background(), userID, householdID, "linked", "Child", TypePerson, &candidate)
-	if err != nil || created.LinkedUserID == nil || *created.LinkedUserID != strings.ToLower(candidate) {
-		t.Fatalf("created=%+v err=%v", created, err)
+	// A valid member already has a person, so create cannot link it directly.
+	if _, err := svc.Create(context.Background(), userID, householdID, "linked", "Child", TypePerson, &candidate); !errors.Is(err, ErrMemberPersonExists) {
+		t.Fatalf("create valid member link err=%v", err)
 	}
-	unchanged, err := svc.Update(context.Background(), userID, householdID, created.ID, 1, Patch{Name: ptr("Renamed")})
-	if err != nil || unchanged.LinkedUserID == nil || *unchanged.LinkedUserID != strings.ToLower(candidate) {
-		t.Fatalf("unchanged=%+v err=%v", unchanged, err)
+	created, err := svc.Create(context.Background(), userID, householdID, "unlinked", "Child", TypePerson, nil)
+	if err != nil {
+		t.Fatalf("create unlinked=%+v err=%v", created, err)
 	}
-	unlinked, err := svc.Update(context.Background(), userID, householdID, created.ID, 2, Patch{LinkedUserIDSet: true})
-	if err != nil || unlinked.LinkedUserID != nil {
-		t.Fatalf("unlinked=%+v err=%v", unlinked, err)
+	renamed, err := svc.Update(context.Background(), userID, householdID, created.ID, 1, Patch{Name: ptr("Renamed")})
+	if err != nil || renamed.Name != "Renamed" || renamed.LinkedUserID != nil {
+		t.Fatalf("rename unlinked=%+v err=%v", renamed, err)
+	}
+	// Linking an ordinary unlinked subject to a member is the transfer path.
+	if _, err := svc.Update(context.Background(), userID, householdID, created.ID, 2, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true}); !errors.Is(err, ErrMemberPersonExists) {
+		t.Fatalf("patch valid member link err=%v", err)
 	}
 	for _, tc := range []struct {
 		id   string
@@ -479,10 +542,34 @@ func TestLinkedUserValidationAndPatchSemantics(t *testing.T) {
 			t.Fatalf("id=%q type=%s err=%v", tc.id, tc.typ, err)
 		}
 	}
-	vehicle := TypeVehicle
-	_, err = svc.Update(context.Background(), userID, householdID, created.ID, 3, Patch{Type: &vehicle, LinkedUserIDSet: true})
-	if err != nil {
-		t.Fatalf("change type and clear link: %v", err)
+	// A linked member person is locked: same-value no-ops and rename succeed,
+	// every actual link/type/archive change is rejected.
+	linkedID := strings.ToLower(candidate)
+	repo.rows = append(repo.rows, Subject{ID: "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b90", HouseholdID: householdID, Type: TypePerson, Name: "Member", LinkedUserID: &linkedID, Version: 1})
+	locked := repo.rows[len(repo.rows)-1]
+	noop, err := svc.Update(context.Background(), userID, householdID, locked.ID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	if err != nil || noop.LinkedUserID == nil || *noop.LinkedUserID != linkedID {
+		t.Fatalf("same-link no-op=%+v err=%v", noop, err)
+	}
+	if _, err := svc.Update(context.Background(), userID, householdID, locked.ID, 2, Patch{Name: ptr("Member renamed")}); err != nil {
+		t.Fatalf("member person rename err=%v", err)
+	}
+	unarchive := false
+	if _, err := svc.Update(context.Background(), userID, householdID, locked.ID, 3, Patch{Archived: &unarchive}); err != nil {
+		t.Fatalf("archived=false no-op err=%v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		patch Patch
+	}{
+		{"unlink", Patch{LinkedUserIDSet: true}},
+		{"relink", Patch{LinkedUserID: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b65"), LinkedUserIDSet: true}},
+		{"retype", Patch{Type: ptrType(TypeVehicle)}},
+		{"archive", Patch{Archived: ptrBool(true)}},
+	} {
+		if _, err := svc.Update(context.Background(), userID, householdID, locked.ID, 4, tc.patch); !errors.Is(err, ErrMemberPersonLocked) {
+			t.Fatalf("%s err=%v", tc.name, err)
+		}
 	}
 	outageRepo := &memRepo{}
 	outageSvc := NewService(outageRepo, allow, func(context.Context, string, string) error { return errors.New("membership service unavailable") })
@@ -491,18 +578,21 @@ func TestLinkedUserValidationAndPatchSemantics(t *testing.T) {
 	}
 }
 
+func ptrType(t Type) *Type { return &t }
+func ptrBool(v bool) *bool { return &v }
+
 func ptr(v string) *string { return &v }
 
 func TestRepositoryValidationErrorPassesThrough(t *testing.T) {
 	cause := &ValidationError{Field: "linkedUserId", Code: "requires_person"}
 	repo := &memRepo{createErr: cause}
 	svc := NewService(repo, allow, func(context.Context, string, string) error { return nil })
-	_, err := svc.Create(context.Background(), userID, householdID, "repo-validation", "person", TypePerson, ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"))
+	_, err := svc.Create(context.Background(), userID, householdID, "repo-validation", "person", TypePerson, nil)
 	assertValidationError(t, err, cause)
 
 	repo = &memRepo{updateErr: cause, rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "person", Version: 1}}}
 	svc = NewService(repo, allow, func(context.Context, string, string) error { return nil })
-	_, err = svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: ptr("0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"), LinkedUserIDSet: true})
+	_, err = svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{Name: ptr("renamed")})
 	assertValidationError(t, err, cause)
 }
 
@@ -823,105 +913,110 @@ func TestUpdateNewLinkedUserDefaultsValidationTypeToPerson(t *testing.T) {
 	membersCalls := 0
 	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePerson, Name: "Person", Version: 1}}}
 	svc := NewService(repo, allow, func(context.Context, string, string) error { membersCalls++; return nil })
-	updated, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
-	if err != nil || updated.LinkedUserID == nil || *updated.LinkedUserID != candidate || membersCalls != 1 || repo.getCalls != 0 {
-		t.Fatalf("updated=%+v err=%v member checks=%d Get calls=%d", updated, err, membersCalls, repo.getCalls)
+	_, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	if !errors.Is(err, ErrMemberPersonExists) || membersCalls != 1 || repo.getCalls != 1 {
+		t.Fatalf("err=%v member checks=%d Get calls=%d, want member_person_exists after one lookup and one stored read", err, membersCalls, repo.getCalls)
 	}
 
 	petRepo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypePet, Name: "Pet", Version: 1}}}
 	membersCalls = 0
 	petService := NewService(petRepo, allow, func(context.Context, string, string) error { membersCalls++; return nil })
-	_, err = petService.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
 	var validation *ValidationError
-	if !errors.As(err, &validation) || validation.Code != "requires_person" || membersCalls != 1 || petRepo.getCalls != 0 {
+	_, err = petService.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
+	if !errors.As(err, &validation) || validation.Code != "requires_person" || membersCalls != 1 || petRepo.getCalls != 1 {
 		t.Fatalf("pet update err=%v member checks=%d Get calls=%d", err, membersCalls, petRepo.getCalls)
 	}
 }
 
-func TestUpdateLinkedMembershipUnavailableOnMissingTargetDoesNotProbe(t *testing.T) {
+func TestUpdateMissingTargetPrecedesLinkedMembershipLookup(t *testing.T) {
 	candidate := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"
 	repo := &memRepo{}
-	svc := NewService(repo, allow, func(context.Context, string, string) error { return errors.New("membership unavailable") })
+	membersCalls := 0
+	svc := NewService(repo, allow, func(context.Context, string, string) error {
+		membersCalls++
+		return errors.New("membership unavailable")
+	})
 	_, err := svc.Update(context.Background(), userID, householdID, subjectID, 1, Patch{LinkedUserID: &candidate, LinkedUserIDSet: true})
-	if !errors.Is(err, ErrUnavailable) || repo.getCalls != 0 {
-		t.Fatalf("err=%v Get calls=%d, want unavailable and no existence probe", err, repo.getCalls)
+	if !errors.Is(err, ErrNotFound) || repo.getCalls != 1 || membersCalls != 0 {
+		t.Fatalf("err=%v Get calls=%d member lookups=%d, want 404 before membership lookup", err, repo.getCalls, membersCalls)
 	}
 }
 
 func TestUpdateEvaluationOrderAndStaleRequiresPerson(t *testing.T) {
 	linked := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80"
+	linkOnly := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
 	repo := &memRepo{rows: []Subject{{ID: subjectID, HouseholdID: householdID, Type: TypeHome, Name: "Flat", Version: 2}}}
 	svc := NewService(repo, allow, func(context.Context, string, string) error { return nil })
 	ctx := context.Background()
 	blank := " "
-	_, err := svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Name: &blank})
 	var validation *ValidationError
+
+	// Missing target wins over field validation: 404, not 422.
+	callsBefore := repo.calls
+	_, err := svc.Update(ctx, userID, householdID, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99", 1, Patch{Name: &blank})
+	if !errors.Is(err, ErrNotFound) || repo.calls != callsBefore+1 {
+		t.Fatalf("missing target invalid input: err=%v calls=%d", err, repo.calls-callsBefore)
+	}
+	// Existing target: field validation is 422 before staleness.
+	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Name: &blank})
 	if !errors.As(err, &validation) || validation.Field != "name" {
 		t.Fatalf("existing target invalid input: %v", err)
 	}
-	_, err = svc.Update(ctx, userID, householdID, "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99", 1, Patch{Name: &blank})
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("missing target invalid input: %v", err)
-	}
+	// A valid patch on a stale row is 412.
 	typ := TypeHome
 	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
 	if !errors.Is(err, ErrVersionMismatch) {
 		t.Fatalf("stale type change with unknown link: %v", err)
 	}
-	repo.rows[0].LinkedUserID = &linked
-	repo.rows[0].Type = TypeHome
-	linkOnly := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
+	// Stale link-only on an unlinked non-person is still requires_person 422.
 	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{LinkedUserIDSet: true, LinkedUserID: &linkOnly})
-	if !errors.As(err, &validation) || validation.Code != "requires_person" {
-		t.Fatalf("stale link-only on non-person: %v", err)
+	if !errors.As(err, &validation) || validation.Field != "linkedUserId" || validation.Code != "requires_person" {
+		t.Fatalf("stale link-only on unlinked non-person: %v", err)
 	}
+	// Stale link on an unlinked person is member_person_exists 409.
 	repo.rows[0].Type = TypePerson
-	typ = TypeHome
-	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
-	if !errors.As(err, &validation) || validation.Code != "requires_person" {
-		t.Fatalf("stale type change invalid against stored link: %v", err)
+	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{LinkedUserIDSet: true, LinkedUserID: &linkOnly})
+	if !errors.Is(err, ErrMemberPersonExists) {
+		t.Fatalf("stale link-only on unlinked person: %v", err)
 	}
+	// A member person reports 409 against the current state before 412.
+	repo.rows[0].LinkedUserID = &linked
+	for _, tc := range []struct {
+		name  string
+		patch Patch
+	}{
+		{"unlink", Patch{LinkedUserIDSet: true}},
+		{"type away", Patch{Type: ptrType(TypeHome)}},
+		{"archive", Patch{Archived: ptrBool(true)}},
+	} {
+		if _, err = svc.Update(ctx, userID, householdID, subjectID, 1, tc.patch); !errors.Is(err, ErrMemberPersonLocked) {
+			t.Fatalf("stale member person %s: %v", tc.name, err)
+		}
+	}
+	// Same-value/no-op and rename are valid, so their stale result is 412.
 	typ = TypePerson
 	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
 	if !errors.Is(err, ErrVersionMismatch) {
 		t.Fatalf("stale but valid resulting state: %v", err)
 	}
-	otherLinked := "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60"
-	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{LinkedUserIDSet: true, LinkedUserID: &otherLinked})
+	name := "Changed"
+	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Name: &name})
 	if !errors.Is(err, ErrVersionMismatch) {
-		t.Fatalf("stale link-only on person: %v", err)
+		t.Fatalf("stale rename: %v", err)
 	}
-	beforeGets := repo.getCalls
-	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{LinkedUserIDSet: true})
-	if !errors.Is(err, ErrVersionMismatch) || repo.getCalls != beforeGets {
-		t.Fatalf("stale explicit unlink: err=%v Get calls=%d, want unchanged %d", err, repo.getCalls, beforeGets)
-	}
-	typ = TypeHome
-	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ, LinkedUserIDSet: true})
-	if !errors.Is(err, ErrVersionMismatch) {
-		t.Fatalf("stale type+unlink: %v", err)
-	}
-	repo.rows[0].Archived = true
-	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
-	if !errors.As(err, &validation) || validation.Code != "requires_person" {
-		t.Fatalf("archived stale type change invariant: %v", err)
-	}
-	repo.rows[0].Archived = false
+	// A target disappearing between calls is 404 before anything else.
 	repo.getErr = ErrNotFound
-	typ = TypeHome
 	_, err = svc.Update(ctx, userID, householdID, subjectID, 1, Patch{Type: &typ})
 	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("target disappeared during stale invariant check: %v", err)
+		t.Fatalf("target disappeared: %v", err)
 	}
 	repo.getErr = nil
-	repo.rows[0].Type = TypePerson
 	before := repo.calls
-	name := "Changed"
 	if _, err := svc.Update(ctx, userID, householdID, subjectID, 2, Patch{Name: &name}); err != nil {
 		t.Fatal(err)
 	}
-	if got := repo.calls - before; got != 1 {
-		t.Fatalf("successful PATCH repository calls=%d, want only Update", got)
+	if got := repo.calls - before; got != 2 {
+		t.Fatalf("successful PATCH repository calls=%d, want stored read and Update", got)
 	}
 }
 

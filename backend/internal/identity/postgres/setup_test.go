@@ -13,6 +13,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
+	subjectpostgres "github.com/bigtcze/tendo/backend/internal/subject/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -48,11 +49,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false)`},
-		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=17`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (17,false)`},
-		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false)`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=18`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (18,false)`},
+		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false)`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=17`, reset: `UPDATE tendo_schema_migrations SET version=17 WHERE version=99`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=18`, reset: `UPDATE tendo_schema_migrations SET version=18 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {
@@ -94,7 +95,10 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 	factory := func(queries *householdpostgresdb.Queries) identity.OwnerHouseholdService {
 		return householdapp.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
 	}
-	repo := New(app, factory)
+	people := func(tx householdpostgresdb.DBTX) identity.MemberPersonProvisioner {
+		return subjectpostgres.NewMemberPersonProvisioner(tx)
+	}
+	repo := New(app, factory, people)
 	service := identity.NewSetupService(repo)
 	fixtures := func() {
 		t.Helper()
@@ -142,6 +146,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 	}
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("setup graph count=%d err=%v", count, err)
+	}
+	var personName string
+	var personCount int
+	if err = admin.QueryRow(ctx, `SELECT count(*), min(s.name) FROM subjects s JOIN household_memberships m ON m.user_id=s.linked_user_id AND m.household_id=s.household_id JOIN user_accounts u ON u.id=m.user_id WHERE s.type='person' AND u.login='owner_test'`).Scan(&personCount, &personName); err != nil || personCount != 1 || personName != "owner_test" {
+		t.Fatalf("setup owner person count=%d name=%q err=%v", personCount, personName, err)
 	}
 	var defaultHousehold string
 	if err = admin.QueryRow(ctx, `SELECT default_household_id::text FROM user_accounts`).Scan(&defaultHousehold); err != nil {

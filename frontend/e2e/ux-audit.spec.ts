@@ -6,7 +6,7 @@ import { cs } from '../src/i18n/cs';
 import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
-import { capturePeopleEmpty, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
+import { capturePeopleMemberOnly, capturePeopleScale, capturePeopleStates, seedPeopleExtras } from './audit/people';
 import { captureMembers } from './audit/members';
 import { captureAuth } from './audit/auth';
 import { applySavedDarkPreference, applySystemAppearance } from './audit/appearance';
@@ -181,7 +181,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
     await page.setViewportSize({ width, height });
     await capture(page, join(dir, `audit-all-items-empty-${width}.png`), false);
   }
-  await capturePeopleEmpty(page, browser, dir, capture);
+  await capturePeopleMemberOnly(page, browser, dir, capture);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
@@ -274,7 +274,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
       expect(archive.status(), `archive subject ${subject.name}`).toBe(200);
     }
   }
-  await seedPeopleExtras(page, api, root, invited.userId);
+  await seedPeopleExtras(page, api, root);
   const createdItems: Array<{ generatorIndex: number; id: string; title: string; recurrence: { mode: string } | null; archived: boolean; done: boolean; workflowState: string }> = [];
   async function verifyList(done: boolean, archived: boolean) {
     const all: Array<{ workflowState: string; done: boolean; archived: boolean }> = [];

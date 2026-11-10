@@ -8,7 +8,6 @@ import type { SubjectType } from './subjectsApi';
 type Options = {
   initial: SubjectValues;
   nameId: string;
-  linkedId: string;
   notice?: string;
   locked: boolean;
   onSubmit: (values: SubjectValues) => Promise<SubmitOutcome>;
@@ -16,10 +15,9 @@ type Options = {
   noticeRef: RefObject<HTMLDivElement | null>;
 };
 
-export function useSubjectFormState({ initial, nameId, linkedId, notice, locked, onSubmit, formRef, noticeRef }: Options) {
+export function useSubjectFormState({ initial, nameId, notice, locked, onSubmit, formRef, noticeRef }: Options) {
   const [name, setName] = useState(initial.name);
   const [type, setType] = useState<SubjectType>(initial.type);
-  const [linkedUserId, setLinkedUserId] = useState<string | null>(initial.linkedUserId);
   const [pending, setPending] = useState(false);
   const [pendingAttempt, setPendingAttempt] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
@@ -38,7 +36,6 @@ export function useSubjectFormState({ initial, nameId, linkedId, notice, locked,
     const field = errorTarget(next);
     if (field === 'name') document.getElementById(nameId)?.focus();
     if (field === 'type') formRef.current?.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.focus();
-    if (field === 'linkedUserId') document.getElementById(linkedId)?.focus();
   }
 
   async function submit(event: FormEvent) {
@@ -54,7 +51,7 @@ export function useSubjectFormState({ initial, nameId, linkedId, notice, locked,
     setError(null);
     let outcome: SubmitOutcome;
     try {
-      outcome = await onSubmit(submittedValues(name, type, linkedUserId));
+      outcome = await onSubmit(submittedValues(name, type));
     } catch {
       outcome = { kind: 'failed' };
     }
@@ -64,7 +61,7 @@ export function useSubjectFormState({ initial, nameId, linkedId, notice, locked,
   }
 
   function settle(outcome: SubmitOutcome) {
-    if (outcome.kind === 'invalid') fail(outcome);
+    if (outcome.kind === 'invalid' || outcome.kind === 'locked' || outcome.kind === 'exists') fail(outcome);
     else if (outcome.kind === 'failed') fail({ kind: 'failed' });
     else if (outcome.kind === 'done') setShowNotice(false);
     else setShowNotice(true);
@@ -81,13 +78,8 @@ export function useSubjectFormState({ initial, nameId, linkedId, notice, locked,
     setType(nextType);
   }
 
-  function changeLinkedUserId(nextLinkedUserId: string | null) {
-    setShowNotice(false);
-    setLinkedUserId(nextLinkedUserId);
-  }
-
   return {
-    name, changeName, type, changeType, linkedUserId, changeLinkedUserId,
+    name, changeName, type, changeType,
     pending, pendingAttempt, error, target, showNotice, submit,
   };
 }

@@ -16,11 +16,12 @@ import (
 // filters by household and subject id, so cross-household access is impossible
 // at the SQL level regardless of authorization.
 type Repository struct {
+	db      dbgen.DBTX
 	queries *dbgen.Queries
 }
 
 func NewRepository(db dbgen.DBTX) *Repository {
-	return &Repository{queries: dbgen.New(db)}
+	return &Repository{db: db, queries: dbgen.New(db)}
 }
 
 var errPersistence = errors.New("subject persistence failed")
@@ -33,6 +34,8 @@ func classifyConstraintError(err error) error {
 	switch {
 	case pgErr.Code == "23503" && pgErr.ConstraintName == "subjects_linked_membership_fk":
 		return &subject.ValidationError{Field: "linkedUserId", Code: "invalid_reference"}
+	case pgErr.Code == "23505" && pgErr.ConstraintName == "subjects_member_person_unique":
+		return subject.ErrMemberPersonExists
 	case pgErr.Code == "23514" && pgErr.ConstraintName == "subjects_linked_user_person_only":
 		return &subject.ValidationError{Field: "linkedUserId", Code: "requires_person"}
 	case pgErr.Code == "23503":

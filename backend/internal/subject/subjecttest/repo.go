@@ -164,6 +164,53 @@ func (r *Repo) Update(_ context.Context, hid, sid string, expected int64, p subj
 	r.rows[sid] = s
 	return s, nil
 }
+func (r *Repo) GetMemberPerson(_ context.Context, hid, userID string) (subject.Subject, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Calls++
+	if r.Err != nil {
+		return subject.Subject{}, r.Err
+	}
+	for _, s := range r.rows {
+		if s.HouseholdID == hid && s.Type == subject.TypePerson && s.LinkedUserID != nil && *s.LinkedUserID == userID {
+			return s, nil
+		}
+	}
+	return subject.Subject{}, subject.ErrNotFound
+}
+
+func (r *Repo) Transfer(_ context.Context, hid, userID string, req subject.TransferRequest) (subject.TransferResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Calls++
+	current, ok := r.rows[req.CurrentSubjectID]
+	if !ok || current.HouseholdID != hid {
+		return subject.TransferResult{}, subject.ErrNotFound
+	}
+	target, ok := r.rows[req.SubjectID]
+	if !ok || target.HouseholdID != hid {
+		return subject.TransferResult{}, subject.ErrNotFound
+	}
+	if current.LinkedUserID == nil || *current.LinkedUserID != userID {
+		return subject.TransferResult{}, subject.ErrMemberPersonChanged
+	}
+	if target.Version != req.SubjectVersion || current.Version != req.CurrentSubjectVersion {
+		return subject.TransferResult{}, subject.ErrVersionMismatch
+	}
+	if target.ID == current.ID || target.Type != subject.TypePerson || target.Archived || target.LinkedUserID != nil {
+		return subject.TransferResult{}, &subject.ValidationError{Field: "subjectId", Code: "not_eligible"}
+	}
+	current.LinkedUserID = nil
+	current.Version++
+	current.UpdatedAt = r.Clock.Add(time.Hour)
+	target.LinkedUserID = &userID
+	target.Version++
+	target.UpdatedAt = r.Clock.Add(time.Hour)
+	r.rows[current.ID] = current
+	r.rows[target.ID] = target
+	return subject.TransferResult{Person: target, Previous: current}, nil
+}
+
 func pad(n int) string {
 	const digits = "0123456789"
 	b := []byte("000000000000")

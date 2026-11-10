@@ -9,13 +9,11 @@ export type { SubmitOutcome, SubjectValues } from './subjectFormModel';
 export { typeLabelKey } from './subjectFormModel';
 
 export function SubjectForm({
-  label, initial, members = [], membersLoaded = false, submitLabel, pendingLabel, notice, yourEntry, archiveLabel, initialFocusRef,
-  locked = false, retryLabel, onSubmit, onCancel, onArchive, onPendingChange,
+  label, initial, submitLabel, pendingLabel, notice, yourEntry, archiveLabel, initialFocusRef,
+  locked = false, memberPerson = false, retryLabel, onSubmit, onCancel, onArchive, onPendingChange,
 }: {
   label: string;
   initial: SubjectValues;
-  members?: { userId: string; login: string }[];
-  membersLoaded?: boolean;
   submitLabel: string;
   pendingLabel: string;
   notice?: string;
@@ -24,6 +22,8 @@ export function SubjectForm({
   archiveLabel?: string;
   initialFocusRef?: RefObject<HTMLInputElement | null>;
   locked?: boolean;
+  /** A household member's person: the name stays editable, the type and account link are fixed. */
+  memberPerson?: boolean;
   retryLabel?: string;
   onSubmit: (values: SubjectValues) => Promise<SubmitOutcome>;
   onCancel: () => void;
@@ -33,11 +33,10 @@ export function SubjectForm({
   const { t } = useI18n();
   const uid = useId();
   const nameId = `${uid}-name`;
-  const linkedId = `${uid}-linked-account`;
   const errorId = `${uid}-error`;
   const formRef = useRef<HTMLFormElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
-  const state = useSubjectFormState({ initial, nameId, linkedId, notice, locked, onSubmit, formRef, noticeRef });
+  const state = useSubjectFormState({ initial, nameId, notice, locked, onSubmit, formRef, noticeRef });
   useEffect(() => { onPendingChange?.(state.pending); }, [onPendingChange, state.pending]);
 
   return (
@@ -51,9 +50,8 @@ export function SubjectForm({
       ) : null}
       <SubjectFormFields
         initialFocusRef={initialFocusRef}
-        uid={uid} nameId={nameId} linkedId={linkedId} errorId={errorId} target={state.target} name={state.name} changeName={state.changeName}
-        type={state.type} changeType={state.changeType} linkedUserId={state.linkedUserId} changeLinkedUserId={state.changeLinkedUserId}
-        locked={locked} members={members} membersLoaded={membersLoaded} initial={initial}
+        uid={uid} nameId={nameId} errorId={errorId} target={state.target} name={state.name} changeName={state.changeName}
+        type={state.type} changeType={state.changeType} locked={locked} memberPerson={memberPerson}
       />
       <div id={errorId} role="alert" className="text-base text-danger">
         {state.error ? t(errorKey(state.error)) : null}

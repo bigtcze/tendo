@@ -6,6 +6,7 @@ export type SubjectType = components['schemas']['SubjectType'];
 export type SubjectField = components['schemas']['SubjectValidationProblem']['field'];
 export type SubjectCode = components['schemas']['SubjectValidationProblem']['code'];
 export type SubjectChanges = components['schemas']['UpdateSubjectRequest'];
+export type TransferRequest = components['schemas']['TransferMemberPersonRequest'];
 
 export const subjectTypes: readonly SubjectType[] = ['person', 'home', 'vehicle', 'pet', 'custom'];
 
@@ -13,6 +14,7 @@ export const PAGE_SIZE = 50;
 
 const listPath = '/api/v1/households/{householdId}/subjects';
 const itemPath = '/api/v1/households/{householdId}/subjects/{subjectId}';
+const memberPersonPath = '/api/v1/households/{householdId}/members/{userId}/person';
 
 type Failure = { kind: 'unauthenticated' } | { kind: 'error' };
 /** `unknown` is a 422 this client does not recognise; it still reads as a problem with the name. */
@@ -104,6 +106,8 @@ export async function getSubject(householdId: string, subjectId: string): Promis
 export type PatchResult =
   | { kind: 'ok'; subject: Subject }
   | { kind: 'conflict' }
+  | { kind: 'locked' }
+  | { kind: 'exists' }
   | { kind: 'notFound' }
   | Invalid
   | Failure;
@@ -122,6 +126,12 @@ export async function patchSubject(
     if (data && response.status === 200) return { kind: 'ok', subject: data };
     if (response.status === 401) return { kind: 'unauthenticated' };
     if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 409) {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      if (code === 'member_person_locked') return { kind: 'locked' };
+      if (code === 'member_person_exists') return { kind: 'exists' };
+      return { kind: 'error' };
+    }
     if (response.status === 412) return { kind: 'conflict' };
     if (response.status === 422) return invalidFrom(error);
   } catch {
@@ -140,4 +150,58 @@ export async function setArchived(
   if (current.kind !== 'ok') return current;
   if (current.subject.archived === archived) return { kind: 'ok', subject: current.subject };
   return patchSubject(householdId, subjectId, current.etag, { archived });
+}
+
+/** Strong ETags are quoted decimal subject versions; anything else cannot be turned into a transfer version. */
+export function subjectVersion(etag: string | null | undefined): number | null {
+  const match = etag?.match(/^"([1-9][0-9]*)"$/);
+  if (!match) return null;
+  const version = Number(match[1]);
+  return Number.isSafeInteger(version) ? version : null;
+}
+
+export type MemberPersonResult = { kind: 'ok'; person: Subject; version: number } | { kind: 'notFound' } | Failure;
+
+/** Reads a member's canonical person directly, so a transfer needs no subject-list paging. */
+export async function getMemberPerson(householdId: string, userId: string): Promise<MemberPersonResult> {
+  try {
+    const { data, response } = await api.GET(memberPersonPath, { params: { path: { householdId, userId } } });
+    const version = subjectVersion(response.headers.get('ETag'));
+    if (data && response.status === 200 && version !== null) return { kind: 'ok', person: data, version };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 404) return { kind: 'notFound' };
+  } catch {
+    // fall through
+  }
+  return { kind: 'error' };
+}
+
+export type TransferResult =
+  | { kind: 'ok'; person: Subject; previous: Subject }
+  | { kind: 'changed' }
+  | { kind: 'stale' }
+  | { kind: 'notEligible' }
+  | { kind: 'notFound' }
+  | Failure;
+
+/** Reassigns a member's person to this existing subject; the previous person becomes an ordinary one. */
+export async function transferMemberPerson(
+  householdId: string,
+  userId: string,
+  body: TransferRequest,
+): Promise<TransferResult> {
+  try {
+    const { data, error, response } = await api.PUT(memberPersonPath, { params: { path: { householdId, userId } }, body });
+    if (data && response.status === 200) return { kind: 'ok', person: data.person, previous: data.previous };
+    if (response.status === 401) return { kind: 'unauthenticated' };
+    if (response.status === 404) return { kind: 'notFound' };
+    if (response.status === 409) {
+      return (error as { code?: unknown } | undefined)?.code === 'member_person_changed' ? { kind: 'changed' } : { kind: 'error' };
+    }
+    if (response.status === 412) return { kind: 'stale' };
+    if (response.status === 422) return { kind: 'notEligible' };
+  } catch {
+    // fall through
+  }
+  return { kind: 'error' };
 }

@@ -14,7 +14,7 @@ import (
 func TestInvitationPostgresConcurrentAcceptOneWinner(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "concurrent-accept")
 	if e != nil {
 		t.Fatal(e)
@@ -57,7 +57,7 @@ func TestInvitationPostgresExistingAccountPoliciesAndRevokeIdempotence(t *testin
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	clock := time.Now().UTC().Truncate(time.Second)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), func() time.Time { return clock })
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), func() time.Time { return clock })
 	inv, e := svc.CreateInvitation(ctx, owner, house, "existing-policy")
 	if e != nil {
 		t.Fatal(e)

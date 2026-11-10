@@ -47,7 +47,8 @@ type InvitationTransaction interface {
 	RevokeInvitation(context.Context, string, string, time.Time) error
 	FindInvitation(context.Context, []byte, bool) (Invitation, error)
 	FindLogin(context.Context, string) error
-	LockUser(context.Context, string) (string, error)
+	LockUser(context.Context, string) (string, string, error)
+	EnsureMemberPerson(context.Context, string, string, string) error
 	HasOtherMembership(context.Context, string, string) (bool, error)
 	CreateUser(context.Context, string) (string, error)
 	CreateCredential(context.Context, string, string) error

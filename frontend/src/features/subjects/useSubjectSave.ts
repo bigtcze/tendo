@@ -30,6 +30,9 @@ export function useSubjectSave(ctx: {
         return { kind: 'done' };
       case 'conflict':
         return resolveConflict(ctx, values, subject, started);
+      case 'locked':
+      case 'exists':
+        return result;
       case 'notFound':
         ctx.gone();
         return { kind: 'handled' };

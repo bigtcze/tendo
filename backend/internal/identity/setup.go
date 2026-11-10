@@ -22,6 +22,7 @@ type SetupTransaction interface {
 	CreateUser(context.Context, string) (string, error)
 	CreateCredential(context.Context, string, string) error
 	SetDefaultHousehold(context.Context, string, string) error
+	EnsureMemberPerson(context.Context, string, string, string) error
 	CompleteSetup(context.Context) error
 }
 type SetupRepository interface {
@@ -68,15 +69,8 @@ func validateCredentials(login, password string) error {
 }
 
 func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error {
-	if err := validateCredentials(input.Login, input.Password); err != nil {
-		return err
-	}
-	name, err := household.Validate(input.HouseholdName, input.Timezone)
+	persistence, bootstrap, err := setupInputs(input)
 	if err != nil {
-		var validation *household.ValidationError
-		if errors.As(err, &validation) {
-			return &ValidationError{validation.Field, validation.Code}
-		}
 		return err
 	}
 	bounded, cancel := context.WithTimeout(ctx, setupTimeout)
@@ -84,43 +78,79 @@ func (s *SetupService) CreateOwner(ctx context.Context, input SetupInput) error 
 	if err := bounded.Err(); err != nil {
 		return err
 	}
-	hash, err := s.hashPassword(input.Password)
-	if errors.Is(err, ErrPasswordWorkLimit) {
-		return ErrPasswordWorkLimit
-	}
+	hash, err := s.hashSetupPassword(bounded, input.Password)
 	if err != nil {
-		return errors.New("password hashing failed")
-	}
-	if err := bounded.Err(); err != nil {
 		return err
 	}
-	persistence := SetupPersistenceInput{Login: input.Login, PasswordHash: hash}
-	bootstrap := household.Bootstrap{Name: name, Timezone: input.Timezone}
+	persistence.PasswordHash = hash
 	return s.repository.WithSetupTransaction(bounded, func(tx SetupTransaction, households OwnerHouseholdService) error {
-		required, err := tx.LockRequired(bounded)
-		if err != nil {
-			return errors.New("setup state unavailable")
-		}
-		if !required {
-			return ErrComplete
-		}
-		userID, err := tx.CreateUser(bounded, persistence.Login)
-		if err != nil {
-			return errors.New("setup persistence failed")
-		}
-		if err = tx.CreateCredential(bounded, userID, persistence.PasswordHash); err != nil {
-			return errors.New("setup persistence failed")
-		}
-		householdID, err := households.CreateOwnerHousehold(bounded, bootstrap, userID)
-		if err != nil {
-			return errors.New("setup persistence failed")
-		}
-		if err = tx.SetDefaultHousehold(bounded, userID, householdID); err != nil {
-			return errors.New("setup persistence failed")
-		}
-		if err = tx.CompleteSetup(bounded); err != nil {
-			return errors.New("setup persistence failed")
-		}
-		return nil
+		return persistSetupOwner(bounded, tx, households, persistence, bootstrap)
 	})
+}
+
+// setupInputs validates the owner input before any persistence work and
+// converts household validation errors to the identity wire representation.
+func setupInputs(input SetupInput) (SetupPersistenceInput, household.Bootstrap, error) {
+	if err := validateCredentials(input.Login, input.Password); err != nil {
+		return SetupPersistenceInput{}, household.Bootstrap{}, err
+	}
+	name, err := household.Validate(input.HouseholdName, input.Timezone)
+	if err != nil {
+		var validation *household.ValidationError
+		if errors.As(err, &validation) {
+			return SetupPersistenceInput{}, household.Bootstrap{}, &ValidationError{validation.Field, validation.Code}
+		}
+		return SetupPersistenceInput{}, household.Bootstrap{}, err
+	}
+	return SetupPersistenceInput{Login: input.Login}, household.Bootstrap{Name: name, Timezone: input.Timezone}, nil
+}
+
+// hashSetupPassword owns the password-gate error mapping and keeps the setup
+// deadline checked immediately after the slow hash.
+func (s *SetupService) hashSetupPassword(ctx context.Context, password string) (string, error) {
+	hash, err := s.hashPassword(password)
+	if errors.Is(err, ErrPasswordWorkLimit) {
+		return "", ErrPasswordWorkLimit
+	}
+	if err != nil {
+		return "", errors.New("password hashing failed")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return hash, nil
+}
+
+// persistSetupOwner writes the whole first-run graph in the caller's
+// transaction: setup lock, account, credential, household, admin membership,
+// canonical member person, default household and completion.
+func persistSetupOwner(ctx context.Context, tx SetupTransaction, households OwnerHouseholdService, persistence SetupPersistenceInput, bootstrap household.Bootstrap) error {
+	required, err := tx.LockRequired(ctx)
+	if err != nil {
+		return errors.New("setup state unavailable")
+	}
+	if !required {
+		return ErrComplete
+	}
+	userID, err := tx.CreateUser(ctx, persistence.Login)
+	if err != nil {
+		return errors.New("setup persistence failed")
+	}
+	if err = tx.CreateCredential(ctx, userID, persistence.PasswordHash); err != nil {
+		return errors.New("setup persistence failed")
+	}
+	householdID, err := households.CreateOwnerHousehold(ctx, bootstrap, userID)
+	if err != nil {
+		return errors.New("setup persistence failed")
+	}
+	if err = tx.EnsureMemberPerson(ctx, householdID, userID, persistence.Login); err != nil {
+		return errors.New("setup persistence failed")
+	}
+	if err = tx.SetDefaultHousehold(ctx, userID, householdID); err != nil {
+		return errors.New("setup persistence failed")
+	}
+	if err = tx.CompleteSetup(ctx); err != nil {
+		return errors.New("setup persistence failed")
+	}
+	return nil
 }

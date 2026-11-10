@@ -11,6 +11,7 @@ import { getPendingSubjectCreate, type PendingSubjectCreate } from './pendingSub
 import { useSubjectCreate } from './useSubjectCreate';
 import { useSubjectActions } from './useSubjectActions';
 import { useSubjectSave } from './useSubjectSave';
+import { useMemberPersonTransfer } from './useMemberPersonTransfer';
 
 export function SubjectsScreen({ userId, householdId, login, onSignedOut }: {
   userId: string; householdId: string; login: string; onSignedOut: () => void;
@@ -34,7 +35,7 @@ export function SubjectsScreen({ userId, householdId, login, onSignedOut }: {
   const busy = useRef(false);
   const noticeRef = useRef<HTMLDivElement>(null);
 
-  const memberData = useSubjectMembers(householdId, adding, editing, onSignedOut);
+  const memberData = useSubjectMembers(householdId, editing, onSignedOut);
   const { members, membersLoaded } = memberData;
   useUnmountGeneration(generationRef);
   useSubjectsFocus(notice, noticeRef, loadingMore, pagingFocusRef, listState, focusKeyRef);
@@ -46,7 +47,7 @@ export function SubjectsScreen({ userId, householdId, login, onSignedOut }: {
   const create = useSubjectCreate({
     userId, householdId, generation: generationRef, addForm, pendingCreate, setPendingCreate, loadingMore,
     mutationPending, busy, setCreateUncertain,
-    setNotice, setAdding, setMembers: memberData.resetMembers, setEditing, setActionFailed,
+    setNotice, setAdding, setEditing, setActionFailed,
     setLoadingMore, pagingFocus: pagingFocusRef, pageLoad,
     setCursorStack, setCurrentCursor, setList, onSignedOut,
   });
@@ -61,17 +62,20 @@ export function SubjectsScreen({ userId, householdId, login, onSignedOut }: {
     editing, generation: generationRef, householdId, showArchived, closeEditing: actions.closeEditing,
     updateRow, setEditing, changedMeanwhile: actions.changedMeanwhile, gone: actions.gone, onSignedOut,
   }).save;
+  const transfer = useMemberPersonTransfer({
+    householdId, generation: generationRef, closeEditing: actions.closeEditing, updateRow, setNotice, reload, onSignedOut,
+  });
   const interactionLocked = loadingMore || mutationPending || adding || editing !== null || busyId !== null;
   const items = listState.kind === 'ready' ? listState.items : [];
   const empty = listState.kind === 'ready' && items.length === 0;
-  const yourEntry = yourEntryText(editing, members, (key, values) => t(key, values));
+  const yourEntry = yourEntryText(editing, (key, values) => t(key, values));
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
     <SubjectsScreenContent
       showArchived={showArchived} list={listState} notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked}
       actionFailed={actionFailed} retryLoad={retryLoad} adding={adding} empty={empty} items={items}
       addDisabled={loadingMore || mutationPending || busyId !== null}
-      cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing}
+      cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing} transfer={transfer}
       createUncertain={createUncertain} pendingCreate={pendingCreate} t={t} yourEntry={yourEntry}
       startAdding={create.startAdding} cancelAdding={cancelAdding} add={create.add} startEditing={actions.startEditing}
       changeArchived={actions.changeArchived} undoArchive={actions.undoArchive} save={save} closeEditing={actions.closeEditing}

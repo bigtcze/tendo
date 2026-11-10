@@ -166,8 +166,27 @@ def verify():
     for page in expected.get('members',[]):
         for item in page['body']['items']:
             if item.get('role')=='owner': item['role']='admin'
-    for k in expected: assert after[k]==expected[k],('source-release API snapshot differs (body or ETag)',k,expected[k],after[k])
-    print(f'{len(after)} source-release API response groups identical after upgrade (bodies and ETags).')
+    def flatten(groups):
+        return [item for page in groups for item in page['body']['items']]
+    active_key='subjects archived=false'
+    expected_active=flatten(expected[active_key]); actual_active=flatten(after[active_key])
+    expected_ids={item['id'] for item in expected_active}
+    preexisting=[item for item in actual_active if item['id'] in expected_ids]
+    assert preexisting==expected_active,('pre-existing subject representations changed',expected_active,actual_active)
+    members=flatten(after['members'])
+    linked=({item.get('linkedUserId') for item in expected_active if item.get('linkedUserId')})
+    missing={m['userId']:m['login'] for m in members if m['userId'] not in linked}
+    added=[item for item in actual_active if item['id'] not in expected_ids]
+    assert len(added)==len(missing),('backfilled member person count',missing,added)
+    for item in added:
+        assert item.get('type')=='person' and item.get('archived') is False and item.get('linkedUserId') in missing and item.get('name')==missing[item['linkedUserId']],('backfilled member person representation',item,missing)
+    for k in expected:
+        if k==active_key: continue
+        if k=='subjects archived=true':
+            assert flatten(after[k])==flatten(expected[k]),('archived subjects changed',expected[k],after[k])
+        else:
+            assert after[k]==expected[k],('source-release API snapshot differs (body or ETag)',k,expected[k],after[k])
+    print(f'{len(after)} source-release API response groups preserved; {len(added)} canonical member persons added exactly.')
 def exercise():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
     owner=s['v1Session']; base=f'/api/v1/households/{s["householdId"]}'
@@ -235,6 +254,18 @@ running_image_id=$(docker inspect "$app_container" --format '{{.Image}}')
 ledger=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
 [[ "$ledger" == "${expected_source}:false" ]] || { printf 'Published %s schema unexpected: %s\n' "$TENDO_VERSION" "$ledger" >&2; exit 1; }
 api populate
+# Migration 018 provisions one canonical person for every membership without a
+# linked person and unlinks non-canonical duplicates. Compute the exact
+# expected deltas from the source schema before upgrading.
+has_linked_column=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='subjects' AND column_name='linked_user_id')")
+if [[ "$has_linked_column" == "t" ]]; then
+  expected_backfill=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE NOT EXISTS (SELECT 1 FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id)")
+  expected_unlinks=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM (SELECT row_number() OVER (PARTITION BY household_id, linked_user_id ORDER BY created_at, id) AS position FROM subjects WHERE linked_user_id IS NOT NULL) ranked WHERE position > 1")
+else
+  expected_backfill=$("${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships")
+  expected_unlinks=0
+fi
+"${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT id::text FROM subjects ORDER BY id" >"$temp_dir/subject-ids-before.txt"
 "${compose[@]}" stop app
 snapshot_counts "${compose[@]}" >"$temp_dir/counts-before.txt"
 snapshot_ledger "${compose[@]}" >"$temp_dir/ledger-before.txt"
@@ -246,7 +277,13 @@ wait_ready
 ledger=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT max(version)::text || ':' || bool_or(dirty)::text FROM tendo_schema_migrations")
 [[ "$ledger" == "$((10#$expected_current)):false" ]] || { printf 'Upgrade ledger unexpected: %s (expected %s)\n' "$ledger" "$((10#$expected_current)):false" >&2; exit 1; }
 snapshot_counts "${compose_build[@]}" >"$temp_dir/counts-after.txt"
-python3 - "$temp_dir/counts-before.txt" "$temp_dir/counts-after.txt" <<'PY'
+subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM subjects")
+unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")
+memberships_without_single=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE (SELECT count(*) FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id AND s.type='person') <> 1")
+"${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT id::text FROM subjects ORDER BY id" >"$temp_dir/subject-ids-after.txt"
+EXPECTED_BACKFILL="$expected_backfill" EXPECTED_UNLINKS="$expected_unlinks" SUBJECTS_AFTER="$subjects_after" UNLINKS_AFTER="$unlinks_after" MEMBERSHIPS_WITHOUT_SINGLE="$memberships_without_single" \
+  python3 - "$temp_dir/counts-before.txt" "$temp_dir/counts-after.txt" "$temp_dir/subject-ids-before.txt" "$temp_dir/subject-ids-after.txt" <<'PY'
+import os
 import sys
 def load(path):
     values = {}
@@ -257,13 +294,25 @@ def load(path):
     return values
 before = load(sys.argv[1])
 after = load(sys.argv[2])
+expected_backfill = int(os.environ['EXPECTED_BACKFILL'])
+expected_unlinks = int(os.environ['EXPECTED_UNLINKS'])
+assert int(os.environ['SUBJECTS_AFTER']) == int(before['subjects']) + expected_backfill, ('subjects count after upgrade', before['subjects'], expected_backfill, os.environ['SUBJECTS_AFTER'])
 for name, count in before.items():
+    if name == 'subjects':
+        continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'household_role_changes'}
+unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 assert 'household_role_changes' in after, ('migration 017 audit table missing after upgrade', sorted(after))
 assert after['household_role_changes'] == '0', ('new table must be empty after migration', 'household_role_changes', after['household_role_changes'])
-print(f'{len(before)} pre-existing table row counts preserved; household_role_changes empty.')
+assert 'member_person_migration_unlinks' in after, ('migration 018 audit table missing after upgrade', sorted(after))
+assert int(os.environ['UNLINKS_AFTER']) == expected_unlinks, ('member person unlink log count', expected_unlinks, os.environ['UNLINKS_AFTER'])
+assert os.environ['MEMBERSHIPS_WITHOUT_SINGLE'] == '0', ('membership without exactly one linked person', os.environ['MEMBERSHIPS_WITHOUT_SINGLE'])
+before_ids = set(open(sys.argv[3], encoding='utf-8').read().split())
+after_ids = set(open(sys.argv[4], encoding='utf-8').read().split())
+missing = sorted(before_ids - after_ids)
+assert not missing, ('pre-existing subject ids disappeared during upgrade', missing[:10])
+print(f'{len(before)} pre-existing table row counts preserved; subjects +{expected_backfill} canonical member persons; {expected_unlinks} duplicate links logged; household_role_changes empty.')
 PY
 snapshot_ledger "${compose_build[@]}" >"$temp_dir/ledger-after.txt"
 python3 - "$temp_dir/ledger-before.txt" "$temp_dir/ledger-after.txt" <<'PY'

@@ -355,15 +355,22 @@ test.describe('Tendo production journey', () => {
     return page.getByRole('listitem').filter({ hasText: name });
   }
 
-  test('h. People and things opens from home at /people and starts empty', async () => {
+  test('h. People and things opens from home at /people and lists the owner’s member profile only', async () => {
     await page.goto('/');
     await waitForSettledHome(page, householdName);
     await page.getByRole('link', { name: en['home.people'], exact: true }).click();
     await expect(page).toHaveURL(/\/people$/);
     expect(new URL(page.url()).pathname).toBe('/people');
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
-    await expect(page.getByRole('heading', { name: en['subjects.empty.title'] })).toBeVisible();
-    expect(await serverSubjects(false)).toEqual([]);
+    await expect(page.getByRole('heading', { name: en['subjects.empty.title'] })).toHaveCount(0);
+    // Setup provisions exactly one canonical person per member, named after the login.
+    const seeded = await serverSubjects(false);
+    const session = await page.request.get('/api/v1/session');
+    const ownerId = (await session.json() as { userId: string }).userId;
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0]).toMatchObject({ name: ownerLogin, type: 'person', archived: false, linkedUserId: ownerId });
+    await expect(row(ownerLogin)).toContainText(en['subjects.type.person']);
+    await expect(row(ownerLogin)).toContainText(en['subjects.member.row'].replace('{login}', ownerLogin));
   });
 
   test('i. adding a person and a vehicle shows them and stores subjects without any account field', async () => {
@@ -385,16 +392,18 @@ test.describe('Tendo production journey', () => {
     await expect(row('Anička')).toContainText(en['subjects.type.person']);
 
     const afterPerson = await serverSubjects(false);
-    expect(afterPerson).toHaveLength(1);
-    expect(afterPerson[0]).toMatchObject({ name: 'Anička', type: 'person', archived: false });
-    expect(Object.keys(afterPerson[0]).sort()).toEqual(subjectKeys);
+    expect(afterPerson).toHaveLength(2);
+    const anicka = afterPerson.find((entry) => entry.name === 'Anička')!;
+    expect(anicka).toMatchObject({ name: 'Anička', type: 'person', archived: false, linkedUserId: null });
+    expect(Object.keys(anicka).sort()).toEqual(subjectKeys);
+    await expect(row('Anička')).not.toContainText(en['subjects.member']);
     expect(createBody).toEqual({ name: 'Anička', type: 'person' });
     const replay = await page.request.post(`/api/v1/households/${householdId}/subjects`, {
       headers: { 'Idempotency-Key': createKey, Origin: new URL(page.url()).origin },
       data: createBody,
     });
     expect(replay.status()).toBe(201);
-    expect((await replay.json() as { id: string }).id).toBe(afterPerson[0]!.id);
+    expect((await replay.json() as { id: string }).id).toBe(anicka.id);
     const afterReplay = await serverSubjects(false);
     expect(afterReplay.filter((entry) => entry.name === 'Anička')).toHaveLength(1);
 
@@ -407,7 +416,9 @@ test.describe('Tendo production journey', () => {
     await expect(row('Octavia')).toContainText(en['subjects.type.vehicle']);
 
     const both = await serverSubjects(false);
-    expect(both.map((s) => `${s.name}:${s.type}`).sort()).toEqual(['Anička:person', 'Octavia:vehicle']);
+    expect(both.map((s) => `${s.name}:${s.type}`).sort()).toEqual([
+      `${ownerLogin}:person`, 'Anička:person', 'Octavia:vehicle',
+    ].sort());
   });
 
   test('j. renaming a vehicle saves it and advances the server version', async () => {
@@ -489,7 +500,7 @@ test.describe('Tendo production journey', () => {
     await expect(row('Anička')).toBeVisible();
 
     expect((await serverSubjects(true)).map((s) => s.name)).toEqual(['Octavia RS']);
-    expect((await serverSubjects(false)).map((s) => s.name)).toEqual(['Anička']);
+    expect((await serverSubjects(false)).map((s) => s.name).sort()).toEqual([ownerLogin, 'Anička'].sort());
 
     await page.getByRole('button', { name: en['subjects.showArchived'] }).click();
     await expect(page.getByRole('heading', { level: 2, name: en['subjects.archived.title'] })).toBeVisible();
@@ -498,7 +509,7 @@ test.describe('Tendo production journey', () => {
     await expect(row('Octavia RS')).toHaveCount(0);
 
     expect(await serverSubjects(true)).toEqual([]);
-    expect((await serverSubjects(false)).map((s) => s.name).sort()).toEqual(['Anička', 'Octavia RS']);
+    expect((await serverSubjects(false)).map((s) => s.name).sort()).toEqual([ownerLogin, 'Anička', 'Octavia RS'].sort());
 
     await page.getByRole('button', { name: en['subjects.showCurrent'] }).click();
     await expect(page.getByRole('heading', { level: 2, name: en['subjects.archived.title'] })).toHaveCount(0);
@@ -1350,55 +1361,126 @@ test.describe('Tendo production journey', () => {
     } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
   });
 
-  test('n8b. a person can be linked to a member account, edited, and unlinked', async () => {
+  test('n8b. member profiles are name-only, and an unlinked person can be reassociated without a merge', async () => {
     await page.goto('/people');
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
+    const subjectRow = (name: string) => page.getByRole('listitem').filter({ has: page.locator('[data-subject-name]', { hasText: name }) });
+    const memberMarker = (login: string) => en['subjects.member.row'].replace('{login}', login);
+    const editLabel = (name: string) => en['subjects.edit.label'].replace('{name}', name);
+    const version = (etag: string | undefined) => Number((etag ?? '').replaceAll('"', ''));
+    const saveSubject = async (form: ReturnType<typeof page.getByRole>) => {
+      const responsePromise = page.waitForResponse((response) => response.request().method() === 'PATCH' && new URL(response.url()).pathname.includes('/subjects/'));
+      await form.getByRole('button', { name: en['subjects.save'] }).click();
+      const response = await responsePromise;
+      expect(response.status()).toBe(200);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      return response.request().postDataJSON() as Record<string, unknown>;
+    };
+    const openSubjectEdit = async (name: string) => {
+      await page.getByRole('button', { name: editLabel(name), exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: editLabel(name) });
+      return { dialog, form: dialog.getByRole('form', { name: editLabel(name) }) };
+    };
+
     const memberResponse = await page.request.get(`/api/v1/households/${householdId}/members`);
     expect(memberResponse.status()).toBe(200);
     const member = ((await memberResponse.json()) as { items: Array<{ userId: string; login: string }> }).items.find((entry) => entry.login === 'member_e2e');
     expect(member).toBeDefined();
-    const title = 'Linked member person e2e';
-    await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
-    const form = page.getByRole('form', { name: en['subjects.add.formLabel'] });
-    await form.getByLabel(en['subjects.name']).fill(title);
-    await form.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(member!.userId);
-    await form.getByRole('button', { name: en['subjects.add.submit'] }).click();
-    await expect(row(title)).toContainText(en['subjects.link.row'].replace('{login}', member!.login));
-    const created = (await serverSubjects(false)).find((entry) => entry.name === title);
-    expect(created?.linkedUserId).toBe(member!.userId);
-    const subjectPath = `/api/v1/households/${householdId}/subjects/${created!.id}`;
-    const savePatch = async (form: ReturnType<typeof page.getByRole>) => {
-      const responsePromise = page.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().endsWith(subjectPath));
-      await form.getByRole('button', { name: en['subjects.save'] }).click();
-      const response = await responsePromise;
-      expect(response.status()).toBe(200);
-      await expect(form).toHaveCount(0);
-      return response.request().postDataJSON() as Record<string, unknown>;
-    };
 
-    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
-    const edit = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
-    await edit.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption('');
+    // Owner and accepted member both have exactly one auto-provisioned person, marked as a household member.
+    await expect(subjectRow(ownerLogin)).toContainText(memberMarker(ownerLogin));
+    await expect(subjectRow(member!.login)).toContainText(memberMarker(member!.login));
+
+    // A member's profile is locked to its name: no type, account selector or archive.
+    const ownerEdit = await openSubjectEdit(ownerLogin);
+    await expect(ownerEdit.form.getByRole('radiogroup')).toHaveCount(0);
+    await expect(ownerEdit.form.getByRole('combobox')).toHaveCount(0);
+    await expect(ownerEdit.form.getByRole('button', { name: en['subjects.archive'], exact: true })).toHaveCount(0);
+    await expect(ownerEdit.form.getByText(en['subjects.member.editHint'])).toBeVisible();
+    await ownerEdit.form.getByLabel(en['subjects.name']).fill('Owner profile');
+    expect(await saveSubject(ownerEdit.form)).toEqual({ name: 'Owner profile' });
+    await expect(subjectRow('Owner profile')).toContainText(memberMarker(ownerLogin));
+    const ownerRestore = await openSubjectEdit('Owner profile');
+    await ownerRestore.form.getByLabel(en['subjects.name']).fill(ownerLogin);
+    expect(await saveSubject(ownerRestore.form)).toEqual({ name: ownerLogin });
+
+    // New people are ordinary, unlinked records: the create form has no account field.
+    const manualName = 'N8b manual person';
+    await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
+    const add = page.getByRole('form', { name: en['subjects.add.formLabel'] });
+    await expect(add.getByRole('combobox')).toHaveCount(0);
+    await expect(add.getByText(en['subjects.member.editHint'])).toHaveCount(0);
+    await add.getByLabel(en['subjects.name']).fill(manualName);
+    await add.getByRole('button', { name: en['subjects.add.submit'] }).click();
+    await expect(subjectRow(manualName)).toContainText(en['subjects.type.person']);
+    await expect(subjectRow(manualName).locator('[data-subject-member]')).toHaveCount(0);
+    const manual = (await serverSubjects(false)).find((entry) => entry.name === manualName);
+    expect(manual).toMatchObject({ type: 'person', linkedUserId: null, archived: false });
+    const manualPath = `/api/v1/households/${householdId}/subjects/${manual!.id}`;
+    const manualCurrent = await page.request.get(manualPath);
+    expect(manualCurrent.status()).toBe(200);
+
+    const itemTitle = 'N8b item keeps its subject';
+    const itemResponse = await page.request.post(`/api/v1/households/${householdId}/items`, {
+      headers: { Origin: baseURL, 'Idempotency-Key': 'e2e-n8b-transfer-item' },
+      data: { title: itemTitle, subjectId: manual!.id, recurrence: null },
+    });
+    expect(itemResponse.status()).toBe(201);
+    const transferItem = await itemResponse.json() as { id: string };
+
+    const memberPersonPath = `/api/v1/households/${householdId}/members/${member!.userId}/person`;
+    const currentPersonResponse = await page.request.get(memberPersonPath);
+    expect(currentPersonResponse.status()).toBe(200);
+    const currentPerson = await currentPersonResponse.json() as { id: string; name: string };
+
+    const manualEdit = await openSubjectEdit(manualName);
+    await manualEdit.dialog.getByRole('button', { name: en['subjects.transfer.action'], exact: true }).click();
+    const memberSelect = manualEdit.dialog.getByRole('combobox', { name: en['subjects.transfer.memberLabel'] });
+    await memberSelect.selectOption(member!.userId);
+    await expect(manualEdit.dialog.getByText(en['subjects.transfer.confirm'].replace('{name}', manualName)
+      .replace('{login}', member!.login).replace('{current}', currentPerson.name))).toBeVisible();
     await page.setViewportSize({ width: 360, height: 740 });
     try {
-      await expect(edit.getByRole('combobox', { name: en['subjects.link.label'] })).toBeVisible();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await expect(memberSelect).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '360px transfer overflow').toBeLessThanOrEqual(0);
     } finally { await page.setViewportSize({ width: 1280, height: 720 }); }
-    expect(await savePatch(edit)).toEqual({ linkedUserId: null });
-    await expect(row(title)).not.toContainText(en['subjects.link.row'].replace('{login}', member!.login));
-    expect((await (await page.request.get(subjectPath)).json() as { linkedUserId: string | null }).linkedUserId).toBeNull();
 
-    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
-    const relink = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
-    await relink.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(member!.userId);
-    expect(await savePatch(relink)).toEqual({ linkedUserId: member!.userId });
-    await expect(row(title)).toContainText(en['subjects.link.row'].replace('{login}', member!.login));
-    await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', title) }).click();
-    const changeType = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', title) });
-    await changeType.getByRole('radio', { name: en['subjects.type.vehicle'] }).check();
-    await expect(changeType.getByText(en['subjects.link.clearedByType'])).toBeVisible();
-    expect(await savePatch(changeType)).toEqual({ type: 'vehicle', linkedUserId: null });
-    expect(await (await page.request.get(subjectPath)).json()).toMatchObject({ type: 'vehicle', linkedUserId: null });
+    const transferPath = `${memberPersonPath}`;
+    const putPromise = page.waitForRequest((request) => request.method() === 'PUT' && new URL(request.url()).pathname === transferPath);
+    const transferResponsePromise = page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === transferPath);
+    await manualEdit.dialog.getByRole('button', { name: en['subjects.transfer.confirmAction'] }).click();
+    const put = await putPromise;
+    expect((await transferResponsePromise).status()).toBe(200);
+    expect(put.postDataJSON()).toEqual({
+      subjectId: manual!.id,
+      subjectVersion: version(manualCurrent.headers()['etag']),
+      currentSubjectId: currentPerson.id,
+      currentSubjectVersion: version(currentPersonResponse.headers()['etag']),
+    });
+
+    await expect(page.getByRole('status').filter({ hasText: en['subjects.notice.transferred']
+      .replace('{name}', manualName).replace('{login}', member!.login).replace('{previous}', currentPerson.name) })).toBeVisible();
+    await expect(subjectRow(manualName)).toContainText(memberMarker(member!.login));
+    await expect(subjectRow(currentPerson.name)).toBeVisible();
+    await expect(subjectRow(currentPerson.name).locator('[data-subject-member]')).toHaveCount(0);
+
+    const memberPersonAfter = await page.request.get(memberPersonPath);
+    expect(memberPersonAfter.status()).toBe(200);
+    expect(await memberPersonAfter.json()).toMatchObject({
+      id: manual!.id, name: manualName, type: 'person', linkedUserId: member!.userId, archived: false,
+    });
+    const previousAfter = await page.request.get(`/api/v1/households/${householdId}/subjects/${currentPerson.id}`);
+    expect(previousAfter.status()).toBe(200);
+    expect(await previousAfter.json()).toMatchObject({
+      id: currentPerson.id, name: currentPerson.name, type: 'person', linkedUserId: null, archived: false,
+    });
+    const transferredItem = await page.request.get(`/api/v1/households/${householdId}/items/${transferItem.id}`);
+    expect(transferredItem.status()).toBe(200);
+    expect(await transferredItem.json()).toMatchObject({ id: transferItem.id, subjectId: manual!.id, title: itemTitle });
+    const archivedItem = await page.request.patch(`/api/v1/households/${householdId}/items/${transferItem.id}`,
+      { headers: { Origin: baseURL, 'If-Match': transferredItem.headers()['etag']! }, data: { archived: true } });
+    expect(archivedItem.status(), 'clean up the transfer-check item').toBe(200);
+
     await page.setViewportSize({ width: 360, height: 740 });
     try {
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
@@ -5175,7 +5257,7 @@ test.describe('Tendo production journey', () => {
       expect(historyFailure.count()).toBe(1);
       await closeWindow([historyFailure]);
 
-      // People list failure is visibly retryable; linked account is persisted on write and clear.
+      // People list failure is visibly retryable; a member profile stays marked and a new person can be reassociated.
       await page.goto('/'); await waitForSettledHome(page, householdName);
       const peoplePath = `/api/v1/households/${householdId}/subjects`;
       await openWindow();
@@ -5190,23 +5272,34 @@ test.describe('Tendo production journey', () => {
       expect(members.status()).toBe(200);
       const linkedMember = ((await members.json()) as { items: Array<{ login: string; userId: string }> }).items.find((member) => member.login === 'member_e2e');
       expect(linkedMember).toBeTruthy();
-      const linkedName = 'N29 linked account residual';
+      await expect(page.getByRole('listitem').filter({ has: page.locator('[data-subject-name]', { hasText: ownerLogin }) }))
+        .toContainText(en['subjects.member.row'].replace('{login}', ownerLogin));
+      const linkedName = 'N29 manual person residual';
       await page.getByRole('button', { name: en['subjects.add'], exact: true }).click();
       const personForm = page.getByRole('form', { name: en['subjects.add.formLabel'] });
       await personForm.getByLabel(en['subjects.name']).fill(linkedName);
-      await expect(personForm.getByRole('combobox', { name: en['subjects.link.label'] })).toBeVisible();
-      await personForm.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption(linkedMember!.userId);
+      await expect(personForm.getByRole('combobox')).toHaveCount(0);
       await personForm.getByRole('button', { name: en['subjects.add.submit'] }).click();
-      await expect(page.getByRole('listitem').filter({ hasText: linkedName })).toContainText(linkedMember!.login);
+      await expect(page.getByRole('listitem').filter({ hasText: linkedName })).toContainText(en['subjects.type.person']);
       const linkedSubject = await getSubjectByName(linkedName);
-      expect(linkedSubject?.linkedUserId).toBe(linkedMember!.userId);
-      const linkedPath = `${peoplePath}/${linkedSubject!.id}`;
+      expect(linkedSubject?.linkedUserId).toBeNull();
+      const memberPersonPath = `/api/v1/households/${householdId}/members/${linkedMember!.userId}/person`;
+      const currentPerson = await page.request.get(memberPersonPath);
+      expect(currentPerson.status()).toBe(200);
+      const previous = await currentPerson.json() as { id: string; name: string };
       await page.getByRole('button', { name: en['subjects.edit.label'].replace('{name}', linkedName) }).click();
-      const linkedEdit = page.getByRole('form', { name: en['subjects.edit.label'].replace('{name}', linkedName) });
-      await linkedEdit.getByRole('combobox', { name: en['subjects.link.label'] }).selectOption('');
-      await linkedEdit.getByRole('button', { name: en['subjects.save'] }).click();
-      await expect(page.getByRole('listitem').filter({ hasText: linkedName })).not.toContainText(linkedMember!.login);
-      expect((await (await page.request.get(linkedPath)).json() as { linkedUserId: string | null }).linkedUserId).toBeNull();
+      const linkedDialog = page.getByRole('dialog', { name: en['subjects.edit.label'].replace('{name}', linkedName) });
+      await linkedDialog.getByRole('button', { name: en['subjects.transfer.action'], exact: true }).click();
+      await linkedDialog.getByRole('combobox', { name: en['subjects.transfer.memberLabel'] }).selectOption(linkedMember!.userId);
+      const transferResponse = page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === memberPersonPath);
+      await linkedDialog.getByRole('button', { name: en['subjects.transfer.confirmAction'] }).click();
+      expect((await transferResponse).status()).toBe(200);
+      await expect(page.getByRole('listitem').filter({ hasText: linkedName })).toContainText(
+        en['subjects.member.row'].replace('{login}', linkedMember!.login),
+      );
+      expect((await (await page.request.get(memberPersonPath)).json() as { id: string }).id).toBe(linkedSubject!.id);
+      expect((await (await page.request.get(`${peoplePath}/${previous.id}`)).json() as { linkedUserId: string | null; archived: boolean }))
+        .toMatchObject({ linkedUserId: null, archived: false });
 
       // Members invitation list recovery, clipboard success and rejection fallback.
       await page.goto('/'); await waitForSettledHome(page, householdName);
@@ -5287,7 +5380,8 @@ test.describe('Tendo production journey', () => {
       failureWindows.delete(page);
       n17FailurePhaseActive = false;
       for (const context of contexts) await context.close().catch((error: unknown) => { cleanupFailure ??= error; });
-      // The journey requires no leaked invitation/item state; archive the new item and People row.
+      // The journey requires no leaked item state. A member person can no longer be archived (the link is
+      // canonical), so the reassociated person intentionally stays with the disposable E2E household.
       try {
         const currentItem = await page.request.get(`/api/v1/households/${householdId}/items`);
         expect(currentItem.status()).toBe(200);
@@ -5295,12 +5389,6 @@ test.describe('Tendo production journey', () => {
         if (itemRow) {
           const detail = await page.request.get(`/api/v1/households/${householdId}/items/${itemRow.id}`);
           const archived = await page.request.patch(`/api/v1/households/${householdId}/items/${itemRow.id}`, { headers: { Origin: baseURL, 'If-Match': detail.headers()['etag']! }, data: { archived: true } });
-          expect(archived.status()).toBe(200);
-        }
-        const subject = await getSubjectByName('N29 linked account residual');
-        if (subject) {
-          const detail = await page.request.get(`/api/v1/households/${householdId}/subjects/${subject.id}`);
-          const archived = await page.request.patch(`/api/v1/households/${householdId}/subjects/${subject.id}`, { headers: { Origin: baseURL, 'If-Match': detail.headers()['etag']! }, data: { archived: true } });
           expect(archived.status()).toBe(200);
         }
       } catch (error) { cleanupFailure ??= error; }

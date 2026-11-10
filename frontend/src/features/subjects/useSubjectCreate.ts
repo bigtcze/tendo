@@ -12,7 +12,7 @@ export type CreateContext = {
   userId: string; householdId: string; generation: MutableRefObject<number>; addForm: MutableRefObject<number>;
   pendingCreate: PendingSubjectCreate | undefined; setPendingCreate: Dispatch<SetStateAction<PendingSubjectCreate | undefined>>;
   setCreateUncertain: Dispatch<SetStateAction<boolean>>; setNotice: Dispatch<SetStateAction<Notice | null | undefined>>;
-  setAdding: Dispatch<SetStateAction<boolean>>; setMembers: () => void;
+  setAdding: Dispatch<SetStateAction<boolean>>;
   loadingMore: boolean; mutationPending: boolean; busy: MutableRefObject<boolean>;
   setEditing: Dispatch<SetStateAction<import('./subjectsModel').Editing | null>>;
   setActionFailed: Dispatch<SetStateAction<boolean>>; setLoadingMore: Dispatch<SetStateAction<boolean>>;
@@ -36,13 +36,15 @@ export function useSubjectCreate(ctx: CreateContext) {
   async function add(values: SubjectValues): Promise<SubmitOutcome> {
     const started = generation.current;
     const form = addForm.current;
-    const body = { name: values.name, type: values.type, ...(values.linkedUserId ? { linkedUserId: values.linkedUserId } : {}) };
+    const body = { name: values.name, type: values.type };
     const pending = pendingCreate ?? { version: 1 as const, key: idempotencyKey(), body };
     if (!pendingCreate) {
       setPendingSubjectCreate(userId, householdId, pending);
       setPendingCreate(pending);
     }
-    const result = await createSubject(householdId, pending.body, pending.key);
+    // New people are ordinary records; a member's person is created with the membership and cannot be linked here.
+    // Dropping a stored legacy link also keeps an old uncertain attempt replayable.
+    const result = await createSubject(householdId, { name: pending.body.name, type: pending.body.type }, pending.key);
     if (result.kind === 'unauthenticated') {
       onSignedOut();
       return { kind: 'handled' };

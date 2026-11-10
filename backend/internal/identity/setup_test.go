@@ -37,6 +37,10 @@ func (tx setupTx) SetDefaultHousehold(context.Context, string, string) error {
 	tx.repo.writes++
 	return nil
 }
+func (tx setupTx) EnsureMemberPerson(context.Context, string, string, string) error {
+	tx.repo.writes++
+	return nil
+}
 func (tx setupTx) CompleteSetup(context.Context) error { tx.repo.writes++; return nil }
 
 type setupHousehold struct{ repo *setupRepo }

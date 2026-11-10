@@ -105,7 +105,7 @@ func invitationFixture(t *testing.T, ctx context.Context, admin *pgxpool.Pool) (
 func TestInvitationPostgresDigestIdempotencyConcurrencyAndAdmission(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	first, e := svc.CreateInvitation(ctx, owner, house, "first-key")
 	if e != nil {
 		t.Fatal(e)
@@ -151,6 +151,10 @@ func TestInvitationPostgresDigestIdempotencyConcurrencyAndAdmission(t *testing.T
 	if e = admin.QueryRow(ctx, `SELECT m.role,u.default_household_id::text,c.password_hash FROM household_memberships m JOIN user_accounts u ON u.id=m.user_id JOIN local_credentials c ON c.user_id=u.id WHERE u.id=$1::uuid`, accepted.UserID).Scan(&role, &defaultID, &encoded); e != nil || role != "member" || defaultID != house {
 		t.Fatalf("role=%s default=%s err=%v", role, defaultID, e)
 	}
+	var acceptedPeople int
+	if e = admin.QueryRow(ctx, `SELECT count(*) FROM subjects WHERE household_id=$1::uuid AND linked_user_id=$2::uuid AND type='person'`, house, accepted.UserID).Scan(&acceptedPeople); e != nil || acceptedPeople != 1 {
+		t.Fatalf("accepted member people=%d err=%v", acceptedPeople, e)
+	}
 	valid, e := security.VerifyPassword(encoded, "a long sufficiently secure password")
 	if e != nil || !valid {
 		t.Fatalf("credential valid=%v err=%v", valid, e)
@@ -159,7 +163,7 @@ func TestInvitationPostgresDigestIdempotencyConcurrencyAndAdmission(t *testing.T
 func TestInvitationPostgresPasswordHashDoesNotHoldInvitationLock(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +237,7 @@ func TestInvitationPostgresPasswordHashDoesNotHoldInvitationLock(t *testing.T) {
 func TestInvitationPostgresConcurrentAcceptAndRevoke(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	for n := 0; n < 20; n++ {
 		inv, e := svc.CreateInvitation(ctx, owner, house, fmt.Sprintf("race-%d", n))
 		if e != nil {
@@ -266,7 +270,7 @@ func TestInvitationPostgresConcurrentAcceptAndRevoke(t *testing.T) {
 func TestInvitationPostgresRuntimePrivilegesConstraintsAndCascade(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "privilege-key")
 	if e != nil {
 		t.Fatal(e)
@@ -301,7 +305,7 @@ func TestInvitationPostgresRuntimePrivilegesConstraintsAndCascade(t *testing.T) 
 func TestInvitationPostgresAcceptanceRollbackLeavesInvitationRedeemable(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
 	var target string
 	if e := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('rollback_collision') RETURNING id::text`).Scan(&target); e != nil {
@@ -363,7 +367,7 @@ func TestInvitationPostgresLoginCollisionLeavesReusableInvitation(t *testing.T) 
 	if e := admin.QueryRow(ctx, `INSERT INTO local_credentials(user_id,password_hash) VALUES($1::uuid,'original-hash') RETURNING password_hash`, id).Scan(&original); e != nil {
 		t.Fatal(e)
 	}
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "collision")
 	if e != nil {
 		t.Fatal(e)
@@ -387,7 +391,7 @@ func TestInvitationPostgresLoginCollisionLeavesReusableInvitation(t *testing.T) 
 func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	svc.SetPasswordHasher(func(string) (string, error) { return "test-hash", nil })
 	for i := 0; i < 5; i++ {
 		if _, e := svc.CreateInvitation(ctx, owner, house, fmt.Sprintf("page-%d", i)); e != nil {
@@ -435,7 +439,7 @@ func TestInvitationPostgresPaginationAndCrossHouseholdRevoke(t *testing.T) {
 func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	service, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	service, err := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +522,7 @@ func TestInvitationPostgresNonOwnerAndForeignHouseholdIsolation(t *testing.T) {
 func TestInvitationPostgresPolicyAndDefaultHouseholdDoesNotAuthorize(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "policy")
 	if e != nil {
 		t.Fatal(e)
@@ -564,7 +568,7 @@ func TestInvitationPostgresExpiryStatusesAndClockBoundaries(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
 	clock := time.Date(2026, 4, 5, 6, 7, 8, 0, time.UTC)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), func() time.Time { return clock })
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), func() time.Time { return clock })
 	early, e := svc.CreateInvitation(ctx, owner, house, "expires-early")
 	if e != nil {
 		t.Fatal(e)
@@ -621,7 +625,7 @@ func TestInvitationPostgresExpiryStatusesAndClockBoundaries(t *testing.T) {
 func TestInvitationPostgresRevokeAfterAcceptKeepsMembership(t *testing.T) {
 	ctx, admin, app, _ := invitationPools(t)
 	owner, house := invitationFixture(t, ctx, admin)
-	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory), time.Now)
+	svc, _ := identity.NewInvitationService(NewInvitationRepository(app, invitationFactory, memberPeopleFactory), time.Now)
 	inv, e := svc.CreateInvitation(ctx, owner, house, "accept-revoke")
 	if e != nil {
 		t.Fatal(e)

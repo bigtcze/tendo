@@ -123,9 +123,12 @@ func runWithConfig(loadConfig func() (config.Config, error)) error {
 // It performs no database I/O, so tests can verify the composed security
 // boundary against the OpenAPI contract without PostgreSQL.
 func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error {
+	memberPersonFactory := func(tx householddb.DBTX) identityapp.MemberPersonProvisioner {
+		return subjectpostgres.NewMemberPersonProvisioner(tx)
+	}
 	identityRepository := identitypostgres.New(pool, func(queries *householddb.Queries) identityapp.OwnerHouseholdService {
 		return household.NewBootstrapService(householdpostgres.NewBootstrapRepository(queries))
-	})
+	}, memberPersonFactory)
 	passwordGate := security.NewPasswordGate(2)
 	setupService := identityapp.NewSetupService(identityRepository)
 	setupService.SetPasswordHasher(passwordGate.HashPassword)
@@ -154,7 +157,7 @@ func registerAPI(routes chi.Router, cfg config.Config, pool *pgxpool.Pool) error
 	householdhttp.NewAccounts(accountService, sessionHandler.RequireSession, principalID).Register(routes)
 	invitationRepo := identitypostgres.NewInvitationRepository(pool, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
 		return householdpostgres.MembershipServiceFor(tx, identityRepository)
-	})
+	}, memberPersonFactory)
 	invitationService, err := identityapp.NewInvitationService(invitationRepo, time.Now)
 	if err != nil {
 		return err
