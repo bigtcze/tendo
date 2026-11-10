@@ -75,8 +75,16 @@ describe('members and invitations', () => {
     const fake = installFakeServer(defaults()); renderApp();
     expect(await screen.findByRole('link', { name: 'Household members' })).toHaveAttribute('href', '/members');
     await userEvent.click(screen.getByRole('link', { name: 'Household members' }));
-    const rows = within(screen.getByRole('list', { name: 'Members' })).getAllByRole('listitem');
-    expect(rows.map((row) => row.textContent)).toEqual(['anna (you)Administrator', 'petrMember']);
+    const memberList = within(screen.getByRole('list', { name: 'Members' }));
+    const rows = memberList.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('anna (you)');
+    expect(rows[0]).toHaveTextContent('Administrator');
+    expect(rows[1]).toHaveTextContent('petr');
+    expect(rows[1]).toHaveTextContent('Member');
+    // The avatar-initial tile is decorative; the login and role stay readable without it.
+    expect(rows[0].querySelector('[data-member-avatar]')).toHaveTextContent('A');
+    expect(rows[0].querySelector('[data-member-avatar]')).toHaveAttribute('aria-hidden', 'true');
     expect(fake.requests.some((r) => r.method === 'GET' && r.path === `${base}/members`)).toBe(true);
   });
 
@@ -603,7 +611,8 @@ describe('members and invitations', () => {
     await userEvent.click(within(membersSection).getByRole('button', { name: 'Previous page' }));
     expect(await within(membersSection).findByText('next_member')).toBeVisible();
     await userEvent.click(within(membersSection).getByRole('button', { name: 'First page' }));
-    expect(await within(membersSection).findByText('anna (you)')).toBeVisible();
+    expect(await within(membersSection).findByText('anna')).toBeVisible();
+    expect(within(membersSection).getByText(/\(you\)/)).toBeVisible();
     expect(within(membersSection).queryByText('next_member')).not.toBeInTheDocument();
     await userEvent.click(within(screen.getByRole('navigation', { name: 'Invitations' })).getByRole('button', { name: 'Next page' }));
     expect(await within(invitations).findByText('Revoked')).toBeVisible();

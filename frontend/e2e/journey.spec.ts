@@ -31,6 +31,19 @@ const expectedCompletionDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Eur
 const ownerLogin = 'owner_e2e';
 const householdName = 'Veselí';
 
+/**
+ * Signed-in language choice lives on Account; the signed-in shell has no footer switch. Navigates to Account,
+ * selects the locale and verifies the document language, leaving the page on Account.
+ */
+async function chooseLocale(page: Page, locale: 'en' | 'cs') {
+  const label = locale === 'cs' ? 'Čeština' : 'English';
+  await page.goto('/account');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page.getByRole('main').getByRole('button', { name: label, exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
+  await expect(page.getByRole('heading', { level: 1, name: locale === 'cs' ? cs['account.title'] : en['account.title'] })).toBeVisible();
+}
+
 const problems: string[] = [];
 const problem503 = { type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' };
 const failedResponses = new Set<string>();
@@ -299,14 +312,15 @@ test.describe('Tendo production journey', () => {
   });
 
   test('f. Czech locale applies, persists across reload, and switches back', async () => {
+    await chooseLocale(page, 'cs');
     await page.goto('/');
-    await page.getByRole('button', { name: 'Čeština' }).click();
     await expect(page.getByText(cs['home.empty.title'])).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
     await page.reload();
     await expect(page.getByText(cs['home.empty.title'])).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
-    await page.getByRole('button', { name: 'English' }).click();
+    await chooseLocale(page, 'en');
+    await page.goto('/');
     await expect(page.getByText(en['home.empty.title'])).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   });
@@ -522,19 +536,21 @@ test.describe('Tendo production journey', () => {
     }
     await expectNoAxeViolations(page, 'people-add-form');
 
-    // Add is a modal dialog (V3-11): the page behind it, including the language switch, is inert until it closes.
+    // Add is a modal dialog (V3-11): the page behind it is inert until it closes.
     await page.getByRole('form', { name: en['subjects.add.formLabel'] })
       .getByRole('button', { name: en['subjects.cancel'], exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: en['subjects.add'], exact: true })).toBeFocused();
-    await page.getByRole('button', { name: 'Čeština' }).click();
+    await chooseLocale(page, 'cs');
+    await page.getByRole('navigation', { name: cs['nav.label'] }).getByRole('link', { name: cs['home.people'], exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
     await page.getByRole('button', { name: cs['subjects.add'], exact: true }).click();
     await expect(page.getByRole('form', { name: cs['subjects.add.formLabel'] })).toBeVisible();
     await page.getByRole('form', { name: cs['subjects.add.formLabel'] })
       .getByRole('button', { name: cs['subjects.cancel'], exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await page.getByRole('button', { name: 'English' }).click();
+    await chooseLocale(page, 'en');
+    await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.people'], exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: en['subjects.title'] })).toBeVisible();
 
     await page.getByRole('link', { name: en['nav.home'], exact: true }).click();
@@ -1822,10 +1838,12 @@ test.describe('Tendo production journey', () => {
         await expect(page.getByText(/LongUnbreakableHouseholdItemTitle/)).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${width}px All items overflow`).toBeLessThanOrEqual(0);
       }
-      await page.getByRole('button', { name: 'Čeština' }).click();
+      await chooseLocale(page, 'cs');
+      await page.goto('/items');
       await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
       await expect(page.getByLabel(cs['allItems.status.label']).getByRole('option', { name: new RegExp(cs['allItems.status.active']) })).toHaveCount(1);
-      await page.getByRole('button', { name: 'English' }).click();
+      await chooseLocale(page, 'en');
+      await page.goto('/items');
       await expect(page.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
     } catch (error) { primaryFailure = error; }
     finally {
@@ -2281,7 +2299,7 @@ test.describe('Tendo production journey', () => {
         });
       } finally {
         await setWidth(1280, 800);
-        await page.getByRole('button', { name: 'English' }).click();
+        await chooseLocale(page, 'en');
         await expect(page.locator('html')).toHaveAttribute('lang', 'en');
       }
 
@@ -2472,7 +2490,7 @@ test.describe('Tendo production journey', () => {
       }
 
       await page.setViewportSize({ width: 320, height: 800 });
-      await page.getByRole('button', { name: 'Čeština' }).click();
+      await chooseLocale(page, 'cs');
       await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
       await page.goto('/');
       await expect(page.getByRole('heading', { level: 1, name: householdName })).toBeVisible();
@@ -2490,8 +2508,7 @@ test.describe('Tendo production journey', () => {
     } finally {
       await page.setViewportSize({ width: 1280, height: 720 });
       if (await page.locator('html').getAttribute('lang') === 'cs') {
-        await page.goto('/');
-        await page.getByRole('button', { name: 'English' }).click();
+        await chooseLocale(page, 'en');
         await expect(page.locator('html')).toHaveAttribute('lang', 'en');
       }
       await page.setViewportSize({ width: 1280, height: 720 });
@@ -2514,36 +2531,48 @@ test.describe('Tendo production journey', () => {
         await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
         const covered: string[] = [];
         let mainStops = 0;
-        let footerStops = 0;
-        for (let index = 0; index < 200 && footerStops < 2; index += 1) {
+        let navReached = false;
+        for (let index = 0; index < 200 && !navReached; index += 1) {
           await page.keyboard.press('Tab');
           const stop = await page.evaluate((navSelector) => {
             const element = document.activeElement as HTMLElement | null;
-            if (!element || element === document.body || !element.closest('main, footer')) return null;
+            if (!element || element === document.body || !element.closest('main, nav')) return null;
             const box = element.getBoundingClientRect();
             const bar = document.querySelector(navSelector)!.getBoundingClientRect();
             // The contract is specifically that the fixed bottom bar never covers focused content.
             const covered = box.bottom > bar.top && box.top < bar.bottom && box.right > bar.left && box.left < bar.right;
-            return { name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), main: !!element.closest('main'), covered, footer: !!element.closest('footer') };
+            return { name: (element.getAttribute('aria-label') ?? element.textContent ?? element.tagName).trim().slice(0, 40), main: !!element.closest('main'), nav: !!element.closest('nav'), covered };
           }, navSelector);
           if (!stop) continue;
           if (stop.main) mainStops += 1;
-          if (stop.covered) covered.push(stop.name);
-          if (stop.footer) footerStops += 1;
+          if (stop.covered && stop.main) covered.push(stop.name);
+          // The Home status filter is a nav inside main; only the household navigation ends the sweep.
+          if (stop.nav && !stop.main && mainStops > 0) navReached = true;
         }
         expect(mainStops, `keyboard sweep at ${width}x${height} reached main controls below the fold`).toBeGreaterThan(8);
-        expect(footerStops, `keyboard sweep at ${width}x${height} reached both language buttons`).toBe(2);
         expect(covered, `focused controls covered by the bottom bar at ${width}x${height}`).toEqual([]);
       }
+      // Language lives on Account for signed-in users; its group must stay above the fixed bar at the end of the page.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto('/account');
+      await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      const languageGroup = page.getByRole('main').getByRole('group', { name: en['language.label'] });
+      await languageGroup.scrollIntoViewIfNeeded();
+      const languageClear = await languageGroup.evaluate((element, label) => {
+        const bar = document.querySelector(`nav[aria-label="${label}"]`)!.getBoundingClientRect();
+        const language = element.getBoundingClientRect();
+        return language.bottom <= bar.top;
+      }, en['nav.label']);
+      expect(languageClear, 'the Account language switch sits fully above the fixed bar').toBe(true);
       await page.setViewportSize({ width: 640, height: 360 });
       await page.goto('/');
       await waitForSettledHome(page, householdName);
       const shortLayout = await page.evaluate((navSelector) => {
         const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().top + window.scrollY;
-        return { position: getComputedStyle(document.querySelector(navSelector)!).position, header: top('body header'), nav: top(navSelector), main: top('main'), footer: top('body footer') };
+        return { position: getComputedStyle(document.querySelector(navSelector)!).position, header: top('body header'), nav: top(navSelector), main: top('main') };
       }, navSelector);
       expect(shortLayout.position, 'short viewport bar is static').toBe('static');
-      expect(shortLayout.header < shortLayout.main && shortLayout.main < shortLayout.nav && shortLayout.nav < shortLayout.footer, `short viewport visual order follows DOM order ${JSON.stringify(shortLayout)}`).toBe(true);
+      expect(shortLayout.header < shortLayout.main && shortLayout.main < shortLayout.nav, `short viewport visual order follows DOM order ${JSON.stringify(shortLayout)}`).toBe(true);
       await page.setViewportSize({ width: 1024, height: 800 });
       const rail = await page.evaluate((navSelector) => {
         const element = document.querySelector(navSelector)!;
@@ -3005,7 +3034,7 @@ test.describe('Tendo production journey', () => {
     await expect(main.getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').filter({ hasText: ownerLogin })).toBeVisible();
 
     // Repeat the list failure in Czech to verify localized recovery copy, then restore English.
-    await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+    await chooseLocale(page, 'cs');
     switchedToCzech = true;
     await page.goto('/');
     await waitForSettledHome(page, householdName);
@@ -3026,7 +3055,7 @@ test.describe('Tendo production journey', () => {
       await page.context().setOffline(false);
       n17OfflineActive = false;
     }
-    await page.getByRole('button', { name: 'English', exact: true }).click();
+    await chooseLocale(page, 'en');
     switchedToCzech = false;
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await page.goto('/');
@@ -3045,9 +3074,7 @@ test.describe('Tendo production journey', () => {
       await cleanup(() => page.context().setOffline(false));
       await cleanup(() => page.setViewportSize({ width: 1280, height: 720 }));
       await cleanup(async () => {
-        if (switchedToCzech && await page.getByRole('button', { name: 'English', exact: true }).count()) {
-          await page.getByRole('button', { name: 'English', exact: true }).click();
-        }
+        if (switchedToCzech) await chooseLocale(page, 'en');
       });
     }
     if (primaryFailure) throw primaryFailure;
@@ -3156,8 +3183,9 @@ test.describe('Tendo production journey', () => {
       ownedRoutes.splice(ownedRoutes.findIndex((entry) => entry.handler === membersHold.handler), 1);
 
       await page.setViewportSize({ width: 320, height: 740 });
-      await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+      await chooseLocale(page, 'cs');
       switchedToCzech = true;
+      await page.goto('/members');
       const inviteAction = main.getByRole('button', { name: cs['members.invite.action'], exact: true });
       await expect(inviteAction).toBeVisible();
       await expectNoHorizontalOverflow('Czech Members invite action at 320px');
@@ -3172,7 +3200,7 @@ test.describe('Tendo production journey', () => {
       await expectNoHorizontalOverflow('Czech item detail back link at 320px');
       const backBox = await itemDetailBack.boundingBox();
       expect(backBox!.x + backBox!.width, 'Czech back link stays inside the 320px viewport').toBeLessThanOrEqual(320);
-      await page.getByRole('button', { name: 'English', exact: true }).click();
+      await chooseLocale(page, 'en');
       switchedToCzech = false;
     } catch (error) {
       primaryFailure = error;
@@ -3183,9 +3211,7 @@ test.describe('Tendo production journey', () => {
       }
       await page.setViewportSize({ width: 1280, height: 720 }).catch((error) => { cleanupFailure ??= error; });
       try {
-        if (switchedToCzech && await page.getByRole('button', { name: 'English', exact: true }).count()) {
-          await page.getByRole('button', { name: 'English', exact: true }).click();
-        }
+        if (switchedToCzech) await chooseLocale(page, 'en');
       } catch (error) { cleanupFailure ??= error; }
     }
     if (primaryFailure) throw primaryFailure;
@@ -3423,7 +3449,7 @@ test.describe('Tendo production journey', () => {
     const DATE_SEGMENT_ADDITIONAL_PRESS_CAP = 3;
     type Baseline = { id: string; name: string; region: string; inDialog: boolean; unfocused: string };
     type SweepStop = Baseline & { focused: string; unobscured: boolean; ringColor: string; ringBackgrounds: string[]; pageSurface: string };
-    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true, dialogMode = false) => {
+    const keyboardSweep = async (target: Page, label: string, mainControlsExpected = true, dialogMode = false, footerLanguageStops: 0 | 2 = 0) => {
       // 1. While nothing has focus, assign sweep ids and measure each focusable element's unfocused indicator.
       // A dialog opens with focus on its first field, so blur first: a baseline taken on a focused control would record its focus ring as "unfocused".
       await target.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); });
@@ -3576,9 +3602,13 @@ test.describe('Tendo production journey', () => {
         else expect(expectedMain, `${label} has no controls in main`).toEqual([]);
         const reachedMain = stops.filter((stop) => stop.region === 'main').map((stop) => stop.id);
         expect([...reachedMain].sort(), `${label} reaches every visible control in main, each once`).toEqual([...expectedMain].sort());
-        expect(stops.filter((stop) => stop.region === 'footer').length, `${label} reaches the footer (no trap)`).toBe(2);
-        const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
-        expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+        // Signed-out pages keep exactly two footer language buttons; signed-in pages carry Account instead.
+        const footerStops = stops.filter((stop) => stop.region === 'footer');
+        expect(footerStops.length, `${label} footer language stops`).toBe(footerLanguageStops);
+        if (footerLanguageStops > 0) {
+          const firstFooter = stops.findIndex((stop) => stop.region === 'footer');
+          expect(stops.slice(firstFooter).every((stop) => stop.region === 'footer'), `${label} footer is last in order`).toBe(true);
+        }
       }
     };
     try {
@@ -3816,7 +3846,7 @@ test.describe('Tendo production journey', () => {
         await test.info().attach(`targets-${route.name}.json`, { body: JSON.stringify(targets, null, 2), contentType: 'application/json' });
         expect(targets, `${route.name} target size >=24`).toEqual([]);
         await runAxe(signedOut, `${route.name}-default`);
-        await keyboardSweep(signedOut, route.name);
+        await keyboardSweep(signedOut, route.name, true, false, 2);
         for (const percent of [200, 400] as const) {
           const width = 1280 / (percent / 100);
           const zoomContext = await browser.newContext({ baseURL, viewport: { width: 1280, height: 800 } });
@@ -3877,7 +3907,7 @@ test.describe('Tendo production journey', () => {
         await runAxe(signedOut, `${route.name}-dark`);
         const darkTargets = await targetSizeShortfalls(signedOut);
         expect(darkTargets, `${route.name} dark target size >=24`).toEqual([]);
-        await keyboardSweep(signedOut, `${route.name}-dark`);
+        await keyboardSweep(signedOut, `${route.name}-dark`, true, false, 2);
         await signedOut.evaluate(() => localStorage.removeItem('tendo.theme'));
         await signedOut.goto(route.path);
       }
@@ -4088,10 +4118,17 @@ test.describe('Tendo production journey', () => {
       const peopleMain = page.getByRole('main');
       await peopleMain.getByRole('button', { name: en['subjects.page.next'], exact: true }).click();
       await expect(peopleMain.getByRole('button', { name: en['subjects.page.first'], exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Čeština', exact: true }).click();
+      // Locale now lives on Account, and visiting it remounts People; an in-place switch is not user-reachable here.
+      // SubjectsScreen.test.tsx covers the same page-two/request-count invariant through the real i18n setter.
+      await chooseLocale(page, 'cs');
+      await page.goto('/people');
+      await peopleMain.getByRole('button', { name: cs['subjects.page.next'], exact: true }).click();
       await expect(peopleMain.getByText(cs['subjects.page.number'].replace('{n}', '2'), { exact: true })).toBeVisible();
       await expect(peopleMain.getByRole('button', { name: cs['subjects.page.first'], exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'English', exact: true }).click();
+      await chooseLocale(page, 'en');
+      await page.goto('/people');
+      await peopleMain.getByRole('button', { name: en['subjects.page.next'], exact: true }).click();
+      await expect(peopleMain.getByRole('button', { name: en['subjects.page.first'], exact: true })).toBeVisible();
       await page.setViewportSize({ width: 320, height: 740 });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow, '320px People and things overflow on page two').toBeLessThanOrEqual(0);
@@ -4186,13 +4223,13 @@ test.describe('Tendo production journey', () => {
           const page = expected[index]!;
           if (name === 'subjects') await expect.poll(visible, { message: `n28 ${label} subject IDs` }).toEqual(page.map((row) => row.id));
           else if (name === 'members') {
-            // The first span of each member row is the login, with " (you)" for the signed-in owner.
-            const logins = () => rows.evaluateAll((els) => els.map((el) => el.querySelector(':scope > span')?.textContent ?? ''));
+            // Each member row carries its login in the data-member-login element, with " (you)" for the owner.
+            const logins = () => rows.evaluateAll((els) => els.map((el) => el.querySelector('[data-member-login]')?.textContent ?? ''));
             await expect.poll(logins, { message: `n28 ${label} member logins in API order` })
               .toEqual(page.map((row) => (row.label === largeOwnerLogin ? `${row.label} (${en['members.you']})` : row.label)));
           } else {
-            // Each row shows its status, then "Created {date} · Expires {date}".
-            const created = () => rows.evaluateAll((els) => els.map((el) => (el.querySelector('p + p')?.textContent ?? '').split(' · ')[0]));
+            // Each invitation row shows its status, then "Created {date} · Expires {date}".
+            const created = () => rows.evaluateAll((els) => els.map((el) => (el.querySelector('[data-invitation-details]')?.textContent ?? '').split(' · ')[0]));
             await expect.poll(created, { message: `n28 ${label} invitation created dates in API order` }).toEqual(page.map((row) => row.label));
             expect((await visible()).every((text) => text.startsWith(en['members.invitation.status.pending'])), `n28 ${label} invitations pending`).toBe(true);
           }
@@ -4393,14 +4430,24 @@ test.describe('Tendo production journey', () => {
       await expect(result).toBeVisible();
       await measure(zoomed, 200, 'All items with a search');
       await inView(result, 'search result at 200%');
-      const czech = zoomed.getByRole('button', { name: 'Čeština', exact: true });
+      // Search state cannot survive a real navigation to Account; AllItemsScreen.test.tsx covers the in-place
+      // locale change with the actual i18n setter (search value, result and request count preserved).
+      await zoomed.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.account'], exact: true }).click();
+      await expect(zoomed.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+      const czech = zoomed.getByRole('main').getByRole('button', { name: 'Čeština', exact: true });
       await inView(czech, 'language switch at 200%');
       await czech.click();
+      await expect(zoomed.locator('html')).toHaveAttribute('lang', 'cs');
+      await zoomed.getByRole('navigation', { name: cs['nav.label'] }).getByRole('link', { name: cs['home.allItems'], exact: true }).click();
       await expect(zoomed.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
+      await main.getByRole('searchbox').fill('cooker hood filter');
+      await main.getByRole('button', { name: cs['allItems.searchButton'], exact: true }).click();
       await expect(zoomed.getByRole('region', { name: cs['allItems.results'] }).getByRole('link', { name: renamed, exact: true })).toBeVisible();
       await measure(zoomed, 200, 'All items with a search in Czech');
-      await zoomed.getByRole('button', { name: 'English', exact: true }).click();
-      await expect(zoomed.getByRole('heading', { level: 1, name: en['allItems.title'] })).toBeVisible();
+      await zoomed.getByRole('navigation', { name: cs['nav.label'] }).getByRole('link', { name: cs['home.account'], exact: true }).click();
+      await expect(zoomed.getByRole('heading', { level: 1, name: cs['account.title'] })).toBeVisible();
+      await zoomed.getByRole('main').getByRole('button', { name: 'English', exact: true }).click();
+      await expect(zoomed.locator('html')).toHaveAttribute('lang', 'en');
       const cookies = await context.cookies();
 
       // 400 %: every household route and the item detail in a 320 CSS px layout, with its primary action reachable.

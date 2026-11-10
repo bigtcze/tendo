@@ -113,14 +113,17 @@ async function captureShell(page: Page) {
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: en['app.skipToContent'] })).toBeFocused();
   await shot('shell-skip-link-en-390.png');
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-  const footerClear = await page.evaluate((label) => {
+  // Language lives on Account for signed-in users; the group must not be orphaned under the fixed bar.
+  await page.goto('/account');
+  await expect(page.getByRole('heading', { level: 1, name: en['account.title'] })).toBeVisible();
+  const languageGroup = page.getByRole('main').getByRole('group', { name: en['language.label'] });
+  await languageGroup.scrollIntoViewIfNeeded();
+  const footerClear = await languageGroup.evaluate((element, label) => {
     const bar = document.querySelector(`nav[aria-label="${label}"]`)!.getBoundingClientRect();
-    const language = document.querySelector('body footer [role="group"]')!.getBoundingClientRect();
-    return language.bottom <= bar.top;
+    return element.getBoundingClientRect().bottom <= bar.top;
   }, en['nav.label']);
-  expect(footerClear, 'scrolled to the end, the language switch sits fully above the fixed bar').toBe(true);
-  await shot('shell-members-end-en-390.png');
+  expect(footerClear, 'the Account language switch sits fully above the fixed bar').toBe(true);
+  await shot('shell-account-end-en-390.png');
   return evidence;
 }
 
@@ -877,7 +880,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(memberInvitations.getByRole('listitem').first()).toBeVisible();
         const acceptedInvite = memberInvitations.getByRole('listitem').filter({ hasText: en['members.invitation.status.accepted'] }).first();
         const pendingInvite = memberInvitations.getByRole('listitem').filter({ hasText: en['members.invitation.status.pending'] }).first();
-        await expect(acceptedInvite.locator('p').nth(1)).toContainText(/Created .+ · Expires .+/);
+        await expect(acceptedInvite.locator('[data-invitation-details]')).toContainText(/Created .+ · Expires .+/);
         await expect(pendingInvite.getByRole('button', { name: en['members.invitation.revoke'], exact: true })).toBeVisible();
         await capture(page, join(dir, `audit-members-en-${width}.png`));
         const memberContext = await browser.newContext({ reducedMotion: 'reduce', viewport: { width, height: 900 } });

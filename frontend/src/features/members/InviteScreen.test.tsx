@@ -152,6 +152,7 @@ describe('invitation acceptance', () => {
     window.history.replaceState(null, '', `/invite#${token}`); installFakeServer(signedOutRoutes({ 'POST /api/v1/auth/invitations/accept': problem(404) })); renderApp();
     await userEvent.type(await screen.findByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'long enough password'); await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
     const notice = await screen.findByRole('status'); expect(notice).toHaveTextContent(/invite link can’t be used/); expect(notice).toHaveFocus(); expect(screen.queryByLabelText('Login')).not.toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Create account and join' })).not.toBeInTheDocument(); expect(screen.getByRole('link', { name: 'Go home' })).toBeVisible();
+    expect(document.querySelector('[data-invite-panel]'), 'an invalid link never renders an empty form card').not.toBeInTheDocument();
   });
 
   it('409 login unavailable marks and focuses login only', async () => {

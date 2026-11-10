@@ -6,6 +6,7 @@ import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Completion, Item, Subject } from './itemsApi';
 import { itemRoutes } from '../../test/fakeItems';
+import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const itemId = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b80';
@@ -21,6 +22,9 @@ const baseRoutes = { 'GET /api/v1/session': json(200, session()), [`GET ${base}`
 function item(overrides: Partial<Item> = {}): Item { return { id: itemId, subjectId: subject.id, responsibleUserId: null, title: 'Renew passport', notes: 'Bring old passport', attentionOn: '2026-10-10', recurrence: { intervalUnit: 'year', intervalValue: 2, mode: 'fixed' }, workflowState: 'open', attention: 'upcoming', archived: false, done: false, lastCompletedOn: '2025-10-10', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...overrides }; }
 function completion(id: string, completedOn: string, overrides: Partial<Completion> = {}): Completion { return { id, itemId, completedOn, completedByUserId: 'secret-user', cycleAttentionOn: '2024-10-10', recurrence: null, nextAttentionOn: '2026-10-10', createdAt: `${completedOn}T00:00:00Z`, undoneAt: null, undoneByUserId: null, ...overrides }; }
 function app() { return render(<I18nProvider><App /></I18nProvider>); }
+function appWithLocale(setterRef: LocaleSetterRef) {
+  return render(<I18nProvider><LocaleProbe setterRef={setterRef} /><App /></I18nProvider>);
+}
 function requestsOf(requests: RecordedRequest[], method: string, requestPath: string) { return requests.filter((request) => request.method === method && request.path === requestPath); }
 function common(routes: Record<string, Response | ((request: RecordedRequest) => Response | Promise<Response>)>) { return { ...baseRoutes, ...itemRoutes(base, [item()]), [`GET ${base}/subjects/s-1`]: json(200, subject, { ETag: '"subject"' }), [`GET ${path}`]: json(200, item(), { ETag: '"1"' }), [`GET ${historyPath}`]: json(200, { items: [], nextCursor: null }), ...routes }; }
 beforeEach(() => { vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']); window.history.replaceState(null, '', '/'); });
@@ -1106,17 +1110,18 @@ describe('item details', () => {
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(2));
   });
 
-  it('keeps edit session across language switch and releases patch lock after locale change', async () => {
+  it('keeps edit session across an in-place language switch and releases patch lock after the locale change', async () => {
+    const setterRef: LocaleSetterRef = { current: null };
     let release!: (response: Response) => void;
     const pendingPatch = new Promise<Response>((resolve) => { release = resolve; });
     let writes = 0;
     const fake = installFakeServer(common({ [`GET ${base}/subjects`]: json(200, { items: [subject], nextCursor: null }), [`PATCH ${path}`]: (request) => ++writes === 1 ? pendingPatch : json(200, item({ title: JSON.parse(request.body).title })) }));
-    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    window.history.replaceState(null, '', `/items/${itemId}`); appWithLocale(setterRef);
     const edit = await screen.findByRole('button', { name: 'Edit' });
     await userEvent.click(edit);
     await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Draft title');
-    await userEvent.click(screen.getByRole('button', { name: 'Čeština' }));
+    await act(async () => { setterRef.current?.('cs'); });
     expect(await screen.findByRole('form', { name: 'Upravit položku' })).toBeVisible();
     expect(screen.getByLabelText('Co je potřeba zařídit?')).toHaveValue('Draft title');
     await userEvent.click(screen.getByRole('button', { name: 'Uložit změny' }));

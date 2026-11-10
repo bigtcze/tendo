@@ -15,10 +15,21 @@ import {
 import type { Subject } from './subjectsApi';
 import { SubjectsScreen } from './SubjectsScreen';
 import { clearPendingSubjectCreates } from './pendingSubjectCreate';
+import { cs } from '../../i18n/cs';
+import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
 
 function renderApp() {
   return render(
     <I18nProvider>
+      <App />
+    </I18nProvider>,
+  );
+}
+
+function renderAppWithLocale(setterRef: LocaleSetterRef) {
+  return render(
+    <I18nProvider>
+      <LocaleProbe setterRef={setterRef} />
       <App />
     </I18nProvider>,
   );
@@ -226,6 +237,23 @@ describe('list', () => {
     expect(main.getAllByRole('listitem')).toHaveLength(1);
     const lists = fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('limit') === '50');
     expect(lists.map((r) => r.query.get('cursor'))).toEqual([null, 'abc', null]);
+  });
+
+  it('keeps page two and its rows through an in-place locale change', async () => {
+    const setterRef: LocaleSetterRef = { current: null };
+    const fake = installFakeServer({ ...signedIn, [listKey]: (req) => req.query.get('cursor') === 'abc' ? page([octavia]) : page([anna], 'abc') });
+    renderAppWithLocale(setterRef);
+    await userEvent.click(await screen.findByRole('link', { name: 'People and things' }));
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Next page' }));
+    expect(await main.findByText('Octavia')).toBeVisible();
+    expect(main.getByText('Page 2')).toBeVisible();
+    const listsBefore = fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects` && request.query.get('limit') === '50').length;
+    await act(async () => { setterRef.current?.('cs'); });
+    expect(await main.findByText(cs['subjects.page.number'].replace('{n}', '2'), { exact: true })).toBeVisible();
+    expect(main.getByText('Octavia')).toBeVisible();
+    expect(main.queryByText('Anna')).not.toBeInTheDocument();
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/subjects` && request.query.get('limit') === '50')).toHaveLength(listsBefore);
   });
 
   it('replaces page rows rather than appending them', async () => {

@@ -43,8 +43,12 @@ export function AccountOidcLinkForm({ provider, onSignedOut, onDisabled }: {
           aria-describedby={error ? 'account-oidc-error' : undefined}
         />
       </div>
-      <div id="account-oidc-error" role="alert" className="text-base text-danger">
-        {error ? t(errorKeys[error], { provider }) : null}
+      <div id="account-oidc-error" role="alert" className="empty:contents">
+        {error ? (
+          <div className="rounded-xl border border-danger bg-danger-bg px-4 py-3 text-small text-danger">
+            {t(errorKeys[error], { provider })}
+          </div>
+        ) : null}
       </div>
       <Button type="submit" disabled={pending} className="w-full sm:w-auto">
         {pending ? t('account.oidc.connecting', { provider }) : t('account.oidc.connect', { provider })}

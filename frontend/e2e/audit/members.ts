@@ -49,7 +49,7 @@ async function shot(page: Page, path: string, mask: import('@playwright/test').L
  */
 async function assertHistoryMetadataContrast(page: Page, theme: 'light' | 'dark') {
   if (theme === 'dark') await applySavedDarkPreference(page);
-  const metadata = page.locator('[aria-labelledby="invitations-history-heading"] li.bg-sand div p.text-muted').last();
+  const metadata = page.locator('[aria-labelledby="invitations-history-heading"] li [data-invitation-details]').last();
   await expect(metadata, `${theme} history metadata is present`).toBeVisible();
   const measurement = await metadata.evaluate(element => {
     const parse = (value: string) => value.match(/[\d.]+/g)!.slice(0, 3).map(Number);
@@ -58,7 +58,10 @@ async function assertHistoryMetadataContrast(page: Page, theme: 'light' | 'dark'
     const foreground = luminance(parse(getComputedStyle(element).color));
     const row = element.closest('li');
     if (!row) throw new Error('Invitation metadata must belong to a history row');
-    const rowBackground = getComputedStyle(row).backgroundColor;
+    // Grouped lists paint the surface on the shared container; walk up to the first opaque background.
+    let surface: Element | null = row;
+    while (surface && getComputedStyle(surface).backgroundColor === 'rgba(0, 0, 0, 0)') surface = surface.parentElement;
+    const rowBackground = getComputedStyle(surface ?? row).backgroundColor;
     const background = luminance(parse(rowBackground));
     return {
       ratio: (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05),
@@ -81,13 +84,15 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     const accepted = history.getByRole('listitem').filter({ hasText: en['members.invitation.status.accepted'] }).first();
     const pending = history.getByRole('listitem').filter({ hasText: en['members.invitation.status.pending'] }).first();
     await expect(accepted).toBeVisible();
-    await expect(accepted.locator('p').nth(1)).toContainText(/Created .+ · Expires .+/);
+    await expect(accepted.locator('[data-invitation-details]')).toContainText(/Created .+ · Expires .+/);
     await expect(pending).toBeVisible();
     await expect(pending.getByRole('button', { name: en['members.invitation.revoke'], exact: true })).toBeVisible();
-    await expect(pending.locator('p').nth(1)).toContainText(/Created .+ · Expires .+/);
+    await expect(pending.locator('[data-invitation-details]')).toContainText(/Created .+ · Expires .+/);
     if (width === 320) {
       const inviteAction = page.getByRole('button', { name: en['members.invite.action'], exact: true });
       const nav = page.getByRole('navigation', { name: en['nav.label'] });
+      // V4-05 adds the eyebrow/subtitle; at 320 the action sits below the first viewport, so scroll it into view.
+      await inviteAction.scrollIntoViewIfNeeded();
       await expect(inviteAction).toBeInViewport();
       const [actionBox, navBox] = await Promise.all([inviteAction.boundingBox(), nav.boundingBox()]);
       expect(actionBox && navBox && actionBox.y + actionBox.height < navBox.y, '320px invite action stays above the fixed navigation').toBe(true);
@@ -102,7 +107,7 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
     if (width === 320) {
       await pending.scrollIntoViewIfNeeded();
       await expect(pending).toBeInViewport();
-      await expect(pending.locator('p').nth(1)).toContainText(/Expires .+/);
+      await expect(pending.locator('[data-invitation-details]')).toContainText(/Expires .+/);
       await expect(pending.getByRole('button', { name: en['members.invitation.revoke'], exact: true })).toBeVisible();
       await shot(page, join(dir, 'audit-members-history-en-320.png'));
       await page.evaluate(() => window.scrollTo(0, 0));

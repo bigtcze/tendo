@@ -37,22 +37,24 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
   });
   const formatDate = (date: string) => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    <Heading className="font-display text-h1 leading-tight">{t('members.title')}</Heading>
+    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('members.eyebrow')}</p>
+    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('members.title')}</Heading>
+    <p className="mt-2 max-w-prose text-base text-muted">{t('members.subtitle')}</p>
     <div ref={noticeRef} tabIndex={-1} role="status" aria-atomic="true" className="mt-5 outline-none empty:mt-0">
       {notice && state !== 'error' ? <Notice tone={noticeTone === 'success' ? 'success' : 'neutral'} role={null}>{notice}</Notice> : null}
     </div>
-    {state === 'loading' ? <p role="status" className="mt-5 text-muted">{t('members.loading')}</p> : null}
+    {state === 'loading' ? <p role="status" className="mt-5 text-small text-muted">{t('members.loading')}</p> : null}
     {state === 'error' ? <LoadError notice={listErrorNotice} onRetry={() => { setNotice(null); setAttempt((n) => n + 1); }} t={t} /> : null}
-    {state === 'ready' ? <div className="mt-4 space-y-3 sm:mt-8 sm:space-y-8">
+    {state === 'ready' ? <div className="mt-6 space-y-4 sm:mt-8 sm:space-y-6">
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}
         cursor={members.memberCursor} busy={members.memberBusy} onPrevious={members.previousMembers} onNext={members.nextMembers} t={t} />
       {admin === true ? <InvitePanel inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
-        : admin === false ? <section className="mt-4 border-t border-line pt-4 sm:mt-6 sm:pt-6" aria-labelledby="members-help-heading">
-            <h2 id="members-help-heading" className="font-display text-h2">{t('members.help.title')}</h2>
-            <p className="mt-2 max-w-prose text-muted">{t('members.help.body')}</p>
+        : admin === false ? <section className="rounded-2xl border border-line bg-sand px-5 py-4" aria-labelledby="members-help-heading">
+            <h2 id="members-help-heading" className="text-lg font-bold text-ink">{t('members.help.title')}</h2>
+            <p className="mt-1 max-w-prose text-small text-muted">{t('members.help.body')}</p>
           </section>
-          : inv.invitationsError ? <InvitationsError className="border-t border-line pt-5" notice={notice} onRetry={inv.refreshInvitations} t={t} />
-            : <p role="status" className="border-t border-line pt-5 text-muted">{t('members.loading')}</p>}
+          : inv.invitationsError ? <InvitationsError className="rounded-2xl border border-line bg-raised p-5" notice={notice} onRetry={inv.refreshInvitations} t={t} />
+            : <p role="status" className="text-small text-muted">{t('members.loading')}</p>}
     </div> : null}
   </section></Layout>;
 }

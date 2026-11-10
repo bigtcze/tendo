@@ -30,6 +30,13 @@ describe('AppearanceControl', () => {
     ]);
     expect(screen.getByRole('button', { name: en['account.appearance.system'] })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: en['account.appearance.dark'] })).toHaveAttribute('aria-pressed', 'false');
+    // Selection is not conveyed by colour alone: the chosen option shows a check glyph and a stronger surface.
+    const selected = screen.getByRole('button', { name: en['account.appearance.system'] });
+    const unselected = screen.getByRole('button', { name: en['account.appearance.dark'] });
+    expect(selected).toHaveClass('bg-raised', 'text-ink');
+    expect(selected.querySelector('[aria-hidden="true"]')).toHaveClass('opacity-100');
+    expect(unselected.querySelector('[aria-hidden="true"]')).toHaveClass('opacity-0');
+    expect(selected.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
   });
 
   it('stores an explicit choice, applies it, and reflects it in aria-pressed', async () => {

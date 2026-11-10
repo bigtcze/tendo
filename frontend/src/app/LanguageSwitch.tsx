@@ -1,18 +1,16 @@
-import { Button } from '../components/ui/button';
+import { SegmentedGroup, SegmentedOption } from '../components/ui/segmented';
 import { localeNames, useI18n, type Locale } from '../i18n';
 
-export function LanguageSwitch() {
+/** `stacked` is for the Account settings row on phones; the signed-out footer keeps the inline form. */
+export function LanguageSwitch({ stacked = false }: { stacked?: boolean }) {
   const { locale, setLocale, t } = useI18n();
   return (
-    <div role="group" aria-label={t('language.label')} className="flex items-center gap-1">
+    <SegmentedGroup label={t('language.label')} stacked={stacked}>
       {(Object.keys(localeNames) as Locale[]).map((code) => (
-        <Button key={code} type="button" variant="quiet" size="small" lang={code}
-          aria-pressed={locale === code}
-          className={locale === code ? 'text-ink underline underline-offset-4' : ''}
-          onClick={() => setLocale(code)}>
+        <SegmentedOption key={code} lang={code} stacked={stacked} selected={locale === code} onClick={() => setLocale(code)}>
           {localeNames[code]}
-        </Button>
+        </SegmentedOption>
       ))}
-    </div>
+    </SegmentedGroup>
   );
 }

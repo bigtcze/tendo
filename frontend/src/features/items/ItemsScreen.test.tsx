@@ -10,6 +10,7 @@ import { HOUSEHOLD_ID, household, installFakeServer, json, session, type Recorde
 import type { Item, Subject } from './itemsApi';
 import { clearPendingItemCreates } from './pendingItemCreate';
 import { itemRoutes } from '../../test/fakeItems';
+import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
 const subjectList = `GET ${base}/subjects`;
@@ -29,6 +30,9 @@ function item(overrides: Partial<Item> = {}): Item {
   return { id: 'i-1', subjectId: 's-1', responsibleUserId: null, title: 'Renew passport', notes: null, attentionOn: null, recurrence: null, workflowState: 'open', attention: 'needs_attention', archived: false, done: false, lastCompletedOn: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...overrides };
 }
 function app() { return render(<I18nProvider><App /></I18nProvider>); }
+function appWithLocale(setterRef: LocaleSetterRef) {
+  return render(<I18nProvider><LocaleProbe setterRef={setterRef} /><App /></I18nProvider>);
+}
 function requestsOf(requests: RecordedRequest[], method: string, path: string) { return requests.filter((request) => request.method === method && request.path === path); }
 async function openForm() {
   await screen.findByRole('heading', { name: 'Veselí' });
@@ -691,22 +695,23 @@ describe('Home items', () => {
     expect(within(refreshed).getByRole('link', { name: 'See all in All items' })).toHaveAttribute('href', '/items?status=upcoming');
   });
 
-  it('renders the see-all group label in Czech', async () => {
+  it('renders the see-all group label in Czech after an in-place locale change', async () => {
+    const setterRef: LocaleSetterRef = { current: null };
     const entries = Array.from({ length: 101 }, (_, index) => item({ id: `cs-cap-${index}`, title: `Nadcházející ${index}`, attention: 'upcoming', attentionOn: '2027-01-01' }));
     installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjects, [memberList]: memberPage() });
-    app();
+    appWithLocale(setterRef);
     await screen.findByText('Nadcházející 0');
     const main = screen.getByRole('main');
     for (const remaining of [76, 51, 26]) await userEvent.click(await within(main).findByRole('button', { name: `Show more (${remaining} remaining)` }));
-    const languageButton = screen.getByRole('button', { name: 'Čeština' });
-    await userEvent.click(languageButton);
+    await act(async () => { setterRef.current?.('cs'); });
     expect(await within(main).findByRole('link', { name: 'Zobrazit všech 101 ve Všech položkách' })).toHaveAttribute('href', '/items?status=upcoming');
   });
 
   it('Show more requests only newly visible subject IDs and locale changes reuse labels', async () => {
+    const setterRef: LocaleSetterRef = { current: null };
     const rows = Array.from({ length: 26 }, (_, index) => item({ id: `walk-${index}`, subjectId: `s-${index}`, title: `Walk ${index}`, workflowState: 'open', attention: 'needs_attention' }));
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, rows), [subjectList]: (request) => json(200, { items: request.query.getAll('id').map((id) => ({ ...subject, id, name: `Name ${id}` })), nextCursor: null }) });
-    app();
+    appWithLocale(setterRef);
     await screen.findByText('Name s-0');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(2));
     expect(screen.getByRole('button', { name: 'Show more (1 remaining)' })).toBeVisible();
@@ -715,7 +720,7 @@ describe('Home items', () => {
     const calls = requestsOf(fake.requests, 'GET', `${base}/subjects`);
     expect(calls).toHaveLength(4);
     expect(calls.slice(2).map((request) => request.query.getAll('id'))).toEqual([['s-9'], ['s-9']]);
-    await userEvent.click(screen.getByRole('button', { name: 'Čeština' }));
+    await act(async () => { setterRef.current?.('cs'); });
     await waitFor(() => expect(screen.getByRole('heading', { name: /Veselí/ })).toBeVisible());
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);
   });
@@ -1143,14 +1148,15 @@ describe('Home items', () => {
   });
 
   it('does not restart the home members walk after Done refresh or locale change', async () => {
+    const setterRef: LocaleSetterRef = { current: null };
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, [item()]), [subjectList]: subjects, [memberList]: memberPage(), [`GET ${base}/items/i-1`]: json(200, item(), { ETag: '"7"' }), [`POST ${donePath}`]: json(201, { id: 'c-locale', itemId: 'i-1', completedOn: '2026-01-01', completedByUserId: 'u-1', cycleAttentionOn: null, recurrence: null, nextAttentionOn: null, createdAt: '2026-01-01T00:00:00Z', undoneAt: null, undoneByUserId: null }) });
-    app();
+    appWithLocale(setterRef);
     await screen.findByText('Renew passport');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
     await userEvent.click(screen.getByRole('button', { name: /Done:/ }));
     await screen.findByText('“Renew passport” is done.');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
-    await userEvent.click(screen.getByRole('button', { name: 'Čeština' }));
+    await act(async () => { setterRef.current?.('cs'); });
     expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
   });

@@ -31,6 +31,10 @@ type FormProps = {
   passwordRef: RefObject<HTMLInputElement | null>;
 };
 
+function InviteEyebrow({ t }: { t: Translate }) {
+  return <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('invite.eyebrow')}</p>;
+}
+
 function InviteNotice({ error, accepted, noticeRef, t }: {
   error: ErrorState | null; accepted: boolean; noticeRef: RefObject<HTMLDivElement | null>; t: Translate;
 }) {
@@ -38,7 +42,8 @@ function InviteNotice({ error, accepted, noticeRef, t }: {
   if (accepted) message = t('invite.error.accepted');
   else if (error && !isFieldError(error)) message = t(inviteErrorMessageKey(error));
   else return null;
-  return <div ref={noticeRef} tabIndex={-1} role="status" className="mt-5 rounded-xl bg-sand px-4 py-3 outline-none">{message}</div>;
+  const tone = accepted ? 'border-line bg-sand text-ink' : 'border-danger bg-danger-bg text-danger';
+  return <div ref={noticeRef} tabIndex={-1} role="status" className={`mt-5 rounded-xl border px-4 py-3 text-small outline-none ${tone}`}>{message}</div>;
 }
 
 function NewAccountForm(props: FormProps & { onSubmit: (event: FormEvent) => void }) {
@@ -46,20 +51,20 @@ function NewAccountForm(props: FormProps & { onSubmit: (event: FormEvent) => voi
   const loginInvalid = isLoginError(error);
   const passwordInvalid = isPasswordError(error);
   const message = error && isFieldError(error) ? t(inviteErrorMessageKey(error)) : '';
-  return <form onSubmit={onSubmit} className="mt-8 space-y-5" noValidate>
+  return <form onSubmit={onSubmit} className="space-y-5" noValidate>
     <div className="space-y-2"><Label htmlFor="invite-login">{t('invite.login')}</Label>
       <Input ref={loginRef} id="invite-login" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={loginName}
         onChange={(event) => setLoginName(event.target.value)} aria-invalid={loginInvalid}
         aria-describedby={`invite-login-hint${loginInvalid ? ' invite-error' : ''}`} />
-      <p id="invite-login-hint" className="text-sm text-muted">{t('onboarding.login.hint')}</p>
+      <p id="invite-login-hint" className="text-small text-muted">{t('onboarding.login.hint')}</p>
     </div>
     <div className="space-y-2"><Label htmlFor="invite-password">{t('onboarding.password')}</Label>
       <Input ref={passwordRef} id="invite-password" type="password" autoComplete="new-password" required value={password}
         onChange={(event) => setPassword(event.target.value)} aria-invalid={passwordInvalid}
         aria-describedby={`invite-password-hint${passwordInvalid ? ' invite-error' : ''}`} />
-      <p id="invite-password-hint" className="text-sm text-muted">{t('onboarding.password.hint')}</p>
+      <p id="invite-password-hint" className="text-small text-muted">{t('onboarding.password.hint')}</p>
     </div>
-    {isFieldError(error) ? <div id="invite-error" role="alert" className="text-base text-danger">{message}</div> : null}
+    {isFieldError(error) ? <div id="invite-error" role="alert" className="rounded-xl border border-danger bg-danger-bg px-4 py-3 text-small text-danger">{message}</div> : null}
     <Button type="submit" disabled={pending} className="w-full sm:w-auto">{pending ? t('invite.creating') : t('invite.create')}</Button>
   </form>;
 }
@@ -68,22 +73,28 @@ function SignedInForm({ pending, error, onSubmit, onSignOut, t }: {
   pending: boolean; error: ErrorState | null; onSubmit: (event: FormEvent) => void;
   onSignOut: () => void; t: Translate;
 }) {
-  return <form onSubmit={onSubmit} className="mt-6">
+  return <form onSubmit={onSubmit}>
     <Button type="submit" disabled={pending} className="w-full whitespace-normal text-center sm:w-auto">
       {pending ? t('invite.joining') : t('invite.join')}
     </Button>
     {error === 'householdConflict'
-      ? <Button type="button" variant="quiet" className="ml-2" disabled={pending} onClick={onSignOut}>
+      ? <Button type="button" variant="quiet" className="mt-2 w-full whitespace-normal sm:ml-2 sm:mt-0 sm:w-auto" disabled={pending} onClick={onSignOut}>
         {t('invite.signOutContinue')}
       </Button>
       : null}
   </form>;
 }
 
+function HomeLink({ t }: { t: Translate }) {
+  return <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-small font-semibold text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">{t('invite.home')}</a>;
+}
+
 function IncompleteInvite({ t }: { t: Translate }) {
-  return <><Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('invite.incomplete')}</Heading>
-    <p className="mt-3 text-muted">{t('invite.incomplete.body')}</p>
-    <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">{t('invite.home')}</a></>;
+  return <div className="rounded-2xl border border-line bg-raised p-5 sm:p-7">
+    <Heading className="text-[2.125rem] font-bold leading-[1.08] text-ink">{t('invite.incomplete')}</Heading>
+    <p className="mt-3 text-base text-muted">{t('invite.incomplete.body')}</p>
+    <HomeLink t={t} />
+  </div>;
 }
 
 export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccountReady, onJoinedSignedOut, focusLogin = false }: ScreenProps) {
@@ -102,33 +113,33 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
     passwordRef: flow.passwordRef,
   };
 
-  return <Layout><section className="settle">
+  return <Layout><section className="settle mx-auto w-full max-w-xl">
     {flow.valid ? <>
-      <Heading className={`font-display text-3xl leading-tight sm:text-4xl ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
-      <p className="mt-3 max-w-prose text-muted">{t(flow.currentSession ? 'invite.signedIn.intro' : 'invite.intro')}</p>
+      <InviteEyebrow t={t} />
+      <Heading className={`mt-2 text-[2.125rem] font-bold leading-[1.08] text-ink ${flow.currentSession ? '[overflow-wrap:anywhere]' : ''}`}>{title}</Heading>
+      <p className="mt-3 max-w-prose text-base text-muted">{t(flow.currentSession ? 'invite.signedIn.intro' : 'invite.intro')}</p>
       <InviteNotice error={flow.error} accepted={flow.accepted} noticeRef={flow.noticeRef} t={t} />
-      {flow.error === 'alreadyMember' || flow.error === 'invalid'
-        ? <a href="/" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-muted hover:bg-sand">
-          {t('invite.home')}
-        </a>
-        : null}
-      {flow.accepted
-        ? <Button className="mt-6" disabled={flow.pending} onClick={() => void flow.retrySession()}>
-          {t('invite.continue')}
-        </Button>
-        : flow.currentSession
-          ? !flow.invalidLink
-            ? <SignedInForm
-              pending={flow.pending}
-              error={flow.error}
-              onSubmit={(event) => void flow.submit(event)}
-              onSignOut={() => void flow.signOutAndContinue()}
-              t={t}
-            />
-            : null
-          : !flow.invalidLink
-            ? <NewAccountForm {...formProps} onSubmit={(event) => void flow.submit(event)} />
-            : null}
-    </> : <IncompleteInvite t={t} />}
+      {flow.error === 'alreadyMember' || flow.error === 'invalid' ? <div><HomeLink t={t} /></div> : null}
+      {flow.accepted || !flow.invalidLink ? (
+        <div data-invite-panel className="mt-5 rounded-2xl border border-line bg-raised p-5 sm:p-6">
+          {flow.accepted
+            ? <Button disabled={flow.pending} onClick={() => void flow.retrySession()}>
+              {t('invite.continue')}
+            </Button>
+            : flow.currentSession
+              ? <SignedInForm
+                pending={flow.pending}
+                error={flow.error}
+                onSubmit={(event) => void flow.submit(event)}
+                onSignOut={() => void flow.signOutAndContinue()}
+                t={t}
+              />
+              : <NewAccountForm {...formProps} onSubmit={(event) => void flow.submit(event)} />}
+        </div>
+      ) : null}
+    </> : <>
+      <InviteEyebrow t={t} />
+      <div className="mt-2"><IncompleteInvite t={t} /></div>
+    </>}
   </section></Layout>;
 }

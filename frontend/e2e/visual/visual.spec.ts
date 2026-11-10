@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,6 +45,49 @@ async function captureScreen(page: Page, base: string, fullPage = false) {
     await page.setViewportSize({ width, height: 900 });
     await capture(page, `${base}-${width}`, width, 900, fullPage);
   }
+}
+
+/** The Account groups must be settled and every choice must be either on one row or fully stacked, never partly wrapped. */
+async function assertSegmentedLayout(group: Locator, count: number) {
+  const geometry = await group.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const options = [...element.querySelectorAll('button')].map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { top: Math.round(rect.top), left: rect.left, right: rect.right, height: rect.height };
+    });
+    return { box: { left: box.left, right: box.right }, options, innerWidth: window.innerWidth };
+  });
+  expect(geometry.options).toHaveLength(count);
+  expect([1, count], 'segments form one row or a full stack').toContain(new Set(geometry.options.map((option) => option.top)).size);
+  for (const option of geometry.options) {
+    expect(option.height, 'segment target height').toBeGreaterThanOrEqual(44);
+    expect(option.left).toBeGreaterThanOrEqual(geometry.box.left - 1);
+    expect(option.right).toBeLessThanOrEqual(geometry.box.right + 1);
+  }
+  expect(geometry.box.right).toBeLessThanOrEqual(geometry.innerWidth);
+}
+
+async function assertAccountSettled(page: Page, locale: 'en' | 'cs', activeLanguage: 'en' | 'cs') {
+  const catalog = locale === 'cs' ? cs : en;
+  await expect(page.getByRole('heading', { level: 1, name: catalog['account.title'] })).toBeVisible();
+  const main = page.getByRole('main');
+  const appearance = main.getByRole('group', { name: catalog['account.appearance.title'] });
+  await expect(appearance.getByRole('button', { name: catalog['account.appearance.light'] })).toHaveAttribute('aria-pressed', 'true');
+  await assertSegmentedLayout(appearance, 3);
+  const language = main.getByRole('group', { name: catalog['language.label'] });
+  await expect(language.getByRole('button', { name: activeLanguage === 'cs' ? 'Čeština' : 'English' })).toHaveAttribute('aria-pressed', 'true');
+  await assertSegmentedLayout(language, 2);
+}
+
+async function assertMembersSettled(page: Page, locale: 'en' | 'cs') {
+  const catalog = locale === 'cs' ? cs : en;
+  await expect(page.getByRole('heading', { level: 1, name: catalog['members.title'] })).toBeVisible();
+  const main = page.getByRole('main');
+  const rows = main.getByRole('list', { name: catalog['members.list.title'] }).getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: 'novak_owner' })).toBeVisible();
+  await expect(main.getByText(catalog['members.invitation.status.pending'], { exact: true })).toBeVisible();
+  await expect(main.getByRole('button', { name: catalog['members.invitation.revoke'], exact: true })).toBeVisible();
 }
 // The status filter label gains its count from the summary request after the first row renders. Capture only once
 // that settled label is present, so a native select never re-lays out its option text during screenshot rasterization.
@@ -157,6 +200,9 @@ test('onboarding and empty Home', async ({ page }) => {
   await page.evaluate(() => { localStorage.setItem('tendo.theme', 'dark'); document.documentElement.dataset.theme = 'dark'; });
   for (const width of [390, 1440]) await capture(page, `onboarding-dark-${width}`, width, 900, false);
   await page.evaluate(() => { localStorage.removeItem('tendo.theme'); document.documentElement.removeAttribute('data-theme'); });
+  await page.getByRole('button', { name: en['onboarding.submit'] }).click();
+  await expect(page.getByRole('alert')).toHaveText(en['onboarding.error.setupCodeEmpty']);
+  for (const width of [390, 1440]) await capture(page, `onboarding-error-${width}`, width, 900, true);
   household = await firstRun(page);
   await page.context().storageState({ path: statePath });
   await page.goto('/');
@@ -366,10 +412,40 @@ test('People current and archived', async ({ browser }) => {
 });
 
 test('Members owner and non-owner', async ({ browser }) => {
+  test.setTimeout(90_000);
   const { context, page } = await authenticated(browser);
-  await page.goto('/members'); await captureScreen(page, 'members-owner', true);
+  const invite = await page.request.post(`${requiredFixture().apiRoot}/invitations`, {
+    headers: { Origin: BASE_URL!, 'Idempotency-Key': crypto.randomUUID().replaceAll('-', '') },
+    data: {},
+  });
+  expect(invite.status()).toBe(201);
+  const { token: inviteToken } = await invite.json() as { token: string };
+  await page.goto('/members');
+  await assertMembersSettled(page, 'en');
+  await captureScreen(page, 'members-owner', true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await assertMembersSettled(page, 'en');
+  await capture(page, 'members-owner-320', 320, 640, true);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await assertMembersSettled(page, 'cs');
+  await capture(page, 'members-owner-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await page.reload();
   await context.close();
   await darkScreen(browser, statePath, '/members', 'members');
+  // The same pending token renders the real acceptance screen for a signed-out visitor.
+  const inviteContext = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
+  const invitePage = await inviteContext.newPage();
+  await invitePage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
+  await invitePage.goto(`/invite#${inviteToken}`);
+  await expect(invitePage.getByRole('heading', { level: 1, name: en['invite.title'] })).toBeVisible();
+  await expect(invitePage.getByLabel(en['invite.login'])).toBeVisible();
+  await expect(invitePage.getByLabel(en['onboarding.password'])).toBeVisible();
+  await expect(invitePage.getByRole('button', { name: en['invite.create'], exact: true })).toBeVisible();
+  await captureScreen(invitePage, 'invite-accept', true);
+  await inviteContext.close();
   const memberContext = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
   const memberPage = await memberContext.newPage();
   await memberPage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
@@ -384,7 +460,49 @@ test('Members owner and non-owner', async ({ browser }) => {
 
 test('Account', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
-  await page.goto('/account'); await captureScreen(page, 'account', true); await darkScreen(browser, statePath, '/account', 'account');
+  await page.goto('/account');
+  await assertAccountSettled(page, 'en', 'en');
+  await captureScreen(page, 'account', true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await assertAccountSettled(page, 'en', 'en');
+  await capture(page, 'account-320', 320, 640, true);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
+  await page.reload();
+  await assertAccountSettled(page, 'cs', 'cs');
+  await capture(page, 'account-cs-390', 390, 900, true);
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await page.reload();
+  await context.close();
+  await darkScreen(browser, statePath, '/account', 'account');
+});
+
+test('Not found signed in and signed out', async ({ browser }) => {
+  const { context, page } = await authenticated(browser);
+  await page.goto('/no-such-page');
+  await expect(page.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+  await captureScreen(page, 'not-found');
+  await context.close();
+  const signedOut = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
+  const signedOutPage = await signedOut.newPage();
+  await signedOutPage.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
+  await signedOutPage.goto('/no-such-page');
+  await expect(signedOutPage.getByRole('heading', { level: 1, name: en['app.notFound.title'] })).toBeVisible();
+  await captureScreen(signedOutPage, 'not-found-signed-out');
+  await signedOut.close();
+});
+
+test('Signed-out connection error', async ({ browser }) => {
+  const context = await browser.newContext({ ...CONTEXT, viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await page.clock.install({ time: new Date('2026-05-14T08:00:00Z') });
+  await page.route('**/api/v1/session', (route) => route.fulfill({
+    status: 503, contentType: 'application/problem+json',
+    body: JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503 }),
+  }));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1, name: en['app.error.title'] })).toBeVisible();
+  await captureScreen(page, 'error-screen');
   await context.close();
 });
 

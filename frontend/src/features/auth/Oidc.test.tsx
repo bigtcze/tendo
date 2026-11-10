@@ -545,6 +545,7 @@ describe('account screen', () => {
     window.history.replaceState(null, '', '/account');
     renderApp();
     const password = await screen.findByLabelText('Current password');
+    expect(document.getElementById('account-oidc-error'), 'persistent OIDC alert host exists before any error').toBeInTheDocument();
     await userEvent.type(password, 'nope{Enter}');
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('That password isn’t right.');
@@ -623,6 +624,9 @@ describe('account screen', () => {
     installFakeServer({ ...signedIn, ...enabled, 'GET /api/v1/auth/oidc/identity': json(200, { linked: true }) });
     renderApp();
     expect(await screen.findByText('Connected. Next time you can use it to sign in.')).toBeInTheDocument();
+    // The persistent Account status is the only live owner; the visible notice inside it must not nest another.
+    await waitFor(() => expect(document.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(1));
+    expect(screen.getByRole('status')).toHaveTextContent('Connected. Next time you can use it to sign in.');
     expect(window.location.hash).toBe('');
     expect(window.location.pathname).toBe('/account');
   });
