@@ -295,6 +295,7 @@ jobs:
         include:
           - smoke: setup-smoke
           - smoke: compose-startup-smoke
+            timeout: 900
           - smoke: oidc-smoke
           - smoke: proxy-smoke
             timeout: 720

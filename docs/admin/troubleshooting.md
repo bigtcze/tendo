@@ -29,6 +29,7 @@ The deployment has exactly two services, `postgres` and `app`; there is no `migr
 | `database schema validation failed` | See [the database is not ready](#the-database-is-not-ready) below. |
 | `database administrator connection failed` | The app could not connect as the PostgreSQL administrator during startup. Check that `postgres` is healthy and that `POSTGRES_PASSWORD` still matches the value the data volume was created with. |
 | `database runtime role tendo has elevated privileges or role memberships` | The restricted role was changed outside Tendo. Remove the elevated attributes or role memberships, or restore a backup. |
+| `database serving connection failed` | The app could not sign in as the restricted `tendo` role. `TENDO_DATABASE_PASSWORD` in `.env` most likely no longer matches the password stored when the data volume was created; Tendo never rewrites it. Restore the original value from your private copy of `.env`. |
 | `database serving role has elevated privileges or role memberships` | `DATABASE_URL` does not name the restricted `tendo` role, for example because a custom Compose override points it at the administrator. Restore the published `compose.yaml` environment. |
 
 After fixing `.env`, apply it with `docker compose up -d --wait`.

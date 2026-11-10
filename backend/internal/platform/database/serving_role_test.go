@@ -1,10 +1,14 @@
 package database_test
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestServingRoleFactsDecision(t *testing.T) {
@@ -41,13 +45,13 @@ func TestServingRoleFactsDecision(t *testing.T) {
 		},
 		{
 			name:   "schema owner membership",
-			mutate: func(f *database.ServingRoleFacts) { f.InheritsPublicSchemaOwner = true },
-			want:   "database serving role inherits ownership of the public schema",
+			mutate: func(f *database.ServingRoleFacts) { f.InheritsSchemaOwner = true },
+			want:   "database serving role inherits ownership of a schema",
 		},
 		{
 			name:   "relation owner membership",
-			mutate: func(f *database.ServingRoleFacts) { f.InheritsPublicRelationOwner = true },
-			want:   "database serving role inherits ownership of a public schema relation",
+			mutate: func(f *database.ServingRoleFacts) { f.InheritsRelationOwner = true },
+			want:   "database serving role inherits ownership of a relation",
 		},
 		{
 			// Session identity is reported first because it invalidates every
@@ -86,5 +90,29 @@ func TestValidateServingRoleAcceptsRuntimeAndRejectsMigrator(t *testing.T) {
 		if strings.Contains(err.Error(), leaked) {
 			t.Fatalf("error leaked connection detail %q: %v", leaked, err)
 		}
+	}
+}
+
+// TestValidateServingRoleAcceptsUnrelatedSchemaOwner pins that the ownership
+// check generalizes beyond the public schema: a schema owned by the
+// administrator, which the runtime role does not belong to, must not make the
+// runtime role fail its isolation check.
+func TestValidateServingRoleAcceptsUnrelatedSchemaOwner(t *testing.T) {
+	ctx := testContext(t)
+	admin := openPool(t, "TEST_DATABASE_ADMIN_URL")
+	runtime := openPool(t, "TEST_DATABASE_URL")
+	schema := pgx.Identifier{fmt.Sprintf("tendo_serving_role_probe_%d", time.Now().UnixNano())}.Sanitize()
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("create probe schema: %v", err)
+	}
+	t.Cleanup(func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if _, err := admin.Exec(dropCtx, "DROP SCHEMA "+schema+" CASCADE"); err != nil {
+			t.Errorf("drop probe schema: %v", err)
+		}
+	})
+	if err := database.ValidateServingRole(ctx, runtime); err != nil {
+		t.Fatalf("runtime role refused over an unrelated schema: %v", err)
 	}
 }

@@ -24,11 +24,11 @@ type ServingRoleFacts struct {
 	// which allow DDL even without ownership.
 	CanCreateInDatabase     bool
 	CanCreateInPublicSchema bool
-	// InheritsPublicSchemaOwner and InheritsPublicRelationOwner report
-	// membership of the public schema owner or of a relation owner, because
+	// InheritsSchemaOwner and InheritsRelationOwner report membership of the
+	// owner of a non-system schema or of a non-system relation, because
 	// membership alone grants their privileges.
-	InheritsPublicSchemaOwner   bool
-	InheritsPublicRelationOwner bool
+	InheritsSchemaOwner   bool
+	InheritsRelationOwner bool
 }
 
 // RestrictionViolation returns the first isolation violation, or an empty
@@ -44,10 +44,10 @@ func (f ServingRoleFacts) RestrictionViolation() string {
 		return "database serving role can create objects in the database"
 	case f.CanCreateInPublicSchema:
 		return "database serving role can create objects in the public schema"
-	case f.InheritsPublicSchemaOwner:
-		return "database serving role inherits ownership of the public schema"
-	case f.InheritsPublicRelationOwner:
-		return "database serving role inherits ownership of a public schema relation"
+	case f.InheritsSchemaOwner:
+		return "database serving role inherits ownership of a schema"
+	case f.InheritsRelationOwner:
+		return "database serving role inherits ownership of a relation"
 	}
 	return ""
 }
@@ -57,6 +57,12 @@ func (f ServingRoleFacts) RestrictionViolation() string {
 // predefined (oid < 16384, e.g. pg_write_all_data) or holds an attribute that
 // grants DDL, more privileges or replication.
 const servingRoleFactsQuery = `
+-- Membership in roles is allowed deliberately, but only when every role in the
+-- transitive closure is attribute-free and non-predefined. That is narrower
+-- than the "member of no role" rule in docs/design/v4-baseline-audit.md §7
+-- because native tests connect as a member of a NOLOGIN attribute-free group
+-- role. Ownership inherited through such membership is caught by the owner
+-- checks below, which cover any non-system schema or relation.
 WITH RECURSIVE role_closure(roleid) AS (
 	SELECT oid FROM pg_roles WHERE rolname = current_user
 	UNION
@@ -73,11 +79,13 @@ SELECT
 	has_schema_privilege('public', 'CREATE'),
 	EXISTS (
 		SELECT 1 FROM pg_namespace n
-		WHERE n.nspname = 'public' AND pg_has_role(current_user, n.nspowner, 'MEMBER')
+		WHERE NOT (n.nspname LIKE 'pg\_%' OR n.nspname = 'information_schema')
+		AND pg_has_role(current_user, n.nspowner, 'MEMBER')
 	),
 	EXISTS (
 		SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public' AND pg_has_role(current_user, c.relowner, 'MEMBER')
+		WHERE NOT (n.nspname LIKE 'pg\_%' OR n.nspname = 'information_schema')
+		AND pg_has_role(current_user, c.relowner, 'MEMBER')
 	)`
 
 // ValidateServingRole proves the pool is connected as a restricted runtime
@@ -87,6 +95,12 @@ SELECT
 func ValidateServingRole(ctx context.Context, pool *pgxpool.Pool) error {
 	bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// Ping before reading facts: the pool connects lazily, so a wrong
+	// TENDO_DATABASE_PASSWORD must surface as a connection failure instead of a
+	// role check failure. Neither message contains credentials or driver text.
+	if err := pool.Ping(bounded); err != nil {
+		return errors.New("database serving connection failed")
+	}
 	var facts ServingRoleFacts
 	if err := pool.QueryRow(bounded, servingRoleFactsQuery).Scan(
 		&facts.CurrentUser,
@@ -94,8 +108,8 @@ func ValidateServingRole(ctx context.Context, pool *pgxpool.Pool) error {
 		&facts.RoleClosureRestricted,
 		&facts.CanCreateInDatabase,
 		&facts.CanCreateInPublicSchema,
-		&facts.InheritsPublicSchemaOwner,
-		&facts.InheritsPublicRelationOwner,
+		&facts.InheritsSchemaOwner,
+		&facts.InheritsRelationOwner,
 	); err != nil {
 		return errors.New("database serving role check failed")
 	}

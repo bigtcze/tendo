@@ -25,7 +25,7 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 
 | Variable | Required/default | Meaning and security |
 | --- | --- | --- |
-| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v2`, or an exact release such as `v2.1.0` (`v3` and `v3.0.0` once 3.0 is published). See the [update tag table](update.md#update). |
+| `TENDO_VERSION` | `latest` | Tag of `ghcr.io/bigtcze/tendo` to run: `latest`, a major version such as `v2`, or an exact release such as `v3.0.0` (`v4` and `v4.0.0` once 4.0 is published). See the [update tag table](update.md#update). |
 | `POSTGRES_PASSWORD` | Required; no default | PostgreSQL bootstrap superuser password; independent random hexadecimal value. |
 | `TENDO_DATABASE_PASSWORD` | Required; no default | Restricted web-role password; independent random hexadecimal value. |
 | `TENDO_SETUP_TOKEN` | Empty; first-run setup disabled (the onboarding screen says so) | Standard base64 of exactly 32 random bytes; generate using `openssl rand -base64 32`. Never place it in URLs or logs. |
@@ -41,7 +41,7 @@ The output is 44-character standard base64 ending in `=`. Set it as the existing
 | `TENDO_OIDC_CLIENT_SECRET_FILE` | Optional alternative to client secret | Secret-file path, normally supplied through a user Compose override mounting a read-only secret; also set `TENDO_OIDC_CLIENT_SECRET` empty when using the override. |
 | `TENDO_OIDC_DISPLAY_NAME` | `OpenID Connect` | Optional printable status label; max 80 bytes. |
 | `DATABASE_URL` | Compose constructs it | Restricted runtime connection as role `tendo`; used for normal requests. Compose uses `sslmode=disable` on its private bridge. |
-| `TENDO_DATABASE_ADMIN_URL` | Compose constructs it from `POSTGRES_PASSWORD`; not an `.env` setting | Privileged connection used only during startup to create or validate the restricted role and apply migrations. Compose sets it automatically; do not add it to `.env`. The app closes this connection before serving, but the password stays in the container environment for its lifetime (see the security note below). |
+| `TENDO_DATABASE_ADMIN_URL` | Compose constructs it from `POSTGRES_PASSWORD`; not an `.env` setting | Privileged connection used only during startup to create or validate the restricted role and apply migrations. Compose sets it automatically; do not add it to `.env`. It must name the same host, port and database as `DATABASE_URL` with a different user, so an override pointing Tendo at another PostgreSQL server must change both URLs. The app closes this connection before serving, but the password stays in the container environment for its lifetime (see the security note below). |
 | `TENDO_LISTEN_ADDR` | Compose sets `0.0.0.0:8080` | Container HTTP bind address; process defaults to `:8080` outside Compose. |
 
 ## Reserved for automated tests

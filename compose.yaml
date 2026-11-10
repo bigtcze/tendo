@@ -44,11 +44,12 @@ services:
       # Runs in the distroless image without a shell; the app is healthy only after
       # role bootstrap and migrations finish and /health/ready answers.
       test: ["CMD", "/tendo", "healthcheck"]
+      # Failed startups exit non-zero; the start period only covers role bootstrap
+      # and migrations before the first successful probe.
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30m
-      start_interval: 5s
+      start_period: 2m
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m

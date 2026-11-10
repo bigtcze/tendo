@@ -161,17 +161,23 @@ func verifyRuntimePool(ctx context.Context, pool *pgxpool.Pool) error {
 
 // healthcheck backs the Compose healthcheck: the distroless image has no shell
 // or curl, so the binary probes its own readiness endpoint over loopback.
+// A wildcard listen address cannot be dialled, so the probe falls back to
+// loopback while a specific bind address is honoured, including IPv6.
 func healthcheck() error {
 	listenAddr := ":8080"
 	if raw := strings.TrimSpace(os.Getenv("TENDO_LISTEN_ADDR")); raw != "" {
 		listenAddr = raw
 	}
-	_, port, err := net.SplitHostPort(listenAddr)
+	host, port, err := net.SplitHostPort(listenAddr)
 	if err != nil || port == "" {
 		return errors.New("invalid TENDO_LISTEN_ADDR")
 	}
+	probeHost := host
+	if probeHost == "" || unspecifiedHost(probeHost) {
+		probeHost = "127.0.0.1"
+	}
 	client := &http.Client{Timeout: 3 * time.Second}
-	response, err := client.Get("http://127.0.0.1:" + port + "/health/ready")
+	response, err := client.Get("http://" + net.JoinHostPort(probeHost, port) + "/health/ready")
 	if err != nil {
 		return errors.New("health endpoint unavailable")
 	}
@@ -180,4 +186,11 @@ func healthcheck() error {
 		return fmt.Errorf("health endpoint returned status %d", response.StatusCode)
 	}
 	return nil
+}
+
+// unspecifiedHost reports whether a listen host is an unspecified IP such as
+// 0.0.0.0 or ::, which is bound but not a dialable destination.
+func unspecifiedHost(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
 }

@@ -145,14 +145,17 @@ wait_oneoff_healthy() {
   return 1
 }
 
-migration_count=$(find "$root/backend/internal/platform/database" -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9]+_.*[.]sql' -printf '%f\n' | wc -l)
+migration_files=$(find "$root/backend/internal/platform/database" -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9]+_.*[.]sql' -printf '%f\n')
+migration_count=$(printf '%s\n' "$migration_files" | grep -c .)
 (( migration_count > 0 )) || { printf 'No embedded migrations found\n' >&2; exit 1; }
+# The ledger records each file's numeric prefix, so the newest version is the highest prefix.
+migration_latest=$(printf '%s\n' "$migration_files" | sed -E 's/^0*([0-9]+)_.*/\1/' | sort -n | tail -n 1)
 
 # Fresh empty volume: the single app container provisions role and schema, then serves.
 "${compose[@]}" up -d --build --wait --wait-timeout 240
 wait_ready
 [[ "$(app_health)" == healthy ]] || { printf 'Fresh app container is not healthy\n' >&2; exit 1; }
-[[ "$(ledger)" == "${migration_count}:false" ]] || { printf 'Fresh ledger is %s, expected %s:false\n' "$(ledger)" "$migration_count" >&2; exit 1; }
+[[ "$(ledger)" == "${migration_latest}:false" ]] || { printf 'Fresh ledger is %s, expected %s:false\n' "$(ledger)" "$migration_latest" >&2; exit 1; }
 role_flags=$(psql_at "SELECT rolsuper||'|'||rolcreatedb||'|'||rolcreaterole||'|'||rolbypassrls||'|'||rolreplication||'|'||rolinherit FROM pg_roles WHERE rolname='tendo'")
 [[ "$role_flags" == 'false|false|false|false|false|false' ]] || { printf 'Role tendo flags are %s\n' "$role_flags" >&2; exit 1; }
 [[ "$(psql_at "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='tendo'")" == 0 ]] \
@@ -179,6 +182,25 @@ if grep -Fq -- "$wrong_secret" "$temp_dir/failure-wrong-admin.log"; then
   printf 'Wrong administrator password appeared in startup logs\n' >&2
   exit 1
 fi
+
+# Unavailable administrator database: refuse before serving, then recover once PostgreSQL is back.
+"${compose[@]}" stop postgres >/dev/null
+expect_failure admin-unavailable 'database administrator connection failed'
+"${compose[@]}" up -d --wait --wait-timeout 120 postgres >/dev/null
+restart_and_wait
+[[ "$(ledger)" == "$ledger_before" && "$(row_counts)" == "$counts_before" ]] || { printf 'Database outage recovery lost data\n' >&2; exit 1; }
+printf 'Unavailable administrator database refusal and recovery passed.\n'
+
+# A runtime password that no longer matches the stored role is refused, never rewritten.
+wrong_runtime="postgres://tendo:$(openssl rand -hex 32)@postgres:5432/tendo?sslmode=disable"
+expect_failure wrong-runtime-password 'database serving connection failed' -e "DATABASE_URL=$wrong_runtime"
+wrong_secret=${wrong_runtime#postgres://tendo:}
+wrong_secret=${wrong_secret%%@*}
+if grep -Fq -- "$wrong_secret" "$temp_dir/failure-wrong-runtime-password.log"; then
+  printf 'Wrong runtime password appeared in startup logs\n' >&2
+  exit 1
+fi
+restart_and_wait
 
 # Dirty migration: refuse, never repair automatically, then recover after an operator fix.
 psql_at "UPDATE tendo_schema_migrations SET dirty=true WHERE version=(SELECT max(version) FROM tendo_schema_migrations)" >/dev/null
@@ -227,8 +249,8 @@ name_b="${project}-concurrent-b"
 wait_oneoff_healthy "$name_a"
 wait_oneoff_healthy "$name_b"
 concurrent_ledger=$(psql_at "SELECT count(*)::text||':'||max(version)::text||':'||COALESCE(bool_or(dirty),false)::text FROM tendo_schema_migrations")
-[[ "$concurrent_ledger" == "${migration_count}:${migration_count}:false" ]] \
-  || { printf 'Concurrent ledger is %s, expected %s\n' "$concurrent_ledger" "${migration_count}:${migration_count}:false" >&2; exit 1; }
+[[ "$concurrent_ledger" == "${migration_count}:${migration_latest}:false" ]] \
+  || { printf 'Concurrent ledger is %s, expected %s\n' "$concurrent_ledger" "${migration_count}:${migration_latest}:false" >&2; exit 1; }
 for name in "$name_a" "$name_b"; do
   docker logs "$name" >"$temp_dir/$name.log" 2>&1
   if grep -Fq 'runtime failed' "$temp_dir/$name.log"; then
