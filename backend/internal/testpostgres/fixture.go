@@ -161,6 +161,19 @@ var RevertVersion18SQL = revertVersion18SQL()
 // forward again.
 var RevertVersion19SQL = revertVersion19SQL()
 
+// RevertVersion20SQL reverses migration 020 and removes its ledger row so an
+// upgrade fixture can present the exact version 19 schema before migrating
+// forward again.
+var RevertVersion20SQL = revertVersion20SQL()
+
+func revertVersion20SQL() string {
+	down, err := database.MigrationDownSQL(20)
+	if err != nil {
+		panic("revert version 20 SQL unavailable: " + err.Error())
+	}
+	return down + " DELETE FROM tendo_schema_migrations WHERE version=20"
+}
+
 func revertVersion19SQL() string {
 	down, err := database.MigrationDownSQL(19)
 	if err != nil {

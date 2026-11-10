@@ -21,6 +21,12 @@ func testMemberPeople(tx householddb.DBTX) identityapp.MemberPersonProvisioner {
 	return subjectpostgres.NewMemberPersonProvisioner(tx)
 }
 
+type emptyResetLookup struct{}
+
+func (emptyResetLookup) PasswordResetsByUserIDs(context.Context, string, []string) (map[string]household.PasswordReset, error) {
+	return map[string]household.PasswordReset{}, nil
+}
+
 func TestAccountsAgainstPostgres(t *testing.T) {
 	appURL, adminURL := os.Getenv("TEST_DATABASE_URL"), os.Getenv("TEST_DATABASE_ADMIN_URL")
 	if appURL == "" || adminURL == "" {
@@ -44,7 +50,7 @@ func TestAccountsAgainstPostgres(t *testing.T) {
 	defer reset()
 
 	clock := func() time.Time { return time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC) }
-	service := AccountServiceFor(app, identitypostgres.New(app, nil), identitypostgres.New(app, nil), clock)
+	service := AccountServiceFor(app, identitypostgres.New(app, nil), identitypostgres.New(app, nil), emptyResetLookup{}, clock)
 
 	newUser := func(login string) string {
 		t.Helper()
@@ -385,7 +391,7 @@ func TestInFlightDemotionForbidsAdminWrites(t *testing.T) {
 	defer reset()
 
 	clock := func() time.Time { return time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC) }
-	accounts := AccountServiceFor(app, identitypostgres.New(app, nil), identitypostgres.New(app, nil), clock)
+	accounts := AccountServiceFor(app, identitypostgres.New(app, nil), identitypostgres.New(app, nil), emptyResetLookup{}, clock)
 	invitations, err := identityapp.NewInvitationService(identitypostgres.NewInvitationRepository(app, func(tx householddb.DBTX) identitypostgres.InvitationHouseholdService {
 		return MembershipServiceFor(tx)
 	}, testMemberPeople), clock)

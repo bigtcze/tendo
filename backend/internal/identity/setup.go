@@ -62,6 +62,13 @@ func validateCredentials(login, password string) error {
 	if !loginPattern.MatchString(login) {
 		return &ValidationError{"login", "invalid_format"}
 	}
+	return validatePassword(password)
+}
+
+// validatePassword applies the shared local-password policy. It is the single
+// source of the 15-128 character rule for setup, invitation acceptance and
+// password reset.
+func validatePassword(password string) error {
 	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 15 || utf8.RuneCountInString(password) > 128 || len(password) > 512 {
 		return &ValidationError{"password", "invalid_length"}
 	}

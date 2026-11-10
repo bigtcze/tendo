@@ -95,6 +95,18 @@ type OidcPendingLogin struct {
 	Attempts        int32
 }
 
+type PasswordResetToken struct {
+	ID              pgtype.UUID
+	HouseholdID     pgtype.UUID
+	TargetUserID    pgtype.UUID
+	CreatedByUserID pgtype.UUID
+	TokenHash       []byte
+	CreatedAt       pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	UsedAt          pgtype.Timestamptz
+	RevokedAt       pgtype.Timestamptz
+}
+
 type Subject struct {
 	ID          pgtype.UUID
 	HouseholdID pgtype.UUID

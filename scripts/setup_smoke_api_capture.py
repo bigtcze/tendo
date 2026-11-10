@@ -15,7 +15,8 @@ COVERAGE_SCOPE = ','.join((
     'updateSubject', 'transferMemberPerson', 'createItem', 'listItems', 'createItemCompletion',
     'listItemCompletions', 'undoItemCompletion', 'getItemsSummary', 'getItem',
     'updateItem', 'listHouseholdAccounts', 'getHouseholdAccount',
-    'updateHouseholdAccountRole',
+    'updateHouseholdAccountRole', 'issueHouseholdAccountPasswordReset',
+    'revokeHouseholdAccountPasswordReset', 'redeemPasswordReset',
 ))
 
 

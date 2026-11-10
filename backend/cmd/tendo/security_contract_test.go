@@ -173,6 +173,7 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		"POST /api/v1/session":                   {`{"login":"owner_contract","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
 		"DELETE /api/v1/session":                 {"", http.StatusNoContent, ""},
 		"POST /api/v1/auth/invitations/accept":   {`{"token":"` + strings.Repeat("A", 43) + `","login":"member_contract","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
+		"POST /api/v1/auth/password-reset":       {`{"token":"` + strings.Repeat("A", 43) + `","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
 	}
 	client := 0
 

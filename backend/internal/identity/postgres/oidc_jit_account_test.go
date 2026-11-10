@@ -518,7 +518,7 @@ func TestOIDCJITMigrationFromVersion18(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Present the exact version 18 schema, then migrate forward.
-	if _, err := admin.Exec(ctx, testpostgres.RevertVersion19SQL); err != nil {
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion20SQL+" ; "+testpostgres.RevertVersion19SQL); err != nil {
 		t.Fatal(err)
 	}
 	var version int
@@ -536,7 +536,7 @@ func TestOIDCJITMigrationFromVersion18(t *testing.T) {
 		t.Fatalf("existing account gained email data: %v/%v/%v/%v", email, emailVerified, emailSource, emailIssuer)
 	}
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 19 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 20 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	// Constraint and grant coverage for the new schema.

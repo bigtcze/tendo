@@ -211,6 +211,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem an admin-issued local-password reset link
+         * @description Public and rate-limited. The token is single-use and expires after 24 hours. Requires the canonical Origin header. Every unusable link returns the same 404 invalid_password_reset, whether it is malformed, unknown, used, revoked, expired, or no longer authorized. Success replaces the password and deletes all sessions of the account.
+         */
+        post: operations["redeemPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/households/{householdId}/invitations": {
         parameters: {
             query?: never;
@@ -378,6 +398,30 @@ export interface paths {
          * @description Household admin only, with required If-Match against the membership version. An unchanged role is a no-op without a version bump or audit row. Removing the last admin returns last_admin and changes nothing. Self-demotion is allowed when another admin remains.
          */
         patch: operations["updateHouseholdAccountRole"];
+        trace?: never;
+    };
+    "/api/v1/households/{householdId}/accounts/{userId}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a local-password reset link for a household member
+         * @description Household admin only. The body is an empty object. The token is returned once and only its SHA-256 digest is stored. Issuing again revokes the previous outstanding link. The link shape is /reset-password#<token>: the fragment never reaches the server, a proxy, or the Referer. OIDC-only accounts return 409 no_local_password; an admin cannot reset their own password.
+         */
+        post: operations["issueHouseholdAccountPasswordReset"];
+        /**
+         * Cancel an outstanding password reset link
+         * @description Household admin only and idempotent: 204 also when there is nothing to cancel. Self-targeting returns 409 cannot_reset_self. OIDC-only targets are accepted because there is no link to cancel.
+         */
+        delete: operations["revokeHouseholdAccountPasswordReset"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/households/{householdId}": {
@@ -770,12 +814,20 @@ export interface components {
             password: boolean;
             oidc: boolean;
         };
+        AccountPasswordReset: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         Account: {
             /** Format: uuid */
             userId: string;
             login: string;
             role: components["schemas"]["AccountRole"];
             signInMethods: components["schemas"]["AccountSignInMethods"];
+            /** @description Outstanding admin-issued reset link for this account, or null when there is no usable link. Expired, revoked and used links are never reported. */
+            passwordReset: components["schemas"]["AccountPasswordReset"] | null;
         };
         AccountList: {
             items: components["schemas"]["Account"][];
@@ -816,6 +868,25 @@ export interface components {
             field: "login" | "password";
             /** @enum {string} */
             code: "invalid_format" | "invalid_length";
+        };
+        PasswordResetCreated: {
+            /** @description Single-use bearer secret. Present only in this response. */
+            token: string;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description At most 24 hours after createdAt.
+             */
+            expiresAt: string;
+        };
+        PasswordResetRedeemRequest: {
+            token: string;
+            /** @description Maximum 512 UTF-8 bytes. */
+            password: string;
+        };
+        PasswordResetRedeemed: {
+            login: string;
         };
         /** @enum {string} */
         SubjectType: "person" | "home" | "vehicle" | "pet" | "custom";
@@ -3351,6 +3422,226 @@ export interface operations {
             };
         };
     };
+    redeemPasswordReset: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+                /**
+                 * @description Must match the configured canonical public origin.
+                 * @example https://tendo.example
+                 */
+                Origin: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                 *       "password": "a-new-long-unique-passphrase"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PasswordResetRedeemRequest"];
+            };
+        };
+        responses: {
+            /** @description Password replaced and all sessions of the account deleted. The login is returned so the client can prefill sign-in. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "login": "bob"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PasswordResetRedeemed"];
+                };
+            };
+            /** @description Malformed JSON, unknown or duplicate keys, missing or wrong-typed fields, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Origin is missing, malformed, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Forbidden",
+                     *       "status": 403,
+                     *       "code": "forbidden_origin"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The link is unusable: malformed, unknown, already used, revoked, expired, or its target or issuer is no longer authorized. All cases are indistinguishable. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "invalid_password_reset"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The new password does not satisfy the 15-128 character policy. The token is not consumed. */
+            422: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Validation Failed",
+                     *       "status": 422,
+                     *       "code": "invalid_length",
+                     *       "field": "password"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description Redemption rate limit or password-work limit exceeded. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence unavailable; no password or session change was committed. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listInvitations: {
         parameters: {
             query?: {
@@ -4961,7 +5252,8 @@ export interface operations {
                      *           "signInMethods": {
                      *             "password": true,
                      *             "oidc": false
-                     *           }
+                     *           },
+                     *           "passwordReset": null
                      *         },
                      *         {
                      *           "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
@@ -4970,7 +5262,8 @@ export interface operations {
                      *           "signInMethods": {
                      *             "password": false,
                      *             "oidc": true
-                     *           }
+                     *           },
+                     *           "passwordReset": null
                      *         }
                      *       ],
                      *       "nextCursor": null
@@ -5132,7 +5425,8 @@ export interface operations {
                      *       "signInMethods": {
                      *         "password": true,
                      *         "oidc": false
-                     *       }
+                     *       },
+                     *       "passwordReset": null
                      *     }
                      */
                     "application/json": components["schemas"]["Account"];
@@ -5304,7 +5598,8 @@ export interface operations {
                      *       "signInMethods": {
                      *         "password": true,
                      *         "oidc": false
-                     *       }
+                     *       },
+                     *       "passwordReset": null
                      *     }
                      */
                     "application/json": components["schemas"]["Account"];
@@ -5513,6 +5808,414 @@ export interface operations {
                 };
             };
             /** @description Persistence or identity lookup unavailable, including a missing sign-in-method fact. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    issueHouseholdAccountPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Member user identifier within this household.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+                 */
+                userId: components["parameters"]["AccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                /** @example {} */
+                "application/json": components["schemas"]["EmptyObject"];
+            };
+        };
+        responses: {
+            /** @description Reset link issued. The raw token is returned only in this response. */
+            201: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                     *       "createdAt": "2026-11-10T10:00:00Z",
+                     *       "expiresAt": "2026-11-11T10:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PasswordResetCreated"];
+                };
+            };
+            /** @description Malformed JSON, unknown keys, or malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller is a household member but not an admin, or Origin is malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household or target account is unknown, inaccessible, malformed, or not a member of this household. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The target has no local password, or the caller targeted themselves. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request body exceeds 4 KiB. */
+            413: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Content Too Large",
+                     *       "status": 413,
+                     *       "code": "content_too_large"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unsupported request media type. */
+            415: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unsupported Media Type",
+                     *       "status": 415,
+                     *       "code": "unsupported_media_type"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Issuance rate limit exceeded. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable. */
+            503: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Service Unavailable",
+                     *       "status": 503,
+                     *       "code": "unavailable"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeHouseholdAccountPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional caller-supplied correlation ID.
+                 * @example smoke-test_01
+                 */
+                "X-Request-ID"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                /**
+                 * @description Household identifier. Authorization context; access is checked against membership.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61
+                 */
+                householdId: components["parameters"]["HouseholdId"];
+                /**
+                 * @description Member user identifier within this household.
+                 * @example 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60
+                 */
+                userId: components["parameters"]["AccountUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outstanding link is revoked, or none existed. */
+            204: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed trusted forwarded metadata. */
+            400: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Bad Request",
+                     *       "status": 400,
+                     *       "code": "invalid_forwarded_request"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No valid session cookie; a stale single cookie is cleared. */
+            401: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Set-Cookie": components["headers"]["ClearStaleSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Unauthorized",
+                     *       "status": 401,
+                     *       "code": "unauthenticated"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller is a household member but not an admin, or Origin is malformed, duplicated, or foreign. */
+            403: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Household or target account is unknown, inaccessible, malformed, or not a member of this household. */
+            404: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Not Found",
+                     *       "status": 404,
+                     *       "code": "not_found"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller targeted themselves. */
+            409: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Conflict",
+                     *       "status": 409,
+                     *       "code": "cannot_reset_self"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request authority does not match the configured public origin. */
+            421: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Misdirected Request",
+                     *       "status": 421
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exceeded. */
+            429: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "about:blank",
+                     *       "title": "Too Many Requests",
+                     *       "status": 429,
+                     *       "code": "rate_limited"
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Persistence or identity lookup unavailable. */
             503: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

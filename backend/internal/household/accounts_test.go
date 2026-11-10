@@ -111,6 +111,15 @@ func (f accountSignInFake) SignInMethodsByUserIDs(context.Context, []string) (ma
 	return f.methods, f.err
 }
 
+type accountResetFake struct {
+	resets map[string]PasswordReset
+	err    error
+}
+
+func (f accountResetFake) PasswordResetsByUserIDs(context.Context, string, []string) (map[string]PasswordReset, error) {
+	return f.resets, f.err
+}
+
 func accountFixture() (*accountFake, *AccountService) {
 	repository := newAccountFake()
 	repository.records[accountActor] = AccountRecord{UserID: accountActor, Role: RoleAdmin, Version: 1}
@@ -118,7 +127,7 @@ func accountFixture() (*accountFake, *AccountService) {
 	repository.order = []string{accountActor, accountTarget}
 	logins := accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}
 	signIn := accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {OIDC: true}}}
-	service := NewAccountService(repository, logins, signIn, func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) })
+	service := NewAccountService(repository, logins, signIn, func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) }, accountResetFake{})
 	return repository, service
 }
 
@@ -148,15 +157,30 @@ func TestListAccountsJoinsIdentityFactsAndFailsClosed(t *testing.T) {
 	if accounts[0].Login != "alice" || !accounts[0].SignInMethods.Password || accounts[1].Login != "bob" || !accounts[1].SignInMethods.OIDC {
 		t.Fatalf("accounts=%+v", accounts)
 	}
+	if accounts[0].PasswordReset != nil || accounts[1].PasswordReset != nil {
+		t.Fatalf("unexpected reset facts: %+v", accounts)
+	}
 
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	repository, _ := accountFixture()
-	missing := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}}}, time.Now)
+	resets := accountResetFake{resets: map[string]PasswordReset{accountTarget: {CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}}}
+	withReset := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {OIDC: true}}}, time.Now, resets)
+	account, err := withReset.GetAccount(context.Background(), accountActor, accountHouse, accountTarget)
+	if err != nil || account.PasswordReset == nil || !account.PasswordReset.ExpiresAt.Equal(now.Add(24*time.Hour)) {
+		t.Fatalf("account=%+v err=%v", account, err)
+	}
+
+	missing := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}}}, time.Now, accountResetFake{})
 	if _, _, err := missing.ListAccounts(context.Background(), accountActor, accountHouse, "", 50); err == nil {
 		t.Fatal("missing sign-in methods defaulted instead of failing")
 	}
-	missing = NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {}, accountTarget: {}}}, time.Now)
+	missing = NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {}, accountTarget: {}}}, time.Now, accountResetFake{})
 	if _, _, err := missing.ListAccounts(context.Background(), accountActor, accountHouse, "", 50); err == nil {
 		t.Fatal("missing login defaulted instead of failing")
+	}
+	resetDown := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {}}}, time.Now, nil)
+	if _, _, err := resetDown.ListAccounts(context.Background(), accountActor, accountHouse, "", 50); err == nil {
+		t.Fatal("missing password-reset lookup defaulted instead of failing")
 	}
 }
 

@@ -108,10 +108,17 @@ func (h *AccountsHandler) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func accountDTO(account household.Account) apimodel.Account {
-	return apimodel.Account{
+	dto := apimodel.Account{
 		UserId: account.UserID, Login: account.Login, Role: apimodel.AccountRole(account.Role),
 		SignInMethods: apimodel.AccountSignInMethods{Password: account.SignInMethods.Password, Oidc: account.SignInMethods.OIDC},
 	}
+	if account.PasswordReset != nil {
+		dto.PasswordReset = &apimodel.AccountPasswordReset{
+			CreatedAt: account.PasswordReset.CreatedAt.UTC(),
+			ExpiresAt: account.PasswordReset.ExpiresAt.UTC(),
+		}
+	}
+	return dto
 }
 
 func writeAccountError(w http.ResponseWriter, err error) {

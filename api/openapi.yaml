@@ -437,6 +437,46 @@ paths:
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable; the session may not have been deleted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+  /api/v1/auth/password-reset:
+    post:
+      operationId: redeemPasswordReset
+      summary: Redeem an admin-issued local-password reset link
+      description: Public and rate-limited. The token is single-use and expires after 24 hours. Requires the canonical Origin header. Every unusable link returns the same 404 invalid_password_reset, whether it is malformed, unknown, used, revoked, expired, or no longer authorized. Success replaces the password and deletes all sessions of the account.
+      tags: [Auth]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: Origin
+          in: header
+          required: true
+          description: Must match the configured canonical public origin.
+          schema: { type: string, format: uri }
+          example: https://tendo.example
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetRedeemRequest' }
+            example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, password: a-new-long-unique-passphrase }
+      responses:
+        '200':
+          description: Password replaced and all sessions of the account deleted. The login is returned so the client can prefill sign-in.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasswordResetRedeemed' }
+              example: { login: bob }
+        '400': { description: 'Malformed JSON, unknown or duplicate keys, missing or wrong-typed fields, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '403': { description: 'Request Origin is missing, malformed, or foreign.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '404': { description: 'The link is unusable: malformed, unknown, already used, revoked, expired, or its target or issuer is no longer authorized. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: invalid_password_reset } } } }
+        '413': { description: Request body exceeds 4 KiB., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: Unsupported request media type., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: Request authority does not match the configured public origin., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: The new password does not satisfy the 15-128 character policy. The token is not consumed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/ValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_length, field: password } } } }
+        '429': { description: 'Redemption rate limit or password-work limit exceeded.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { schema: { type: integer, minimum: 1 } } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited } } } }
+        '503': { description: Persistence unavailable; no password or session change was committed., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/households/{householdId}/invitations:
     post:
       operationId: createInvitation
@@ -931,8 +971,8 @@ paths:
               schema: { $ref: '#/components/schemas/AccountList' }
               example:
                 items:
-                  - { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: alice, role: admin, signInMethods: { password: true, oidc: false } }
-                  - { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: false, oidc: true } }
+                  - { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: alice, role: admin, signInMethods: { password: true, oidc: false }, passwordReset: null }
+                  - { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, login: bob, role: member, signInMethods: { password: false, oidc: true }, passwordReset: null }
                 nextCursor: null
         '400':
           description: Invalid pagination query (invalid_query with parameter limit or cursor) or malformed trusted forwarded metadata.
@@ -999,7 +1039,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Account' }
-              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: alice, role: admin, signInMethods: { password: true, oidc: false } }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: alice, role: admin, signInMethods: { password: true, oidc: false }, passwordReset: null }
         '400':
           description: Malformed trusted forwarded metadata.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
@@ -1076,7 +1116,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Account' }
-              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: alice, role: member, signInMethods: { password: true, oidc: false } }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: alice, role: member, signInMethods: { password: true, oidc: false }, passwordReset: null }
         '400':
           description: Invalid body (invalid_request), or malformed trusted forwarded metadata.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
@@ -1158,6 +1198,177 @@ paths:
               example: { type: 'about:blank', title: Precondition Required, status: 428, code: precondition_required }
         '503':
           description: Persistence or identity lookup unavailable, including a missing sign-in-method fact.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+  /api/v1/households/{householdId}/accounts/{userId}/password-reset:
+    post:
+      operationId: issueHouseholdAccountPasswordReset
+      summary: Issue a local-password reset link for a household member
+      description: 'Household admin only. The body is an empty object. The token is returned once and only its SHA-256 digest is stored. Issuing again revokes the previous outstanding link. The link shape is /reset-password#<token>: the fragment never reaches the server, a proxy, or the Referer. OIDC-only accounts return 409 no_local_password; an admin cannot reset their own password.'
+      tags: [Members]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/HouseholdId' }
+        - { $ref: '#/components/parameters/AccountUserId' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmptyObject' }
+            example: {}
+      responses:
+        '201':
+          description: Reset link issued. The raw token is returned only in this response.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasswordResetCreated' }
+              example: { token: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA, createdAt: '2026-11-10T10:00:00Z', expiresAt: '2026-11-11T10:00:00Z' }
+        '400':
+          description: 'Malformed JSON, unknown keys, or malformed trusted forwarded metadata.'
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request }
+        '401':
+          description: No valid session cookie; a stale single cookie is cleared.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated }
+        '403':
+          description: The caller is a household member but not an admin, or Origin is malformed, duplicated, or foreign.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                adminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404':
+          description: Household or target account is unknown, inaccessible, malformed, or not a member of this household.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: not_found }
+        '409':
+          description: The target has no local password, or the caller targeted themselves.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                self: { value: { type: 'about:blank', title: Conflict, status: 409, code: cannot_reset_self } }
+                oidcOnly: { value: { type: 'about:blank', title: Conflict, status: 409, code: no_local_password } }
+        '413':
+          description: Request body exceeds 4 KiB.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large }
+        '415':
+          description: Unsupported request media type.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Misdirected Request, status: 421 }
+        '429':
+          description: Issuance rate limit exceeded.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { schema: { type: integer, minimum: 1 } } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited }
+        '503':
+          description: Persistence or identity lookup unavailable.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+    delete:
+      operationId: revokeHouseholdAccountPasswordReset
+      summary: Cancel an outstanding password reset link
+      description: 'Household admin only and idempotent: 204 also when there is nothing to cancel. Self-targeting returns 409 cannot_reset_self. OIDC-only targets are accepted because there is no link to cancel.'
+      tags: [Members]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/HouseholdId' }
+        - { $ref: '#/components/parameters/AccountUserId' }
+      responses:
+        '204':
+          description: The outstanding link is revoked, or none existed.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+        '400':
+          description: Malformed trusted forwarded metadata.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request }
+        '401':
+          description: No valid session cookie; a stale single cookie is cleared.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated }
+        '403':
+          description: The caller is a household member but not an admin, or Origin is malformed, duplicated, or foreign.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                adminRequired: { value: { type: 'about:blank', title: Forbidden, status: 403, code: admin_required } }
+                originRejected: { value: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } }
+        '404':
+          description: Household or target account is unknown, inaccessible, malformed, or not a member of this household.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Not Found, status: 404, code: not_found }
+        '409':
+          description: The caller targeted themselves.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Conflict, status: 409, code: cannot_reset_self }
+        '421':
+          description: Request authority does not match the configured public origin.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Misdirected Request, status: 421 }
+        '429':
+          description: Rate limit exceeded.
+          headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { schema: { type: integer, minimum: 1 } } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Too Many Requests, status: 429, code: rate_limited }
+        '503':
+          description: Persistence or identity lookup unavailable.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:
@@ -2104,15 +2315,25 @@ components:
       properties:
         password: { type: boolean }
         oidc: { type: boolean }
+    AccountPasswordReset:
+      type: object
+      additionalProperties: false
+      required: [createdAt, expiresAt]
+      properties:
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
     Account:
       type: object
       additionalProperties: false
-      required: [userId, login, role, signInMethods]
+      required: [userId, login, role, signInMethods, passwordReset]
       properties:
         userId: { type: string, format: uuid, x-go-type: string }
         login: { type: string }
         role: { $ref: '#/components/schemas/AccountRole' }
         signInMethods: { $ref: '#/components/schemas/AccountSignInMethods' }
+        passwordReset:
+          oneOf: [{ $ref: '#/components/schemas/AccountPasswordReset' }, { type: 'null' }]
+          description: 'Outstanding admin-issued reset link for this account, or null when there is no usable link. Expired, revoked and used links are never reported.'
     AccountList:
       type: object
       additionalProperties: false
@@ -2164,6 +2385,27 @@ components:
           properties:
             field: { type: string, enum: [login, password] }
             code: { type: string, enum: [invalid_format, invalid_length] }
+    PasswordResetCreated:
+      type: object
+      additionalProperties: false
+      required: [token, expiresAt, createdAt]
+      properties:
+        token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$', description: 'Single-use bearer secret. Present only in this response.' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, description: At most 24 hours after createdAt. }
+    PasswordResetRedeemRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+        password: { type: string, minLength: 15, maxLength: 128, description: 'Maximum 512 UTF-8 bytes.' }
+    PasswordResetRedeemed:
+      type: object
+      additionalProperties: false
+      required: [login]
+      properties:
+        login: { type: string }
     SubjectType:
       type: string
       enum: [person, home, vehicle, pet, custom]

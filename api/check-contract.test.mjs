@@ -92,6 +92,9 @@ test('invitation and member operations document protected and middleware respons
     ['/api/v1/auth/invitations/accept', 'post'],
     ['/api/v1/invitations/accept', 'post'],
     ['/api/v1/households/{householdId}/members', 'get'],
+    ['/api/v1/households/{householdId}/accounts/{userId}/password-reset', 'post'],
+    ['/api/v1/households/{householdId}/accounts/{userId}/password-reset', 'delete'],
+    ['/api/v1/auth/password-reset', 'post'],
   ]
   for (const [path, method] of paths) {
     await t.test(`${method.toUpperCase()} ${path} contract completeness`, () => {
@@ -115,6 +118,38 @@ test('invitation and member operations document protected and middleware respons
     }
     })
   }
+})
+
+test('password reset contract examples and account reset facts are strict', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const Ajv2020 = (await import('ajv/dist/2020.js')).default
+  const addFormats = (await import('ajv-formats')).default
+  const contract = parse(await readFile(new URL('./openapi.yaml', import.meta.url), 'utf8'))
+  const ajv = new Ajv2020({ strict: false }); addFormats(ajv)
+  for (const [name, schema] of Object.entries(contract.components.schemas)) ajv.addSchema(schema, `#/components/schemas/${name}`)
+  const token = 'A'.repeat(43)
+  assert.equal(ajv.compile(contract.components.schemas.PasswordResetCreated)({ token, createdAt: '2026-11-10T10:00:00Z', expiresAt: '2026-11-11T10:00:00Z' }), true)
+  assert.equal(ajv.compile(contract.components.schemas.PasswordResetCreated)({ token: 'short', createdAt: '2026-11-10T10:00:00Z', expiresAt: '2026-11-11T10:00:00Z' }), false)
+  assert.equal(ajv.compile(contract.components.schemas.PasswordResetRedeemRequest)({ token, password: 'a-long-unique-passphrase' }), true)
+  assert.equal(ajv.compile(contract.components.schemas.PasswordResetRedeemed)({ login: 'bob' }), true)
+  const account = { userId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62', login: 'bob', role: 'member', signInMethods: { password: true, oidc: false }, passwordReset: null }
+  assert.equal(ajv.compile(contract.components.schemas.Account)(account), true)
+  assert.equal(ajv.compile(contract.components.schemas.Account)({ ...account, passwordReset: { createdAt: '2026-11-10T10:00:00Z', expiresAt: '2026-11-11T10:00:00Z' } }), true)
+  assert.equal(ajv.compile(contract.components.schemas.Account)({ ...account, passwordReset: { createdAt: '2026-11-10T10:00:00Z' } }), false)
+  const withoutReset = { ...account }
+  delete withoutReset.passwordReset
+  assert.equal(ajv.compile(contract.components.schemas.Account)(withoutReset), false)
+
+  const issue = contract.paths['/api/v1/households/{householdId}/accounts/{userId}/password-reset']
+  assert.equal(issue.post.operationId, 'issueHouseholdAccountPasswordReset')
+  assert.equal(issue.delete.operationId, 'revokeHouseholdAccountPasswordReset')
+  assert.ok(issue.post.security.some(requirement => requirement.SessionCookie))
+  const redeem = contract.paths['/api/v1/auth/password-reset'].post
+  assert.equal(redeem.operationId, 'redeemPasswordReset')
+  assert.deepEqual(redeem.security, [])
+  assert.ok(redeem.responses['404'])
+  assert.ok(redeem.responses['422'].content['application/problem+json'].schema.$ref.endsWith('/ValidationProblem'))
 })
 
 test('item create schema accepts omission and a historical date but rejects null', async () => {

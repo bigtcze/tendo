@@ -319,9 +319,10 @@ for name, count in before.items():
     if name == 'subjects':
         continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks', 'oidc_pending_logins'}
+unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 assert after.get('oidc_pending_logins') == '0', ('migration 019 pending continuation table must be empty after upgrade', after.get('oidc_pending_logins'))
+assert after.get('password_reset_tokens') == '0', ('migration 020 password reset table must be empty after upgrade', after.get('password_reset_tokens'))
 assert os.environ['ACCOUNTS_WITH_EMAIL'] == '0', ('migration 019 must never infer an email for pre-existing accounts', os.environ['ACCOUNTS_WITH_EMAIL'])
 assert 'household_role_changes' in after, ('migration 017 audit table missing after upgrade', sorted(after))
 assert after['household_role_changes'] == '0', ('new table must be empty after migration', 'household_role_changes', after['household_role_changes'])
