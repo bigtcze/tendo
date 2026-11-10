@@ -44,9 +44,10 @@ export type StartResult =
   | { kind: 'disabled' }
   | { kind: 'rateLimited' }
   | { kind: 'providerUnavailable' }
+  | { kind: 'invalidInvitation' }
   | { kind: 'unavailable' };
 
-async function problemCode(response: Response, error: unknown): Promise<unknown> {
+export async function problemCode(response: Response, error: unknown): Promise<unknown> {
   if (error && typeof error === 'object' && 'code' in error) return (error as { code?: unknown }).code;
   try {
     const body: unknown = await response.clone().json();
@@ -56,8 +57,13 @@ async function problemCode(response: Response, error: unknown): Promise<unknown>
   }
 }
 
-/** Starts the provider redirect. The caller navigates the browser to the returned URL. */
-export async function startOidc(input: { purpose: 'login' } | { purpose: 'link'; currentPassword: string }): Promise<StartResult> {
+/**
+ * Starts the provider redirect. The caller navigates the browser to the returned URL.
+ * A login attempt may carry an invitation token so the invitation survives the provider round trip.
+ */
+export async function startOidc(
+  input: { purpose: 'login'; invitationToken?: string } | { purpose: 'link'; currentPassword: string },
+): Promise<StartResult> {
   try {
     const { data, error, response } = await api.POST('/api/v1/auth/oidc/start', {
       body: input,
@@ -69,6 +75,7 @@ export async function startOidc(input: { purpose: 'login' } | { purpose: 'link';
     if (response.status === 401) return code === 'invalid_credentials' ? { kind: 'wrongPassword' } : { kind: 'unauthenticated' };
     if (response.status === 409) return { kind: 'alreadySignedIn' };
     if (response.status === 404) return { kind: 'disabled' };
+    if (response.status === 422 && code === 'invalid_invitation') return { kind: 'invalidInvitation' };
     if (response.status === 429) return { kind: 'rateLimited' };
     if (response.status === 503 && code === 'oidc_unavailable') return { kind: 'providerUnavailable' };
   } catch {

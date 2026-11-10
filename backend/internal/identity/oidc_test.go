@@ -23,15 +23,38 @@ type oidcFakeRepo struct {
 	identities                map[string]string
 	credentials               map[string]string
 	sessions                  map[string]SessionInfo
-	identityErr, sessionErr   error
+	accounts                  map[string]string
+	emails                    map[string]string
+	ownedEmails               map[string]string
+	memberships               map[string]bool
+	pendingInvitations        map[string]bool
+	pending                   map[string]fakePending
+	sessionErr                error
 	consumeErr                error
 	credentialErr, insertErr  error
 	createErr, linkErr        error
+	resolveErr                error
+	loginCollisions           int
+	findLoginCalls            int
 	inserted, created, linked int
 }
 
+type fakePending struct {
+	issuer, subject, clientID string
+	email                     string
+	verified                  bool
+	invite                    []byte
+	expires                   time.Time
+	attempts                  int
+}
+
 func newOIDCFakeRepo() *oidcFakeRepo {
-	return &oidcFakeRepo{flows: map[string]OIDCFlow{}, identities: map[string]string{}, credentials: map[string]string{}, sessions: map[string]SessionInfo{}}
+	return &oidcFakeRepo{
+		flows: map[string]OIDCFlow{}, identities: map[string]string{}, credentials: map[string]string{},
+		sessions: map[string]SessionInfo{}, accounts: map[string]string{}, emails: map[string]string{},
+		ownedEmails: map[string]string{}, memberships: map[string]bool{},
+		pendingInvitations: map[string]bool{}, pending: map[string]fakePending{},
+	}
 }
 func identityKey(issuer, sub string) string { return issuer + "\x00" + sub }
 func (r *oidcFakeRepo) InsertFlow(_ context.Context, f OIDCFlow) error {
@@ -65,16 +88,6 @@ func (r *oidcFakeRepo) ConsumeFlow(_ context.Context, state, browser []byte, now
 	delete(r.flows, k)
 	return f, nil
 }
-func (r *oidcFakeRepo) FindIdentity(_ context.Context, issuer, subject string) (string, error) {
-	if r.identityErr != nil {
-		return "", r.identityErr
-	}
-	u, ok := r.identities[identityKey(issuer, subject)]
-	if !ok {
-		return "", ErrNotFound
-	}
-	return u, nil
-}
 func (r *oidcFakeRepo) FindSession(_ context.Context, hash []byte, now time.Time) (SessionInfo, error) {
 	if r.sessionErr != nil {
 		return SessionInfo{}, r.sessionErr
@@ -94,17 +107,6 @@ func (r *oidcFakeRepo) FindCredential(_ context.Context, user string) (string, e
 		return "", ErrNotFound
 	}
 	return v, nil
-}
-func (r *oidcFakeRepo) CreateOIDCLoginSession(_ context.Context, s NewSession) (string, error) {
-	if r.createErr != nil {
-		return "", r.createErr
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	id := "login-session"
-	r.sessions[string(s.TokenHash)] = SessionInfo{ID: id, Principal: Principal{UserID: s.UserID}, ExpiresAt: s.ExpiresAt}
-	r.created++
-	return id, nil
 }
 func (r *oidcFakeRepo) LinkAndCreateSession(_ context.Context, f OIDCFlow, v OIDCVerifiedIdentity, s NewSession, revoke []byte) (string, error) {
 	if r.linkErr != nil {
@@ -291,10 +293,13 @@ func TestOIDCLoginUnknownAndKnownIdentityState(t *testing.T) {
 		start := f.start(OIDCPurposeLogin, "", "", "", "")
 		state := startState(t, start)
 		res := invoke(t, f.service, start, callbackParams(state, "code"), "")
-		if res.Destination != "/login#oidcError=identity_not_linked" {
+		if res.Destination != "/login#oidc=continue" || !validToken(res.PendingToken) || res.SessionToken != "" {
 			t.Fatalf("%+v", res)
 		}
 		assertNoSessionIdentity(t, f.repo)
+		if len(f.repo.pending) != 1 {
+			t.Fatalf("pending rows=%d", len(f.repo.pending))
+		}
 		if len(f.repo.flows) != 0 {
 			t.Fatal("flow not consumed")
 		}
@@ -468,7 +473,7 @@ func TestOIDCExchangeAndRepositoryFailuresMapByPurpose(t *testing.T) {
 			f.provider.exchangeErr = errors.New("upstream")
 			if tc.errorRepo {
 				f.provider.exchangeErr = nil
-				f.repo.identityErr = errors.New("db down")
+				f.repo.resolveErr = errors.New("db down")
 			}
 			st := f.start(OIDCPurposeLogin, "", "", "", "")
 			r := invoke(t, f.service, st, callbackParams(startState(t, st), "code"), "")
@@ -539,3 +544,227 @@ func TestOIDCStartPropagatesPasswordGateWorkLimit(t *testing.T) {
 }
 
 var _ OIDCRepository = (*oidcFakeRepo)(nil)
+
+// --- V4-10 first-login decision table and pending continuation ---
+
+func (r *oidcFakeRepo) inviteOutcome(userID string, invite []byte) OIDCInvitationOutcome {
+	if len(invite) == 0 {
+		return OIDCInvitationNone
+	}
+	if !r.pendingInvitations[string(invite)] {
+		return OIDCInvitationInvalid
+	}
+	if r.memberships[userID] {
+		return OIDCInvitationInvalid
+	}
+	delete(r.pendingInvitations, string(invite))
+	r.memberships[userID] = true
+	return OIDCInvitationAccepted
+}
+
+func (r *oidcFakeRepo) startSession(session NewSession, userID string) {
+	r.sessions[string(session.TokenHash)] = SessionInfo{ID: "pending-session", Principal: Principal{UserID: userID, Login: r.accounts[userID]}, ExpiresAt: session.ExpiresAt}
+}
+
+func (r *oidcFakeRepo) ResolveLogin(_ context.Context, req OIDCLoginRequest) (OIDCLoginOutcome, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.resolveErr != nil {
+		return OIDCLoginOutcome{}, r.resolveErr
+	}
+	if r.createErr != nil {
+		return OIDCLoginOutcome{}, r.createErr
+	}
+	key := identityKey(req.Verified.Issuer, req.Verified.Subject)
+	if user, linked := r.identities[key]; linked {
+		if req.Verified.EmailVerified && r.emails[user] == "" && r.ownedEmails[req.Verified.Email] == "" {
+			r.emails[user] = req.Verified.Email
+			r.ownedEmails[req.Verified.Email] = user
+		}
+		r.startSession(req.Session, user)
+		return OIDCLoginOutcome{Resolution: OIDCLoginSignedIn, Invitation: r.inviteOutcome(user, req.InviteTokenHash)}, nil
+	}
+	if req.Verified.EmailVerified {
+		if owner, held := r.ownedEmails[req.Verified.Email]; held {
+			for known, ownerID := range r.identities {
+				if ownerID == owner && strings.HasPrefix(known, req.Verified.Issuer+"\x00") {
+					return OIDCLoginOutcome{Resolution: OIDCLoginConflict}, nil
+				}
+			}
+			r.identities[key] = owner
+			r.startSession(req.Session, owner)
+			return OIDCLoginOutcome{Resolution: OIDCLoginSignedIn, Invitation: r.inviteOutcome(owner, req.InviteTokenHash)}, nil
+		}
+	}
+	r.pending[string(req.PendingHandleHash)] = fakePending{
+		issuer: req.Verified.Issuer, subject: req.Verified.Subject, clientID: req.ClientID,
+		email: req.Verified.Email, verified: req.Verified.EmailVerified,
+		invite: req.InviteTokenHash, expires: req.PendingExpiresAt,
+	}
+	return OIDCLoginOutcome{Resolution: OIDCLoginNeedsPending}, nil
+}
+
+func (r *oidcFakeRepo) consumeFakePending(handle []byte, now time.Time, issuer, client string) (fakePending, error) {
+	pending, found := r.pending[string(handle)]
+	if !found || !pending.expires.After(now) || pending.issuer != issuer || pending.clientID != client {
+		return fakePending{}, ErrOIDCPendingNotFound
+	}
+	delete(r.pending, string(handle))
+	return pending, nil
+}
+
+func (r *oidcFakeRepo) ReadPendingLogin(_ context.Context, handle []byte, now time.Time, issuer, client string) (OIDCPendingStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.pending[string(handle)]
+	if !found || !pending.expires.After(now) || pending.issuer != issuer || pending.clientID != client {
+		return OIDCPendingStatus{}, ErrOIDCPendingNotFound
+	}
+	return OIDCPendingStatus{ExpiresAt: pending.expires, EmailVerified: pending.verified, Invitation: len(pending.invite) > 0}, nil
+}
+
+func (r *oidcFakeRepo) CreatePendingAccount(_ context.Context, params OIDCPendingAccountParams) (OIDCPendingAccountOutcome, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.pending[string(params.HandleHash)]
+	if !found || !pending.expires.After(params.Now) || pending.issuer != params.Issuer || pending.clientID != params.ClientID {
+		return OIDCPendingAccountOutcome{}, ErrOIDCPendingNotFound
+	}
+	if r.loginCollisions > 0 {
+		// A collision rolls the whole transaction back, so the pending row survives.
+		r.loginCollisions--
+		return OIDCPendingAccountOutcome{}, ErrLoginUnavailable
+	}
+	delete(r.pending, string(params.HandleHash))
+	key := identityKey(pending.issuer, pending.subject)
+	if _, linked := r.identities[key]; linked {
+		return OIDCPendingAccountOutcome{}, ErrOIDCConflict
+	}
+	for _, login := range r.accounts {
+		if login == params.Login {
+			return OIDCPendingAccountOutcome{}, ErrLoginUnavailable
+		}
+	}
+	userID := "pending-" + params.Login
+	r.accounts[userID] = params.Login
+	r.identities[key] = userID
+	if pending.verified && r.ownedEmails[pending.email] == "" {
+		r.emails[userID] = pending.email
+		r.ownedEmails[pending.email] = userID
+	}
+	invitation := r.inviteOutcome(userID, pending.invite)
+	r.startSession(params.Session, userID)
+	return OIDCPendingAccountOutcome{UserID: userID, Login: params.Login, Invitation: invitation}, nil
+}
+
+func (r *oidcFakeRepo) LinkPendingAccount(_ context.Context, params OIDCPendingLinkParams) (OIDCPendingLinkOutcome, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, err := r.consumeFakePending(params.HandleHash, params.Now, params.Issuer, params.ClientID)
+	if err != nil {
+		return OIDCPendingLinkOutcome{}, err
+	}
+	if r.credentials[params.UserID] != params.VerifiedPasswordHash {
+		return OIDCPendingLinkOutcome{}, ErrInvalidCredentials
+	}
+	key := identityKey(pending.issuer, pending.subject)
+	if _, linked := r.identities[key]; linked {
+		return OIDCPendingLinkOutcome{Conflict: true}, nil
+	}
+	for known, owner := range r.identities {
+		if owner == params.UserID && strings.HasPrefix(known, pending.issuer+"\x00") {
+			return OIDCPendingLinkOutcome{Conflict: true}, nil
+		}
+	}
+	r.identities[key] = params.UserID
+	emailSaved := false
+	if pending.verified && r.emails[params.UserID] == "" && r.ownedEmails[pending.email] == "" {
+		r.emails[params.UserID] = pending.email
+		r.ownedEmails[pending.email] = params.UserID
+		emailSaved = true
+	}
+	invitation := r.inviteOutcome(params.UserID, pending.invite)
+	r.startSession(params.Session, params.UserID)
+	return OIDCPendingLinkOutcome{UserID: params.UserID, Login: r.accounts[params.UserID], Invitation: invitation, EmailSaved: emailSaved}, nil
+}
+
+func (r *oidcFakeRepo) RecordPendingFailure(_ context.Context, handle []byte, _ time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.pending[string(handle)]
+	if !found {
+		return false, nil
+	}
+	pending.attempts++
+	if pending.attempts >= oidcPendingAttemptLimit {
+		delete(r.pending, string(handle))
+		return true, nil
+	}
+	r.pending[string(handle)] = pending
+	return false, nil
+}
+
+func (r *oidcFakeRepo) CancelPendingLogin(_ context.Context, handle []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.pending, string(handle))
+	return nil
+}
+
+func (r *oidcFakeRepo) FindPendingInvitation(_ context.Context, digest []byte, _ time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingInvitations[string(digest)], nil
+}
+
+func (r *oidcFakeRepo) DiscardOIDCAccount(_ context.Context, params OIDCDiscardParams) (OIDCPendingStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.memberships[params.UserID] || r.credentials[params.UserID] != "" {
+		return OIDCPendingStatus{}, ErrOIDCAccountNotDiscardable
+	}
+	subject := ""
+	matched := 0
+	for key, owner := range r.identities {
+		if owner == params.UserID && strings.HasPrefix(key, params.Issuer+"\x00") {
+			matched++
+			subject = strings.TrimPrefix(key, params.Issuer+"\x00")
+		}
+	}
+	if matched != 1 {
+		return OIDCPendingStatus{}, ErrOIDCAccountNotDiscardable
+	}
+	email := r.emails[params.UserID]
+	r.pending[string(params.HandleHash)] = fakePending{
+		issuer: params.Issuer, subject: subject, clientID: params.ClientID,
+		email: email, verified: email != "", expires: params.ExpiresAt,
+	}
+	delete(r.identities, identityKey(params.Issuer, subject))
+	delete(r.accounts, params.UserID)
+	delete(r.emails, params.UserID)
+	if email != "" {
+		delete(r.ownedEmails, email)
+	}
+	for hash, info := range r.sessions {
+		if info.Principal.UserID == params.UserID {
+			delete(r.sessions, hash)
+		}
+	}
+	return OIDCPendingStatus{ExpiresAt: params.ExpiresAt, EmailVerified: email != ""}, nil
+}
+
+func (r *oidcFakeRepo) FindLogin(_ context.Context, login string) (LoginRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.findLoginCalls++
+	for userID, candidate := range r.accounts {
+		if candidate == login {
+			hash, ok := r.credentials[userID]
+			if !ok {
+				return LoginRecord{}, ErrNotFound
+			}
+			return LoginRecord{Principal: Principal{UserID: userID, Login: login}, PasswordHash: hash}, nil
+		}
+	}
+	return LoginRecord{}, ErrNotFound
+}

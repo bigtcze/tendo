@@ -28,7 +28,6 @@ type Querier interface {
 	FindLogin(ctx context.Context, login string) (FindLoginRow, error)
 	FindLoginForInvitation(ctx context.Context, login string) (string, error)
 	FindOIDCCredential(ctx context.Context, userID pgtype.UUID) (string, error)
-	FindOIDCIdentity(ctx context.Context, arg FindOIDCIdentityParams) (string, error)
 	InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) error
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
@@ -37,6 +36,7 @@ type Querier interface {
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (LockUserForInvitationRow, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
+	PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)

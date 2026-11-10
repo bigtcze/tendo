@@ -1,5 +1,6 @@
 import { AccountScreen } from '../features/auth/AccountScreen';
 import type { OidcOutcome } from '../features/auth/oidcApi';
+import type { MessageKey } from '../i18n';
 import type { useAppNavigation } from './useAppNavigation';
 import type { useAppSession } from './useAppSession';
 import { HomeScreen } from '../features/home/HomeScreen';
@@ -25,6 +26,9 @@ type Props = {
   allItemsVisit: number;
   transitioned: { current: boolean };
   oidcOutcome: OidcOutcome | null;
+  homeNotice: MessageKey | null;
+  onDismissNotice: () => void;
+  onContinuePending: () => void;
   navigation: ReturnType<typeof useAppNavigation>;
   sessionActions: ReturnType<typeof useAppSession>;
 };
@@ -141,6 +145,9 @@ function renderHouseholdScreens(
             onOpenPeople={navigation.openPeople}
             onOpenAllItems={navigation.openAllItemsForStatus}
             onOpenItem={navigation.openItemFromHome}
+            homeNotice={props.homeNotice}
+            onDismissNotice={props.onDismissNotice}
+            onContinuePending={props.onContinuePending}
           />
         )}
       </ScreenTransitionContext>

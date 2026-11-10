@@ -72,7 +72,7 @@ func TestPreEighteenLinkedCreateReplaySurvivesCanonicalization(t *testing.T) {
 	if err = database.Migrate(ctx, upAdmin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion18SQL); err != nil {
+	if _, err = upAdmin.Exec(ctx, testpostgres.RevertVersion19SQL+" ; "+testpostgres.RevertVersion18SQL); err != nil {
 		t.Fatalf("rewind to version 17: %v", err)
 	}
 	var home, actor string

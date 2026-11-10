@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -24,14 +25,28 @@ type Faults struct {
 	SubjectEmpty, SubjectNonASCII, SubjectTooLong, MissingIssuedAt, StringIssuedAt, FractionalIssuedAt, DisallowedAlgorithm                                bool
 }
 type Provider struct {
-	Server                                       *httptest.Server
+	Server *httptest.Server
+	// lastTokenScope records the scope of the most recent token request so
+	// relying-party tests can assert the requested scopes.
+	lastTokenScope                               string
 	mu                                           sync.Mutex
 	key, other                                   *rsa.PrivateKey
 	codes                                        map[string]code
 	ClientID, ClientSecret, Subject, RedirectURI string
 	Subjects                                     []string
-	SigningAlgorithms                            []string
-	Faults                                       Faults
+	// Emails configures the email and email_verified claims of the ID token for
+	// a subject. An absent entry emits no email claims at all. Verified is
+	// emitted verbatim so tests can send the boolean true, the string "true" or
+	// false.
+	Emails            map[string]TestEmail
+	SigningAlgorithms []string
+	Faults            Faults
+}
+
+// TestEmail is one subject's configured email claims.
+type TestEmail struct {
+	Address  string
+	Verified any
 }
 type code struct {
 	challenge, redirect, nonce, subject string
@@ -63,6 +78,46 @@ func NewWithOptions(issuer, client, secret, redirect string, subjects []string) 
 }
 func (p *Provider) Close()         { p.Server.Close() }
 func (p *Provider) Issuer() string { return p.Server.URL }
+
+// TokenScope reports the scope of the most recent successful token request.
+func (p *Provider) TokenScope() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastTokenScope
+}
+
+// ParseEmails parses the SUBJECT_EMAILS form
+// "subject-1=anna@example.test:true,subject-2=bob@example.test:string".
+// The mode is true, false, or string; string emits the JSON string "true",
+// which a relying party must reject as unverified.
+func ParseEmails(raw string) (map[string]TestEmail, error) {
+	emails := map[string]TestEmail{}
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		subject, rest, found := strings.Cut(entry, "=")
+		address, mode, hasMode := strings.Cut(rest, ":")
+		if !found || !hasMode || strings.TrimSpace(subject) == "" || address == "" {
+			return nil, errors.New("invalid subject email entry")
+		}
+		configured := TestEmail{Address: address}
+		switch mode {
+		case "true":
+			configured.Verified = true
+		case "false":
+			configured.Verified = false
+		case "string":
+			configured.Verified = "true"
+		default:
+			return nil, errors.New("invalid subject email verification mode")
+		}
+		emails[strings.TrimSpace(subject)] = configured
+	}
+	return emails, nil
+}
+
 func (p *Provider) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/.well-known/openid-configuration":
@@ -192,6 +247,7 @@ func (p *Provider) validTokenRequest(r *http.Request) (code, bool, string) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.lastTokenScope = r.Form.Get("scope")
 	codeValue := r.Form.Get("code")
 	c, ok := p.codes[codeValue]
 	if !ok || c.used || !time.Now().Before(c.expires) {
@@ -246,6 +302,10 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 }
 func (p *Provider) idTokenClaims(c code, now time.Time) map[string]any {
 	claims := map[string]any{"iss": p.Issuer(), "sub": c.subject, "aud": p.ClientID, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(), "nonce": c.nonce}
+	if configured, ok := p.Emails[c.subject]; ok {
+		claims["email"] = configured.Address
+		claims["email_verified"] = configured.Verified
+	}
 	if p.Faults.SubjectEmpty {
 		claims["sub"] = ""
 	}

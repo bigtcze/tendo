@@ -10,14 +10,16 @@ import (
 )
 
 type oidcStartRequest struct {
-	purpose  identity.OIDCPurpose
-	password string
+	purpose         identity.OIDCPurpose
+	password        string
+	invitationToken string
 }
 
 func readOIDCStartRequest(w http.ResponseWriter, r *http.Request) (oidcStartRequest, bool) {
 	fields := map[string]httpx.Field{
 		"purpose":         {Kind: httpx.KindString, Required: true},
 		"currentPassword": {Kind: httpx.KindString},
+		"invitationToken": {Kind: httpx.KindString},
 	}
 	values, ok := httpx.ReadObject(w, r, fields, 4096)
 	if !ok {
@@ -25,17 +27,21 @@ func readOIDCStartRequest(w http.ResponseWriter, r *http.Request) (oidcStartRequ
 	}
 	purpose := identity.OIDCPurpose(values["purpose"].(string))
 	password, hasPassword := values["currentPassword"].(string)
+	invitationToken, hasInvitation := values["invitationToken"].(string)
 	if purpose == identity.OIDCPurposeLink && !hasPassword {
 		writeOIDCValidation(w, "currentPassword")
 		return oidcStartRequest{}, false
 	}
 	invalidPurpose := purpose != identity.OIDCPurposeLogin && purpose != identity.OIDCPurposeLink
 	passwordOnLogin := purpose == identity.OIDCPurposeLogin && hasPassword
-	if invalidPurpose || passwordOnLogin {
+	// Only the login purpose can carry an invitation; a link flow has no
+	// account or household to join.
+	invitationOnLink := purpose != identity.OIDCPurposeLogin && hasInvitation
+	if invalidPurpose || passwordOnLogin || invitationOnLink {
 		writeOIDCValidation(w, "purpose")
 		return oidcStartRequest{}, false
 	}
-	return oidcStartRequest{purpose: purpose, password: password}, true
+	return oidcStartRequest{purpose: purpose, password: password, invitationToken: invitationToken}, true
 }
 func (h *OIDCHandler) resolveStartSession(
 	w http.ResponseWriter,
@@ -72,6 +78,8 @@ func writeOIDCStartError(w http.ResponseWriter, err error) {
 		problem(w, 409, "already_signed_in")
 	case errors.Is(err, identity.ErrUnauthenticated), errors.Is(err, identity.ErrInvalidCredentials):
 		problem(w, 401, "invalid_credentials")
+	case errors.Is(err, identity.ErrInvalidInvitation):
+		writeOIDCValidationCode(w, "invitationToken", "invalid_invitation")
 	case errors.Is(err, security.ErrPasswordWorkLimit):
 		w.Header().Set("Retry-After", "60")
 		problem(w, 429, "rate_limited")

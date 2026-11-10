@@ -10,8 +10,8 @@ services:
       CLIENT_ID: tendo-oidc-smoke
       CLIENT_SECRET: tendo-oidc-smoke-secret
       REDIRECT_URI: ${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL}/api/v1/auth/oidc/callback
-      SUBJECTS: owner-subject,unknown-subject
-    command: ["-listen", "0.0.0.0:8089", "-issuer", "http://oidc.test:8089", "-client-id", "tendo-oidc-smoke", "-client-secret", "tendo-oidc-smoke-secret", "-redirect-uri", "${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL}/api/v1/auth/oidc/callback", "-subjects", "owner-subject,unknown-subject"]
+      SUBJECTS: owner-subject,unknown-subject,invite-subject
+    command: ["-listen", "0.0.0.0:8089", "-issuer", "http://oidc.test:8089", "-client-id", "tendo-oidc-smoke", "-client-secret", "tendo-oidc-smoke-secret", "-redirect-uri", "${TENDO_PUBLIC_URL:?Set TENDO_PUBLIC_URL}/api/v1/auth/oidc/callback", "-subjects", "owner-subject,unknown-subject,invite-subject"]
     ports:
       - "127.0.0.1:${TENDO_OIDC_HOST_PORT:-18089}:8089"
     networks:

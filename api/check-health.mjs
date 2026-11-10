@@ -66,6 +66,33 @@ function assertFlowCookie(path, status, setCookie, clearing = false) {
   }
 }
 
+function assertPendingCookie(path, status, setCookie, clearing = false) {
+  assert.equal(typeof setCookie, 'string', `${path} HTTP ${status} missing Set-Cookie`)
+  const parts = setCookie.split(';').map(part => part.trim())
+  const pair = parts.shift() ?? ''
+  const separator = pair.indexOf('=')
+  assert.ok(separator > 0, `${path} HTTP ${status} malformed pending cookie`)
+  const name = pair.slice(0, separator)
+  const value = pair.slice(separator + 1)
+  assert.ok(['tendo_oidc_pending', '__Host-tendo_oidc_pending'].includes(name), `${path} HTTP ${status} unexpected pending cookie name`)
+  const attributes = parts.map(attribute => attribute.toLowerCase())
+  const requireAttribute = attribute => assert.ok(attributes.includes(attribute), `${path} pending cookie missing ${attribute}`)
+  requireAttribute('path=/')
+  requireAttribute('httponly')
+  requireAttribute('samesite=lax')
+  assert.ok(!attributes.some(attribute => attribute.startsWith('domain=')), `${path} pending cookie must not set Domain`)
+  if (name.startsWith('__Host-')) requireAttribute('secure')
+  const maxAge = attributes.find(attribute => attribute.startsWith('max-age='))
+  assert.ok(maxAge, `${path} pending cookie missing Max-Age`)
+  if (clearing) {
+    assert.equal(value, '', `${path} pending clear must have an empty value`)
+    assert.ok(['max-age=0', 'max-age=-1'].includes(maxAge), `${path} pending clear must have a clearing Max-Age`)
+  } else {
+    assert.match(value, /^[A-Za-z0-9_-]{43}$/, `${path} pending cookie value must be 43 base64url characters`)
+    assert.equal(maxAge, 'max-age=600', `${path} pending cookie must have Max-Age=600`)
+  }
+}
+
 function assertSessionCookie(path, status, setCookie) {
   if (Array.isArray(setCookie)) {
     assert.equal(setCookie.length, 1, `${path} HTTP ${status} expected one session cookie`)
@@ -154,9 +181,40 @@ function assertResponse(path, status, body, method, headers = {}) {
     assert.ok(flow, `${path} HTTP ${status} missing flow cookie clear`)
     assertFlowCookie(path,status,flow,true)
     const sessionCookies = cookies.filter(value => /^(tendo_session|__Host-tendo_session)=/.test(value))
-    assert.equal(cookies.length, 1 + sessionCookies.length, `${path} HTTP ${status} sends an undocumented cookie`)
+    const pendingCookies = cookies.filter(value => /^(tendo_oidc_pending|__Host-tendo_oidc_pending)=/.test(value))
+    assert.ok(pendingCookies.length <= 1, `${path} HTTP ${status} sends several pending cookies`)
+    assert.equal(cookies.length, 1 + sessionCookies.length + pendingCookies.length, `${path} HTTP ${status} sends an undocumented cookie`)
     assert.equal(cookies.filter(value => /^(tendo_oidc|__Host-tendo_oidc)=/.test(value)).length, 1)
     if (sessionCookies[0]) assertSessionCookie(path, 201, sessionCookies[0])
+    if (pendingCookies[0]) assertPendingCookie(path, status, pendingCookies[0], false)
+  } else if (path === '/api/v1/auth/oidc/pending' && status === 204) {
+    const cookies = cookieValues(headers['set-cookie'])
+    assert.equal(cookies.length, 1, `${path} HTTP ${status} must clear exactly one pending cookie`)
+    assertPendingCookie(path, status, cookies[0], true)
+  } else if ((path === '/api/v1/auth/oidc/pending/account' || path === '/api/v1/auth/oidc/pending/link') && status === 201) {
+    const cookies = cookieValues(headers['set-cookie'])
+    assert.equal(cookies.length, 2, `${path} HTTP ${status} must clear the pending cookie and set the session cookie`)
+    const cleared = cookies.filter(value => /^(tendo_oidc_pending|__Host-tendo_oidc_pending)=/.test(value))
+    const session = cookies.filter(value => /^(tendo_session|__Host-tendo_session)=/.test(value))
+    assert.equal(cleared.length, 1, `${path} HTTP ${status} must clear the pending cookie`)
+    assert.equal(session.length, 1, `${path} HTTP ${status} must set the session cookie`)
+    assertPendingCookie(path, status, cleared[0], true)
+    assertSessionCookie(path, 201, session[0])
+  } else if ((path === '/api/v1/auth/oidc/pending/account' || path === '/api/v1/auth/oidc/pending/link') && status === 409) {
+    const cookies = cookieValues(headers['set-cookie'])
+    if (cookies.length) {
+      assert.equal(cookies.length, 1, `${path} HTTP ${status} may only clear the pending cookie`)
+      assertPendingCookie(path, status, cookies[0], true)
+    }
+  } else if (path === '/api/v1/auth/oidc/account/discard' && status === 200) {
+    const cookies = cookieValues(headers['set-cookie'])
+    assert.equal(cookies.length, 2, `${path} HTTP ${status} must clear the session cookie and set the pending cookie`)
+    const cleared = cookies.filter(value => /^(tendo_session|__Host-tendo_session)=/.test(value))
+    const pending = cookies.filter(value => /^(tendo_oidc_pending|__Host-tendo_oidc_pending)=/.test(value))
+    assert.equal(cleared.length, 1, `${path} HTTP ${status} must clear the session cookie`)
+    assert.equal(pending.length, 1, `${path} HTTP ${status} must set the pending cookie`)
+    assertSessionCookie(path, status, cleared[0])
+    assertPendingCookie(path, status, pending[0], false)
   } else assert.equal(headers['set-cookie'], undefined, `${path} HTTP ${status} sends an undocumented Set-Cookie`)
   if (responseSpec.headers?.['Referrer-Policy']) assert.equal(headers['referrer-policy'], 'no-referrer')
   if (status === 303) {

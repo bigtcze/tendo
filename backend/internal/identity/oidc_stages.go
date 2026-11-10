@@ -24,10 +24,27 @@ func (s *OIDCService) prepareStartFlow(
 		CreatedAt: s.clock().UTC().Truncate(time.Second),
 	}
 	if p.Purpose == OIDCPurposeLink {
+		if p.InvitationToken != "" {
+			return OIDCFlow{}, nil, nil, ErrInvalidInvitation
+		}
 		if err := s.verifyLinkPassword(ctx, p); err != nil {
 			return OIDCFlow{}, nil, nil, err
 		}
 		flow.UserID, flow.SessionID = p.Principal.UserID, p.Session.ID
+	}
+	if p.InvitationToken != "" {
+		if !validInvitationToken(p.InvitationToken) {
+			return OIDCFlow{}, nil, nil, ErrInvalidInvitation
+		}
+		digest := digestInvitationToken(p.InvitationToken)
+		pending, err := s.repo.FindPendingInvitation(ctx, digest, flow.CreatedAt)
+		if err != nil {
+			return OIDCFlow{}, nil, nil, ErrOIDCUnavailable
+		}
+		if !pending {
+			return OIDCFlow{}, nil, nil, ErrInvalidInvitation
+		}
+		flow.InviteTokenHash = digest
 	}
 	var state, browser, nonce, verifier [32]byte
 	for _, b := range [][]byte{state[:], browser[:], nonce[:], verifier[:]} {
@@ -160,24 +177,11 @@ func (s *OIDCService) exchangeCallback(
 	}
 	return s.provider.Exchange(ctx, params)
 }
-func (s *OIDCService) callbackUser(ctx context.Context, flow OIDCFlow, v OIDCVerifiedIdentity) (string, error) {
-	user, err := s.repo.FindIdentity(ctx, v.Issuer, v.Subject)
-	if flow.Purpose == OIDCPurposeLink {
-		return flow.UserID, nil
-	}
-	return user, err
-}
 func exchangeFailureCode(err error) OIDCCode {
 	if errors.Is(err, ErrOIDCProviderUnavailable) {
 		return OIDCUnavailable
 	}
 	return OIDCAuthenticationFailed
-}
-func identityFailureCode(err error) OIDCCode {
-	if errors.Is(err, ErrNotFound) {
-		return OIDCIdentityNotLinked
-	}
-	return OIDCUnavailable
 }
 func (s *OIDCService) issueCallbackSession(ctx context.Context, flow OIDCFlow, v OIDCVerifiedIdentity, userID, token string) (OIDCCallbackResult, error) {
 	var raw [32]byte
@@ -187,13 +191,7 @@ func (s *OIDCService) issueCallbackSession(ctx context.Context, flow OIDCFlow, v
 	sessionToken := base64.RawURLEncoding.EncodeToString(raw[:])
 	now := s.clock().UTC().Truncate(time.Second)
 	ns := NewSession{UserID: userID, TokenHash: digest([]byte(sessionToken)), CreatedAt: now, ExpiresAt: now.Add(SessionLifetime)}
-	var err error
-	if flow.Purpose == OIDCPurposeLink {
-		_, err = s.repo.LinkAndCreateSession(ctx, flow, v, ns, digest([]byte(token)))
-	} else {
-		_, err = s.repo.CreateOIDCLoginSession(ctx, ns)
-	}
-	if err != nil {
+	if _, err := s.repo.LinkAndCreateSession(ctx, flow, v, ns, digest([]byte(token))); err != nil {
 		code := OIDCUnavailable
 		if errors.Is(err, ErrOIDCConflict) {
 			code = OIDCIdentityConflict
@@ -202,11 +200,53 @@ func (s *OIDCService) issueCallbackSession(ctx context.Context, flow OIDCFlow, v
 		}
 		return failure(flow.Purpose, code), nil
 	}
-	dest := "/"
-	if flow.Purpose == OIDCPurposeLink {
-		dest = "/account#oidc=connected"
+	return OIDCCallbackResult{Destination: "/account#oidc=connected", SessionToken: sessionToken}, nil
+}
+
+// loginCallback resolves the first-login decision table inside one repository
+// transaction. Rows that need a further user step return a fresh continuation
+// handle instead of a session.
+func (s *OIDCService) loginCallback(ctx context.Context, flow OIDCFlow, v OIDCVerifiedIdentity) OIDCCallbackResult {
+	now := s.clock().UTC().Truncate(time.Second)
+	sessionToken, session, err := s.newSession(now)
+	if err != nil {
+		return failure(OIDCPurposeLogin, OIDCUnavailable)
 	}
-	return OIDCCallbackResult{Destination: dest, SessionToken: sessionToken}, nil
+	pendingToken, pendingRaw, err := s.randomToken()
+	if err != nil {
+		return failure(OIDCPurposeLogin, OIDCUnavailable)
+	}
+	outcome, err := s.repo.ResolveLogin(ctx, OIDCLoginRequest{
+		Verified: v, Session: session, PendingHandleHash: digest(pendingRaw),
+		ClientID: flow.ClientID, InviteTokenHash: flow.InviteTokenHash,
+		Now: now, PendingExpiresAt: now.Add(OIDCPendingLifetime),
+	})
+	if err != nil {
+		code := OIDCUnavailable
+		if errors.Is(err, ErrOIDCConflict) {
+			code = OIDCIdentityConflict
+		}
+		return failure(OIDCPurposeLogin, code)
+	}
+	switch outcome.Resolution {
+	case OIDCLoginSignedIn:
+		return OIDCCallbackResult{Destination: signedInDestination(outcome.Invitation), SessionToken: sessionToken}
+	case OIDCLoginNeedsPending:
+		return OIDCCallbackResult{Destination: "/login#oidc=continue", PendingToken: pendingToken}
+	default:
+		return failure(OIDCPurposeLogin, OIDCIdentityConflict)
+	}
+}
+
+func signedInDestination(invitation OIDCInvitationOutcome) string {
+	switch invitation {
+	case OIDCInvitationAccepted:
+		return "/#oidcNotice=invitation_accepted"
+	case OIDCInvitationInvalid:
+		return "/#oidcNotice=invitation_invalid"
+	default:
+		return "/"
+	}
 }
 func (s *OIDCService) callbackURL() string {
 	return strings.TrimRight(s.publicURL, "/") + "/api/v1/auth/oidc/callback"

@@ -70,8 +70,9 @@ def request(method,path,body=None,headers=None,record=True):
    if value: sf.write(value+'\n')
  if record:
   template=path.split('?',1)[0]
-  if template.startswith('/api/v1/households/') and '/api/v1/households/{householdId}/' not in template:
-   template='/api/v1/households/{householdId}'
+  if template.startswith('/api/v1/households/') and not template.startswith('/api/v1/households/{householdId}'):
+   parts=template.split('/')
+   template='/'.join(['','api','v1','households','{householdId}']+parts[5:])
   fixture={'path':template,'method':method.lower(),'status':status,'headers':{k.lower():(h.get_all(k) if k.lower()=='set-cookie' else h.get_all(k)[0]) for k in h.keys()}}
   if raw: fixture['body']=result
   fixtures.append(fixture)
@@ -92,14 +93,15 @@ def flow_cookie(headers):
   first=value.split(';',1)[0]
   if first.startswith('tendo_oidc='): return first
  raise AssertionError(('missing flow cookie',headers.get_all('Set-Cookie')))
-def start(purpose,password=None,origin_header=origin,session=None):
+def start(purpose,password=None,origin_header=origin,session=None,invitation=None):
  body={'purpose':purpose}
  if password is not None: body['currentPassword']=password
+ if invitation is not None: body['invitationToken']=invitation
  hs={'Origin':origin_header}
  if session: hs['Cookie']=session
  return request('POST','/api/v1/auth/oidc/start',body,hs)
-def auth_start(purpose,session=None,sub=None,deny=False,password=None):
- status,h,b,_=start(purpose,password,session=session)
+def auth_start(purpose,session=None,sub=None,deny=False,password=None,invitation=None):
+ status,h,b,_=start(purpose,password,session=session,invitation=invitation)
  if status!=200: return status,h,b,None,None
  flow=flow_cookie(h); authorization=urllib.parse.urlsplit(b['authorizationUrl'])
  assert authorization.scheme=='http' and authorization.netloc=='oidc.test:8089',b
@@ -161,14 +163,83 @@ assert status==303 and h['Location']=='/login#oidcError=invalid_flow' and not b
 def dbcounts():
  command=os.environ['OIDC_SMOKE_PSQL'].split()+['-c',"SELECT (SELECT count(*) FROM user_accounts)||'|'||(SELECT count(*) FROM household_memberships)||'|'||(SELECT count(*) FROM user_sessions)"]
  return subprocess.check_output(command,text=True).strip().splitlines()[-1]
-before_counts=dbcounts()
-status,h,b,_,_=auth_start('login',sub='unknown-subject'); assert status==303 and h['Location']=='/login#oidcError=identity_not_linked',('unknown identity',status,h.get('Location'))
-after_counts=dbcounts(); assert before_counts==after_counts,('unknown identity changed admission tables',before_counts,after_counts)
+def counts():
+ command=os.environ['OIDC_SMOKE_PSQL'].split()+['-c',"SELECT (SELECT count(*) FROM user_accounts)||'|'||(SELECT count(*) FROM household_memberships)||'|'||(SELECT count(*) FROM user_sessions)"]
+ return tuple(int(x) for x in subprocess.check_output(command,text=True).strip().splitlines()[-1].split('|'))
+def cookie(headers,name):
+ for value in headers.get_all('Set-Cookie') or []:
+  first=value.split(';',1)[0]
+  if first.startswith(name+'=') and first.split('=',1)[1]: return first
+ raise AssertionError(('missing cookie',name,headers.get_all('Set-Cookie')))
+def cleared(headers,name):
+ return any(value.startswith(name+'=') and 'Max-Age=0' in value for value in headers.get_all('Set-Cookie') or [])
+# A second local account (created through an invitation) proves row 7 binding
+# without colliding with the owner's later link-purpose identity.
+status,h,b,_=request('POST','/api/v1/households/'+household+'/invitations',{}, {'Origin':origin,'Idempotency-Key':'oidc-smoke-second-account','Cookie':login_session})
+assert status==201 and b['token'],('second account invitation',status,b)
+second_token=b['token']
+status,h,b,_=request('POST','/api/v1/auth/invitations/accept',{'token':second_token,'login':'oidc_second','password':'correct horse battery'},{'Origin':origin})
+assert status==201,('second account accept',status,b)
+
+before_counts=counts()
+status,h,b,_,_=auth_start('login',sub='unknown-subject')
+assert status==303 and h['Location']=='/login#oidc=continue',('unknown identity',status,h.get('Location'))
+assert cleared(h,'tendo_oidc'),('flow cookie not cleared',h.get_all('Set-Cookie'))
+pending=cookie(h,'tendo_oidc_pending')
+status,_,pb,_=request('GET','/api/v1/auth/oidc/pending',headers={'Cookie':pending})
+assert status==200 and pb['emailVerified'] is False and pb['invitation'] is False,pb
+status,_,nb,_=request('GET','/api/v1/auth/oidc/pending'); assert status==404 and nb['code']=='pending_not_found',('absent pending',status,nb)
+assert counts()==before_counts,('unknown identity changed admission tables',before_counts,counts())
+status,h,b,_=request('DELETE','/api/v1/auth/oidc/pending',headers={'Origin':origin,'Cookie':pending})
+assert status==204 and cleared(h,'tendo_oidc_pending'),('cancel pending',status,h.get_all('Set-Cookie'))
+status,_,b,_=request('GET','/api/v1/auth/oidc/pending',headers={'Cookie':pending}); assert status==404 and b['code']=='pending_not_found'
+status,h,b,_,_=auth_start('login',sub='unknown-subject')
+pending=cookie(h,'tendo_oidc_pending')
+status,h,b,_=request('POST','/api/v1/auth/oidc/pending/account',{}, {'Origin':origin,'Cookie':pending})
+assert status==201 and b['invitation']=='none' and b['session']['login'].startswith('member-'),('pending account',status,b)
+jit_session=session_cookie(h)
+assert cleared(h,'tendo_oidc_pending'),h.get_all('Set-Cookie')
+status,_,user,_=request('GET','/api/v1/session',headers={'Cookie':jit_session})
+assert status==200 and 'defaultHouseholdId' not in user,('jit account unexpectedly has a household',user)
+jit_counts=counts(); assert jit_counts==(before_counts[0]+1,before_counts[1],before_counts[2]+1),('jit admission count',before_counts,jit_counts)
+status,h,b,_=request('POST','/api/v1/auth/oidc/account/discard',{}, {'Origin':origin,'Cookie':jit_session})
+assert status==200 and b['invitation'] is False,('discard',status,b)
+pending=cookie(h,'tendo_oidc_pending')
+assert cleared(h,'tendo_session'),h.get_all('Set-Cookie')
+assert counts()==before_counts,('discard left rows',before_counts,counts())
+status,h,b,_=request('POST','/api/v1/auth/oidc/pending/link',{'login':'oidc_second','password':'correct horse battery'},{'Origin':origin,'Cookie':pending})
+assert status==201 and b['emailSaved'] is False and b['session']['login']=='oidc_second',('pending link',status,b)
+assert cleared(h,'tendo_oidc_pending'),h.get_all('Set-Cookie')
+linked_session=session_cookie(h)
+status,_,session,_=request('GET','/api/v1/session',headers={'Cookie':linked_session}); assert status==200 and session['login']=='oidc_second'
+linked_counts=counts(); assert linked_counts==(before_counts[0],before_counts[1],before_counts[2]+1),('link admission count',before_counts,linked_counts)
+
+# Invitation carry-over: the token is stored server-side across the provider
+# round trip and accepted in the JIT account transaction.
+status,h,b,_=request('POST','/api/v1/households/'+household+'/invitations',{}, {'Origin':origin,'Idempotency-Key':'oidc-smoke-invite-carry','Cookie':login_session})
+assert status==201 and b['token'],('invite carry invitation',status,b)
+invite_token=b['token']
+status,h,b,_,_=auth_start('login',sub='invite-subject',invitation=invite_token)
+assert status==303 and h['Location']=='/login#oidc=continue',('invite carry callback',status,h.get('Location'))
+invite_pending=cookie(h,'tendo_oidc_pending')
+status,h,b,_=request('POST','/api/v1/auth/oidc/pending/account',{}, {'Origin':origin,'Cookie':invite_pending})
+assert status==201 and b['invitation']=='accepted',('invite carry account',status,b)
+assert b['session']['defaultHouseholdId']==household,('invited account household',b)
+invite_session=session_cookie(h)
+status,_,households,_=request('GET','/api/v1/households/'+household,headers={'Cookie':invite_session})
+assert status==200 and households['name']=='OIDC Smoke',('invited membership',status,households)
 status,h,b,_,_=auth_start('login',deny=True); assert status==303 and h['Location']=='/login#oidcError=cancelled' and not b,('provider denied',status,h.get('Location'))
 status,h,b,_=start('login',origin_header='http://foreign.invalid'); assert status==403,('foreign Origin',status,b)
 status,h,b,_=request(
  'GET','/api/v1/auth/oidc/callback',headers={'Origin':'http://foreign.invalid'})
 assert status==403,('callback foreign Origin',status,b)
+for method,path,body in [('DELETE','/api/v1/auth/oidc/pending',None),
+ ('POST','/api/v1/auth/oidc/pending/account',{}),
+ ('POST','/api/v1/auth/oidc/pending/link',{'login':'oidc_owner','password':'correct horse battery'})]:
+ status,h,b,_=request(method,path,body,{'Origin':'http://foreign.invalid'})
+ assert status==403,('pending foreign Origin',method,path,status,b)
+status,h,b,_=request('POST','/api/v1/auth/oidc/account/discard',{},{'Origin':origin})
+assert status==401,('discard without session',status,b)
 for fixture in fixtures:
  if fixture['status']==303:
   assert fixture['headers'].get('cache-control') == 'no-store' \
@@ -178,7 +249,8 @@ with open(os.environ['OIDC_SMOKE_FIXTURES'],'w',encoding='utf-8') as f: json.dum
 PY
 API_REQUIRE_OPERATION_COVERAGE=1 \
   API_OPERATION_COVERAGE_SCOPE=completeOidcCallback,startOidc,\
-getOidcStatus,getOidcIdentity \
+getOidcStatus,getOidcIdentity,getOidcPending,cancelOidcPending,\
+createOidcPendingAccount,confirmOidcPendingLink,discardOidcAccount \
   node "$root/api/check-health.mjs" "$fixtures"
 "${compose[@]}" logs --no-color app >"$logs"
 while IFS= read -r secret; do

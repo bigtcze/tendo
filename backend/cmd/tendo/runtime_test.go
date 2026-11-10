@@ -167,17 +167,11 @@ func (*startupOIDCRepo) InsertFlow(context.Context, identityapp.OIDCFlow) error 
 func (*startupOIDCRepo) ConsumeFlow(context.Context, []byte, []byte, time.Time, string, string) (identityapp.OIDCFlow, error) {
 	return identityapp.OIDCFlow{}, identityapp.ErrNotFound
 }
-func (*startupOIDCRepo) FindIdentity(context.Context, string, string) (string, error) {
-	return "", identityapp.ErrNotFound
-}
 func (*startupOIDCRepo) FindSession(context.Context, []byte, time.Time) (identityapp.SessionInfo, error) {
 	return identityapp.SessionInfo{}, identityapp.ErrNotFound
 }
 func (*startupOIDCRepo) FindCredential(context.Context, string) (string, error) {
 	return "", identityapp.ErrNotFound
-}
-func (*startupOIDCRepo) CreateOIDCLoginSession(context.Context, identityapp.NewSession) (string, error) {
-	return "", nil
 }
 func (*startupOIDCRepo) LinkAndCreateSession(context.Context, identityapp.OIDCFlow, identityapp.OIDCVerifiedIdentity, identityapp.NewSession, []byte) (string, error) {
 	return "", nil
@@ -419,3 +413,29 @@ func TestServeUnexpectedListenerFailureBoundsPoolClose(t *testing.T) {
 }
 
 var _ net.Listener = failingListener{}
+
+func (*startupOIDCRepo) FindLogin(context.Context, string) (identityapp.LoginRecord, error) {
+	return identityapp.LoginRecord{}, identityapp.ErrNotFound
+}
+func (*startupOIDCRepo) ResolveLogin(context.Context, identityapp.OIDCLoginRequest) (identityapp.OIDCLoginOutcome, error) {
+	return identityapp.OIDCLoginOutcome{}, identityapp.ErrNotFound
+}
+func (*startupOIDCRepo) ReadPendingLogin(context.Context, []byte, time.Time, string, string) (identityapp.OIDCPendingStatus, error) {
+	return identityapp.OIDCPendingStatus{}, identityapp.ErrOIDCPendingNotFound
+}
+func (*startupOIDCRepo) CreatePendingAccount(context.Context, identityapp.OIDCPendingAccountParams) (identityapp.OIDCPendingAccountOutcome, error) {
+	return identityapp.OIDCPendingAccountOutcome{}, identityapp.ErrOIDCPendingNotFound
+}
+func (*startupOIDCRepo) LinkPendingAccount(context.Context, identityapp.OIDCPendingLinkParams) (identityapp.OIDCPendingLinkOutcome, error) {
+	return identityapp.OIDCPendingLinkOutcome{}, identityapp.ErrOIDCPendingNotFound
+}
+func (*startupOIDCRepo) RecordPendingFailure(context.Context, []byte, time.Time) (bool, error) {
+	return false, nil
+}
+func (*startupOIDCRepo) CancelPendingLogin(context.Context, []byte) error { return nil }
+func (*startupOIDCRepo) DiscardOIDCAccount(context.Context, identityapp.OIDCDiscardParams) (identityapp.OIDCPendingStatus, error) {
+	return identityapp.OIDCPendingStatus{}, identityapp.ErrOIDCAccountNotDiscardable
+}
+func (*startupOIDCRepo) FindPendingInvitation(context.Context, []byte, time.Time) (bool, error) {
+	return false, nil
+}

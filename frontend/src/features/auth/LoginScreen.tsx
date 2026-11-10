@@ -25,6 +25,7 @@ const startErrorKeys: Record<StartFailure, MessageKey> = {
   disabled: 'oidc.start.disabled',
   rateLimited: 'oidc.start.rateLimited',
   providerUnavailable: 'oidc.start.providerUnavailable',
+  invalidInvitation: 'oidc.start.unavailable',
   unavailable: 'oidc.start.unavailable',
 };
 

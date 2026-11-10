@@ -29,14 +29,37 @@ const oidcTestPassword = "correct horse battery"
 const oidcTestPublicURL = "http://tendo.test"
 
 type oidcHTTPFake struct {
-	start     identity.OIDCStartResult
-	lastStart identity.OIDCStartParams
-	startErr  error
-	callback  identity.OIDCCallbackResult
-	linked    bool
+	start             identity.OIDCStartResult
+	lastStart         identity.OIDCStartParams
+	startErr          error
+	callback          identity.OIDCCallbackResult
+	linked            bool
+	pendingStatus     identity.OIDCPendingStatus
+	pendingErr        error
+	pendingAccount    identity.OIDCPendingAccountResult
+	pendingAccountErr error
+	pendingLink       identity.OIDCPendingLinkResult
+	pendingLinkErr    error
+	cancelErr         error
+	discardHandle     string
+	discardStatus     identity.OIDCPendingStatus
+	discardErr        error
 }
 
-func (f *oidcHTTPFake) Status() (bool, string)                       { return true, "Example IdP" }
+func (f *oidcHTTPFake) Status() (bool, string) { return true, "Example IdP" }
+func (f *oidcHTTPFake) Pending(context.Context, string) (identity.OIDCPendingStatus, error) {
+	return f.pendingStatus, f.pendingErr
+}
+func (f *oidcHTTPFake) CreatePendingAccount(context.Context, string) (identity.OIDCPendingAccountResult, error) {
+	return f.pendingAccount, f.pendingAccountErr
+}
+func (f *oidcHTTPFake) LinkPendingAccount(context.Context, string, string, string) (identity.OIDCPendingLinkResult, error) {
+	return f.pendingLink, f.pendingLinkErr
+}
+func (f *oidcHTTPFake) CancelPending(context.Context, string) error { return f.cancelErr }
+func (f *oidcHTTPFake) DiscardAccount(context.Context, string) (string, identity.OIDCPendingStatus, error) {
+	return f.discardHandle, f.discardStatus, f.discardErr
+}
 func (f *oidcHTTPFake) Linked(context.Context, string) (bool, error) { return f.linked, nil }
 func (f *oidcHTTPFake) Start(_ context.Context, params identity.OIDCStartParams) (identity.OIDCStartResult, error) {
 	f.lastStart = params
@@ -53,10 +76,12 @@ type oidcMemRepo struct {
 	identities  map[string]string
 	credentials map[string]string
 	sessions    map[string]identity.SessionInfo
+	pending     map[string]identity.OIDCLoginRequest
+	attempts    map[string]int
 }
 
 func newOIDCMemRepo() *oidcMemRepo {
-	return &oidcMemRepo{flows: map[string]identity.OIDCFlow{}, identities: map[string]string{}, credentials: map[string]string{}, sessions: map[string]identity.SessionInfo{}}
+	return &oidcMemRepo{flows: map[string]identity.OIDCFlow{}, identities: map[string]string{}, credentials: map[string]string{}, sessions: map[string]identity.SessionInfo{}, pending: map[string]identity.OIDCLoginRequest{}, attempts: map[string]int{}}
 }
 func (r *oidcMemRepo) InsertFlow(_ context.Context, f identity.OIDCFlow) error {
 	r.mu.Lock()
@@ -81,15 +106,6 @@ func (r *oidcMemRepo) ConsumeFlow(_ context.Context, state, browser []byte, now 
 	delete(r.flows, string(state))
 	return f, nil
 }
-func (r *oidcMemRepo) FindIdentity(_ context.Context, issuer, subject string) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	v, ok := r.identities[issuer+"\x00"+subject]
-	if !ok {
-		return "", identity.ErrNotFound
-	}
-	return v, nil
-}
 func (r *oidcMemRepo) FindSession(_ context.Context, hash []byte, now time.Time) (identity.SessionInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -107,13 +123,6 @@ func (r *oidcMemRepo) FindCredential(_ context.Context, user string) (string, er
 		return "", identity.ErrNotFound
 	}
 	return v, nil
-}
-func (r *oidcMemRepo) CreateOIDCLoginSession(_ context.Context, s identity.NewSession) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	id := "oidc-login"
-	r.sessions[string(s.TokenHash)] = identity.SessionInfo{ID: id, Principal: identity.Principal{UserID: s.UserID, Login: "owner"}, ExpiresAt: s.ExpiresAt}
-	return id, nil
 }
 func (r *oidcMemRepo) LinkAndCreateSession(_ context.Context, f identity.OIDCFlow, v identity.OIDCVerifiedIdentity, s identity.NewSession, revoke []byte) (string, error) {
 	r.mu.Lock()
@@ -603,9 +612,10 @@ func TestOIDCFailureRedirectAndCookies(t *testing.T) {
 	for _, tc := range []struct {
 		name, subject, location string
 		jwksOutage              bool
+		wantCookies             []string
 	}{
-		{name: "unknown identity", subject: "unknown-subject", location: "/login#oidcError=identity_not_linked"},
-		{name: "JWKS outage", subject: "subject-1", location: "/login#oidcError=unavailable", jwksOutage: true},
+		{name: "unknown identity", subject: "unknown-subject", location: "/login#oidc=continue", wantCookies: []string{"tendo_oidc", "tendo_oidc_pending"}},
+		{name: "JWKS outage", subject: "subject-1", location: "/login#oidcError=unavailable", jwksOutage: true, wantCookies: []string{"tendo_oidc"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo, provider, _, _, mux := newRealOIDCHTTP(t, tc.subject)
@@ -618,8 +628,17 @@ func TestOIDCFailureRedirectAndCookies(t *testing.T) {
 				t.Fatalf("status=%d location=%q headers=%v body=%q", w.Code, w.Header().Get("Location"), w.Header(), w.Body.String())
 			}
 			cookies := w.Result().Cookies()
-			if len(cookies) != 1 || cookies[0].Name != "tendo_oidc" || cookies[0].Value != "" || cookies[0].MaxAge >= 0 || cookies[0].Path != "/" || !cookies[0].HttpOnly || cookies[0].Secure || cookies[0].SameSite != http.SameSiteLaxMode {
-				t.Fatalf("failure cookies=%+v Set-Cookie=%q", cookies, w.Header().Values("Set-Cookie"))
+			if len(cookies) != len(tc.wantCookies) {
+				t.Fatalf("cookies=%+v Set-Cookie=%q", cookies, w.Header().Values("Set-Cookie"))
+			}
+			for index, want := range tc.wantCookies {
+				cookie := cookies[index]
+				if cookie.Name != want || cookie.Path != "/" || !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteLaxMode {
+					t.Fatalf("cookie %d=%+v Set-Cookie=%q", index, cookie, w.Header().Values("Set-Cookie"))
+				}
+			}
+			if cookies[0].Value != "" || cookies[0].MaxAge >= 0 {
+				t.Fatalf("flow cookie not cleared: %+v", cookies[0])
 			}
 			if len(repo.sessions) != 1 || len(repo.flows) != 0 {
 				t.Fatalf("failure persisted session or left flow: sessions=%d flows=%d", len(repo.sessions), len(repo.flows))
@@ -702,17 +721,24 @@ func TestOIDCLinkHTTPRoundTripRevokesOldSession(t *testing.T) {
 		t.Fatalf("linked=%v err=%v", linked, err)
 	}
 }
-func TestOIDCUnknownIdentityDoesNotSetSession(t *testing.T) {
+func TestOIDCUnknownIdentitySetsOnlyPendingCookie(t *testing.T) {
 	_, p, _, _, mux := newRealOIDCHTTP(t, "unknown-subject")
 	query, flow := doOIDCStart(t, mux, "login", "")
 	w := performOIDCCallback(t, p, mux, query, flow, "")
-	if w.Code != 303 || w.Header().Get("Location") != "/login#oidcError=identity_not_linked" || w.Body.Len() != 0 {
+	if w.Code != 303 || w.Header().Get("Location") != "/login#oidc=continue" || w.Body.Len() != 0 {
 		t.Fatalf("status=%d location=%s body=%q", w.Code, w.Header().Get("Location"), w.Body.String())
 	}
+	var pending *http.Cookie
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "tendo_session" {
-			t.Fatalf("session cookie set on failure: %+v", c)
+		switch c.Name {
+		case "tendo_session":
+			t.Fatalf("session cookie set for an unlinked identity: %+v", c)
+		case "tendo_oidc_pending":
+			pending = c
 		}
+	}
+	if pending == nil || pending.Value == "" || pending.MaxAge != 600 || pending.Path != "/" || !pending.HttpOnly || pending.Secure || pending.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("pending cookie=%+v", pending)
 	}
 }
 func TestOIDCRedirectURIIgnoresForgedHost(t *testing.T) {
@@ -785,4 +811,128 @@ func TestOIDCValidationProblemMatchesGeneratedModel(t *testing.T) {
 	if apimodel.OIDCValidationProblemStatus(400).Valid() {
 		t.Fatal("generated status enum accepted a non-422 value")
 	}
+}
+
+// --- V4-10 pending continuation and first-login decision table ---
+
+func (r *oidcMemRepo) ResolveLogin(_ context.Context, req identity.OIDCLoginRequest) (identity.OIDCLoginOutcome, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := req.Verified.Issuer + "\x00" + req.Verified.Subject
+	if user, linked := r.identities[key]; linked {
+		r.sessions[string(req.Session.TokenHash)] = identity.SessionInfo{ID: "resolved", Principal: identity.Principal{UserID: user, Login: "owner"}, ExpiresAt: req.Session.ExpiresAt}
+		return identity.OIDCLoginOutcome{Resolution: identity.OIDCLoginSignedIn, Invitation: identity.OIDCInvitationNone}, nil
+	}
+	r.pending[string(req.PendingHandleHash)] = req
+	return identity.OIDCLoginOutcome{Resolution: identity.OIDCLoginNeedsPending}, nil
+}
+
+func (r *oidcMemRepo) ReadPendingLogin(_ context.Context, handle []byte, now time.Time, issuer, client string) (identity.OIDCPendingStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.pending[string(handle)]
+	if !found || !pending.PendingExpiresAt.After(now) || pending.Verified.Issuer != issuer || pending.ClientID != client {
+		return identity.OIDCPendingStatus{}, identity.ErrOIDCPendingNotFound
+	}
+	return identity.OIDCPendingStatus{ExpiresAt: pending.PendingExpiresAt, EmailVerified: pending.Verified.EmailVerified, Invitation: len(pending.InviteTokenHash) > 0}, nil
+}
+
+func (r *oidcMemRepo) consumePending(handle []byte, now time.Time, issuer, client string) (identity.OIDCLoginRequest, bool) {
+	pending, found := r.pending[string(handle)]
+	if !found || !pending.PendingExpiresAt.After(now) || pending.Verified.Issuer != issuer || pending.ClientID != client {
+		return identity.OIDCLoginRequest{}, false
+	}
+	delete(r.pending, string(handle))
+	return pending, true
+}
+
+func (r *oidcMemRepo) CreatePendingAccount(_ context.Context, params identity.OIDCPendingAccountParams) (identity.OIDCPendingAccountOutcome, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.consumePending(params.HandleHash, params.Now, params.Issuer, params.ClientID)
+	if !found {
+		return identity.OIDCPendingAccountOutcome{}, identity.ErrOIDCPendingNotFound
+	}
+	key := pending.Verified.Issuer + "\x00" + pending.Verified.Subject
+	if _, linked := r.identities[key]; linked {
+		return identity.OIDCPendingAccountOutcome{}, identity.ErrOIDCConflict
+	}
+	userID := "jit-" + params.Login
+	r.identities[key] = userID
+	r.sessions[string(params.Session.TokenHash)] = identity.SessionInfo{ID: "pending", Principal: identity.Principal{UserID: userID, Login: params.Login}, ExpiresAt: params.Session.ExpiresAt}
+	return identity.OIDCPendingAccountOutcome{UserID: userID, Login: params.Login, Invitation: identity.OIDCInvitationNone}, nil
+}
+
+func (r *oidcMemRepo) LinkPendingAccount(_ context.Context, params identity.OIDCPendingLinkParams) (identity.OIDCPendingLinkOutcome, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.consumePending(params.HandleHash, params.Now, params.Issuer, params.ClientID)
+	if !found {
+		return identity.OIDCPendingLinkOutcome{}, identity.ErrOIDCPendingNotFound
+	}
+	if r.credentials[params.UserID] != params.VerifiedPasswordHash {
+		return identity.OIDCPendingLinkOutcome{}, identity.ErrInvalidCredentials
+	}
+	key := pending.Verified.Issuer + "\x00" + pending.Verified.Subject
+	if _, linked := r.identities[key]; linked {
+		return identity.OIDCPendingLinkOutcome{Conflict: true}, nil
+	}
+	r.identities[key] = params.UserID
+	r.sessions[string(params.Session.TokenHash)] = identity.SessionInfo{ID: "pending", Principal: identity.Principal{UserID: params.UserID, Login: "owner"}, ExpiresAt: params.Session.ExpiresAt}
+	return identity.OIDCPendingLinkOutcome{UserID: params.UserID, Login: "owner", Invitation: identity.OIDCInvitationNone, EmailSaved: pending.Verified.EmailVerified}, nil
+}
+
+func (r *oidcMemRepo) RecordPendingFailure(_ context.Context, handle []byte, _ time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, found := r.pending[string(handle)]; !found {
+		return false, nil
+	}
+	r.attempts[string(handle)]++
+	if r.attempts[string(handle)] >= 5 {
+		delete(r.pending, string(handle))
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *oidcMemRepo) CancelPendingLogin(_ context.Context, handle []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.pending, string(handle))
+	return nil
+}
+
+func (r *oidcMemRepo) FindPendingInvitation(_ context.Context, _ []byte, _ time.Time) (bool, error) {
+	return false, nil
+}
+
+func (r *oidcMemRepo) DiscardOIDCAccount(_ context.Context, params identity.OIDCDiscardParams) (identity.OIDCPendingStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if params.UserID != "jit-user" {
+		return identity.OIDCPendingStatus{}, identity.ErrOIDCAccountNotDiscardable
+	}
+	r.pending[string(params.HandleHash)] = identity.OIDCLoginRequest{
+		Verified:         identity.OIDCVerifiedIdentity{Issuer: params.Issuer, Subject: "subject-1"},
+		ClientID:         params.ClientID,
+		PendingExpiresAt: params.ExpiresAt,
+	}
+	for hash, info := range r.sessions {
+		if info.Principal.UserID == params.UserID {
+			delete(r.sessions, hash)
+		}
+	}
+	return identity.OIDCPendingStatus{ExpiresAt: params.ExpiresAt}, nil
+}
+
+func (r *oidcMemRepo) FindLogin(_ context.Context, login string) (identity.LoginRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for userID, hash := range r.credentials {
+		if userID == "user-1" && login == "owner" {
+			return identity.LoginRecord{Principal: identity.Principal{UserID: userID, Login: login}, PasswordHash: hash}, nil
+		}
+	}
+	return identity.LoginRecord{}, identity.ErrNotFound
 }

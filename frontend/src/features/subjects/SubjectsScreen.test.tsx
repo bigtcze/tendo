@@ -1998,7 +1998,7 @@ describe('other failures and edge cases', () => {
     const fake = installFakeServer({ ...signedIn, [listKey]: problem(404) });
     renderApp();
     await openPeople();
-    expect(await screen.findByText('Your account isn’t part of a household yet.')).toBeVisible();
+    expect(await screen.findByText('Join your household by invitation')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
     expect(fake.requests.filter((r) => r.method === 'GET' && r.path === `${base}/subjects` && r.query.get('limit') === '50')).toHaveLength(1);
   });
@@ -2121,7 +2121,7 @@ describe('no household on /people', () => {
     installFakeServer({ 'GET /api/v1/session': json(200, session(false)) });
     renderApp();
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
-      'Your account isn’t part of a household yet.',
+      'Join your household by invitation',
     );
     await waitFor(() => expect(window.location.pathname).toBe('/'));
   });

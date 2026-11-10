@@ -18,6 +18,11 @@ type oidcService interface {
 	Linked(context.Context, string) (bool, error)
 	Start(context.Context, identity.OIDCStartParams) (identity.OIDCStartResult, error)
 	Callback(context.Context, url.Values, string, string) (identity.OIDCCallbackResult, error)
+	Pending(context.Context, string) (identity.OIDCPendingStatus, error)
+	CreatePendingAccount(context.Context, string) (identity.OIDCPendingAccountResult, error)
+	LinkPendingAccount(context.Context, string, string, string) (identity.OIDCPendingLinkResult, error)
+	CancelPending(context.Context, string) error
+	DiscardAccount(context.Context, string) (string, identity.OIDCPendingStatus, error)
 }
 
 type OIDCHandler struct {
@@ -25,10 +30,15 @@ type OIDCHandler struct {
 	sessions  *SessionHandler
 	publicURL string
 	limiter   *limiter
+	// pendingLimiter is independent of the start limiter so a busy browser
+	// cannot starve either path; both follow the createSession policy. The
+	// read-only poll has its own bucket so it cannot consume the POST budget.
+	pendingLimiter     *limiter
+	pendingReadLimiter *limiter
 }
 
 func NewOIDC(service oidcService, sessions *SessionHandler, publicURL string) *OIDCHandler {
-	return &OIDCHandler{service: service, sessions: sessions, publicURL: publicURL, limiter: newLimiter(10)}
+	return &OIDCHandler{service: service, sessions: sessions, publicURL: publicURL, limiter: newLimiter(10), pendingLimiter: newLimiter(10), pendingReadLimiter: newLimiter(10)}
 }
 
 func (h *OIDCHandler) Register(r chi.Router) {
@@ -36,6 +46,11 @@ func (h *OIDCHandler) Register(r chi.Router) {
 	r.Get("/api/v1/auth/oidc/identity", h.identity)
 	r.Post("/api/v1/auth/oidc/start", h.start)
 	r.Get("/api/v1/auth/oidc/callback", h.callback)
+	r.Get("/api/v1/auth/oidc/pending", h.pending)
+	r.Post("/api/v1/auth/oidc/pending/account", h.createPendingAccount)
+	r.Post("/api/v1/auth/oidc/pending/link", h.linkPendingAccount)
+	r.Delete("/api/v1/auth/oidc/pending", h.cancelPending)
+	r.Post("/api/v1/auth/oidc/account/discard", h.discardAccount)
 }
 
 func (h *OIDCHandler) secure() bool { return strings.HasPrefix(h.publicURL, "https://") }
@@ -118,7 +133,7 @@ func (h *OIDCHandler) start(w http.ResponseWriter, r *http.Request) {
 	if !validPreviousBrowserCookie {
 		previousBrowserToken = ""
 	}
-	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: request.purpose, Principal: principal, Session: session, CurrentPassword: request.password, PreviousBrowserToken: previousBrowserToken})
+	result, err := h.service.Start(r.Context(), identity.OIDCStartParams{Purpose: request.purpose, Principal: principal, Session: session, CurrentPassword: request.password, PreviousBrowserToken: previousBrowserToken, InvitationToken: request.invitationToken})
 	if err != nil {
 		recordCredentialFault(r, err)
 		writeOIDCStartError(w, err)
@@ -164,6 +179,9 @@ func (h *OIDCHandler) callback(w http.ResponseWriter, r *http.Request) {
 		result = identity.OIDCCallbackResult{Destination: "/login#oidcError=unavailable"}
 	}
 	h.setFlowCookie(w, "", -1)
+	if result.PendingToken != "" {
+		h.setPendingCookie(w, result.PendingToken, int(identity.OIDCPendingLifetime/time.Second))
+	}
 	if result.SessionToken != "" {
 		h.sessions.setCookie(w, result.SessionToken, int(identity.SessionLifetime/time.Second))
 	}
@@ -175,10 +193,14 @@ func (h *OIDCHandler) redirect(w http.ResponseWriter, destination string) {
 }
 
 func writeOIDCValidation(w http.ResponseWriter, field string) {
+	writeOIDCValidationCode(w, field, "invalid_value")
+}
+
+func writeOIDCValidationCode(w http.ResponseWriter, field, code string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(422)
-	_ = json.NewEncoder(w).Encode(oidcValidationProblem{Type: "about:blank", Title: "Validation Failed", Status: 422, Code: "invalid_value", Field: field})
+	_ = json.NewEncoder(w).Encode(oidcValidationProblem{Type: "about:blank", Title: "Validation Failed", Status: 422, Code: code, Field: field})
 }
 
 type oidcValidationProblem struct {

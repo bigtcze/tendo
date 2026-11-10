@@ -257,12 +257,19 @@ func TestOIDCPostgresServiceAdmission(t *testing.T) {
 	}
 	unknown := start("unlinked-subject", identity.OIDCPurposeLogin, "")
 	unknownResult := callback(unknown, "")
-	if unknownResult.Destination != "/login#oidcError=identity_not_linked" {
+	if unknownResult.Destination != "/login#oidc=continue" || unknownResult.PendingToken == "" || unknownResult.SessionToken != "" {
 		t.Fatalf("unknown=%+v", unknownResult)
 	}
 	a, m, s, d = counts()
 	if a != beforeA || m != beforeM || s != beforeS || d != beforeD {
-		t.Fatalf("unknown identity changed state: %d/%d/%d/%s", a, m, s, d)
+		t.Fatalf("unknown identity changed admission state: %d/%d/%d/%s", a, m, s, d)
+	}
+	var pendingRows int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM oidc_pending_logins`).Scan(&pendingRows); err != nil || pendingRows != 1 {
+		t.Fatalf("pending rows=%d err=%v", pendingRows, err)
+	}
+	if _, err = admin.Exec(ctx, `DELETE FROM oidc_pending_logins`); err != nil {
+		t.Fatal(err)
 	}
 	if _, err = admin.Exec(ctx, `INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES($1,'known-subject',$2,now())`, fake.Issuer(), user); err != nil {
 		t.Fatal(err)

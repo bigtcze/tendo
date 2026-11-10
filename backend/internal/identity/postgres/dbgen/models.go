@@ -72,6 +72,7 @@ type OidcFlow struct {
 	SessionID        pgtype.UUID
 	CreatedAt        pgtype.Timestamptz
 	ExpiresAt        pgtype.Timestamptz
+	InviteTokenHash  []byte
 }
 
 type OidcIdentity struct {
@@ -79,6 +80,19 @@ type OidcIdentity struct {
 	Subject   string
 	UserID    pgtype.UUID
 	CreatedAt pgtype.Timestamptz
+}
+
+type OidcPendingLogin struct {
+	HandleHash      []byte
+	Issuer          string
+	Subject         string
+	Email           pgtype.Text
+	EmailVerified   bool
+	ClientID        string
+	InviteTokenHash []byte
+	CreatedAt       pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	Attempts        int32
 }
 
 type Subject struct {
@@ -97,6 +111,10 @@ type UserAccount struct {
 	Login              string
 	DefaultHouseholdID pgtype.UUID
 	CreatedAt          pgtype.Timestamptz
+	Email              pgtype.Text
+	EmailVerifiedAt    pgtype.Timestamptz
+	EmailSource        pgtype.Text
+	EmailIssuer        pgtype.Text
 }
 
 type UserSession struct {

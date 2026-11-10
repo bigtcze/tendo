@@ -24,6 +24,19 @@ type Repository struct {
 	pool                *pgxpool.Pool
 	factory             HouseholdRepositoryFactory
 	memberPersonFactory MemberPersonProvisionerFactory
+	// invitationHousehold binds invitation acceptance to the OIDC first-login
+	// transaction. It is injected at construction and required whenever a
+	// carried invitation must be honoured.
+	invitationHousehold InvitationHouseholdServiceFactory
+	// emailClaimPause is a test-only barrier that runs after a successful email
+	// claim (still uncommitted), so concurrency tests can make the loser hit the
+	// unique index deterministically. Production wiring leaves it nil.
+	emailClaimPause func()
+	// beforeIdentityBind is a test-only barrier that runs after the row-7
+	// re-read and inside the binding savepoint, so tests can commit a concurrent
+	// (user_id, issuer) binding before the invitation acceptance and identity
+	// insert. Production leaves it nil.
+	beforeIdentityBind func()
 }
 
 // New builds the identity repository. The member-person factory is required for
@@ -35,6 +48,13 @@ func New(pool *pgxpool.Pool, factory HouseholdRepositoryFactory, memberPersonFac
 		repository.memberPersonFactory = memberPersonFactory[0]
 	}
 	return repository
+}
+
+// NewWithInvitations builds the production repository with the invitation
+// acceptance adapter the OIDC first-login transaction needs. The dependency is
+// fixed at construction so no request can observe a half-wired repository.
+func NewWithInvitations(pool *pgxpool.Pool, factory HouseholdRepositoryFactory, memberPersonFactory MemberPersonProvisionerFactory, invitationFactory InvitationHouseholdServiceFactory) *Repository {
+	return &Repository{pool: pool, factory: factory, memberPersonFactory: memberPersonFactory, invitationHousehold: invitationFactory}
 }
 
 func (r *Repository) IsRequired(ctx context.Context) (bool, error) {

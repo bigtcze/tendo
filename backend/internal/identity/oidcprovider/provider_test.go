@@ -204,7 +204,7 @@ func TestProviderSuccessAndAuthorizationParameters(t *testing.T) {
 		}
 		q := u.Query()
 		sum := sha256.Sum256([]byte(verifier))
-		if q.Get("code_challenge") != base64.RawURLEncoding.EncodeToString(sum[:]) || q.Get("code_challenge_method") != "S256" || q.Get("scope") != "openid" || q.Get("response_type") != "code" || q.Get("nonce") != a.Nonce || q.Get("state") != a.State || q.Get("redirect_uri") != a.RedirectURL {
+		if q.Get("code_challenge") != base64.RawURLEncoding.EncodeToString(sum[:]) || q.Get("code_challenge_method") != "S256" || q.Get("scope") != "openid email" || q.Get("response_type") != "code" || q.Get("nonce") != a.Nonce || q.Get("state") != a.State || q.Get("redirect_uri") != a.RedirectURL {
 			t.Fatalf("authorization params=%v", q)
 		}
 		if purpose == identity.OIDCPurposeLink && q.Get("prompt") != "login" {
@@ -216,8 +216,11 @@ func TestProviderSuccessAndAuthorizationParameters(t *testing.T) {
 	}
 	code, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
 	verified, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
-	if err != nil || verified.Issuer != fake.Issuer() || verified.Subject != "subject-1" {
+	if err != nil || verified.Issuer != fake.Issuer() || verified.Subject != "subject-1" || verified.Email != "" || verified.EmailVerified {
 		t.Fatalf("identity=%+v err=%v", verified, err)
+	}
+	if scope := fake.TokenScope(); scope != "openid email" {
+		t.Fatalf("token request scope=%q", scope)
 	}
 	cachedCode, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
 	fake.Faults.JWKSUnavailable = true
@@ -334,4 +337,40 @@ func authorize(t *testing.T, p *Provider, fake *testoidc.Provider, purpose ident
 		t.Fatalf("provider returned no code: status=%d location=%q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	return code, auth
+}
+
+func TestVerifiedEmailClaims(t *testing.T) {
+	cases := []struct {
+		name         string
+		configured   map[string]testoidc.TestEmail
+		wantEmail    string
+		wantVerified bool
+	}{
+		{"boolean true", map[string]testoidc.TestEmail{"subject-1": {Address: "anna@example.test", Verified: true}}, "anna@example.test", true},
+		{"boolean true with non-canonical domain", map[string]testoidc.TestEmail{"subject-1": {Address: "anna@EXAMPLE.test", Verified: true}}, "anna@example.test", true},
+		{"string true is rejected", map[string]testoidc.TestEmail{"subject-1": {Address: "anna@example.test", Verified: "true"}}, "", false},
+		{"boolean false is rejected", map[string]testoidc.TestEmail{"subject-1": {Address: "anna@example.test", Verified: false}}, "", false},
+		{"missing claims", nil, "", false},
+		{"unusable address is treated as missing", map[string]testoidc.TestEmail{"subject-1": {Address: "not-an-email", Verified: true}}, "", false},
+		{"non-ascii address is treated as missing", map[string]testoidc.TestEmail{"subject-1": {Address: "anna@exämple.test", Verified: true}}, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake, err := testoidc.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer fake.Close()
+			fake.Emails = tc.configured
+			p := New(fake.Issuer(), fake.ClientID, fake.ClientSecret, nil, nil, true)
+			code, _ := authorize(t, p, fake, identity.OIDCPurposeLogin)
+			verified, err := p.Exchange(context.Background(), identity.OIDCExchangeParams{Code: code, RedirectURL: fake.Issuer() + "/callback", PKCEVerifier: "verifier-value", Nonce: "nonce-value"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if verified.Email != tc.wantEmail || verified.EmailVerified != tc.wantVerified {
+				t.Fatalf("identity=%+v", verified)
+			}
+		})
+	}
 }

@@ -6,16 +6,19 @@ import { useAppRoute } from './useAppRoute';
 import { useAppNavigation } from './useAppNavigation';
 import { useAppSession } from './useAppSession';
 import { useInviteVisit } from './useInviteVisit';
+import { useOidcEntry } from './useOidcEntry';
 import { useOidcOutcome } from './useOidcOutcome';
 
 export function App() {
   const [oidcOutcome, setOidcOutcome] = useOidcOutcome();
+  const entry = useOidcEntry();
   const invite = useInviteVisit();
   const routeState = useAppRoute();
   const session = useAppSession({
     setRoute: routeState.setRoute,
     transitionedRef: routeState.transitioned,
     setOidcOutcome,
+    entry,
   });
   const navigation = useAppNavigation({
     route: routeState.route,
@@ -23,6 +26,7 @@ export function App() {
     transitionedRef: routeState.transitioned,
     setAllItemsVisit: routeState.setAllItemsVisit,
     setOidcOutcome,
+    clearHomeNotice: entry.clearNotice,
     state: session.state,
   });
   const state = session.state;
@@ -37,6 +41,9 @@ export function App() {
         allItemsVisit={routeState.allItemsVisit}
         transitioned={routeState.transitioned}
         oidcOutcome={oidcOutcome}
+        homeNotice={entry.notice}
+        onDismissNotice={entry.clearNotice}
+        onContinuePending={session.pendingSignedOut}
         navigation={navigation}
         sessionActions={session}
       />
@@ -64,6 +71,10 @@ export function App() {
           accountReadyNotice={session.accountReadyNotice}
           oidcOutcome={oidcOutcome}
           sessionEndedNotice={session.sessionEndedNotice}
+          oidcContinue={entry.continueRequested}
+          oidcContinueExpired={session.oidcContinueExpired}
+          continueCancelled={session.continueCancelled}
+          continueExpired={session.continueExpired}
         />
       )}
     </ScreenTransitionContext>

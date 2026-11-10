@@ -162,13 +162,17 @@ func TestComposedRoutesEnforceContractSecurity(t *testing.T) {
 		status int
 		code   string
 	}{
-		"GET /api/v1/auth/setup":               {"", http.StatusServiceUnavailable, "unavailable"},
-		"GET /api/v1/auth/oidc":                {"", http.StatusOK, ""},
-		"POST /api/v1/auth/oidc/start":         {`{"purpose":"login"}`, http.StatusServiceUnavailable, "oidc_unavailable"},
-		"GET /api/v1/auth/oidc/callback":       {"", http.StatusSeeOther, ""},
-		"POST /api/v1/session":                 {`{"login":"owner_contract","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
-		"DELETE /api/v1/session":               {"", http.StatusNoContent, ""},
-		"POST /api/v1/auth/invitations/accept": {`{"token":"` + strings.Repeat("A", 43) + `","login":"member_contract","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
+		"GET /api/v1/auth/setup":                 {"", http.StatusServiceUnavailable, "unavailable"},
+		"GET /api/v1/auth/oidc":                  {"", http.StatusOK, ""},
+		"POST /api/v1/auth/oidc/start":           {`{"purpose":"login"}`, http.StatusServiceUnavailable, "oidc_unavailable"},
+		"GET /api/v1/auth/oidc/callback":         {"", http.StatusSeeOther, ""},
+		"GET /api/v1/auth/oidc/pending":          {"", http.StatusNotFound, "pending_not_found"},
+		"DELETE /api/v1/auth/oidc/pending":       {"", http.StatusNoContent, ""},
+		"POST /api/v1/auth/oidc/pending/account": {"", http.StatusNotFound, "pending_not_found"},
+		"POST /api/v1/auth/oidc/pending/link":    {`{"login":"owner_contract","password":"correct horse battery"}`, http.StatusNotFound, "pending_not_found"},
+		"POST /api/v1/session":                   {`{"login":"owner_contract","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
+		"DELETE /api/v1/session":                 {"", http.StatusNoContent, ""},
+		"POST /api/v1/auth/invitations/accept":   {`{"token":"` + strings.Repeat("A", 43) + `","login":"member_contract","password":"correct horse battery"}`, http.StatusServiceUnavailable, "unavailable"},
 	}
 	client := 0
 

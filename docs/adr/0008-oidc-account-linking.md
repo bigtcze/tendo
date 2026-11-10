@@ -1,6 +1,6 @@
 # ADR 0008: OIDC account linking and login
 
-Status: accepted
+Status: accepted; amended by [ADR 0012](0012-oidc-jit-and-verified-email.md) (first sign-in creates or confirms an account, `openid email` scope, verified-email consolidation). The `(issuer, subject)` ownership, flow-state and session rules below still apply.
 
 ## Context
 

@@ -36,19 +36,33 @@ var (
 	ErrOIDCConflict        = errors.New("oidc identity conflict")
 	ErrOIDCInvalidPurpose  = errors.New("invalid OIDC purpose")
 	ErrOIDCAlreadySignedIn = errors.New("already signed in")
+	ErrOIDCPendingNotFound = errors.New("OIDC pending login not found")
+	// ErrOIDCPendingExhausted keeps the uniform invalid_credentials answer but
+	// tells the transport that the pending row was deleted, so its cookie must
+	// be cleared too.
+	ErrOIDCPendingExhausted      = errors.Join(ErrInvalidCredentials, errors.New("OIDC pending login exhausted"))
+	ErrOIDCAccountNotDiscardable = errors.New("OIDC account not discardable")
 	// ErrOIDCSessionChanged: the initiating session ended before the link committed.
 	ErrOIDCSessionChanged       = errors.New("oidc initiating session changed")
 	ErrOIDCProviderUnavailable  = errors.New("OIDC provider unavailable")
 	ErrOIDCAuthenticationFailed = errors.New("OIDC authentication failed")
 )
 
-type OIDCVerifiedIdentity struct{ Issuer, Subject string }
+// OIDCVerifiedIdentity is the pinned issuer's verified subject plus, when the
+// ID token proved it, the canonical email address. Email is empty unless
+// EmailVerified is true.
+type OIDCVerifiedIdentity struct {
+	Issuer, Subject string
+	Email           string
+	EmailVerified   bool
+}
 type OIDCFlow struct {
 	StateHash, BrowserTokenHash           []byte
 	PreviousBrowserTokenHash              []byte
 	Issuer, ClientID, Nonce, PKCEVerifier string
 	Purpose                               OIDCPurpose
 	UserID, SessionID                     string
+	InviteTokenHash                       []byte
 	CreatedAt, ExpiresAt                  time.Time
 }
 type OIDCStartParams struct {
@@ -57,6 +71,10 @@ type OIDCStartParams struct {
 	Session              SessionInfo
 	CurrentPassword      string
 	PreviousBrowserToken string
+	// InvitationToken is an optional invitation to carry across the provider
+	// round trip. Only its digest is stored; it must reference a pending
+	// invitation.
+	InvitationToken string
 }
 type OIDCAuthorizationParams struct {
 	Issuer, ClientID, RedirectURL, State, Nonce, PKCEVerifier string
@@ -70,12 +88,19 @@ type OIDCProvider interface {
 type OIDCRepository interface {
 	InsertFlow(context.Context, OIDCFlow) error
 	ConsumeFlow(context.Context, []byte, []byte, time.Time, string, string) (OIDCFlow, error)
-	FindIdentity(context.Context, string, string) (string, error)
 	FindSession(context.Context, []byte, time.Time) (SessionInfo, error)
 	FindCredential(context.Context, string) (string, error)
-	CreateOIDCLoginSession(context.Context, NewSession) (string, error)
+	FindLogin(context.Context, string) (LoginRecord, error)
 	LinkAndCreateSession(context.Context, OIDCFlow, OIDCVerifiedIdentity, NewSession, []byte) (string, error)
 	Linked(context.Context, string, string) (bool, error)
+	ResolveLogin(context.Context, OIDCLoginRequest) (OIDCLoginOutcome, error)
+	ReadPendingLogin(context.Context, []byte, time.Time, string, string) (OIDCPendingStatus, error)
+	CreatePendingAccount(context.Context, OIDCPendingAccountParams) (OIDCPendingAccountOutcome, error)
+	LinkPendingAccount(context.Context, OIDCPendingLinkParams) (OIDCPendingLinkOutcome, error)
+	RecordPendingFailure(context.Context, []byte, time.Time) (bool, error)
+	CancelPendingLogin(context.Context, []byte) error
+	DiscardOIDCAccount(context.Context, OIDCDiscardParams) (OIDCPendingStatus, error)
+	FindPendingInvitation(context.Context, []byte, time.Time) (bool, error)
 }
 type OIDCService struct {
 	repo                                     OIDCRepository
@@ -91,6 +116,9 @@ type OIDCCallbackResult struct {
 	Destination  string
 	Code         OIDCCode
 	SessionToken string
+	// PendingToken is the raw continuation handle. It is delivered only as an
+	// HttpOnly cookie by the transport layer.
+	PendingToken string
 }
 
 // A service is constructed only when OIDC is enabled; disabled mode is represented by a nil service.
@@ -174,11 +202,10 @@ func (s *OIDCService) Callback(ctx context.Context, params url.Values, browserTo
 	if err != nil {
 		return failure(flow.Purpose, exchangeFailureCode(err)), nil
 	}
-	userID, err := s.callbackUser(ctx, flow, verified)
-	if err != nil {
-		return failure(flow.Purpose, identityFailureCode(err)), nil
+	if flow.Purpose == OIDCPurposeLink {
+		return s.issueCallbackSession(ctx, flow, verified, flow.UserID, currentSessionToken)
 	}
-	return s.issueCallbackSession(ctx, flow, verified, userID, currentSessionToken)
+	return s.loginCallback(ctx, flow, verified), nil
 }
 func failure(p OIDCPurpose, c OIDCCode) OIDCCallbackResult {
 	dest := "/login"

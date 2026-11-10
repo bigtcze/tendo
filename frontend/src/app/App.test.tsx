@@ -309,7 +309,7 @@ describe('signed in', () => {
     const fake = installFakeServer({ 'GET /api/v1/session': json(200, session(false)) });
     renderApp();
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
-      'Your account isn’t part of a household yet.',
+      'Join your household by invitation',
     );
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeVisible();
     const navigation = screen.getByRole('navigation', { name: 'Household navigation' });
@@ -322,7 +322,7 @@ describe('signed in', () => {
     expect(window.location.pathname).toBe('/account');
     expect(currentHrefs()).toEqual(['/account']);
     await userEvent.click(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('link', { name: 'Home' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your account isn’t part of a household yet.' })).toHaveFocus();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your household by invitation' })).toHaveFocus();
     expect(window.location.pathname).toBe('/');
     expect(currentHrefs()).toEqual(['/']);
     expect(fake.requests.every((r) => !r.path.startsWith('/api/v1/households'))).toBe(true);
@@ -333,7 +333,7 @@ describe('signed in', () => {
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []), [householdPath]: problem(404) });
     renderApp();
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(
-      'Your account isn’t part of a household yet.',
+      'Join your household by invitation',
     );
   });
 

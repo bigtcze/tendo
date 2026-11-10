@@ -144,7 +144,7 @@ func (p *Provider) AuthorizationURL(ctx context.Context, a identity.OIDCAuthoriz
 	sum := sha256.Sum256([]byte(a.PKCEVerifier))
 	cfg := oauth2.Config{
 		ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(),
-		RedirectURL: a.RedirectURL, Scopes: []string{oidc.ScopeOpenID},
+		RedirectURL: a.RedirectURL, Scopes: []string{oidc.ScopeOpenID, "email"},
 	}
 	options := []oauth2.AuthCodeOption{
 		oauth2.SetAuthURLParam("nonce", a.Nonce),
@@ -213,9 +213,9 @@ func (p *Provider) tokenRequest(ctx context.Context, provider *oidc.Provider, x 
 	ctx = oidc.ClientContext(ctx, p.client)
 	cfg := oauth2.Config{
 		ClientID: p.clientID, ClientSecret: p.clientSecret, Endpoint: provider.Endpoint(),
-		RedirectURL: x.RedirectURL, Scopes: []string{oidc.ScopeOpenID},
+		RedirectURL: x.RedirectURL, Scopes: []string{oidc.ScopeOpenID, "email"},
 	}
-	tok, err := cfg.Exchange(ctx, x.Code, oauth2.SetAuthURLParam("code_verifier", x.PKCEVerifier))
+	tok, err := cfg.Exchange(ctx, x.Code, oauth2.SetAuthURLParam("code_verifier", x.PKCEVerifier), oauth2.SetAuthURLParam("scope", "openid email"))
 	if err != nil {
 		var retrieve *oauth2.RetrieveError
 		if errors.As(err, &retrieve) && retrieve.Response != nil && retrieve.Response.StatusCode >= 400 && retrieve.Response.StatusCode < 500 {
@@ -262,7 +262,31 @@ func (p *Provider) validateClaims(id *oidc.IDToken, nonce string) (identity.OIDC
 	if !validSubject(id.Subject) {
 		return identity.OIDCVerifiedIdentity{}, identity.ErrOIDCAuthenticationFailed
 	}
-	return identity.OIDCVerifiedIdentity{Issuer: id.Issuer, Subject: id.Subject}, nil
+	email, emailVerified := verifiedEmailClaims(id.Claims)
+	return identity.OIDCVerifiedIdentity{Issuer: id.Issuer, Subject: id.Subject, Email: email, EmailVerified: emailVerified}, nil
+}
+
+// verifiedEmailClaims accepts an address only when the ID token carries the
+// JSON boolean true for email_verified and the address is canonical. A string
+// "true" proves nothing (some providers emit it for self-asserted addresses),
+// and an unusable address is treated exactly like a missing one.
+func verifiedEmailClaims(claims func(any) error) (string, bool) {
+	var raw struct {
+		Email         string          `json:"email"`
+		EmailVerified json.RawMessage `json:"email_verified"`
+	}
+	if claims(&raw) != nil || len(raw.EmailVerified) == 0 {
+		return "", false
+	}
+	var verified bool
+	if json.Unmarshal(raw.EmailVerified, &verified) != nil || !verified {
+		return "", false
+	}
+	canonical, ok := identity.CanonicalEmail(raw.Email)
+	if !ok {
+		return "", false
+	}
+	return canonical, true
 }
 
 func validateIssuedAt(value *json.Number, now time.Time) error {

@@ -16,6 +16,7 @@ import (
 
 type options struct {
 	listen, tlsCert, tlsKey, issuer, client, secret, redirect, subjects string
+	subjectEmails                                                       string
 	healthcheck                                                         bool
 }
 
@@ -30,6 +31,7 @@ func parseOptions() options {
 	flag.StringVar(&opts.secret, "client-secret", env("CLIENT_SECRET", "test-secret"), "client secret")
 	flag.StringVar(&opts.redirect, "redirect-uri", env("REDIRECT_URI", ""), "registered redirect URI")
 	flag.StringVar(&opts.subjects, "subjects", env("SUBJECTS", "subject-1"), "comma-separated subjects")
+	flag.StringVar(&opts.subjectEmails, "subject-emails", env("SUBJECT_EMAILS", ""), "subject=address:true|false|string email claims")
 	flag.Parse()
 	return opts
 }
@@ -95,6 +97,13 @@ func serveProvider(opts options, tlsEnabled bool) {
 		log.Fatal("provider init failed")
 	}
 	defer p.Close()
+	if opts.subjectEmails != "" {
+		emails, parseErr := testoidc.ParseEmails(opts.subjectEmails)
+		if parseErr != nil {
+			log.Fatal("invalid SUBJECT_EMAILS configuration")
+		}
+		p.Emails = emails
+	}
 	if opts.issuer != "" {
 		p.Server.URL = strings.TrimRight(opts.issuer, "/")
 	}
