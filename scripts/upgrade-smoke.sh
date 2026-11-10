@@ -281,7 +281,8 @@ subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP
 unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")
 memberships_without_single=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE (SELECT count(*) FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id AND s.type='person') <> 1")
 "${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT id::text FROM subjects ORDER BY id" >"$temp_dir/subject-ids-after.txt"
-EXPECTED_BACKFILL="$expected_backfill" EXPECTED_UNLINKS="$expected_unlinks" SUBJECTS_AFTER="$subjects_after" UNLINKS_AFTER="$unlinks_after" MEMBERSHIPS_WITHOUT_SINGLE="$memberships_without_single" \
+accounts_with_email=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM user_accounts WHERE email IS NOT NULL OR email_verified_at IS NOT NULL")
+ACCOUNTS_WITH_EMAIL="$accounts_with_email" EXPECTED_BACKFILL="$expected_backfill" EXPECTED_UNLINKS="$expected_unlinks" SUBJECTS_AFTER="$subjects_after" UNLINKS_AFTER="$unlinks_after" MEMBERSHIPS_WITHOUT_SINGLE="$memberships_without_single" \
   python3 - "$temp_dir/counts-before.txt" "$temp_dir/counts-after.txt" "$temp_dir/subject-ids-before.txt" "$temp_dir/subject-ids-after.txt" <<'PY'
 import os
 import sys
@@ -301,8 +302,10 @@ for name, count in before.items():
     if name == 'subjects':
         continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks'}
+unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks', 'oidc_pending_logins'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
+assert after.get('oidc_pending_logins') == '0', ('migration 019 pending continuation table must be empty after upgrade', after.get('oidc_pending_logins'))
+assert os.environ['ACCOUNTS_WITH_EMAIL'] == '0', ('migration 019 must never infer an email for pre-existing accounts', os.environ['ACCOUNTS_WITH_EMAIL'])
 assert 'household_role_changes' in after, ('migration 017 audit table missing after upgrade', sorted(after))
 assert after['household_role_changes'] == '0', ('new table must be empty after migration', 'household_role_changes', after['household_role_changes'])
 assert 'member_person_migration_unlinks' in after, ('migration 018 audit table missing after upgrade', sorted(after))
