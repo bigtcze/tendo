@@ -143,7 +143,7 @@ wait_ready
 [[ "$(app_health)" == healthy ]] || { printf 'Fresh app container is not healthy\n' >&2; exit 1; }
 [[ "$(ledger)" == "${migration_count}:false" ]] || { printf 'Fresh ledger is %s, expected %s:false\n' "$(ledger)" "$migration_count" >&2; exit 1; }
 role_flags=$(psql_at "SELECT rolsuper||'|'||rolcreatedb||'|'||rolcreaterole||'|'||rolbypassrls||'|'||rolreplication||'|'||rolinherit FROM pg_roles WHERE rolname='tendo'")
-[[ "$role_flags" == 'f|f|f|f|f|f' ]] || { printf 'Role tendo flags are %s\n' "$role_flags" >&2; exit 1; }
+[[ "$role_flags" == 'false|false|false|false|false|false' ]] || { printf 'Role tendo flags are %s\n' "$role_flags" >&2; exit 1; }
 [[ "$(psql_at "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='tendo'")" == 0 ]] \
   || { printf 'Role tendo has role memberships\n' >&2; exit 1; }
 # Mark data inside the database so recovery checks below prove it survives.
