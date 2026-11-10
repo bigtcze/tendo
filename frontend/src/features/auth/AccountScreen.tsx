@@ -1,11 +1,16 @@
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
+import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { type OidcOutcome } from './oidcApi';
 import { AccountOidcSectionView } from './AccountOidcSectionView';
 import { useAccountOidcSection } from './useAccountOidcSection';
 import { AccountPreferences } from './AccountPreferences';
+
+function initialOf(login: string): string {
+  return login.trim().charAt(0).toLocaleUpperCase() || '?';
+}
 
 export function AccountScreen({ login, outcome, onSignedOut }: { login: string; outcome: OidcOutcome | null; onSignedOut: () => void }) {
   const { t } = useI18n();
@@ -22,25 +27,26 @@ export function AccountScreen({ login, outcome, onSignedOut }: { login: string; 
     <Layout
       actions={<AccountActions login={login} onSignedOut={onSignedOut} />}
     >
-      <section className="settle mx-auto w-full max-w-6xl">
-        <Heading className="font-display text-h1 leading-tight">{t('account.title')}</Heading>
-        <div role="status" className="mt-5 empty:mt-0 max-w-3xl">
-          {outcomeText ? <p className="rounded-xl border border-line bg-sand px-4 py-3 text-base text-ink">{outcomeText}</p> : null}
+      <section className="settle mx-auto w-full max-w-3xl">
+        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('account.eyebrow')}</p>
+        <Heading className="mt-2 text-h1 leading-tight text-ink">{t('account.title')}</Heading>
+        <p className="mt-2 max-w-prose text-base text-muted">{t('account.subtitle')}</p>
+        <div role="status" className="mt-5 empty:mt-0">
+          {outcomeText ? <Notice role={null}>{outcomeText}</Notice> : null}
         </div>
-        <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] lg:gap-x-12">
-          <div>
-            <section aria-labelledby="account-identity-heading" className="border-t border-line pt-6">
-              <h2 id="account-identity-heading" className="font-display text-h2">{t('account.identity.title')}</h2>
-              <p
-                ref={signedInRef}
-                tabIndex={-1}
-                className="mt-3 break-words text-lg text-ink outline-none"
-              >
+        <div className="mt-6 space-y-4">
+          <section aria-labelledby="account-identity-heading" className="rounded-2xl border border-line bg-raised p-5 sm:p-6">
+            <h2 id="account-identity-heading" className="text-lg font-bold text-ink">{t('account.identity.title')}</h2>
+            <div className="mt-4 flex items-center gap-3">
+              <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-full bg-nav-selected text-base font-semibold text-ink">
+                {initialOf(login)}
+              </span>
+              <p ref={signedInRef} tabIndex={-1} className="min-w-0 break-words text-base text-ink outline-none">
                 {t('account.signedInAs', { login })}
               </p>
-            </section>
-            <AccountOidcSectionView state={sectionState} onSignedOut={onSignedOut} />
-          </div>
+            </div>
+          </section>
+          <AccountOidcSectionView state={sectionState} onSignedOut={onSignedOut} />
           <AccountPreferences />
         </div>
       </section>

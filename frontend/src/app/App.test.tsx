@@ -49,6 +49,21 @@ describe('signed out', () => {
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   });
 
+  it('keeps the language switch in the signed-out footer', async () => {
+    installFakeServer({
+      'GET /api/v1/session': problem(401),
+      'GET /api/v1/auth/setup': json(200, { required: false }),
+    });
+    renderApp();
+    await screen.findByLabelText('Username');
+    const footer = screen.getByRole('contentinfo');
+    expect(within(footer).getByRole('group', { name: 'Language' })).toBeVisible();
+    await userEvent.click(within(footer).getByRole('button', { name: 'Čeština' }));
+    expect(await screen.findByLabelText('Uživatelské jméno')).toBeVisible();
+    expect(document.documentElement.lang).toBe('cs');
+    localStorage.removeItem('tendo.locale');
+  });
+
   it('wrong password shows an alert and clears the password', async () => {
     installFakeServer({
       'GET /api/v1/session': problem(401),
@@ -56,7 +71,9 @@ describe('signed out', () => {
       'POST /api/v1/session': problem(401),
     });
     renderApp();
-    await userEvent.type(await screen.findByLabelText('Username'), 'anna');
+    const username = await screen.findByLabelText('Username');
+    expect(document.getElementById('login-error'), 'persistent login alert host exists before any error').toBeInTheDocument();
+    await userEvent.type(username, 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'wrong-password{Enter}');
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('That username or password isn’t right. Check both and try again. Forgot your password? Ask the person who runs Tendo for your household.');
@@ -169,16 +186,15 @@ describe('signed in', () => {
     }
   });
 
-  it.each([['en', 'English'], ['cs', 'Čeština']] as const)('every visible navigation label is part of the link name (%s)', async (_locale, language) => {
+  it.each(['en', 'cs'] as const)('every visible navigation label is part of the link name (%s)', async (locale) => {
+    localStorage.setItem('tendo.locale', locale);
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       [householdPath]: json(200, household),
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
-    await screen.findByRole('navigation', { name: 'Household navigation' });
-    await userEvent.click(screen.getByRole('button', { name: language }));
-    const nav = await screen.findByRole('navigation', { name: _locale === 'cs' ? 'Navigace domácnosti' : 'Household navigation' });
+    const nav = await screen.findByRole('navigation', { name: locale === 'cs' ? 'Navigace domácnosti' : 'Household navigation' });
     const links = within(nav).getAllByRole('link');
     expect(links).toHaveLength(5);
     for (const link of links) {
@@ -187,10 +203,28 @@ describe('signed in', () => {
       expect(labels.length, `${name} has a compact and a full label`).toBe(2);
       for (const label of labels) {
         expect(label, `${name} label is not empty`).not.toBe('');
-        expect(name.toLocaleLowerCase(_locale), `${name} contains visible label ${label}`).toContain(label.toLocaleLowerCase(_locale));
+        expect(name.toLocaleLowerCase(locale), `${name} contains visible label ${label}`).toContain(label.toLocaleLowerCase(locale));
       }
       expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     }
+    localStorage.removeItem('tendo.locale');
+  });
+
+  it('keeps language switching on Account instead of a signed-in footer', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    expect(screen.queryByRole('contentinfo'), 'a signed-in shell has no footer language switch').not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'Your account' }));
+    const main = await screen.findByRole('main');
+    const language = within(main).getByRole('group', { name: 'Language' });
+    expect(within(language).getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(language).getByRole('button', { name: 'Čeština' })).toBeVisible();
   });
 
   it('shows the workspace rail label, brand tagline, avatar initial and mobile account affordance', async () => {

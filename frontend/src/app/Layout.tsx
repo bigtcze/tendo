@@ -27,9 +27,8 @@ const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap
 const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:h-14 lg:px-8 lg:py-0';
 const MAIN = 'w-full min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8';
 /** Bottom padding keeps the last content row clear of the fixed bar (bar height + safe area). */
-const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:min-w-0 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
+const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:min-w-0 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
 const FOOTER = 'flex justify-end px-5 py-3 sm:px-8';
-const FOOTER_HOUSEHOLD = 'border-t border-line pb-[calc(5rem+env(safe-area-inset-bottom))] short:pb-3 lg:col-span-2 lg:row-start-3 lg:py-2';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
   const { t } = useI18n();
@@ -57,9 +56,12 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
         {children}
       </main>
       {navigation ? <HouseholdNavigation rail={household} /> : null}
-      <footer className={`${FOOTER} ${household ? FOOTER_HOUSEHOLD : ''}`}>
-        <LanguageSwitch />
-      </footer>
+      {/* Signed-in navigation carries Account, where the language choice lives. The footer switch is for signed-out paths. */}
+      {navigation ? null : (
+        <footer className={FOOTER}>
+          <LanguageSwitch />
+        </footer>
+      )}
     </div>
   );
 }

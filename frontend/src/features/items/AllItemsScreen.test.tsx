@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import { itemRoutes } from '../../test/fakeItems';
+import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
 import type { Item, Subject } from './itemsApi';
 
 const base = `/api/v1/households/${HOUSEHOLD_ID}`;
@@ -17,6 +18,9 @@ function makeItem(index: number, overrides: Partial<Item> = {}): Item {
 }
 const bootRoutes = { 'GET /api/v1/session': json(200, session()), [`GET ${base}`]: json(200, household), [subjectsPath]: json(200, { items: [subject], nextCursor: null }), [membersPath]: json(200, { items: [member], nextCursor: null }) };
 function app() { return render(<I18nProvider><App /></I18nProvider>); }
+function appWithLocale(setterRef: LocaleSetterRef) {
+  return render(<I18nProvider><LocaleProbe setterRef={setterRef} /><App /></I18nProvider>);
+}
 // The persistent outcome region is the only atomic status on the screen; loading and stale notices are not.
 function outcomeRegion() { const region = document.querySelector<HTMLElement>('main [role="status"][aria-atomic="true"]'); if (!region) throw new Error('outcome region missing'); return region; }
 function reqs(requests: RecordedRequest[], path: string) { return requests.filter((request) => request.path === path); }
@@ -132,6 +136,25 @@ describe('All items', () => {
     await userEvent.click(noMatchClear!);
     expect(window.location.pathname + window.location.search).toBe('/items');
     expect(unknown.requests.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the active search and its result through an in-place locale change', async () => {
+    const setterRef: LocaleSetterRef = { current: null };
+    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { title: 'Garden care' })]) });
+    appWithLocale(setterRef);
+    await userEvent.click(await screen.findByRole('link', { name: 'All items' }));
+    expect(await screen.findByRole('heading', { name: 'All items' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('searchbox'), 'care');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(window.location.search).toBe('?q=care'));
+    expect(await screen.findByText('Garden care')).toBeVisible();
+    const itemsBefore = reqs(fake.requests, `${base}/items`).length;
+    await act(async () => { setterRef.current?.('cs'); });
+    expect(await screen.findByRole('heading', { name: 'Všechny položky' })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox')).toHaveValue('care');
+    expect(screen.getByText('Garden care')).toBeVisible();
+    expect(window.location.search).toBe('?q=care');
+    expect(reqs(fake.requests, `${base}/items`)).toHaveLength(itemsBefore);
   });
 
   it('counts search length in code points: sends 200 emoji, blocks 201', async () => {
@@ -630,16 +653,24 @@ describe('All items', () => {
     expect(await screen.findByLabelText('Password')).toBeInTheDocument();
   });
 
-  it('supports Czech copy', async () => {
-    localStorage.setItem('tendo.locale', 'cs');
-    const fake = installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1)]) });
+  it('supports Czech copy through the Account language choice', async () => {
+    const fake = installFakeServer({ ...bootRoutes, 'GET /api/v1/auth/oidc': json(200, { enabled: false }), ...itemRoutes(base, [makeItem(1)]) });
     app();
-    expect(await screen.findByRole('link', { name: 'Všechny položky' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'All items' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
+    expect(await screen.findByRole('heading', { name: 'All items' })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('All items — Tendo'));
+    expect(fake.requests.length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole('link', { name: 'Your account' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Čeština' }));
+    await screen.findByRole('heading', { name: 'Váš účet' });
     await userEvent.click(screen.getByRole('link', { name: 'Všechny položky' }));
     expect(await screen.findByRole('heading', { name: 'Všechny položky' })).toBeInTheDocument();
     await waitFor(() => expect(document.title).toBe('Všechny položky — Tendo'));
-    expect(fake.requests.length).toBeGreaterThan(0);
-    await userEvent.click(screen.getByRole('button', { name: 'English' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Váš účet' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'English' }));
+    await screen.findByRole('heading', { name: 'Your account' });
+    await userEvent.click(screen.getByRole('link', { name: 'All items' }));
     await screen.findByRole('heading', { name: 'All items' });
     await waitFor(() => expect(document.title).toBe('All items — Tendo'));
   });

@@ -2,16 +2,11 @@ import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Select } from '../../components/ui/select';
 import { useI18n } from '../../i18n';
 import type { Session } from './sessionApi';
 import { errorKey, errorTarget, formatTimezoneLabel, type FormError } from './onboardingModel';
 import { useOnboardingForm } from './useOnboardingForm';
-
-const timezoneClassName = [
-  'min-h-11 w-full rounded-xl border border-field bg-raised px-4 text-base text-ink',
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-  'aria-[invalid=true]:border-danger',
-].join(' ');
 
 /** Hint first, then the shared error region when this field owns the current error. */
 function describedBy(hintId: string | undefined, invalid: boolean): string | undefined {
@@ -46,18 +41,17 @@ function TimezoneField({ value, onChange, invalid, zones, locale }: {
   return (
     <div className="space-y-2">
       <Label htmlFor="onboarding-timezone">{t('onboarding.timezone')}</Label>
-      <select
+      <Select
         id="onboarding-timezone"
         name="timezone"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={invalid}
         aria-describedby={describedBy('onboarding-timezone-hint', invalid)}
-        className={timezoneClassName}
       >
         {zones.map((zone) => <option key={zone} value={zone}>{formatTimezoneLabel(zone, locale)}</option>)}
-      </select>
-      <p id="onboarding-timezone-hint" className="text-sm text-muted">
+      </Select>
+      <p id="onboarding-timezone-hint" className="text-small text-muted">
         {t('onboarding.timezone.hint', { timezone: formatTimezoneLabel(value, locale) })}
       </p>
     </div>
@@ -85,7 +79,7 @@ function TextField({
         aria-invalid={invalid}
         aria-describedby={describedBy(hintId, invalid)}
       />
-      {hint ? <p id={hintId} className="text-sm text-muted">{hint}</p> : null}
+      {hint ? <p id={hintId} className="text-small text-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -93,7 +87,11 @@ function TextField({
 function OnboardingError({ error }: { error: FormError | null }) {
   const { t } = useI18n();
   return (
-    <div id="onboarding-error" role="alert" className="text-base text-danger">
+    <div
+      id="onboarding-error"
+      role="alert"
+      className={error ? 'rounded-xl border border-danger bg-danger-bg px-4 py-3 text-small text-danger' : ''}
+    >
       {error ? t(errorKey(error)) : null}
     </div>
   );
@@ -108,84 +106,111 @@ function OnboardingSubmit({ pending }: { pending: boolean }) {
   );
 }
 
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{children}</p>;
+}
+
+function StepHeading({ step, children }: { step: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span aria-hidden="true" className="grid size-7 shrink-0 place-items-center rounded-lg bg-nav-selected text-small font-semibold text-ink">{step}</span>
+      <h2 className="text-h2 text-ink">{children}</h2>
+    </div>
+  );
+}
+
 function OnboardingIntroduction() {
   const { t } = useI18n();
   return (
     <>
-      <Heading className="font-display text-3xl leading-tight sm:text-4xl">{t('onboarding.title')}</Heading>
-      <p className="mt-3 text-lg text-muted">{t('onboarding.subtitle')}</p>
+      <Eyebrow>{t('onboarding.eyebrow')}</Eyebrow>
+      <Heading documentTitle={t('onboarding.title')} className="mt-2 text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">
+        {t('onboarding.title')}<span aria-hidden="true" className="text-accent">.</span>
+      </Heading>
+      <p className="mt-3 max-w-prose text-base text-muted">{t('onboarding.subtitle')}</p>
     </>
   );
 }
 
-function SetupFields({ form, target, locale }: {
+function SetupSection({ form, target }: {
+  form: ReturnType<typeof useOnboardingForm>;
+  target: ReturnType<typeof errorTarget>;
+}) {
+  const { t } = useI18n();
+  return (
+    <section className="p-5 sm:p-7">
+      <StepHeading step="1">{t('onboarding.setup.section')}</StepHeading>
+      <p className="mt-3 max-w-prose text-small text-muted">{t('onboarding.setup.intro')}</p>
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <TextField
+          id="setup-code"
+          name="setupCode"
+          label={t('onboarding.setupCode')}
+          type="password"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={form.setupCode}
+          invalid={target === 'setupCode'}
+          onChange={form.setSetupCode}
+          hintId="setup-code-hint"
+          hint={t('onboarding.setupCode.hint')}
+        />
+        <TextField
+          id="household-name"
+          name="householdName"
+          label={t('onboarding.householdName')}
+          type="text"
+          autoComplete="off"
+          value={form.householdName}
+          invalid={target === 'householdName'}
+          onChange={form.setHouseholdName}
+          placeholder={t('onboarding.householdName.placeholder')}
+        />
+      </div>
+    </section>
+  );
+}
+
+function OwnerSection({ form, target, locale }: {
   form: ReturnType<typeof useOnboardingForm>;
   target: ReturnType<typeof errorTarget>;
   locale: string;
 }) {
   const { t } = useI18n();
   return (
-    <>
-      <div className="space-y-4 sm:col-span-2">
-        <h2 className="font-display text-h2">{t('onboarding.setup.section')}</h2>
-        <p className="max-w-prose text-muted">{t('onboarding.setup.intro')}</p>
+    <section className="border-t border-line p-5 sm:p-7">
+      <StepHeading step="2">{t('onboarding.owner.section')}</StepHeading>
+      <p className="mt-3 max-w-prose text-small text-muted">{t('onboarding.owner.intro')}</p>
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <TextField
+          id="onboarding-login"
+          name="login"
+          label={t('onboarding.login')}
+          type="text"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={form.loginName}
+          invalid={target === 'login'}
+          onChange={form.setLoginName}
+          hintId="onboarding-login-hint"
+          hint={t('onboarding.login.hint')}
+        />
+        <TextField
+          id="onboarding-password"
+          name="password"
+          label={t('onboarding.password')}
+          type="password"
+          autoComplete="new-password"
+          value={form.password}
+          invalid={target === 'password'}
+          onChange={form.setPassword}
+          hintId="onboarding-password-hint"
+          hint={t('onboarding.password.hint')}
+        />
       </div>
-      <TextField
-        id="setup-code"
-        name="setupCode"
-        label={t('onboarding.setupCode')}
-        type="password"
-        autoComplete="off"
-        autoCapitalize="none"
-        spellCheck={false}
-        value={form.setupCode}
-        invalid={target === 'setupCode'}
-        onChange={form.setSetupCode}
-        hintId="setup-code-hint"
-        hint={t('onboarding.setupCode.hint')}
-      />
-      <TextField
-        id="household-name"
-        name="householdName"
-        label={t('onboarding.householdName')}
-        type="text"
-        autoComplete="off"
-        value={form.householdName}
-        invalid={target === 'householdName'}
-        onChange={form.setHouseholdName}
-        placeholder={t('onboarding.householdName.placeholder')}
-      />
-      <div className="space-y-4 pt-2 sm:col-span-2">
-        <h2 className="font-display text-h2">{t('onboarding.owner.section')}</h2>
-        <p className="max-w-prose text-muted">{t('onboarding.owner.intro')}</p>
-      </div>
-      <TextField
-        id="onboarding-login"
-        name="login"
-        label={t('onboarding.login')}
-        type="text"
-        autoComplete="username"
-        autoCapitalize="none"
-        spellCheck={false}
-        value={form.loginName}
-        invalid={target === 'login'}
-        onChange={form.setLoginName}
-        hintId="onboarding-login-hint"
-        hint={t('onboarding.login.hint')}
-      />
-      <TextField
-        id="onboarding-password"
-        name="password"
-        label={t('onboarding.password')}
-        type="password"
-        autoComplete="new-password"
-        value={form.password}
-        invalid={target === 'password'}
-        onChange={form.setPassword}
-        hintId="onboarding-password-hint"
-        hint={t('onboarding.password.hint')}
-      />
-      <div className="pt-2 sm:col-span-2">
+      <div className="mt-5">
         <TimezoneField
           value={form.timezone}
           onChange={form.setTimezone}
@@ -194,7 +219,7 @@ function SetupFields({ form, target, locale }: {
           locale={locale}
         />
       </div>
-    </>
+    </section>
   );
 }
 
@@ -210,13 +235,16 @@ export function OnboardingScreen({
   const target = form.error ? errorTarget(form.error) : null;
 
   return (
-    <section className="settle w-full max-w-5xl">
+    <section className="settle w-full max-w-4xl">
       <OnboardingIntroduction />
-      <form onSubmit={form.submit} className="mt-8 grid gap-x-8 gap-y-6 sm:grid-cols-2" noValidate>
-        <SetupFields form={form} target={target} locale={locale} />
-        <div className="flex flex-col gap-4 pt-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
-          <OnboardingError error={form.error} />
-          <OnboardingSubmit pending={form.pending} />
+      <form onSubmit={form.submit} className="mt-8" noValidate>
+        <div className="overflow-hidden rounded-2xl border border-line bg-raised">
+          <SetupSection form={form} target={target} />
+          <OwnerSection form={form} target={target} locale={locale} />
+          <div className="flex flex-col gap-4 border-t border-line bg-sand/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+            <OnboardingError error={form.error} />
+            <OnboardingSubmit pending={form.pending} />
+          </div>
         </div>
       </form>
     </section>
