@@ -28,6 +28,20 @@ describe('adminApi', () => {
     await expect(listAccounts(HOUSEHOLD_ID)).resolves.toEqual({ kind: 'rejected' });
   });
 
+  it('accepts only the admin_required code the account routes answer, not the legacy owner_required', async () => {
+    installFakeServer({ [`GET ${base}/accounts`]: problem(403, 'owner_required') });
+    await expect(listAccounts(HOUSEHOLD_ID)).resolves.toEqual({ kind: 'rejected' });
+
+    installFakeServer({ [`GET ${base}/accounts/u-1`]: problem(403, 'owner_required') });
+    await expect(readAccount(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rejected' });
+
+    installFakeServer({ [`PATCH ${base}/accounts/u-1`]: problem(403, 'owner_required') });
+    await expect(changeAccountRole(HOUSEHOLD_ID, 'u-1', 'member', '"4"')).resolves.toEqual({ kind: 'rejected' });
+
+    installFakeServer({ [`GET ${base}/accounts`]: problem(403, 'admin_required') });
+    await expect(listAccounts(HOUSEHOLD_ID)).resolves.toEqual({ kind: 'forbidden' });
+  });
+
   it('requires the strong version tag before a change can quote it', async () => {
     installFakeServer({ [`GET ${base}/accounts/u-1`]: json(200, account) });
     await expect(readAccount(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'error' });

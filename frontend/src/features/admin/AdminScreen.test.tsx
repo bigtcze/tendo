@@ -81,6 +81,9 @@ describe('Admin center', () => {
       [accountsPath]: forbidden(),
     });
     app('/');
+    // Let the household read settle first: only then is the rail's rendered state meaningful.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === base)).toHaveLength(1);
     await waitFor(() => expect(within(nav()).getAllByRole('link')).toHaveLength(5));
     expect(within(nav()).queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument();
 
@@ -244,6 +247,157 @@ describe('Admin center', () => {
     app('/admin');
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
+  });
+
+  it('re-reads the viewer role when the server refuses the list, dropping the rail entry and the Account card', async () => {
+    let releaseList!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { releaseList = resolve; });
+    let householdCalls = 0;
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: () => json(200, ++householdCalls === 1 ? household : memberHousehold),
+      ...itemRoutes(base, []),
+      [accountsPath]: () => held,
+    });
+    app('/admin');
+    // Another admin demoted the viewer just now: the rail still trusts the admin hint of the first read.
+    await waitFor(() => expect(within(nav()).getByRole('link', { name: 'Admin center' })).toBeInTheDocument());
+    releaseList(forbidden());
+
+    expect(await screen.findByRole('heading', { name: 'Only administrators can open the Admin center.' })).toBeVisible();
+    // The authoritative refusal rewrites the hint: the rail entry and the Account card go with it.
+    await waitFor(() => expect(within(nav()).queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument());
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === base)).toHaveLength(2);
+
+    window.history.replaceState(null, '', '/account');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+    expect(within(screen.getByRole('main')).queryByRole('link', { name: 'Open Admin center' })).not.toBeInTheDocument();
+  });
+
+  it('says the person is gone and reloads the page when the fresh account read returns 404', async () => {
+    let listCalls = 0;
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: () => json(200, { items: ++listCalls === 1 ? [owner, petr] : [owner], nextCursor: null }),
+      [accountPath(petr.userId)]: json(404, { type: 'about:blank', title: 'Not Found', status: 404, code: 'not_found' }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
+
+    expect(await screen.findByText('That person is no longer a member of this household. The list has been refreshed.')).toBeVisible();
+    await waitFor(() => expect(listCalls).toBe(2));
+    await waitFor(() => expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(1));
+    expect(fake.requests.filter((request) => request.method === 'PATCH' && request.path === `${base}/accounts/${petr.userId}`)).toHaveLength(0);
+  });
+
+  it('settles the only-administrators state when the fresh account read is refused', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, petr], nextCursor: null }),
+      [accountPath(petr.userId)]: forbidden(),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
+
+    expect(await screen.findByRole('heading', { name: 'Only administrators can open the Admin center.' })).toBeVisible();
+    expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(0);
+  });
+
+  it('keeps the list and speaks the common failure when the fresh account read fails', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, petr], nextCursor: null }),
+      [accountPath(petr.userId)]: json(500, { type: 'about:blank', title: 'Unavailable', status: 500 }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
+
+    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(rowOf('petr')).toHaveTextContent('Member');
+  });
+
+  it('says the person is gone and reloads the page when the change returns 404', async () => {
+    let listCalls = 0;
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: () => json(200, { items: ++listCalls === 1 ? [owner, petr] : [owner], nextCursor: null }),
+      [accountPath(petr.userId)]: json(200, petr, { ETag: '"6"' }),
+      [changePath(petr.userId)]: json(404, { type: 'about:blank', title: 'Not Found', status: 404, code: 'not_found' }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
+
+    expect(await screen.findByText('That person is no longer a member of this household. The list has been refreshed.')).toBeVisible();
+    await waitFor(() => expect(listCalls).toBe(2));
+    await waitFor(() => expect(screen.getByRole('main').querySelectorAll('li[data-account-id]')).toHaveLength(1));
+  });
+
+  it('keeps the list and speaks the common failure when the change loses the network', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [owner, petr], nextCursor: null }),
+      [accountPath(petr.userId)]: json(200, petr, { ETag: '"6"' }),
+      [changePath(petr.userId)]: () => Promise.reject(new Error('offline')),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+    await userEvent.click(screen.getByRole('button', { name: 'Make administrator: petr' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Make administrator' }));
+
+    expect(await screen.findByText('That didn’t work. Check your connection and try again.')).toBeVisible();
+    expect(rowOf('petr')).toHaveTextContent('Member');
+    expect(screen.getByRole('button', { name: 'Make administrator: petr' })).toBeEnabled();
+  });
+
+  it('keeps the current page and offers an inline retry when a pager load fails', async () => {
+    let failNextPage = true;
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: (request) => {
+        if (!request.query.get('cursor')) return json(200, { items: [owner, petr], nextCursor: 'page-2' });
+        if (failNextPage) return json(503, { type: 'about:blank', title: 'Unavailable', status: 503, code: 'unavailable' });
+        return json(200, { items: [both], nextCursor: null });
+      },
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('petr')).toBeVisible());
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Accounts' })).getByRole('button', { name: 'Next page' }));
+
+    // The failed page keeps the rows already on screen and offers a retry instead of jumping back to page one.
+    expect(await screen.findByText('Accounts couldn’t be loaded. Check your connection and try again.')).toBeVisible();
+    expect(rowOf('anna')).toBeVisible();
+    expect(rowOf('petr')).toBeVisible();
+    expect(within(screen.getByRole('navigation', { name: 'Accounts' })).getByText('Page 1')).toBeVisible();
+
+    failNextPage = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(rowOf('jana')).toBeVisible());
+    expect(screen.queryByText('Accounts couldn’t be loaded. Check your connection and try again.')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Accounts' })).getByText('Page 2')).toBeVisible();
+    expect(fake.requests.filter((request) => request.method === 'GET' && request.path === `${base}/accounts` && request.query.get('cursor') === 'page-2')).toHaveLength(2);
   });
 
   it('renders the Czech Admin center', async () => {

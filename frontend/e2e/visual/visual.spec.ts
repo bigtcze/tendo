@@ -467,11 +467,15 @@ test('Admin center and the member refusal', async ({ browser }) => {
   await page.goto('/admin');
   await expect(page.getByRole('heading', { level: 1, name: en['admin.title'] })).toBeVisible();
   const accounts = page.getByRole('main').getByRole('list', { name: en['admin.list.title'] });
-  // The owner plus the two members the reference and shared fixtures created.
-  await expect(accounts.getByRole('listitem')).toHaveCount(3);
-  await expect(accounts.getByRole('listitem').filter({ hasText: OWNER_LOGIN })).toContainText(en['members.you']);
-  await expect(accounts.getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN })).toContainText(en['members.role.member']);
-  await expect(accounts.getByRole('listitem').filter({ hasText: 'visual_member' })).toContainText(en['members.role.member']);
+  // The named fixtures are what this capture is about; another seeded member must not invalidate it.
+  const ownerAccountRow = accounts.getByRole('listitem').filter({ hasText: OWNER_LOGIN });
+  const referenceAccountRow = accounts.getByRole('listitem').filter({ hasText: REFERENCE_MEMBER_LOGIN });
+  const visualMemberAccountRow = accounts.getByRole('listitem').filter({ hasText: 'visual_member' });
+  await expect(ownerAccountRow).toBeVisible();
+  await expect(ownerAccountRow).toContainText(en['members.you']);
+  await expect(referenceAccountRow).toContainText(en['members.role.member']);
+  await expect(visualMemberAccountRow).toContainText(en['members.role.member']);
+  expect(await accounts.getByRole('listitem').count()).toBeGreaterThanOrEqual(3);
   await darkScreen(browser, statePath, '/admin', 'admin');
 
   // Czech phone width after the shared dark pass restored the light theme.

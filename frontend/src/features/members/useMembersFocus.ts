@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import type { Member, Invitation } from './membersApi';
 import type { Translate } from '../../i18n';
+import { usePagedHeadingFocus } from '../../app/usePagedHeadingFocus';
 
 type FocusInputs = {
   members: Member[];
@@ -22,24 +23,14 @@ type FocusInputs = {
   revokeButtonsRef: RefObject<Map<string, HTMLButtonElement>>;
 };
 
-/** Moves focus to a page's heading once its page settles, unless the user moved focus elsewhere. */
-function usePageHeadingFocus(pageFocusRef: RefObject<HTMLElement | null>, headingRef: RefObject<HTMLElement | null>, items: unknown, busy: boolean) {
-  useEffect(() => {
-    if (!pageFocusRef.current || busy) return;
-    const active = document.activeElement;
-    if (active === pageFocusRef.current || active === document.body || active === null) headingRef.current?.focus();
-    pageFocusRef.current = null;
-  }, [items, busy, pageFocusRef, headingRef]);
-}
-
 /**
  * Screen focus effects, in their observable order: member page, invitation
  * page, notice, new link, then the Revoke button after a cancelled confirm.
  */
 export function useMembersFocus(f: FocusInputs) {
   const { noticeRef, linkRef, pendingLinkFocusRef, restoreFocusIdRef, revokeButtonsRef, notice, t, link, revokeId } = f;
-  usePageHeadingFocus(f.memberPageFocusRef, f.memberHeadingRef, f.members, f.memberBusy);
-  usePageHeadingFocus(f.invitationPageFocusRef, f.invitationHeadingRef, f.invitations, f.invitationBusy);
+  usePagedHeadingFocus(f.memberPageFocusRef, f.memberHeadingRef, f.members, f.memberBusy);
+  usePagedHeadingFocus(f.invitationPageFocusRef, f.invitationHeadingRef, f.invitations, f.invitationBusy);
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
   }, [notice, t, noticeRef]);

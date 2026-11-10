@@ -14,7 +14,12 @@ type HouseholdDataValue = {
   data: HouseholdData;
   /** Load again from the start, showing the loading state. */
   retry: () => void;
-  /** Re-read quietly, e.g. after the viewer's own role changed; keeps the screen in place. */
+  /**
+   * Re-read quietly, e.g. after the viewer's own role changed; keeps the screen in place.
+   * `viewerRole` is only a hint for the navigation and the Account admin card: it stays stale until the next
+   * refresh, so an authoritative refusal (e.g. a `403 admin_required` because another admin demoted the viewer)
+   * must call this to correct the rail and the Account card.
+   */
   refresh: () => void;
 };
 

@@ -23,7 +23,11 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
 }) {
   const { t } = useI18n();
   const household = useHouseholdData();
-  const list = useAccountList(householdId, onSignedOut);
+  const list = useAccountList(householdId, onSignedOut, () => {
+    // An authoritative `admin_required` means the viewerRole hint may be stale (another admin demoted the
+    // viewer), so re-read the household: the rail entry and the Account admin card follow the real role.
+    household?.refresh();
+  });
   const [notice, setNotice] = useState<NoticeSpec | null>(null);
 
   const change = useRoleChange({
@@ -33,7 +37,10 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
     onNotice: setNotice,
     onReload: list.reload,
     onAccount: list.replaceAccount,
-    onForbidden: list.markForbidden,
+    onForbidden: () => {
+      list.markForbidden();
+      household?.refresh();
+    },
     onSelfDemoted: () => {
       list.markForbidden();
       // The navigation entry and this screen both follow the viewer's real role.
@@ -52,18 +59,21 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
       {list.state === 'loading' ? <AdminListSkeleton label={t('admin.loading')} /> : null}
       {list.state === 'error' ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retry} t={t} /> : null}
       {list.state === 'forbidden' ? <AdminOnlyAdmins t={t} /> : null}
-      {list.state === 'ready' ? <AdminAccountList
-        accounts={list.accounts}
-        viewerId={viewerId}
-        busy={list.busy || change.busy}
-        headingRef={list.headingRef}
-        stack={list.stack}
-        nextCursor={list.nextCursor}
-        onPrevious={list.previous}
-        onNext={list.next}
-        onChange={change.request}
-        t={t}
-      /> : null}
+      {list.state === 'ready' ? <>
+        <AdminAccountList
+          accounts={list.accounts}
+          viewerId={viewerId}
+          busy={list.busy || change.busy}
+          headingRef={list.headingRef}
+          stack={list.stack}
+          nextCursor={list.nextCursor}
+          onPrevious={list.previous}
+          onNext={list.next}
+          onChange={change.request}
+          t={t}
+        />
+        {list.pageFailure ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retryPage} t={t} /> : null}
+      </> : null}
     </section>
     <RoleChangeDialog
       pending={change.pending}

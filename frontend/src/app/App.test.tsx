@@ -205,6 +205,7 @@ describe('signed in', () => {
       const labels = [...link.querySelectorAll('span')].map((span) => span.textContent?.trim() ?? '');
       expect(labels.length, `${name} has a compact and a full label`).toBe(2);
       for (const label of labels) {
+        expect(label, `${name} label is not empty`).not.toBe('');
         expect(name.toLocaleLowerCase(locale), `${name} contains visible label ${label}`).toContain(label.toLocaleLowerCase(locale));
       }
       expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');

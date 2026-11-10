@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { useHouseholdData } from '../../app/HouseholdData';
 import { Layout } from '../../app/Layout';
@@ -42,18 +41,17 @@ export function HomeScreen({
 }) {
   const { t } = useI18n();
   const household = useHouseholdData();
-  const fallbackRetry = useCallback(() => {}, []);
-  const retry = household?.retry ?? fallbackRetry;
+  if (!household) throw new Error('HomeScreen must render inside the HouseholdData provider');
 
   return (
     <Layout actions={<AccountActions login={session.login} onSignedOut={onSignedOut} />}>
       {homeNotice && onDismissNotice ? <HomeNotice notice={homeNotice} onDismiss={onDismissNotice} /> : null}
-      {household?.data.kind === 'loading' ? <LoadingScreen message={t('home.loading')} /> : null}
-      {household?.data.kind === 'error' ? <ErrorScreen onRetry={retry} /> : null}
-      {household?.data.kind === 'none' ? (
+      {household.data.kind === 'loading' ? <LoadingScreen message={t('home.loading')} /> : null}
+      {household.data.kind === 'error' ? <ErrorScreen onRetry={household.retry} /> : null}
+      {household.data.kind === 'none' ? (
         <NoHouseholdScreen onSignedOut={onSignedOut} onDiscarded={onContinuePending ?? onSignedOut} />
       ) : null}
-      {household?.data.kind === 'ready' ? (
+      {household.data.kind === 'ready' ? (
         <section className="settle">
           <ItemsScreen
             key={`${session.userId}:${household.data.household.id}`}

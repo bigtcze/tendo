@@ -28,7 +28,7 @@ Members cannot create, see, or revoke invitations.
 
 ## Admin center
 
-Administrators have an **Admin center** in addition to the member list. On a computer it is the last entry in the sidebar; on a phone or tablet, open **Account** and choose **Open Admin center**, because the bottom bar keeps its five household destinations.
+Administrators have an **Admin center** in addition to the member list. On a computer it is the last entry in the sidebar. On any screen size you can also open **Account** and choose **Open Admin center**; on a phone or tablet this is the way in, because the bottom bar keeps its five household destinations.
 
 The Admin center lists everyone in the household with their login, whether they are an administrator or a member, and how they sign in (password, single sign-on, or both). Long lists page 50 accounts at a time.
 

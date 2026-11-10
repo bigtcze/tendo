@@ -11,8 +11,9 @@ const accountPath = '/api/v1/households/{householdId}/accounts/{userId}';
 function problemCode(error: unknown): string | undefined {
   return (error as { code?: string } | undefined)?.code;
 }
+/** The account routes answer `admin_required` for a member; the legacy `owner_required` belongs to invitations only. */
 function isAdminRequired(code: string | undefined): boolean {
-  return code === 'admin_required' || code === 'owner_required';
+  return code === 'admin_required';
 }
 
 export type AccountPage = { kind: 'ok'; items: Account[]; nextCursor: string | null } | { kind: 'unauthenticated' | 'forbidden' | 'rejected' | 'notFound' | 'error' };
