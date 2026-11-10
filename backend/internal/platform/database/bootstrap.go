@@ -112,16 +112,31 @@ func runtimeRoleExists(ctx context.Context, tx pgx.Tx) (bool, error) {
 // password is quoted by PostgreSQL and never appears in a Go string, log line
 // or wrapped error. The generated statement is not included in errors.
 func createRuntimeRole(ctx context.Context, tx pgx.Tx, password string) error {
-	var statement string
-	if err := tx.QueryRow(ctx, `
-		SELECT format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L', $1, $2)`,
-		runtimeRoleName, password).Scan(&statement); err != nil {
-		return errors.New("database runtime role creation failed")
+	statement, err := runtimeRoleCreateStatement(ctx, tx, password)
+	if err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, statement); err != nil {
 		return errors.New("database runtime role creation failed")
 	}
 	return nil
+}
+
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// runtimeRoleCreateStatement asks PostgreSQL to quote the role name and
+// password. format() is variadic "any", so both parameters need explicit text
+// casts; without them PostgreSQL cannot infer their types and fails.
+func runtimeRoleCreateStatement(ctx context.Context, q rowQuerier, password string) (string, error) {
+	var statement string
+	if err := q.QueryRow(ctx, `
+		SELECT format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L', $1::text, $2::text)`,
+		runtimeRoleName, password).Scan(&statement); err != nil {
+		return "", errors.New("database runtime role creation failed")
+	}
+	return statement, nil
 }
 
 // applyRuntimeGrants is idempotent and safe to repeat on every startup and on
