@@ -24,8 +24,16 @@ const (
 // fakeService mimics the real service's observable behavior: only (caller,
 // memberID) is a membership; everything else is not found.
 type fakeService struct {
-	calls int
-	err   error
+	calls      int
+	err        error
+	viewerRole string
+}
+
+func (f *fakeService) role() string {
+	if f.viewerRole == "" {
+		return household.RoleAdmin
+	}
+	return f.viewerRole
 }
 
 func (f *fakeService) Get(_ context.Context, userID, householdID string) (household.Household, error) {
@@ -36,7 +44,7 @@ func (f *fakeService) Get(_ context.Context, userID, householdID string) (househ
 	if userID != callerID || householdID != memberID {
 		return household.Household{}, household.ErrNotFound
 	}
-	return household.Household{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 42}, nil
+	return household.Household{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 42, ViewerRole: f.role()}, nil
 }
 
 type fixture struct {
@@ -82,16 +90,28 @@ func TestGetHouseholdReturnsExactBodyAndHeaders(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
-	if got, want := strings.TrimSpace(w.Body.String()), `{"createdAt":"2026-10-06T10:00:00Z","id":"`+memberID+`","name":"Veselí 家族","timezone":"Europe/Prague"}`; !jsonEqual(t, got, want) {
+	if got, want := strings.TrimSpace(w.Body.String()), `{"createdAt":"2026-10-06T10:00:00Z","id":"`+memberID+`","name":"Veselí 家族","timezone":"Europe/Prague","viewerRole":"admin"}`; !jsonEqual(t, got, want) {
 		t.Fatalf("body=%s want=%s", got, want)
 	}
 	var keys map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &keys)
-	if len(keys) != 4 {
+	if len(keys) != 5 {
 		t.Fatalf("unexpected fields (version must not leak): %v", keys)
 	}
 	if w.Header().Get("ETag") != `"42"` || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("headers=%v", w.Header())
+	}
+}
+
+func TestGetHouseholdReportsMemberViewerRole(t *testing.T) {
+	f := newFixture(true)
+	f.svc.viewerRole = household.RoleMember
+	w := f.get("/api/v1/households/" + memberID)
+	var body struct {
+		ViewerRole string `json:"viewerRole"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != 200 || body.ViewerRole != "member" {
+		t.Fatalf("status=%d body=%s err=%v", w.Code, w.Body, err)
 	}
 }
 

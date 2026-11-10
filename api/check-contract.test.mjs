@@ -320,7 +320,7 @@ test('household fixtures enforce the ETag pattern, problem media type, and body 
   const fixturePath = join(directory, 'responses.json')
   const path = '/api/v1/households/{householdId}'
   const base = { 'x-request-id': 'contract-check', 'cache-control': 'no-store' }
-  const household = { id: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', name: 'Veselí', timezone: 'Europe/Prague', createdAt: '2026-10-06T10:00:00Z' }
+  const household = { id: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', name: 'Veselí', timezone: 'Europe/Prague', createdAt: '2026-10-06T10:00:00Z', viewerRole: 'admin' }
   const ok = { path, method: 'get', status: 200, headers: { ...base, 'content-type': 'application/json', etag: '"1"' }, body: household }
   const notFound = { path, method: 'get', status: 404, headers: { ...base, 'content-type': 'application/problem+json' }, body: { type: 'about:blank', title: 'Not Found', status: 404, code: 'not_found' } }
   const run = async fixture => {
@@ -339,7 +339,9 @@ test('household fixtures enforce the ETag pattern, problem media type, and body 
       ['zero version ETag', ok, f => { f.headers.etag = '"0"' }, 'ETag does not match'],
       ['missing ETag', ok, f => { delete f.headers.etag }, 'missing ETag'],
       ['extra version field', ok, f => { f.body = { ...household, version: 1 } }, 'body invalid'],
-      ['missing timezone', ok, f => { f.body = { id: household.id, name: household.name, createdAt: household.createdAt } }, 'body invalid'],
+      ['missing timezone', ok, f => { f.body = { id: household.id, name: household.name, createdAt: household.createdAt, viewerRole: 'admin' } }, 'body invalid'],
+      ['missing viewerRole', ok, f => { const { viewerRole: _omit, ...rest } = household; f.body = rest }, 'body invalid'],
+      ['legacy owner viewerRole', ok, f => { f.body = { ...household, viewerRole: 'owner' } }, 'body invalid'],
       ['404 wrong media', notFound, f => { f.headers['content-type'] = 'application/json' }, 'wrong media type'],
       ['404 status mismatch', notFound, f => { f.body.status = 403 }, 'problem status does not match HTTP status'],
       ['undocumented status', notFound, f => { f.status = 409; f.body.status = 409 }, 'undocumented HTTP 409'],

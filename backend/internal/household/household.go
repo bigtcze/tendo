@@ -23,6 +23,10 @@ type Household struct {
 	Timezone  string
 	CreatedAt time.Time
 	Version   int64
+	// ViewerRole is the caller's membership role (RoleAdmin or RoleMember),
+	// read with the household. It only drives presentation; admin operations
+	// re-authorize through RequireAdmin.
+	ViewerRole string
 }
 
 // Repository loads households visible to a member. FindForMember returns
@@ -49,6 +53,9 @@ func (s *Service) Get(ctx context.Context, userID, householdID string) (Househol
 		return Household{}, ErrNotFound
 	}
 	if err != nil {
+		return Household{}, errUnavailable
+	}
+	if found.ViewerRole != RoleAdmin && found.ViewerRole != RoleMember {
 		return Household{}, errUnavailable
 	}
 	return found, nil

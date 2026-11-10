@@ -35,5 +35,5 @@ func (r *Repository) FindForMember(ctx context.Context, userID, householdID stri
 	if err != nil {
 		return household.Household{}, errors.New("household persistence failed")
 	}
-	return household.Household{ID: row.ID, Name: row.Name, Timezone: row.Timezone, CreatedAt: row.CreatedAt.Time.UTC(), Version: row.Version}, nil
+	return household.Household{ID: row.ID, Name: row.Name, Timezone: row.Timezone, CreatedAt: row.CreatedAt.Time.UTC(), Version: row.Version, ViewerRole: row.ViewerRole}, nil
 }
