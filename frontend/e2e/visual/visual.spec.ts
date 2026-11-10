@@ -608,7 +608,16 @@ async function issueVisualReset(page: Page): Promise<string> {
   await row.getByRole('button', { name: resetLabel, exact: true }).or(row.getByRole('button', { name: renewLabel, exact: true })).click();
   await page.getByRole('dialog').getByRole('button', { name: en['admin.reset.dialog.confirm'], exact: true }).click();
   const linkDialog = page.getByRole('dialog', { name: en['admin.reset.link.title'].replace('{login}', 'visual_member') });
-  return linkDialog.getByRole('textbox', { name: en['admin.reset.link.label'] }).inputValue();
+  const field = linkDialog.getByRole('textbox', { name: en['admin.reset.link.label'] });
+  await expect(field).toBeFocused();
+  const link = await field.inputValue();
+  // The native runner listens on a random port, so the real origin would change the pixels every run.
+  // Only the displayed text is pinned (no region is masked); the real link is returned for the redeem captures.
+  await field.evaluate((input: HTMLInputElement, pinned) => {
+    input.value = pinned;
+    input.setSelectionRange(0, pinned.length);
+  }, `https://tendo.example/reset-password#${VISUAL_RESET_TOKEN}`);
+  return link;
 }
 
 /** A fixed, valid-shaped token keeps the one-time-link dialog and the reset screen byte-identical between runs. */

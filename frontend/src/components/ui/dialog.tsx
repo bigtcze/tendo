@@ -99,7 +99,10 @@ export function Dialog({
         if (target?.isConnected) target.focus();
       }}
       className={cn(
-        'max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
+        // Tailwind preflight zeroes every margin, which also removes the UA `margin: auto` that centres a
+        // modal dialog. Non-sheet dialogs therefore centre themselves explicitly; sheet mode below replaces
+        // this with `m-0` (and its own md positioning), and twMerge keeps that override.
+        'm-auto max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
         sheetClasses,
       )}
     >

@@ -93,7 +93,7 @@ type AccountService struct {
 	clock      func() time.Time
 }
 
-func NewAccountService(repository AccountRepository, logins LoginLookup, signIn SignInMethodsLookup, clock func() time.Time, resets PasswordResetLookup) *AccountService {
+func NewAccountService(repository AccountRepository, logins LoginLookup, signIn SignInMethodsLookup, resets PasswordResetLookup, clock func() time.Time) *AccountService {
 	if clock == nil {
 		clock = time.Now
 	}

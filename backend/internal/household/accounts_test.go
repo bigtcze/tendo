@@ -127,7 +127,7 @@ func accountFixture() (*accountFake, *AccountService) {
 	repository.order = []string{accountActor, accountTarget}
 	logins := accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}
 	signIn := accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {OIDC: true}}}
-	service := NewAccountService(repository, logins, signIn, func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) }, accountResetFake{})
+	service := NewAccountService(repository, logins, signIn, accountResetFake{}, func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) })
 	return repository, service
 }
 
@@ -164,21 +164,21 @@ func TestListAccountsJoinsIdentityFactsAndFailsClosed(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	repository, _ := accountFixture()
 	resets := accountResetFake{resets: map[string]PasswordReset{accountTarget: {CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}}}
-	withReset := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {OIDC: true}}}, time.Now, resets)
+	withReset := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {OIDC: true}}}, resets, time.Now)
 	account, err := withReset.GetAccount(context.Background(), accountActor, accountHouse, accountTarget)
 	if err != nil || account.PasswordReset == nil || !account.PasswordReset.ExpiresAt.Equal(now.Add(24*time.Hour)) {
 		t.Fatalf("account=%+v err=%v", account, err)
 	}
 
-	missing := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}}}, time.Now, accountResetFake{})
+	missing := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}}}, accountResetFake{}, time.Now)
 	if _, _, err := missing.ListAccounts(context.Background(), accountActor, accountHouse, "", 50); err == nil {
 		t.Fatal("missing sign-in methods defaulted instead of failing")
 	}
-	missing = NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {}, accountTarget: {}}}, time.Now, accountResetFake{})
+	missing = NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {}, accountTarget: {}}}, accountResetFake{}, time.Now)
 	if _, _, err := missing.ListAccounts(context.Background(), accountActor, accountHouse, "", 50); err == nil {
 		t.Fatal("missing login defaulted instead of failing")
 	}
-	resetDown := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {}}}, time.Now, nil)
+	resetDown := NewAccountService(repository, accountLoginFake{logins: map[string]string{accountActor: "alice", accountTarget: "bob"}}, accountSignInFake{methods: map[string]SignInMethods{accountActor: {Password: true}, accountTarget: {}}}, nil, time.Now)
 	if _, _, err := resetDown.ListAccounts(context.Background(), accountActor, accountHouse, "", 50); err == nil {
 		t.Fatal("missing password-reset lookup defaulted instead of failing")
 	}

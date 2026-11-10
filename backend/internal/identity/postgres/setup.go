@@ -37,6 +37,13 @@ type Repository struct {
 	// (user_id, issuer) binding before the invitation acceptance and identity
 	// insert. Production leaves it nil.
 	beforeIdentityBind func()
+	// beforeSessionInsert is a test-only barrier that runs after the password
+	// was verified and before the login revalidation transaction opens.
+	beforeSessionInsert func()
+	// beforeSessionCommit is a test-only barrier that runs while the login
+	// transaction still holds the credential share lock, after the session row
+	// is written and before the commit.
+	beforeSessionCommit func()
 }
 
 // New builds the identity repository. The member-person factory is required for

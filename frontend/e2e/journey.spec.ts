@@ -1491,6 +1491,7 @@ test.describe('Tendo production journey', () => {
       expect(link.startsWith(`${baseURL}/reset-password#`)).toBe(true);
       expect(new URL(link).hash).toMatch(/^#[A-Za-z0-9_-]{43}$/);
       await expect(memberRow).toContainText(en['admin.reset.active'].replace(' {date}', ''));
+      await expectNoAxeViolations(page, 'admin-reset-link-dialog');
 
       await linkDialog.getByRole('button', { name: en['admin.reset.link.copy'], exact: true }).click();
       await expect(linkDialog.getByRole('button', { name: en['admin.reset.link.copiedButton'], exact: true })).toBeVisible();
@@ -1510,6 +1511,17 @@ test.describe('Tendo production journey', () => {
         expect(new URL(resetPage.url()).pathname).toBe('/reset-password');
         expect(new URL(resetPage.url()).hash).toBe('');
         await expect(resetPage.getByRole('heading', { level: 1, name: en['reset.title'] })).toBeVisible();
+        await expectNoAxeViolations(resetPage, 'reset-password');
+
+        // One real 320 CSS px pass: no page overflow and a clean accessibility scan at phone width.
+        const resetViewport = resetPage.viewportSize();
+        await resetPage.setViewportSize({ width: 320, height: 640 });
+        try {
+          expect(await resetPage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), '320px reset-password overflow').toBeLessThanOrEqual(0);
+          await expectNoAxeViolations(resetPage, 'reset-password-320');
+        } finally {
+          if (resetViewport) await resetPage.setViewportSize(resetViewport);
+        }
 
         // A confirmation mismatch never reaches the server.
         await resetPage.getByLabel(en['reset.password'], { exact: true }).fill(newPassword);

@@ -41,11 +41,21 @@ func (f *fakeSessionRepo) PruneExpired(_ context.Context, userID string, now tim
 	f.prunedAt = append(f.prunedAt, now)
 	return nil
 }
-func (f *fakeSessionRepo) CreateSession(_ context.Context, s NewSession) (string, error) {
-	f.created = append(f.created, s)
+func (f *fakeSessionRepo) CreateVerifiedSession(_ context.Context, v VerifiedSession) (string, error) {
+	matched := false
+	for _, record := range f.logins {
+		if record.Principal.UserID == v.Session.UserID && record.PasswordHash == v.PasswordHash && record.CredentialVersion == v.CredentialVersion {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return "", ErrInvalidCredentials
+	}
+	f.created = append(f.created, v.Session)
 	f.writes++
 	id := "session-id"
-	f.sessions[string(s.TokenHash)] = SessionInfo{ID: id, ExpiresAt: s.ExpiresAt, Principal: Principal{UserID: s.UserID, Login: "owner_1", DefaultHouseholdID: "house-1"}}
+	f.sessions[string(v.Session.TokenHash)] = SessionInfo{ID: id, ExpiresAt: v.Session.ExpiresAt, Principal: Principal{UserID: v.Session.UserID, Login: "owner_1", DefaultHouseholdID: "house-1"}}
 	return id, nil
 }
 func (f *fakeSessionRepo) FindActive(_ context.Context, hash []byte, now time.Time) (SessionInfo, error) {

@@ -1289,7 +1289,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Misdirected Request, status: 421 }
         '429':
-          description: Issuance rate limit exceeded.
+          description: 'Issuance rate limit exceeded: at most 10 requests per client address per minute, and at most 5 links issued for the same target account per hour.'
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Retry-After: { schema: { type: integer, minimum: 1 } } }
           content:
             application/problem+json:

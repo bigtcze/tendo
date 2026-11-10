@@ -31,6 +31,7 @@ func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
 		{"UPDATE", "revoked_at", "password_reset_tokens", true},
 		{"UPDATE", "token_hash", "password_reset_tokens", false},
 		{"UPDATE", "", "local_credentials", true},
+		{"UPDATE", "credential_version", "local_credentials", true},
 	} {
 		var got bool
 		var err error
@@ -42,6 +43,12 @@ func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
 		if err != nil || got != check.want {
 			t.Errorf("%s %s.%s = %v, want %v (err=%v)", check.privilege, check.table, check.column, got, check.want, err)
 		}
+	}
+
+	var credentialVersionDefault string
+	var credentialVersionNullable string
+	if err := admin.QueryRow(ctx, `SELECT column_default, is_nullable FROM information_schema.columns WHERE table_name='local_credentials' AND column_name='credential_version'`).Scan(&credentialVersionDefault, &credentialVersionNullable); err != nil || credentialVersionDefault != "1" || credentialVersionNullable != "NO" {
+		t.Fatalf("credential_version default=%q nullable=%q err=%v", credentialVersionDefault, credentialVersionNullable, err)
 	}
 
 	var householdID, ownerID, targetID string
@@ -71,6 +78,10 @@ func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
 	var version int64
 	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 19 {
 		t.Fatalf("ledger after Down=%d err=%v", version, err)
+	}
+	var credentialVersionColumns int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name='local_credentials' AND column_name='credential_version'`).Scan(&credentialVersionColumns); err != nil || credentialVersionColumns != 0 {
+		t.Fatalf("credential_version survived Down: %d err=%v", credentialVersionColumns, err)
 	}
 
 	if _, err := admin.Exec(ctx, `DELETE FROM tendo_schema_migrations WHERE version=20`); err != nil {

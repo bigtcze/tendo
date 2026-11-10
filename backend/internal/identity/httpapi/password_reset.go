@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/identity"
@@ -14,6 +15,12 @@ import (
 )
 
 const passwordResetBodyLimit = 4096
+
+// passwordResetTargetLimit caps how often one target account can have a link
+// issued per hour, independent of the issuing admin or client address, so
+// issuance cannot be used to flood a person or to probe accounts.
+const passwordResetTargetLimit = 5
+const passwordResetTargetWindow = time.Hour
 
 var passwordResetRedeemFields = map[string]httpx.Field{
 	"token":    {Kind: httpx.KindString, Required: true},
@@ -34,11 +41,19 @@ type PasswordResetHandler struct {
 	auth        func(http.Handler) http.Handler
 	userID      func(context.Context) (string, bool)
 	adminLimit  *limiter
+	targetLimit *limiter
 	redeemLimit *limiter
 }
 
 func NewPasswordReset(s passwordResetService, auth func(http.Handler) http.Handler, userID func(context.Context) (string, bool)) *PasswordResetHandler {
-	return &PasswordResetHandler{service: s, auth: auth, userID: userID, adminLimit: newLimiter(10), redeemLimit: newLimiter(5)}
+	return &PasswordResetHandler{
+		service:     s,
+		auth:        auth,
+		userID:      userID,
+		adminLimit:  newLimiter(10),
+		targetLimit: newWindowLimiter(passwordResetTargetLimit, passwordResetTargetWindow),
+		redeemLimit: newLimiter(5),
+	}
 }
 
 func (h *PasswordResetHandler) Register(r chi.Router) {
@@ -54,6 +69,10 @@ func (h *PasswordResetHandler) issue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.adminLimit.admitAttempt(clientIP(r)) {
+		rateLimited(w)
+		return
+	}
+	if !h.targetLimit.admitAttempt(chi.URLParam(r, "userId")) {
 		rateLimited(w)
 		return
 	}

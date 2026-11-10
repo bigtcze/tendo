@@ -57,6 +57,21 @@ describe('reset-password screen', () => {
     expect(screen.queryByRole('button', { name: 'Save new password' })).toBeVisible();
   });
 
+  it('shows the missing-link state after a reload no longer carries the fragment', async () => {
+    const fake = installFakeServer(signedOutBoot);
+    const first = open(`${RESET_PATH}#${TOKEN}`);
+    await screen.findByRole('heading', { level: 1, name: 'Choose a new password' });
+    expect(window.location.hash).toBe('');
+    first.unmount();
+
+    // A reload creates a fresh mount from the scrubbed address: the token exists only in the previous memory.
+    render(<I18nProvider><App /></I18nProvider>);
+    expect(await screen.findByRole('heading', { level: 1, name: 'This reset link can’t be used' })).toBeVisible();
+    expect(screen.getByText('This reset link is no longer valid. Ask a household administrator for a new one.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Save new password' })).not.toBeInTheDocument();
+    expect(fake.requests.some((request) => `${request.method} ${request.path}` === resetPath)).toBe(false);
+  });
+
   it('blocks a mismatch locally and points at the confirmation field', async () => {
     const fake = installFakeServer(signedOutBoot);
     open(`${RESET_PATH}#${TOKEN}`);

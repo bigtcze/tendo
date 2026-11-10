@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -137,7 +138,7 @@ func TestPasswordResetIssueStrictBodyAndLimiter(t *testing.T) {
 	service := &passwordResetFakeService{issued: identity.PasswordResetIssued{Token: strings.Repeat("A", 43)}}
 	router = passwordResetRouter(service, true)
 	for n := 0; n < 10; n++ {
-		w = req(router, http.MethodPost, "/api/v1/households/house/accounts/target/password-reset", `{}`, "application/json", nil)
+		w = req(router, http.MethodPost, fmt.Sprintf("/api/v1/households/house/accounts/target-%d/password-reset", n), `{}`, "application/json", nil)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("attempt %d status=%d", n, w.Code)
 		}
@@ -149,6 +150,33 @@ func TestPasswordResetIssueStrictBodyAndLimiter(t *testing.T) {
 	}
 	if service.calls != 10 {
 		t.Fatalf("limiter admitted calls=%d", service.calls)
+	}
+}
+
+func TestPasswordResetIssueTargetThrottle(t *testing.T) {
+	service := &passwordResetFakeService{issued: identity.PasswordResetIssued{Token: strings.Repeat("A", 43)}}
+	router := passwordResetRouter(service, true)
+	path := "/api/v1/households/house/accounts/target/password-reset"
+	for n := 0; n < passwordResetTargetLimit; n++ {
+		if w := req(router, http.MethodPost, path, `{}`, "application/json", nil); w.Code != http.StatusCreated {
+			t.Fatalf("issue %d status=%d", n, w.Code)
+		}
+	}
+	w := req(router, http.MethodPost, path, `{}`, "application/json", nil)
+	assertPasswordResetProblem(t, w, 429, "rate_limited")
+	if w.Header().Get("Retry-After") != "60" {
+		t.Fatalf("Retry-After=%q", w.Header().Get("Retry-After"))
+	}
+	if service.calls != passwordResetTargetLimit {
+		t.Fatalf("per-target limiter admitted calls=%d", service.calls)
+	}
+	// The bucket belongs to the target, not to the client address: a different
+	// member can still be reset, and cancelling is never target-throttled.
+	if w = req(router, http.MethodPost, "/api/v1/households/house/accounts/other/password-reset", `{}`, "application/json", nil); w.Code != http.StatusCreated {
+		t.Fatalf("other target status=%d body=%s", w.Code, w.Body.String())
+	}
+	if w = req(router, http.MethodDelete, path, "", "", nil); w.Code != http.StatusNoContent {
+		t.Fatalf("revoke status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

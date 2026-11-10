@@ -39,6 +39,8 @@ type Querier interface {
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)
 	LinkedOIDCIdentity(ctx context.Context, arg LinkedOIDCIdentityParams) (bool, error)
 	ListInvitations(ctx context.Context, arg ListInvitationsParams) ([]ListInvitationsRow, error)
+	LockCredentialForLogin(ctx context.Context, userID pgtype.UUID) (LockCredentialForLoginRow, error)
+	LockLocalCredential(ctx context.Context, userID pgtype.UUID) (int64, error)
 	LockPasswordResetTarget(ctx context.Context, id pgtype.UUID) (LockPasswordResetTargetRow, error)
 	LockSetupState(ctx context.Context) (bool, error)
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (LockUserForInvitationRow, error)
@@ -51,7 +53,7 @@ type Querier interface {
 	RevokeOutstandingPasswordResetsInHousehold(ctx context.Context, arg RevokeOutstandingPasswordResetsInHouseholdParams) (int64, error)
 	SetDefaultHousehold(ctx context.Context, arg SetDefaultHouseholdParams) error
 	SignInMethodsByUserIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]SignInMethodsByUserIDsRow, error)
-	UpdateLocalCredential(ctx context.Context, arg UpdateLocalCredentialParams) error
+	UpdateLocalCredential(ctx context.Context, arg UpdateLocalCredentialParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

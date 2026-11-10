@@ -49,7 +49,7 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
         : null}
     </div>
     <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-      {reset
+      {reset && !self
         ? <Button variant="quiet" size="small" disabled={busy}
           aria-label={t('admin.reset.cancelLabel', { login: account.login })}
           onClick={() => onCancelReset(account)}>

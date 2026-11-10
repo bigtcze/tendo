@@ -257,6 +257,10 @@ func TestPasswordResetPostgresRedeemSuccessAndFailures(t *testing.T) {
 	if _, err = sessions.Login(ctx, "reset_target", "a brand new long password"); err != nil {
 		t.Fatalf("new password login=%v", err)
 	}
+	var credentialVersion int64
+	if err = admin.QueryRow(ctx, `SELECT credential_version FROM local_credentials WHERE user_id=$1::uuid`, target).Scan(&credentialVersion); err != nil || credentialVersion != 2 {
+		t.Fatalf("credential_version after reset=%d err=%v", credentialVersion, err)
+	}
 	var used bool
 	var sessionsLeft int
 	if err = admin.QueryRow(ctx, `SELECT used_at IS NOT NULL FROM password_reset_tokens WHERE token_hash=$1`, sha256Sum(issued.Token)).Scan(&used); err != nil || !used {

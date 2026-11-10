@@ -4,6 +4,13 @@
 -- Only the SHA-256 digest of a link token is stored. Rows are retained as
 -- audit history; the partial unique index keeps at most one outstanding link
 -- per target account, and issuing again revokes the previous one first.
+
+-- credential_version identifies the stored password. Every password change
+-- increments it; sign-in re-reads it together with the hash under a share lock
+-- before inserting a session, so a reset cannot race a login that verified the
+-- old password. local_credentials carries table-level UPDATE for `tendo`
+-- (001_setup.sql:43), which covers this column; no extra grant is needed.
+ALTER TABLE local_credentials ADD COLUMN credential_version bigint NOT NULL DEFAULT 1;
 CREATE TABLE password_reset_tokens (
  id uuid PRIMARY KEY DEFAULT uuidv7(),
  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
@@ -28,5 +35,6 @@ GRANT SELECT, INSERT ON password_reset_tokens TO tendo;
 GRANT UPDATE (used_at, revoked_at) ON password_reset_tokens TO tendo;
 
 -- +goose Down
+ALTER TABLE local_credentials DROP COLUMN credential_version;
 REVOKE ALL ON password_reset_tokens FROM tendo;
 DROP TABLE password_reset_tokens;

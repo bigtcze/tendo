@@ -448,8 +448,13 @@ describe('Admin center', () => {
 
     const linkDialog = await screen.findByRole('dialog', { name: 'Reset link for jana' });
     const link = `${window.location.origin}/reset-password#${token}`;
-    expect(within(linkDialog).getByRole('textbox', { name: 'Reset link' })).toHaveValue(link);
-    expect(within(linkDialog).getByRole('textbox', { name: 'Reset link' })).toHaveAttribute('readonly');
+    const linkField = within(linkDialog).getByRole('textbox', { name: 'Reset link' }) as HTMLInputElement;
+    expect(linkField).toHaveValue(link);
+    expect(linkField).toHaveAttribute('readonly');
+    // Focus lands on the one-time link after the dialog opens, and the field selects itself for copying.
+    await waitFor(() => expect(linkField).toHaveFocus());
+    expect(linkField.selectionStart).toBe(0);
+    expect(linkField.selectionEnd).toBe(link.length);
     expect(linkDialog).toHaveTextContent('This link works once and expires');
     const issue = fake.requests.find((request) => request.method === 'POST' && request.path === `${base}/accounts/${both.userId}/password-reset`);
     expect(issue?.body).toBe('{}');
@@ -498,6 +503,29 @@ describe('Admin center', () => {
     expect(field.selectionStart).toBe(0);
     expect(field.selectionEnd).toBe(field.value.length);
     expect(within(linkDialog).getByRole('button', { name: 'Copy' })).toBeVisible();
+  });
+
+  it('keeps the active-link note on the viewer’s own row but offers no cancel the server would refuse', async () => {
+    const viewerReset: Account = {
+      ...owner,
+      passwordReset: { createdAt: '2030-01-01T10:30:00Z', expiresAt: '2030-01-02T10:30:00Z' },
+    };
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [`GET ${base}`]: json(200, household),
+      ...itemRoutes(base, []),
+      [accountsPath]: json(200, { items: [viewerReset, both], nextCursor: null }),
+    });
+    app('/admin');
+    await waitFor(() => expect(rowOf('anna')).toBeVisible());
+
+    expect(rowOf('anna')).toHaveTextContent('Reset link active until');
+    expect(within(rowOf('anna')).queryByRole('button', { name: 'Cancel the reset link: anna' })).not.toBeInTheDocument();
+    expect(within(rowOf('anna')).queryByRole('button', { name: 'Reset password: anna' })).not.toBeInTheDocument();
+    expect(within(rowOf('anna')).queryByRole('button', { name: 'Create a new reset link: anna' })).not.toBeInTheDocument();
+    expect(within(rowOf('anna')).getByRole('button', { name: 'Make member: anna' })).toBeVisible();
+    // Someone else's outstanding link still has both actions.
+    expect(within(rowOf('jana')).getByRole('button', { name: 'Reset password: jana' })).toBeVisible();
   });
 
   it('shows an outstanding link, replaces it, and cancels it without touching the account', async () => {

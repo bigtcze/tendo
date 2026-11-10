@@ -49,11 +49,21 @@ Each link:
 - sets the password and signs that person out everywhere, so they must sign in again,
 - is replaced when you reset the same person again, because only one link can be active at a time.
 
-Select **Cancel** on an outstanding reset if it should no longer be used. The person cannot use a cancelled or replaced link; ask them to tell you if a link no longer works, then create a new one.
+Select **Cancel link** on an outstanding reset if it should no longer be used. The person cannot use a cancelled or replaced link; ask them to tell you if a link no longer works, then create a new one.
 
 Password reset works only for accounts with a local password (password only, or password plus single sign-on). A member who signs in only with single sign-on cannot use it, because Tendo does not set passwords for those accounts. Administrators cannot reset their own password through the Admin center; use **Account** instead.
 
 The part of the link after `#` never reaches the server, a proxy, or another site's address, and Tendo removes it from the address bar when the page opens.
+
+## Use a password reset link (members)
+
+An administrator may send you a private reset link. Open it in your browser:
+
+1. Choose a new password of 15 to 128 characters. Tendo does not show or store it anywhere you can read it back, and the link stops working once it is used.
+2. Tendo signs you out on every device, so any browser or phone that was signed in must sign in again. Your items and household are unchanged.
+3. Sign in again with your login and the new password.
+
+If the page says the link can't be used, it has expired, been cancelled, been replaced by a newer link, or already been used. Ask an administrator for a new one. The part of the link after `#` never reaches the server, a proxy, or another site's address.
 
 ## Accept an invitation
 

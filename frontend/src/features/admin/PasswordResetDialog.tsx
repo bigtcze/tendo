@@ -27,18 +27,15 @@ function Confirmation({ pending, busy, onConfirm, onCancel, t }: {
   </div>;
 }
 
-function LinkShown({ issued, onClose }: { issued: IssuedReset; onClose: () => void }) {
+function LinkShown({ issued, inputRef, onClose }: {
+  issued: IssuedReset;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onClose: () => void;
+}) {
   const { t, locale } = useI18n();
   const [copied, setCopied] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const linkRef = useRef<HTMLInputElement>(null);
   const expires = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(issued.expiresAt));
-
-  useEffect(() => {
-    // The link is the point of this dialog: put the caret on it and select it for a quick manual copy.
-    linkRef.current?.focus();
-    linkRef.current?.select();
-  }, []);
 
   async function copy() {
     try {
@@ -47,8 +44,8 @@ function LinkShown({ issued, onClose }: { issued: IssuedReset; onClose: () => vo
       setCopyMessage(t('admin.reset.link.copied'));
     } catch {
       setCopyMessage(t('admin.reset.link.manualCopy'));
-      linkRef.current?.focus();
-      linkRef.current?.select();
+      inputRef.current?.focus();
+      inputRef.current?.select();
     }
   }
 
@@ -56,10 +53,12 @@ function LinkShown({ issued, onClose }: { issued: IssuedReset; onClose: () => vo
     <p className="max-w-prose text-body text-ink">{t('admin.reset.link.lead', { login: issued.account.login })}</p>
     <div className="flex flex-wrap gap-2">
       <input
-        ref={linkRef}
+        ref={inputRef}
         readOnly
         value={issued.link}
         aria-label={t('admin.reset.link.label')}
+        // Selecting on focus is safe after showModal has landed focus here, and makes a manual copy immediate.
+        onFocus={(event) => event.currentTarget.select()}
         className="min-h-11 min-w-0 flex-1 basis-48 rounded-xl border border-field bg-raised px-3 text-small break-all text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
       />
       <Button variant="secondary" onClick={() => void copy()}>
@@ -89,12 +88,20 @@ export function PasswordResetDialog({ pending, issued, busy, triggerRef, onConfi
   onCloseLink: () => void;
 }) {
   const { t } = useI18n();
+  const linkRef = useRef<HTMLInputElement | null>(null);
   const open = pending !== null || issued !== null;
   const title = issued
     ? t('admin.reset.link.title', { login: issued.account.login })
     : pending
       ? t(pending.mode === 'renew' ? 'admin.reset.dialog.renewTitle' : 'admin.reset.dialog.title', { login: pending.account.login })
       : '';
+
+  // Parent effects run after the Dialog child's effect, so this focus lands after showModal; the field
+  // selects itself on focus. initialFocusRef covers a dialog that opens straight on the link phase.
+  useEffect(() => {
+    if (issued) linkRef.current?.focus();
+  }, [issued]);
+
   return <Dialog
     open={open}
     onOpenChange={(next) => { if (!next) { if (issued) onCloseLink(); else onCancel(); } }}
@@ -102,9 +109,10 @@ export function PasswordResetDialog({ pending, issued, busy, triggerRef, onConfi
     closeLabel={t('admin.dialog.close')}
     busy={busy}
     triggerRef={triggerRef}
+    initialFocusRef={issued ? linkRef : undefined}
   >
     {issued
-      ? <LinkShown issued={issued} onClose={onCloseLink} />
+      ? <LinkShown issued={issued} inputRef={linkRef} onClose={onCloseLink} />
       : pending
         ? <Confirmation pending={pending} busy={busy} onConfirm={onConfirm} onCancel={onCancel} t={t} />
         : null}

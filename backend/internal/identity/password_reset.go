@@ -66,7 +66,14 @@ type PasswordResetTransaction interface {
 	CreatePasswordReset(context.Context, CreatePasswordResetInput) (PasswordResetRecord, error)
 	FindPasswordReset(context.Context, []byte, bool) (PasswordResetRecord, error)
 	CompletePasswordReset(context.Context, string, time.Time) (int64, error)
-	UpdateLocalCredential(context.Context, string, string) error
+	// LockLocalCredential takes the credential row FOR UPDATE and reports its
+	// current version; ErrNotFound means the target no longer has a local
+	// password. The lock is held until the transaction ends so a concurrent
+	// sign-in cannot insert a session for the password being replaced.
+	LockLocalCredential(context.Context, string) (int64, error)
+	// UpdateLocalCredential replaces the hash, increments credential_version and
+	// reports the affected row count.
+	UpdateLocalCredential(context.Context, string, string) (int64, error)
 	DeleteUserSessions(context.Context, string) error
 }
 
@@ -270,12 +277,14 @@ func (s *PasswordResetService) applyPasswordReset(ctx context.Context, tx Passwo
 	if err = passwordResetAuthorization(ctx, tx, locked); err != nil {
 		return "", err
 	}
-	local, err := tx.HasLocalCredential(ctx, locked.TargetUserID)
-	if err != nil {
-		return "", err
-	}
-	if !local {
+	// Take the credential row FOR UPDATE before touching the password or the
+	// sessions. A concurrent sign-in that verified the old hash either holds
+	// the share lock first (and its session is deleted below) or waits here and
+	// then fails its own revalidation.
+	if _, err = tx.LockLocalCredential(ctx, locked.TargetUserID); errors.Is(err, ErrNotFound) {
 		return "", ErrInvalidPasswordReset
+	} else if err != nil {
+		return "", err
 	}
 	login, err := tx.FindUserLogin(ctx, locked.TargetUserID)
 	if errors.Is(err, ErrNotFound) {
@@ -291,8 +300,12 @@ func (s *PasswordResetService) applyPasswordReset(ctx context.Context, tx Passwo
 	if rows != 1 {
 		return "", ErrInvalidPasswordReset
 	}
-	if err = tx.UpdateLocalCredential(ctx, locked.TargetUserID, hash); err != nil {
+	rows, err = tx.UpdateLocalCredential(ctx, locked.TargetUserID, hash)
+	if err != nil {
 		return "", err
+	}
+	if rows != 1 {
+		return "", ErrInvalidPasswordReset
 	}
 	if err = tx.DeleteUserSessions(ctx, locked.TargetUserID); err != nil {
 		return "", err

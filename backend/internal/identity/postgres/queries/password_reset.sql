@@ -32,8 +32,11 @@ FROM password_reset_tokens WHERE token_hash=$1 FOR UPDATE;
 UPDATE password_reset_tokens SET used_at=$2
 WHERE id=$1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $2;
 
--- name: UpdateLocalCredential :exec
-UPDATE local_credentials SET password_hash=$2 WHERE user_id=$1;
+-- name: UpdateLocalCredential :execrows
+UPDATE local_credentials SET password_hash=$2, credential_version=credential_version+1 WHERE user_id=$1;
+
+-- name: LockLocalCredential :one
+SELECT credential_version FROM local_credentials WHERE user_id=$1 FOR UPDATE;
 
 -- name: DeleteUserSessions :exec
 DELETE FROM user_sessions WHERE user_id=$1;

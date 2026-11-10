@@ -6013,7 +6013,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Issuance rate limit exceeded. */
+            /** @description Issuance rate limit exceeded: at most 10 requests per client address per minute, and at most 5 links issued for the same target account per hour. */
             429: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

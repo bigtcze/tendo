@@ -55,9 +55,10 @@ type Item struct {
 }
 
 type LocalCredential struct {
-	UserID       pgtype.UUID
-	PasswordHash string
-	CreatedAt    pgtype.Timestamptz
+	UserID            pgtype.UUID
+	PasswordHash      string
+	CreatedAt         pgtype.Timestamptz
+	CredentialVersion int64
 }
 
 type OidcFlow struct {

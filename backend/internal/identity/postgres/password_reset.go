@@ -201,10 +201,22 @@ func (t *passwordResetTx) CompletePasswordReset(ctx context.Context, id string, 
 	return t.q.CompletePasswordReset(ctx, identitydb.CompletePasswordResetParams{ID: resetID, UsedAt: ts(now)})
 }
 
-func (t *passwordResetTx) UpdateLocalCredential(ctx context.Context, userValue, passwordHash string) error {
+func (t *passwordResetTx) LockLocalCredential(ctx context.Context, userValue string) (int64, error) {
 	var user pgtype.UUID
 	if err := user.Scan(userValue); err != nil {
-		return identity.ErrNotFound
+		return 0, identity.ErrNotFound
+	}
+	version, err := t.q.LockLocalCredential(ctx, user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, identity.ErrNotFound
+	}
+	return version, err
+}
+
+func (t *passwordResetTx) UpdateLocalCredential(ctx context.Context, userValue, passwordHash string) (int64, error) {
+	var user pgtype.UUID
+	if err := user.Scan(userValue); err != nil {
+		return 0, identity.ErrNotFound
 	}
 	return t.q.UpdateLocalCredential(ctx, identitydb.UpdateLocalCredentialParams{UserID: user, PasswordHash: passwordHash})
 }
