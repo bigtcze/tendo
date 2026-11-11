@@ -39,11 +39,11 @@ def issue(number, code, title, status="status:idle", deps=(), state="OPEN", owne
 
 
 def renovate_pr(number, title, age_hours, triage=None, labels=("dependencies", "renovate"),
-                commit_authors=("renovate[bot]",)):
+                commit_authors=("renovate[bot]",), triage_age_hours=1):
     comments = []
     if triage:
         decision, target = triage
-        comments.append({"author": {"login": "bigtcze"}, "createdAt": iso(1),
+        comments.append({"author": {"login": "bigtcze"}, "createdAt": iso(triage_age_hours),
                          "body": f"TRIAGE agent=a time=x decision={decision} target={target}\ndetails"})
     return {"number": number, "title": title, "author": {"login": "app/renovate", "is_bot": True},
             "headRefName": f"renovate/pkg-{number}", "labels": [{"name": n} for n in labels],
@@ -57,11 +57,13 @@ def feature_pr(number, refs, age_hours=1):
             "isDraft": False, "body": f"Refs #{refs}", "comments": []}
 
 
-def merged(number, hours_ago, dependency=False):
+def merged(number, hours_ago, dependency=False, refs=446):
+    """Merged PR; a non-dependency PR is a V5 feature PR when it `Refs` an owned Issue."""
     return {"number": number, "title": f"merged {number}", "mergedAt": iso(hours_ago),
             "author": {"login": "app/renovate" if dependency else "bigtcze"},
             "headRefName": f"renovate/x-{number}" if dependency else f"feat/x-{number}",
-            "labels": [{"name": "dependencies"}, {"name": "renovate"}] if dependency else []}
+            "labels": [{"name": "dependencies"}, {"name": "renovate"}] if dependency else [],
+            "body": "" if dependency or refs is None else f"Refs #{refs}"}
 
 
 def backlog():
@@ -132,6 +134,29 @@ class SelectionPolicy(unittest.TestCase):
             self.assertIn("priority=e kind=dependency-slot", outputs[0])
             self.assertEqual(sorted(os.listdir(tmp)), before)
 
+    def test_fairness_orders_history_by_merge_time_not_list_or_number_order(self):
+        # #9 was created (numbered) last but merged first; #2/#3 merged after the
+        # dependency PR. gh lists merged PRs newest-created first, so the
+        # policy must order by mergedAt itself.
+        history = [merged(9, 30, True), merged(3, 10), merged(2, 20)]
+        prs = [renovate_pr(404, "v", 100, triage=("actionable", "v"))]
+        d = self.pick(snapshot(open_prs=prs, merged_prs=history))
+        self.assertEqual((d["priority"], d["context"]["features_merged_since_last_dependency_pr"]), ("e", 2))
+        late_dependency = [merged(2, 20), merged(3, 10), merged(1, 5, True)]
+        d = self.pick(snapshot(open_prs=prs, merged_prs=late_dependency))
+        self.assertEqual((d["priority"], d["context"]["features_merged_since_last_dependency_pr"]), ("f", 0))
+
+    def test_only_owned_v5_work_prs_count_as_feature_prs(self):
+        # Governance/docs/release merges without `Refs` to an owned Issue, and
+        # PRs referencing unowned Issues, neither count nor reset the slot.
+        history = [merged(1, 30, True), merged(2, 25, refs=None), merged(3, 20, refs=300),
+                   merged(4, 15), merged(5, 10, refs=None)]
+        prs = [renovate_pr(404, "v", 100, triage=("actionable", "v"))]
+        d = self.pick(snapshot(open_prs=prs, merged_prs=history))
+        self.assertEqual((d["priority"], d["context"]["features_merged_since_last_dependency_pr"]), ("f", 1))
+        d = self.pick(snapshot(open_prs=prs, merged_prs=history + [merged(6, 5, refs=452)]))
+        self.assertEqual((d["priority"], d["target"]["number"]), ("e", 404))
+
     def test_merging_the_dependency_pr_returns_to_feature_work(self):
         prs = [renovate_pr(406, "update playwright", 100, triage=("actionable", "update playwright"))]
         history = [merged(2, 20), merged(3, 10), merged(4, 1, True)]
@@ -155,6 +180,23 @@ class SelectionPolicy(unittest.TestCase):
         prs = [renovate_pr(406, "v", 10, commit_authors=("renovate[bot]", "bigtcze"))]
         d = self.pick(snapshot(open_prs=prs))
         self.assertEqual((d["priority"], d["kind"], d["target"]["number"]), ("c", "active-pr", 406))
+
+    def test_renovate_pr_with_unknown_commit_author_is_not_active_work(self):
+        # A commit without a linked GitHub login (empty) is not proof of an agent repair.
+        prs = [renovate_pr(406, "v", 10, commit_authors=("renovate[bot]", ""))]
+        d = self.pick(snapshot(open_prs=prs))
+        self.assertEqual(d["priority"], "f")
+
+    def test_pr_for_a_blocked_owned_issue_does_not_pin_priority_c(self):
+        issues = backlog()
+        issues[2] = issue(446, "V5-02", "Recurrence root-cause audit", status="status:blocked", deps=[444])
+        d = self.pick(snapshot(open_prs=[feature_pr(470, 446)], issues=issues))
+        self.assertEqual((d["priority"], d["target"]["number"]), ("f", 445))
+        self.assertTrue(any("#470 references only status:blocked" in n for n in d["notes"]))
+        # The same PR becomes active again once the Issue is unblocked.
+        issues[2] = issue(446, "V5-02", "Recurrence root-cause audit", status="status:in-progress", deps=[444])
+        d = self.pick(snapshot(open_prs=[feature_pr(470, 446)], issues=issues))
+        self.assertEqual((d["priority"], d["target"]["number"]), ("c", 470))
 
     def test_security_supersedes_active_pr_and_renovate(self):
         prs = [renovate_pr(404, "v", 100), feature_pr(470, 446),
@@ -189,6 +231,26 @@ class SelectionPolicy(unittest.TestCase):
         d = self.pick(snapshot(open_prs=prs, merged_prs=history))
         self.assertEqual(d["priority"], "f")
         self.assertEqual(d["context"]["blocked_unchanged_skipped"], [404])
+
+    def test_stale_blocked_triage_expires_for_a_recheck(self):
+        days = sel.BLOCKED_RECHECK_DAYS
+        fresh = renovate_pr(404, "v", 24 * 30, triage=("blocked", "v"), triage_age_hours=24 * days - 1)
+        self.assertEqual(self.pick(snapshot(open_prs=[fresh]))["priority"], "f")
+        stale = renovate_pr(404, "v", 24 * 30, triage=("blocked", "v"), triage_age_hours=24 * days + 1)
+        d = self.pick(snapshot(open_prs=[stale]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]), ("d", "triage-aged-renovate", 404))
+        # A repaired PR with an expired blocker is re-triaged first, not resumed.
+        repaired = renovate_pr(404, "v", 24 * 30, triage=("blocked", "v"), triage_age_hours=24 * days + 1,
+                               commit_authors=("renovate[bot]", "bigtcze"))
+        d = self.pick(snapshot(open_prs=[repaired]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]), ("d", "triage-aged-renovate", 404))
+        repaired["comments"].append({"author": {"login": "bigtcze"}, "createdAt": iso(0.5),
+                                     "body": "TRIAGE agent=a time=x decision=actionable target=v"})
+        d = self.pick(snapshot(open_prs=[repaired]))
+        self.assertEqual((d["priority"], d["kind"], d["target"]["number"]), ("c", "active-pr", 404))
+        # An actionable decision does not expire: it is processed in the slot.
+        old_ok = renovate_pr(404, "v", 24 * 30, triage=("actionable", "v"), triage_age_hours=24 * days * 4)
+        self.assertEqual(self.pick(snapshot(open_prs=[old_ok]))["priority"], "f")
 
     def test_blocked_pr_with_new_version_needs_triage_again(self):
         prs = [renovate_pr(404, "update vite to v8.4.0", 200, triage=("blocked", "update vite to v8.3.6"))]
@@ -258,6 +320,61 @@ class SelectionPolicy(unittest.TestCase):
     def test_unreadable_security_alerts_are_reported(self):
         d = self.pick(snapshot(security_alerts=None))
         self.assertTrue(any("security alerts unreadable" in n for n in d["notes"]))
+
+
+class Collection(unittest.TestCase):
+    """collect() must discover ALL open PRs and full merged history, never a truncated window."""
+
+    def setUp(self):
+        self.calls = []
+        self.original = sel.gh_json
+
+    def tearDown(self):
+        sel.gh_json = self.original
+
+    def fake(self, open_count=3, commit_count=2):
+        def gh_json(*args):
+            self.calls.append(args)
+            if args[:2] == ("pr", "list") and "open" in args:
+                return [renovate_pr(400 + i, "v", 1) for i in range(open_count)]
+            if args[:2] in (("pr", "list"), ("issue", "list")):
+                return []
+            if args[0] == "api" and "--paginate" in args:
+                path = args[-1]
+                if path.endswith("/commits?per_page=100"):
+                    if commit_count != 2:
+                        return [[{"author": {"login": "renovate[bot]"}}] * commit_count]
+                    return [[{"author": {"login": "renovate[bot]"}}], [{"author": None}]]
+                if "/comments" in path:
+                    return [[{"user": {"login": "bigtcze"}, "created_at": iso(1), "body": "c1"}],
+                            [{"user": {"login": "bigtcze"}, "created_at": iso(0.5), "body": "c2"}]]
+                return [[]]
+            return {"workflow_runs": []}
+        sel.gh_json = gh_json
+
+    def test_lists_use_a_high_limit_and_comments_and_commits_are_paginated(self):
+        self.fake()
+        snap = sel.collect("o/r")
+        lists = [c for c in self.calls if c[1:2] == ("list",)]
+        self.assertEqual(len(lists), 3)
+        for call in lists:
+            self.assertEqual(call[call.index("--limit") + 1], str(sel.FETCH_LIMIT))
+        merged_call = next(c for c in lists if "merged" in c)
+        self.assertIn("mergedAt", merged_call[merged_call.index("--json") + 1])
+        self.assertEqual(len(snap["open_prs"]), 3)
+        pr = snap["open_prs"][0]
+        self.assertEqual([c["body"] for c in pr["comments"]], ["c1", "c2"])
+        self.assertEqual(pr["commitAuthors"], ["", "renovate[bot]"])
+
+    def test_pr_commits_at_the_api_cap_are_an_error_not_a_truncation(self):
+        self.fake(commit_count=sel.PR_COMMITS_API_CAP)
+        with self.assertRaises(RuntimeError):
+            sel.collect("o/r")
+
+    def test_a_list_at_the_fetch_limit_is_an_error_not_a_truncation(self):
+        self.fake(open_count=sel.FETCH_LIMIT)
+        with self.assertRaises(RuntimeError):
+            sel.collect("o/r")
 
 
 if __name__ == "__main__":

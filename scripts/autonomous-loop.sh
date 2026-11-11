@@ -14,6 +14,12 @@ set -u -o pipefail
 # trigger after V5_COMPLETE releases the lock. The lock, not the unit's
 # enabled state, is the truth: a maintenance run that holds it is actual
 # competing work, and the loop then refuses to start (exit 3).
+#
+# Stop safety: each cycle runs under `timeout`, which makes itself the leader
+# of a new process group. On SIGTERM/SIGINT/SIGHUP the loop terminates that
+# whole group (TERM, then KILL after CYCLE_STOP_GRACE seconds) and waits until
+# it is empty before exiting, so the maintenance flock is never released while
+# a V5 cycle process is still working.
 
 # Canonical checkout: the host wrapper (opencode-tendo-safe) always runs and
 # recovers sessions there, so prompt and completion state must come from the
@@ -29,6 +35,7 @@ SUCCESS_SLEEP="${SUCCESS_SLEEP:-45}"
 FAIL_SLEEP_BASE="${FAIL_SLEEP_BASE:-120}"
 FAIL_SLEEP_MAX="${FAIL_SLEEP_MAX:-900}"
 CYCLE_TIMEOUT="${CYCLE_TIMEOUT:-4h}"
+CYCLE_STOP_GRACE="${CYCLE_STOP_GRACE:-30}"
 SELECTION_TIMEOUT="${SELECTION_TIMEOUT:-300s}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 LOCK_FILE="${RUNTIME_DIR}/tendo-autonomous-${UID}.lock"
@@ -70,6 +77,55 @@ if ! flock -n 8; then
   exit "${REFUSED}"
 fi
 echo "[tendo] holding ${MAINTENANCE_LOCK_FILE}; scheduled maintenance runs skip until V5 completes."
+
+# PID of the running background child (cycle `timeout` or a sleep); "" if none.
+child_pid=""
+cycle_running=0
+
+group_alive() { kill -0 -- "-$1" 2>/dev/null; }
+
+# Terminate the running cycle's process group and wait until it is empty.
+stop_cycle() {
+  local pid="${child_pid}" tick
+  [[ -n "${pid}" ]] || return 0
+  kill -TERM "${pid}" 2>/dev/null || true
+  if [[ "${cycle_running}" -eq 1 ]]; then
+    kill -TERM -- "-${pid}" 2>/dev/null || true
+    for ((tick = 0; tick < CYCLE_STOP_GRACE * 10; tick++)); do
+      group_alive "${pid}" || break
+      sleep 0.1
+    done
+    if group_alive "${pid}"; then
+      echo "[tendo] cycle processes ignored SIGTERM for ${CYCLE_STOP_GRACE}s; sending SIGKILL" >&2
+      kill -KILL -- "-${pid}" 2>/dev/null || true
+      while group_alive "${pid}"; do sleep 0.1; done
+    fi
+  fi
+  wait "${pid}" 2>/dev/null || true
+  child_pid=""
+}
+
+on_signal() {
+  echo "[tendo] received SIG$1; stopping the running cycle before releasing the maintenance lock" >&2
+  stop_cycle
+  exit $((128 + $2))
+}
+trap 'on_signal HUP 1' HUP
+trap 'on_signal INT 2' INT
+trap 'on_signal TERM 15' TERM
+
+# Run "$@" as the background child and wait for it; traps fire during the wait.
+run_child() {
+  local rc
+  "$@" 8>&- 9>&- </dev/null &
+  child_pid=$!
+  wait "${child_pid}"
+  rc=$?
+  child_pid=""
+  return "${rc}"
+}
+
+pause() { run_child sleep "$1"; }
 
 is_complete_on_main() {
   [[ "$(git branch --show-current 2>/dev/null)" == "main" ]] || return 1
@@ -129,14 +185,16 @@ while true; do
 
   echo "[tendo] starting V5 autonomous cycle ${cycle}"
 
-  if timeout --signal=TERM --kill-after=60s "${CYCLE_TIMEOUT}" \
+  cycle_running=1
+  if run_child timeout --signal=TERM --kill-after=60s "${CYCLE_TIMEOUT}" \
     "${OPENCODE_BIN}" run --auto --agent orchestrator \
     --title "Tendo V5 autonomous cycle ${cycle}" \
-    "${PROMPT}" 8>&- 9>&-; then
+    "${PROMPT}"; then
     rc=0
   else
     rc=$?
   fi
+  cycle_running=0
 
   if is_complete_on_main; then
     echo "[tendo] V5 completion merged and verified on main; releasing the maintenance lock and exiting successfully."
@@ -145,7 +203,7 @@ while true; do
 
   if [[ "${rc}" -eq 0 ]]; then
     failure_sleep="${FAIL_SLEEP_BASE}"
-    sleep "${SUCCESS_SLEEP}"
+    pause "${SUCCESS_SLEEP}"
   else
     if [[ "${rc}" -eq 124 ]]; then
       echo "[tendo] cycle timed out after ${CYCLE_TIMEOUT}" >&2
@@ -154,7 +212,7 @@ while true; do
     fi
 
     echo "[tendo] retrying after ${failure_sleep}s" >&2
-    sleep "${failure_sleep}"
+    pause "${failure_sleep}"
 
     next_sleep=$((failure_sleep * 2))
     if (( next_sleep > FAIL_SLEEP_MAX )); then

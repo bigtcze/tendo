@@ -33,6 +33,10 @@ and never stop or steer the V5 controller.
 - The loop exits 0 only when `.autonomous/V5_COMPLETE` is tracked on clean
   `main`, which releases the lock; the next scheduled maintenance run then
   resumes post-V5 maintenance without manual reconfiguration.
+- On SIGTERM/SIGINT/SIGHUP (e.g. `systemctl stop`) the loop terminates the
+  running cycle's whole process group (TERM, then KILL after a grace period)
+  and waits for it before exiting, so the lock is never released while a V5
+  cycle is still working. Back-off sleeps are interruptible.
 - Behavior tests: `bash scripts/autonomous-loop-test.sh` (local gate and
   required CI) runs the real loop and `scripts/test_v5_work_selection.py`.
 - The loop, selection policy and systemd units are controller configuration
@@ -60,9 +64,11 @@ and never stop or steer the V5 controller.
    a. red `main` CI;
    b. urgent security: open `security`-labelled PR, or an open advisory with a
       patched version;
-   c. the active PR (one that `Refs` an open owned V5 Issue, or a Renovate PR
-      already carrying agent repair commits), or an owned Issue left
-      `status:in-progress` without an open PR;
+   c. the active PR (one that `Refs` an open owned V5 Issue that is not
+      `status:blocked`, or a Renovate PR already carrying commits by a
+      non-Renovate GitHub login), or an owned Issue left `status:in-progress`
+      without an open PR; a PR whose owned Issues are all `status:blocked`
+      is skipped until the blocker changes (see "Blockers");
    d. any untriaged Renovate PR older than 48 h (oldest first) — triage it
       this cycle (see "Renovate triage and fairness");
    e. an actionable dependency PR when at least TWO feature PRs merged since
@@ -71,6 +77,8 @@ and never stop or steer the V5 controller.
       "Blocked by" Issue closed); recurrence Issues rank first (P0), then by
       V5 code; claimed per "V5 GitHub issue execution";
    g. remaining actionable dependency PRs.
+   Open PRs are discovered completely (paginated; a truncated list is an
+   error) and merged history is ordered by merge time.
    Deliver it as one focused PR per "Work", then exit.
 
 ## Before coding
@@ -149,17 +157,23 @@ All state is GitHub state; there is no counter file, queue or cache.
   needs, checks run, blocker and upstream link when `blocked`). The latest
   such comment counts only while `target` equals the current PR title (the
   title names dependency and version); a new version needs triage again.
+  Comments by Renovate itself never count.
 - Aged: a Renovate PR open longer than 48 h without a valid triage record is
   priority d. Triage is time-bounded and is not an exemption: an `actionable`
   PR is then processed to merge in the dependency slot (e).
-- Dependency slot: count merged PRs on `main` since the most recent merged
-  dependency PR (Renovate author, `renovate/` branch or `dependencies`/
-  `renovate` label); every other merged PR counts as a feature PR. At two or
-  more, the next cycle processes the oldest actionable dependency PR.
-  Merging it resets the count.
-- `blocked` with an unchanged target is skipped until the title (version),
-  upstream facts or relevant Tendo code change; do not re-run an unchanged
-  blocker. Record blockers on the PR, never close it without evidence.
+- Dependency slot: ordered by merge time, count feature PRs merged into
+  `main` since the most recent merged dependency PR (Renovate author,
+  `renovate/` branch or `dependencies`/`renovate` label). A feature PR is a
+  merged non-dependency PR whose body `Refs` an owned V5 Issue (every V5 work
+  PR does, per "V5 GitHub issue execution"); other merges (e.g. unrelated
+  docs or human PRs) neither count nor reset. At two or more, the next cycle
+  processes the oldest actionable dependency PR. Merging it resets the count.
+- `blocked` with an unchanged target is skipped for 7 days, then counts as
+  untriaged (priority d) so the blocker is re-checked: compare upstream
+  releases/issues and the relevant Tendo code against the recorded blocker;
+  if nothing changed, post a fresh `blocked` record citing the earlier one
+  instead of re-running the failing work. A title (version) change needs
+  triage at once. Record blockers on the PR, never close it without evidence.
 - PRs #404 (Vite), #405 (go-jose) and #406 (Playwright) were open at V5
   authorization; reconcile them against live state like any other PR (V5-01).
   Renovate PRs never receive the V5 ownership label.

@@ -3,18 +3,23 @@
 
 Derives the single next work item for a V5 controller cycle purely from live
 GitHub state: required CI on main, open security alerts, ALL open PRs
-(human and bot), merged PR history and the owned V5 Issues. It keeps no
-state of its own; the dependency-fairness count is recomputed from merged PR
-history on every run, so a controller restart cannot lose or reset it.
+(human and bot, fully paginated), the complete merged PR history and the
+owned V5 Issues. It keeps no state of its own; the dependency-fairness count
+is recomputed from merged PR history (ordered by merge time) on every run, so
+a controller restart cannot lose or reset it. Incomplete data (a list that
+hits its fetch limit) is an error, never a silent truncation.
 
 Priority (V5_ISSUES_WORKFLOW "Dependency maintenance"):
   a  red required CI on main
   b  urgent security: open `security` PR or open alert with a patched version
-  c  active PR (references an open owned V5 Issue, or a Renovate PR that
-     already carries non-Renovate commits) or an owned Issue left
-     `status:in-progress` without an open PR
+  c  active PR (references an open, not `status:blocked` owned V5 Issue, or
+     a Renovate PR that already carries commits by a known non-Renovate
+     GitHub login) or an owned Issue left `status:in-progress` without an
+     open PR
   d  untriaged Renovate PR older than 48 h
   e  dependency PR when >= 2 feature PRs merged since the last dependency PR
+     (feature PR: merged non-dependency PR whose body `Refs` an owned V5
+     Issue; other merged PRs neither count nor reset)
   f  highest-value dependency-ready `status:idle` owned V5 Issue
   g  remaining (not blocked-unchanged) dependency PRs
   idle  nothing actionable
@@ -23,7 +28,9 @@ Triage marker: a PR comment whose first line is
   TRIAGE agent=<id> time=<UTC> decision=<actionable|blocked> target=<exact PR title>
 The latest marker counts while its target equals the current PR title (the
 title names the dependency and version). `blocked` with an unchanged target
-is skipped; a new version (title change) needs triage again.
+is skipped for BLOCKED_RECHECK_DAYS; after that, or once the title (version)
+changes, the PR counts as untriaged again so upstream and Tendo changes are
+re-checked (a still-unchanged blocker is re-recorded, not re-run).
 
 Usage: v5_work_selection.py [--repo OWNER/NAME] [--snapshot FILE] [--now ISO8601]
 """
@@ -41,6 +48,9 @@ MILESTONE = "Tendo v5.0.0 - Refined & Reliable"
 OWNED_LABEL = "tendo:v5-autonomous"
 STATUS_LABELS = ("status:idle", "status:in-progress", "status:blocked")
 AGED_HOURS = 48
+BLOCKED_RECHECK_DAYS = 7
+FETCH_LIMIT = 5000
+PR_COMMITS_API_CAP = 250  # GitHub's pulls/{n}/commits returns at most 250 commits
 FEATURES_PER_DEPENDENCY_SLOT = 2
 RENOVATE_LOGINS = {"app/renovate", "renovate[bot]", "renovate"}
 TRIAGE_RE = re.compile(
@@ -90,11 +100,22 @@ def latest_triage(pr: dict) -> dict | None:
     return marker
 
 
-def triage_state(pr: dict) -> str:
-    """untriaged | actionable | blocked (marker must match the current title)."""
+def triage_state(pr: dict, now: datetime) -> str:
+    """untriaged | actionable | blocked.
+
+    The marker must match the current title; a `blocked` marker older than
+    BLOCKED_RECHECK_DAYS (or without a parseable time) expires to untriaged.
+    """
     marker = latest_triage(pr)
     if marker is None or marker["target"] != pr.get("title", "").strip():
         return "untriaged"
+    if marker["decision"] == "blocked":
+        try:
+            created = parse_time(marker["createdAt"] or "")
+        except ValueError:
+            return "untriaged"
+        if now - created > timedelta(days=BLOCKED_RECHECK_DAYS):
+            return "untriaged"
     return marker["decision"]
 
 
@@ -130,15 +151,30 @@ def issue_rank(issue: dict) -> tuple:
     return (recurrence_first, int(code.group(1)) if code else 10_000, issue["number"])
 
 
-def features_since_last_dependency(merged: list[dict]) -> tuple[int, str | None]:
-    ordered = sorted((p for p in merged if p.get("mergedAt")), key=lambda p: p["mergedAt"])
+def refs(pr: dict) -> set[int]:
+    return {int(n) for n in REFS_RE.findall(pr.get("body") or "")}
+
+
+def is_feature(pr: dict, owned: dict) -> bool:
+    """A merged V5 work PR: not a dependency PR and `Refs` an owned V5 Issue."""
+    return not is_dependency(pr) and any(n in owned for n in refs(pr))
+
+
+def features_since_last_dependency(merged: list[dict], owned: dict) -> tuple[int, str | None]:
+    ordered = sorted((p for p in merged if p.get("mergedAt")),
+                     key=lambda p: (parse_time(p["mergedAt"]), p.get("number", 0)))
     count, last_dependency = 0, None
     for pr in ordered:
         if is_dependency(pr):
             count, last_dependency = 0, pr["mergedAt"]
-        else:
+        elif is_feature(pr, owned):
             count += 1
     return count, last_dependency
+
+
+def is_repair_author(author: str) -> bool:
+    """Only a known, non-Renovate GitHub login proves an agent repair commit."""
+    return bool(author) and author not in RENOVATE_LOGINS
 
 
 def select(snapshot: dict, now: datetime) -> dict:
@@ -150,9 +186,9 @@ def select(snapshot: dict, now: datetime) -> dict:
     open_owned = [i for i in owned.values() if i.get("state", "").upper() == "OPEN"]
     dependency_prs = [p for p in open_prs if is_dependency(p)]
     other_prs = [p for p in open_prs if not is_dependency(p)]
-    triage = {p["number"]: triage_state(p) for p in dependency_prs}
+    triage = {p["number"]: triage_state(p, now) for p in dependency_prs}
     blocked_skipped = [p["number"] for p in dependency_prs if triage[p["number"]] == "blocked"]
-    features, last_dependency = features_since_last_dependency(snapshot.get("merged_prs", []))
+    features, last_dependency = features_since_last_dependency(snapshot.get("merged_prs", []), owned)
     context = {
         "features_merged_since_last_dependency_pr": features,
         "last_dependency_pr_merged_at": last_dependency,
@@ -185,17 +221,27 @@ def select(snapshot: dict, now: datetime) -> dict:
         if alerts:
             notes.append(f"{len(alerts)} open alert(s) without a patched version; record, do not spin")
 
-    referenced = {int(n) for p in open_prs for n in REFS_RE.findall(p.get("body") or "")}
+    referenced = {n for p in open_prs for n in refs(p)}
     for pr in open_prs:
-        refs = {int(n) for n in REFS_RE.findall(pr.get("body") or "")}
-        active_issue = sorted(n for n in refs if n in owned and owned[n].get("state", "").upper() == "OPEN")
-        repaired = is_renovate(pr) and any(a not in RENOVATE_LOGINS for a in pr.get("commitAuthors", []))
+        open_refs = sorted(n for n in refs(pr) if n in owned and owned[n].get("state", "").upper() == "OPEN")
+        active_issue = [n for n in open_refs if "status:blocked" not in label_names(owned[n])]
+        repaired = is_renovate(pr) and any(is_repair_author(a) for a in pr.get("commitAuthors", []))
+        if open_refs and not active_issue:
+            notes.append(f"open PR #{pr['number']} references only status:blocked owned Issue(s) {open_refs}; "
+                         "skipped until the blocker changes")
+            continue
         if active_issue:
             return decide("c", "active-pr", pr_ref(pr, issues=active_issue), "finish the active owned PR first")
-        if repaired and triage[pr["number"]] != "blocked":
+        marker = latest_triage(pr) if repaired else None
+        needs_recheck = marker is not None and marker["decision"] == "blocked" and triage[pr["number"]] == "untriaged"
+        if repaired and needs_recheck:
+            notes.append(f"Renovate PR #{pr['number']} has repair commits but an expired/outdated blocked triage; "
+                         "re-triage before resuming")
+        if repaired and triage[pr["number"]] != "blocked" and not needs_recheck:
             return decide("c", "active-pr", pr_ref(pr), "Renovate PR already carries agent repair commits")
     for pr in other_prs:
-        notes.append(f"open PR #{pr['number']} references no open owned V5 Issue; inspect, never adopt")
+        if not any(n in owned for n in refs(pr)):
+            notes.append(f"open PR #{pr['number']} references no open owned V5 Issue; inspect, never adopt")
     for issue in sorted(open_owned, key=issue_rank):
         if "status:in-progress" in label_names(issue) and issue["number"] not in referenced:
             return decide("c", "resume-claimed-issue", issue_ref(issue),
@@ -241,27 +287,47 @@ def select(snapshot: dict, now: datetime) -> dict:
 
 
 def gh_json(*args: str):
-    out = subprocess.run(["gh", *args], check=True, capture_output=True, text=True, timeout=120)
+    out = subprocess.run(["gh", *args], check=True, capture_output=True, text=True, timeout=240)
     return json.loads(out.stdout or "null")
+
+
+def gh_list(kind: str, *args: str) -> list[dict]:
+    """`gh <kind> list` paginated up to FETCH_LIMIT; hitting the limit is an error."""
+    items = gh_json(kind, "list", *args, "--limit", str(FETCH_LIMIT))
+    if len(items) >= FETCH_LIMIT:
+        raise RuntimeError(f"gh {kind} list returned {len(items)} items (limit {FETCH_LIMIT}); data incomplete")
+    return items
+
+
+def gh_paginated(path: str) -> list[dict]:
+    pages = gh_json("api", "--paginate", "--slurp", path)
+    return [item for page in pages for item in page]
 
 
 def collect(repo: str) -> dict:
     runs = gh_json("api", f"repos/{repo}/actions/workflows/required.yml/runs?branch=main&event=push&per_page=10")
     try:
-        alerts = gh_json("api", f"repos/{repo}/dependabot/alerts?state=open&per_page=100")
+        alerts = gh_paginated(f"repos/{repo}/dependabot/alerts?state=open&per_page=100")
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         alerts = None
-    open_prs = gh_json("pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json",
-                       "number,title,author,headRefName,labels,createdAt,isDraft,body,comments")
+    open_prs = gh_list("pr", "--repo", repo, "--state", "open", "--json",
+                       "number,title,author,headRefName,labels,createdAt,isDraft,body")
     for pr in open_prs:
+        # Full comment history (REST, paginated) so the latest triage marker is never cut off.
+        pr["comments"] = [{"author": {"login": (c.get("user") or {}).get("login", "")},
+                           "createdAt": c.get("created_at"), "body": c.get("body")}
+                          for c in gh_paginated(f"repos/{repo}/issues/{pr['number']}/comments?per_page=100")]
         if is_renovate(pr):
-            view = gh_json("pr", "view", str(pr["number"]), "--repo", repo, "--json", "commits")
-            pr["commitAuthors"] = sorted({a.get("login", "") for c in view.get("commits", [])
-                                          for a in c.get("authors", [])})
-    merged = gh_json("pr", "list", "--repo", repo, "--state", "merged", "--base", "main", "--limit", "100",
-                     "--json", "number,title,author,headRefName,labels,mergedAt")
-    issues = gh_json("issue", "list", "--repo", repo, "--milestone", MILESTONE, "--label", OWNED_LABEL,
-                     "--state", "all", "--limit", "200", "--json", "number,title,state,labels,milestone,body")
+            commits = gh_paginated(f"repos/{repo}/pulls/{pr['number']}/commits?per_page=100")
+            if len(commits) >= PR_COMMITS_API_CAP:
+                raise RuntimeError(f"PR #{pr['number']} lists {len(commits)} commits (API cap "
+                                   f"{PR_COMMITS_API_CAP}); commit authors incomplete")
+            pr["commitAuthors"] = sorted({(c.get("author") or {}).get("login", "") for c in commits})
+    # Complete merged history (ordered by mergedAt locally), not a newest-created window.
+    merged = gh_list("pr", "--repo", repo, "--state", "merged", "--base", "main",
+                     "--json", "number,title,author,headRefName,labels,mergedAt,body")
+    issues = gh_list("issue", "--repo", repo, "--milestone", MILESTONE, "--label", OWNED_LABEL,
+                     "--state", "all", "--json", "number,title,state,labels,milestone,body")
     return {"main_runs": (runs or {}).get("workflow_runs", []), "security_alerts": alerts,
             "open_prs": open_prs, "merged_prs": merged, "issues": issues}
 
