@@ -2,8 +2,6 @@
 
 Tendo is published as the container image `ghcr.io/bigtcze/tendo`. `TENDO_VERSION` in `.env` selects which tag Compose runs:
 
-> Tendo 4.0 is not released yet; the latest published release is 3.0.0. The `v4`, `v4.0`, and `v4.0.0` tags exist only once 4.0 is published. Until then, use `latest`, `v3`, `v3.0`, or `v3.0.0`.
-
 | `TENDO_VERSION` | What you get |
 | --- | --- |
 | `latest` (default) | The newest release, including a future major version. |
@@ -53,7 +51,7 @@ Run every command from the directory that holds Tendo's `compose.yaml` and `.env
 
 ## Updating from 3.x to 4.0
 
-Tendo 4.0 simplifies the deployment to exactly two services, PostgreSQL and the app. The app now creates or validates its restricted database role and applies migrations itself before serving; the separate one-shot `migrate` container is gone. Your PostgreSQL data volume, accounts, households, people and things, items, history, sessions and invitations are kept.
+Read the [4.0 release notes](https://github.com/bigtcze/tendo/releases/tag/v4.0.0) first: household owners become administrators, and identity-provider sign-in and the API change. Tendo 4.0 simplifies the deployment to exactly two services, PostgreSQL and the app. The app now creates or validates its restricted database role and applies migrations itself before serving; the separate one-shot `migrate` container is gone. Your PostgreSQL data volume, accounts, households, people and things, items, history, sessions and invitations are kept.
 
 1. [Back up](backup-restore.md#back-up) first. The schema changes, so the backup is the only way back.
 2. Download the 4.0 `compose.yaml` and set `TENDO_VERSION` to `v4` (or `latest`).
@@ -70,15 +68,15 @@ Going back to 3.0.0 after the 4.0 schema has been applied requires [restoring th
 
 ## Updating from 2.x to 3.0
 
-These steps apply to the published 3.0 release (see the [releases page](https://github.com/bigtcze/tendo/releases)). Tendo 3.0 redesigns the app's screens. It keeps your data, does not change the database schema, and needs no new settings. Take a [backup](backup-restore.md#back-up) first, then follow the update steps above. If `TENDO_VERSION` is `v2`, `v2.1`, `v2.0`, or an exact 2.x version, change it to `v3` (or `latest`) first.
+Tendo 3.0 redesigns the app's screens. It keeps your data, does not change the database schema from 2.1, and needs no new settings. To update to 3.0 specifically, take a [backup](backup-restore.md#back-up), set `TENDO_VERSION` to `v3`, and in step 2 of the update steps download the 3.0 Compose file (`download/v3.0.0` instead of `latest/download`). `latest` now installs 4.0, which changes the schema; to go straight to 4.0, follow [Updating from 3.x to 4.0](#updating-from-3x-to-40) instead.
 
 Because the database schema is unchanged from 2.1, going back to 2.1 works without restoring a backup. For other earlier versions, follow [Go back to an earlier version](#go-back-to-an-earlier-version).
 
-From 1.x, first follow the [Updating from 1.x to 2.0](#updating-from-1x-to-20) notes, including the PostgreSQL extension requirements, then set `TENDO_VERSION` to `v3` (or `latest`). The update steps install 3.0 directly.
+From 1.x, first read the [Updating from 1.x to 2.0](#updating-from-1x-to-20) notes, including the PostgreSQL extension requirements. You can then update straight to 4.0 by following [Updating from 3.x to 4.0](#updating-from-3x-to-40), or to 3.0 as described above.
 
 ## Updating from 1.x to 2.0
 
-Tendo 2.0 keeps all your data and adds no required settings. Take a [backup](backup-restore.md#back-up) first, then follow the update steps above. If `TENDO_VERSION` is `v1` or `v1.0.0`, change it to `v2` (or `latest`) first.
+Tendo 2.0 keeps all your data and adds no required settings. Take a [backup](backup-restore.md#back-up) first. If `TENDO_VERSION` is `v1` or `v1.0.0`, change it to the version you want and download that release's Compose file in step 2 of the update steps; `latest` now installs 4.0, so also follow [Updating from 3.x to 4.0](#updating-from-3x-to-40). The database changes below apply whenever you update from 1.x, including straight to 4.0.
 
 The 2.0 migration adds search and sorting support to the database:
 
