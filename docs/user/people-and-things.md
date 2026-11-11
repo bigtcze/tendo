@@ -18,7 +18,9 @@ Select **Add** again to save. The new entry appears in the list. If Tendo can’
 
 A person does not need an account. Adding "Anička" creates an entry in your household, not a login, so a child can be listed without signing in anywhere.
 
-If a person is also a household member, you can optionally choose their account in **Their account in Tendo**. This is only a label to help everyone recognise who is who; it does not change what anyone can see. To clear the link, select **Edit**, choose **No linked account**, then select **Save**. Changing the entry to another type clears it automatically.
+Everyone who belongs to the household is already in the list as a person, marked **Household member** with their login. Tendo adds them when they join, so you never need to add yourself or another member a second time, and you can choose them as who an item is for. You can rename a member's entry, but you can't archive it or change its type while they are a member.
+
+If you added a person entry for a member before Tendo 4.0, it may now sit next to their member entry. To make that older entry the member's own, open it with **Edit**, choose **This is a household member…**, pick the member, read what will happen, and select **Connect**. This is not a merge: the older entry becomes the member's person with its items, and their previous member entry stays as an ordinary person with its own items. Nothing is deleted, and Tendo never connects entries just because the names match.
 
 ## Long lists
 

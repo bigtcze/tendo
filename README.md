@@ -2,9 +2,9 @@
 
 Tendo is a self-hosted shared list for the things a household needs to remember, without forcing everything into a calendar.
 
-![Tendo Home on a computer for a sample household: a sidebar with Home, All items, People and things, Members, and Account; links to each group with its item count; an Add item button; and items grouped under Needs attention, In progress, Waiting, and Coming up, each with a Done button, who or what it is for, its date, who is looking after it, and repeat details where they apply](docs/images/v3-overview.png)
+![Tendo Home on a computer for a sample household: a top bar with the Tendo name and the signed-in account; a sidebar with Home, All items, People and things, Members, Account, and Admin center; the household name with an Add item button; four status buttons with item counts; and items grouped under Needs attention, In progress, Waiting, and Coming up, each row showing who or what it is for, its date or who is looking after it, and a Done button](docs/images/v4-overview.png)
 
-<img src="docs/images/v3-overview-phone.png" width="260" alt="The same Home on a phone: group links in a row you can scroll sideways, a full-width Add item button, the first items under Needs attention, and Home, Items, People, Members, and Account in a bar at the bottom of the screen">
+<img src="docs/images/v4-overview-phone.png" width="260" alt="The same Home on a phone: the household name, a full-width Add item button, status buttons in a row you can scroll sideways, the first items under Needs attention with a check button to mark each done, and Home, Items, People, Members, and Account in a bar at the bottom of the screen">
 
 ## What Tendo does
 
@@ -14,7 +14,7 @@ Tendo is a self-hosted shared list for the things a household needs to remember,
 - Finds any item with **All items**: search titles and notes, and filter by status, by person or thing, by who is looking after it, and by whether it repeats. Search and counts cover every matching item, even in a household with thousands of items.
 - Connects each item to the person or thing it is for, such as a family member, your home, a vehicle, or a pet, and to the household member looking after it.
 - Keeps a history of completions, and lets you undo a completion you marked by mistake.
-- Lets an administrator invite the rest of the household with a private link. Tendo sends no email and needs no outside service.
+- Lets an administrator invite the rest of the household with a private link, and change roles or create a one-time password reset link in the **Admin center**. Tendo sends no email and needs no outside service.
 
 The interface is available in English and Czech, follows your device's light or dark appearance (or the one you choose in **Account**), and works in a web browser on phones, tablets, and computers, with a keyboard, and with browser zoom.
 
@@ -87,4 +87,4 @@ Report problems in [GitHub issues](https://github.com/bigtcze/tendo/issues).
 
 ## Project status and license
 
-This README describes Tendo 4.0, which is not released yet. 4.0 simplifies the Docker Compose deployment to exactly two containers, PostgreSQL and the app, which now prepares its own database on startup; it keeps your data and changes the database schema. The latest published release is 3.0.0 ([v3.0.0](https://github.com/bigtcze/tendo/releases/tag/v3.0.0)), and the quick start above installs it until 4.0 is published. To update once 4.0 is out, follow [Updating from 3.x to 4.0](docs/admin/update.md#updating-from-3x-to-40). When 4.0 is published, its images will be at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64` with the tags `latest`, `v4`, `v4.0`, and the exact version; `v3` and `v3.0` stay on 3.0.0, `v2` and `v2.1` stay on 2.1.0, `v2.0` stays on 2.0.0, and `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).
+Tendo 4.0 is the current release ([v4.0.0](https://github.com/bigtcze/tendo/releases/tag/v4.0.0)). It restyles every screen, adds the Admin center, lets people sign in with an identity provider without a Tendo account first, and runs as exactly two containers, PostgreSQL and the app, which prepares its own database on startup. It keeps your data and changes the database schema; to update from 3.x, follow [Updating from 3.x to 4.0](docs/admin/update.md#updating-from-3x-to-40). Images are published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64` with the tags `latest`, `v4`, `v4.0`, and the exact version; `v3` and `v3.0` stay on 3.0.0, `v2` and `v2.1` stay on 2.1.0, `v2.0` stays on 2.0.0, and `v1` stays on 1.0.0. See [releases](https://github.com/bigtcze/tendo/releases) for changes. Tendo is licensed under the [Apache License 2.0](LICENSE).

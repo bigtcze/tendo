@@ -2,8 +2,6 @@
 
 Tendo is published as the container image `ghcr.io/bigtcze/tendo`. `TENDO_VERSION` in `.env` selects which tag Compose runs:
 
-> Tendo 4.0 is not released yet; the latest published release is 3.0.0. The `v4`, `v4.0`, and `v4.0.0` tags exist only once 4.0 is published. Until then, use `latest`, `v3`, `v3.0`, or `v3.0.0`.
-
 | `TENDO_VERSION` | What you get |
 | --- | --- |
 | `latest` (default) | The newest release, including a future major version. |
@@ -53,7 +51,7 @@ Run every command from the directory that holds Tendo's `compose.yaml` and `.env
 
 ## Updating from 3.x to 4.0
 
-Tendo 4.0 simplifies the deployment to exactly two services, PostgreSQL and the app. The app now creates or validates its restricted database role and applies migrations itself before serving; the separate one-shot `migrate` container is gone. Your PostgreSQL data volume, accounts, households, people and things, items, history, sessions and invitations are kept.
+Read the [4.0 release notes](https://github.com/bigtcze/tendo/releases/tag/v4.0.0) first: household owners become administrators, and identity-provider sign-in and the API change. Tendo 4.0 simplifies the deployment to exactly two services, PostgreSQL and the app. The app now creates or validates its restricted database role and applies migrations itself before serving; the separate one-shot `migrate` container is gone. Your PostgreSQL data volume, accounts, households, people and things, items, history, sessions and invitations are kept.
 
 1. [Back up](backup-restore.md#back-up) first. The schema changes, so the backup is the only way back.
 2. Download the 4.0 `compose.yaml` and set `TENDO_VERSION` to `v4` (or `latest`).
