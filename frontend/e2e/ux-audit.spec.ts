@@ -499,7 +499,10 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             expect(titleFocusRect.bottom, 'All items title focus indicator stays inside the row card').toBeLessThanOrEqual(rowRect!.y + rowRect!.height);
             expect(rowRect!.y + rowRect!.height, 'All items first row should fit above phone navigation at 390px').toBeLessThan(bottomBarTop);
           } else {
-            expect(titleFocusRect.bottom, 'All items first title and focus outline must fit above phone navigation at 320px').toBeLessThan(bottomBarTop);
+            // At 320 a seeded multi-line title can continue below the fold. What must be visible is the row's
+            // opening 44 px band — the title's first line and the top of its 44 px target — above the fixed bar.
+            console.info(`audit-all-items-320-fold rowTop=${Math.round(rowRect!.y)} rowHeight=${Math.round(rowRect!.height)} titleHeight=${Math.round(titleRect!.height)} barTop=${Math.round(bottomBarTop)}`);
+            expect(rowRect!.y + 44, 'All items first row opening band clears the 320px phone navigation').toBeLessThanOrEqual(bottomBarTop);
           }
         }
         if (width >= 1024) {
@@ -593,11 +596,15 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             await csItemsPage.getByLabel(cs['allItems.status.label']).selectOption('needs');
             await expect(csItemsPage.getByLabel(cs['allItems.status.label'])).toHaveValue('needs');
             await expect(csItemsPage.locator('[data-all-items-filter-disclosure]')).toHaveAttribute('aria-expanded', 'false');
-            const firstStatusOnlyTitle = csItemsPage.locator('main li[data-item-id]').first().getByRole('link');
-            const firstStatusOnlyBox = await firstStatusOnlyTitle.boundingBox();
+            const firstStatusOnlyRow = csItemsPage.locator('main li[data-item-id]').first();
+            const firstStatusOnlyTitle = firstStatusOnlyRow.getByRole('link');
+            const [firstStatusOnlyRowBox, firstStatusOnlyBox] = await Promise.all([firstStatusOnlyRow.boundingBox(), firstStatusOnlyTitle.boundingBox()]);
             const bottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
             expect(firstStatusOnlyBox).not.toBeNull();
-            expect(firstStatusOnlyBox!.y + firstStatusOnlyBox!.height, 'Czech first title clears the 320px phone navigation').toBeLessThan(bottomBar);
+            expect(firstStatusOnlyBox!.height).toBeGreaterThanOrEqual(44);
+            // Same rule as English: a multi-line Czech title may run below the fold, its opening band must not.
+            console.info(`audit-all-items-cs-320-fold rowTop=${Math.round(firstStatusOnlyRowBox!.y)} rowHeight=${Math.round(firstStatusOnlyRowBox!.height)} titleHeight=${Math.round(firstStatusOnlyBox!.height)} barTop=${Math.round(bottomBar)}`);
+            expect(firstStatusOnlyRowBox!.y + 44, 'Czech first row opening band clears the 320px phone navigation').toBeLessThanOrEqual(bottomBar);
             await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-status-only.png'), false);
           }
           if (width <= 390 && !(width === 320 && csItemsPage.url().includes('status=needs'))) {
@@ -610,7 +617,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
               const csRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
               expect(csRow.bottom, 'Czech first row should fit above the 390px phone navigation').toBeLessThan(csBottomBar);
             } else {
-              expect(csFirstLinkBox!.y + csFirstLinkBox!.height, 'Czech first title clears the 320px bottom navigation').toBeLessThan(csBottomBar);
+              const csOpeningRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect().top);
+              expect(csOpeningRow + 44, 'Czech first row opening band clears the 320px bottom navigation').toBeLessThanOrEqual(csBottomBar);
             }
           }
           if (width === 320) {

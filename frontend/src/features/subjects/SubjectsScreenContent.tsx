@@ -31,13 +31,10 @@ export function SubjectsScreenContent({
   switchView: () => void;
 }) {
   const canAdd = list.kind === 'ready' && !showArchived;
-  // The notice is first in the DOM so its Undo keeps the original tab order (notice → Add → rows); `order`
-  // keeps it visually under the header band, where it has always been shown.
+  // Header band first, then the notice: DOM order matches what a reader sees, so the Add control is also the
+  // first thing a keyboard user reaches, as on Home.
   return <section className="settle flex min-w-0 flex-col">
-    <div className="order-2 min-w-0 max-w-5xl">
-      <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
-    </div>
-    <div className="order-1 min-w-0 max-w-5xl">
+    <div className="min-w-0 max-w-5xl">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
         <div className="min-w-0">
           <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('subjects.eyebrow')}</p>
@@ -51,7 +48,10 @@ export function SubjectsScreenContent({
         </div> : null}
       </div>
     </div>
-    <div className="order-3 mt-6 min-w-0 max-w-5xl">
+    <div className="min-w-0 max-w-5xl">
+      <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
+    </div>
+    <div className="mt-6 min-w-0 max-w-5xl">
       {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
         <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
         <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>

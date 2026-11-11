@@ -106,10 +106,12 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
     </FilterSelect>
   </>;
   // Phones wrap like any flex row, so the status, the disclosure and the reset can never overlap: each
-  // control drops to the next line only when its content does not fit. From lg the same children form one
-  // four-column band with the reset as its last cell.
-  return <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2 lg:grid lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
-    <label className={`${labelClass} min-w-0 grow basis-32`}>
+  // control drops to the next line only when its content does not fit. The status keeps a narrow basis so it
+  // shares the first line with the disclosure at 320 px in both locales, and a fixed control width from `sm`
+  // so it never stretches across a tablet. From `lg` the fields form one four-column band; the reset follows
+  // them in the DOM, closing the band as a trailing cell only where the four labels still fit beside it.
+  return <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2 max-sm:gap-x-2 lg:grid lg:grid-cols-4 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+    <label className={`${labelClass} min-w-0 grow basis-28 sm:grow-0 sm:basis-60`}>
       {t('allItems.status.label')}
       <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
         className={controlClass}>
@@ -118,11 +120,12 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
     </label>
     <FiltersDisclosure expanded={expanded} activeCount={activeCount} panelId={panelId} t={t}
       onToggle={() => setExpanded((open) => !open)} />
-    {/* The reset follows the disclosure on phones and closes the desktop band as its last cell. */}
-    {clear ? <div className="ml-auto lg:col-start-5 lg:row-start-1">{clear}</div> : null}
-    {/* From lg the panel flattens into the same row, so Show, the refinements and the reset scan as one band. */}
+    {/* From lg the panel flattens into the band, so Show and the refinements scan as one row. */}
     <div id={panelId} className={`${expanded ? 'w-full grid gap-3 sm:grid-cols-2' : 'hidden'} lg:contents`}>
       {fields}
     </div>
+    {/* The reset comes after the fields in the DOM and in the layout: its own right-aligned line at `lg`,
+        where five cells would squeeze the four labels, and the trailing cell of the band from `xl`. */}
+    {clear ? <div className="ml-auto lg:col-span-4 lg:row-start-2 lg:justify-self-end xl:col-span-1 xl:col-start-5 xl:row-start-1">{clear}</div> : null}
   </div>;
 }

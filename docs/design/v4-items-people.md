@@ -18,11 +18,13 @@ surfaces moved.
   column is gone. A header band (eyebrow "YOUR HOUSEHOLD · ALL ITEMS", 30 px headline, one supporting
   sentence) introduces one white toolbar surface: search plus a teal Search action, a hairline, then one
   filter row — "Show" with the status counts followed by "For", "Who's looking after it" and "Repeat".
-  From `lg` all four selects share that single row (the refinement panel flattens with `lg:contents`), with
-  the quiet "Clear search and filters" reset as the band's last right-aligned cell; below `lg` the three
-  refinements stay behind the existing "Filters (n)" disclosure. On phones the status shares the line with
-  that disclosure, and when a reset is available it takes the full width so the reset and the disclosure
-  keep the next line together. The reset only exists while filters are active. Results are one grouped white list of compact rows using the Home vocabulary: real
+  From `lg` all four selects share that single row (the refinement panel flattens with `lg:contents`); below
+  `lg` the three refinements stay behind the existing "Filters (n)" disclosure. On phones the status keeps a
+  narrow basis so it shares the first line with that disclosure at 320 px in both locales (the status never
+  stretches across a tablet). The quiet "Clear search and filters" reset exists only while filters are
+  active: it comes after the refinements in the DOM, closes the band as a trailing cell from `xl` where the
+  four labels still fit beside it, and takes its own right-aligned line at `lg` and on phones, wrapping
+  rather than ever overlapping the disclosure. Results are one grouped white list of compact rows using the Home vocabulary: real
   subject-type icon tile, title link, mint subject pill, the semantic state written out next to its icon
   (coral attention, teal in progress, amber waiting, green-teal coming up, neutral paused/archived, green
   done), the responsible line and the recurrence summary. The state words and the state colour come from
@@ -84,13 +86,14 @@ surfaces moved.
 
 | Deviation | Reason |
 | --- | --- |
-| Toolbar tab order is status → Filters (phones) → reset → refinement fields | Unchanged from origin/main. The reset keeps its DOM place before the fields and is the last visual cell of the desktop band; on phones it follows the disclosure and takes the next right-aligned line when the locale's labels do not fit beside it (320 px Czech). |
+| Toolbar tab order is status → Filters → refinements → reset (phones: status → Filters → reset while the panel is collapsed) | The reset is rendered after the refinement panel so DOM order matches the visual order at every width. Origin/main tabbed the reset before the refinements on desktop; that is the one deliberate tab-order change, made because the reset is now painted after them. |
+| People tab order is Add → notice Undo → rows | The Add action sits in the header band and the notice below it, so DOM and visual order agree. Origin/main tabbed the notice's Undo before Add because Add lived inside the list; restoring that would need a DOM order that contradicts the screen. |
 | The status filter stays visible on phones instead of moving behind "Filters" | It is the primary narrowing control; hiding it would add a tap to the most common filter. |
 | Detail keeps Edit before Done in the DOM, on the same line | The existing keyboard order and the `editButtonRef` focus return after cancel are behaviour; Done remains the only filled primary action. |
 | Row tiles use the real subject type and the real lifecycle state; no topic categories or invented badges | The API stores only the subject type and the workflow/attention state. |
 | People rows use a neutral tile, not a state colour | A person or thing has no workflow state; only items do. |
-| The reset wraps to its own right-aligned line on phones when it does not fit beside the disclosure | 320 px Czech needs about 300 px for both controls in a 248 px content column, so forcing one line would overlap them. The wrap is content-driven, so they share the line wherever they fit. |
-| The All items card drops its inner divider and tightens spacing below `sm` | Keeps the 320 px result list high enough that the first title's 44 px target stays above the fixed bottom bar with the reset visible. |
+| The reset takes its own right-aligned line on phones and at `lg` | On phones the status and the disclosure already share the first line and the reset's label does not fit beside them in a 246 px column; at `lg` a fifth cell squeezes the four labels below a readable width. It closes the band as a trailing cell only from `xl`. |
+| The All items card drops its inner divider and tightens spacing below `sm` | Keeps the 320 px result list high enough that the first row's opening band — and in practice the whole first title — stays well above the fixed bottom bar. |
 | People is capped at 64 rem while All items uses the full width | All items rows carry five facts across four columns and its toolbar needs the width; a People row carries a name, a type and two actions, so at 1440 a full-bleed row left roughly 1000 px of dead space between the name and those actions. Home keeps the full width as the brief asks. |
 | The People Add action moved from the list into the screen header band | The finding asks for Home's header-band placement. It keeps its `data-focus="add"` identity, dialog, trigger and focus return; it is now the first control in `main`, as on Home, instead of sitting between the list notices and the rows. |
 | The People row wraps the actions onto their own right-aligned line at 390 px | The Czech actions need about 210 px, which would leave a 56 px name column. The name keeps a 10 rem basis, so the actions move below it exactly when they would squeeze it; from `sm` they sit on the name line again. The metadata follows the name in the DOM, so assistive tech hears the facts before the actions. |
@@ -106,7 +109,7 @@ surfaces moved.
 | (a) Font, optical weight, navy hierarchy | Pass: Inter Variable throughout; 30 px 700 screen headings, 16 px 600 row titles and result count, 14 px muted metadata, uppercase 0.68 rem 600 eyebrows. No `font-display` utility or token remains. | `all-items-en-light-1440.png`, `people-en-light-1440.png`, `detail-open-en-light-1440.png` |
 | (b) Cool off-white canvas, white surfaces | Pass: `#F1F5FA` canvas, white grouped surfaces with 1 px `#D7E2EB` dividers; sunken `#E8EFF6` only for the repeat panel and notices. | all evidence captures |
 | (c) Petrol-teal CTA, coral/amber/teal status semantics | Pass: teal Search/Add/Done/Save; coral attention, teal in progress, amber waiting, mint coming up, neutral paused/archived, green done, amber conflict caution; every state also has its words and an icon. The upcoming group is captured with its mint tile, calendar icon and "Attention date" wording. | `all-items-en-light-1440.png`, `all-items-upcoming-en-light-1440.png`, `detail-done-history-en-light-1440.png`, `edit-conflict-en-light-1440.png` |
-| (d) Spacing and compact grouped rows | Pass: single header band, one toolbar surface, one list surface per screen. A two-line All items row measures 57.7 px at 1440 (asserted 48–58, Home rows stay 56 px). A People row is its text plus 24 px of padding: at 390 px a type-only row measures 121 px and a member row 142 px, because the actions take their own line there; from `sm` they sit on the name line and add no height. In both locales the name column measures 268 px at 390 and no fixture name breaks mid-word. The visual suite asserts those two invariants. | `all-items-en-light-1440.png`, `all-items-en-light-768.png`, `people-en-light-1440.png`, `people-en-light-390.png`, `people-en-light-320.png` |
+| (d) Spacing and compact grouped rows | Pass: single header band, one toolbar surface, one list surface per screen. A two-line All items row measures 57.7 px at 1440 (asserted 48–58, Home rows stay 56 px). A People row is its text plus 24 px of padding: at 390 px a type-only row measures 121 px and a member row 142 px, because the actions take their own line there — about four rows fit one phone screen, the deliberate price of keeping the name column at 268 px with no mid-word breaks in either locale; from `sm` the actions sit on the name line and add no height. The visual suite asserts the name column and the no-mid-word rule, not the wrap position. | `all-items-en-light-1440.png`, `all-items-en-light-768.png`, `people-en-light-1440.png`, `people-en-light-390.png`, `people-en-light-320.png` |
 | (e) Navigation / bottom bar | Pass: the V4-03 rail and bottom bar are untouched; only the selected surface and the page content changed. | `all-items-en-light-390.png`, `people-en-light-390.png` |
 | (f) Icon/tile styling and focus | Pass: restrained 36 px radius-12 icon tiles, visible 2 px focus rings, 44 px touch targets (the All items title link keeps a 44 px target with a −2 px outline offset, so its focus outline is drawn inside the target and never paints over a row divider), 44 × 44 targets at 320 px. | `all-items-en-light-320.png`, `people-cs-light-390.png`, `add-form-en-light-390.png` |
 | (g) Real data accuracy | Pass: captures come from the production build and real PostgreSQL fixtures; counts, subjects, members, dates and recurrence text are real API values. Nothing invented, no loading or unknown labels. | every capture; Czech and dark variants included |
@@ -133,11 +136,16 @@ surfaces moved.
   (the in-main header bands are not banners), the desktop results relationship is now "below the whole
   toolbar and full content width", and the title focus indicator is asserted to stay inside the row card.
   The audit also sets a 45 s action timeout so a blocked control fails with the intercepting element instead
-  of consuming the whole audit budget. Its 320 px Czech checks are the strict originals: the first title's
-  target and focus outline must end above the fixed bar. One audit-only repair was needed to get a complete
-  run, and it touches no product code: the OIDC outcome captures now load each callback fragment in a fresh
-  document, because Playwright's same-path hash navigation is a same-document navigation and the app
-  correctly never re-reads the fragment.
+  of consuming the whole audit budget. Its 320 px checks assert the invariant that actually holds for any
+  data: the first result row's opening 44 px band (its title's first line and the top of its 44 px target)
+  ends above the fixed bar, while a seeded multi-line title may continue below the fold and scroll. At
+  390 px the whole first row must still fit above the bar. Measured in the audit's own run: the English
+  320 first row starts at 454 px, so even a three-line title ends at 542 px, above the 575 px bar; the
+  Czech 320 status-only state carries the extra reset line and starts at 522 px, where the 44 px opening
+  band ends at 566 px. The assertion therefore checks the opening band, not the seeded titles' line count. One audit-only repair
+  was needed to get a complete run and it touches no product code: the OIDC outcome captures load each
+  callback fragment in a fresh document, because Playwright's same-path hash navigation is a same-document
+  navigation and the app correctly never re-reads the fragment.
 - Accessibility: no role, label, `aria-*` wiring, heading level, focus target or test id changed. The
   state is never colour-only (words + icon), the tile is `aria-hidden`, and the semantic pairs are the
   measured V4 tokens.
@@ -152,6 +160,7 @@ All images are committed production-build Playwright captures (Chromium, fixed b
 | [all items 1440](v4-items-people/all-items-en-light-1440.png) | Header band, one-row toolbar, grouped result list |
 | [all items 768](v4-items-people/all-items-en-light-768.png) | Tablet: Show + Filters on one line |
 | [all items 1024](v4-items-people/all-items-en-light-1024.png) | Four-up toolbar, labels unbroken |
+| [all items 1024 with reset](v4-items-people/all-items-1024-clear-en-light.png) | Reset visible: four even columns, reset on its own right-aligned line |
 | [all items 390](v4-items-people/all-items-en-light-390.png) | Phone toolbar and stacked rows |
 | [all items 320](v4-items-people/all-items-en-light-320.png) | Narrow phone, no page overflow |
 | [all items upcoming 1440](v4-items-people/all-items-upcoming-en-light-1440.png) | Coming-up group: mint tile, calendar icon, "Attention date" |
@@ -178,7 +187,7 @@ All images are committed production-build Playwright captures (Chromium, fixed b
 | [detail dark 390](v4-items-people/detail-en-dark-390.png) | Dark detail, phone |
 | [detail CS 390](v4-items-people/detail-cs-light-390.png) | Czech detail |
 | [people 1440](v4-items-people/people-en-light-1440.png) | Capped grouped list, Add in the header band |
-| [people 390](v4-items-people/people-en-light-390.png) | People, phone: actions on the name line, metadata beneath |
+| [people 390](v4-items-people/people-en-light-390.png) | People, phone: actions wrapped beneath the name so it keeps 268 px |
 | [people 320](v4-items-people/people-en-light-320.png) | Narrow phone: wrapped actions, 150 px+ name column, no overflow |
 | [people 1024](v4-items-people/people-en-light-1024.png) | Tablet: actions on the name line |
 | [people archived 1440](v4-items-people/people-archived-en-light-1440.png) | Archived view with Restore |

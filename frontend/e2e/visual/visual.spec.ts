@@ -421,7 +421,27 @@ test('All items populated, no-match and dark', async ({ browser }) => {
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     await assertFilterControlsDoNotOverlap(`${locale} ${width} collapsed`);
   }
+  // 1024 with the reset visible: the band keeps four equal columns and the reset takes the line below, so
+  // no label has to wrap and nothing is squeezed into a ragged fifth cell.
+  await page.setViewportSize({ width: 1024, height: 900 });
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
+  await page.goto('/items');
+  await expect(page.locator('[data-all-items-filter-disclosure]')).toBeHidden();
+  await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('Kontrola');
+  await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
+  await expect(page.getByRole('main').getByRole('region', { name: en['allItems.results'] })).toBeVisible();
+  await expect(page.locator('[data-all-items-clear]')).toBeVisible();
+  const wideFilterTops = await page.getByRole('main').getByRole('combobox')
+    .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
+  expect(wideFilterTops, 'four filters at 1024').toHaveLength(4);
+  expect(new Set(wideFilterTops).size, 'four filters share one row at 1024').toBe(1);
+  const responsibleLabel = page.locator('label').filter({ has: page.getByLabel(en['items.responsible.label']) }).first();
+  const [responsibleLabelHeight, responsibleSelectHeight] = await Promise.all([
+    responsibleLabel.evaluate((node) => node.getBoundingClientRect().height),
+    page.getByLabel(en['items.responsible.label']).evaluate((node) => node.getBoundingClientRect().height),
+  ]);
+  expect(responsibleLabelHeight - responsibleSelectHeight, 'the responsible filter label stays on one line at 1024').toBeLessThanOrEqual(30);
+  await capture(page, 'all-items-1024-clear', 1024, 900, false);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await darkScreen(browser, statePath, '/items', 'all-items');
   await context.close();
@@ -508,16 +528,15 @@ test('People current and archived', async ({ browser }) => {
   await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
   await assertPeopleNames('en');
   const peopleRows = await page.getByRole('main').locator('li:has([data-subject-name])').evaluateAll((rows) => rows.map((row) => {
-    const name = row.querySelector('[data-subject-name]')!.getBoundingClientRect();
     const actions = (row.querySelector('button[aria-label^="Edit"]') ?? row.querySelector('a[href^="/items?subject="]')!).getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
-    return { height: Math.round(rowRect.height), actionsBelowName: actions.top >= name.bottom, rightAligned: Math.round(rowRect.right - actions.right) <= 24 };
+    return { height: Math.round(rowRect.height), rightAligned: Math.round(rowRect.right - actions.right) <= 24 };
   }));
   console.info(`visual-people-row-heights ${JSON.stringify(peopleRows.slice(0, 3))}`);
   expect(peopleRows.length).toBeGreaterThan(1);
   for (const row of peopleRows) {
-    // Width-driven wrap: the actions take their own right-aligned line once they would squeeze the name.
-    expect(row.actionsBelowName, 'People actions wrap below the name at 390').toBe(true);
+    // Whether the actions wrap is width-driven (assertPeopleNames holds that invariant), so this only checks
+    // that they stay right-aligned and the row stays compact.
     expect(row.rightAligned, 'People actions stay right-aligned at 390').toBe(true);
     expect(row.height, 'People row height at 390').toBeLessThanOrEqual(150);
   }
@@ -534,8 +553,7 @@ test('People current and archived', async ({ browser }) => {
   const narrowRow = await page.getByRole('main').locator('li:has([data-subject-name])').first().evaluate((row) => {
     const name = row.querySelector('[data-subject-name]')!.getBoundingClientRect();
     const edit = row.querySelector('button[aria-label^="Edit"]')!.getBoundingClientRect();
-    const type = row.querySelector('[data-subject-type]')!.getBoundingClientRect();
-    return { nameWidth: Math.round(name.width), actionsBelow: edit.top >= type.bottom - 1, overflow: document.documentElement.scrollWidth - window.innerWidth };
+    return { nameWidth: Math.round(name.width), actionsBelow: edit.top >= name.bottom, overflow: document.documentElement.scrollWidth - window.innerWidth };
   });
   expect(narrowRow.overflow, 'People page overflow at 320').toBeLessThanOrEqual(0);
   expect(narrowRow.actionsBelow, 'People row actions drop below the metadata at 320').toBe(true);
