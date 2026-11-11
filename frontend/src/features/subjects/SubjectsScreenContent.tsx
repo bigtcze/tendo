@@ -1,4 +1,5 @@
 import { Heading } from '../../app/Heading';
+import { SubjectAddAction } from './SubjectAddAction';
 import { SubjectList } from './SubjectList';
 import { SubjectNotice } from './SubjectNotice';
 import { SubjectsViewToggle } from './SubjectsViewToggle';
@@ -29,28 +30,40 @@ export function SubjectsScreenContent({
   previousPage: (event: React.MouseEvent<HTMLButtonElement>) => void; nextPage: (event: React.MouseEvent<HTMLButtonElement>) => void;
   switchView: () => void;
 }) {
-  return <section className="settle relative min-w-0">
-    <div className="max-w-5xl md:pr-32">
-      <Heading className="font-display text-h1 leading-tight">{t('subjects.title')}</Heading>
-      <p className="mt-2 text-muted">{t('subjects.subtitle')}</p>
+  const canAdd = list.kind === 'ready' && !showArchived;
+  // Header band first, then the notice: DOM order matches what a reader sees, so the Add control is also the
+  // first thing a keyboard user reaches, as on Home.
+  return <section className="settle flex min-w-0 flex-col">
+    <div className="min-w-0 max-w-5xl">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+        <div className="min-w-0">
+          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('subjects.eyebrow')}</p>
+          <Heading className="mt-2 text-h1 leading-tight text-ink">{t('subjects.title')}</Heading>
+          <p className="mt-2 max-w-prose text-base text-muted">{t('subjects.subtitle')}</p>
+        </div>
+        {canAdd ? <div className="shrink-0 lg:pb-1">
+          <SubjectAddAction adding={adding} createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
+            pendingInitial={pendingFormInitial(createUncertain, pendingCreate)} addDisabled={addDisabled} t={t}
+            onAdd={startAdding} onCancelAdd={cancelAdding} onAddSubmit={add} />
+        </div> : null}
+      </div>
     </div>
-    <div className="mt-8 max-w-5xl">
-    {showArchived && list.kind !== 'noHousehold' ? <div className="space-y-1">
-      <h2 className="font-display text-2xl leading-snug">{t('subjects.archived.title')}</h2>
-      <p className="mt-1 text-muted">{t('subjects.archived.body')}</p>
-    </div> : null}
-    <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t}
-      onUndo={undoArchive} />
-    {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
-    <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
-    <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
-      cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing} transfer={transfer}
-      createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
-      pendingInitial={pendingFormInitial(createUncertain, pendingCreate)}
-      interactionLocked={interactionLocked} addDisabled={addDisabled} t={t} yourEntry={yourEntry} onAdd={startAdding} onCancelAdd={cancelAdding}
-      onAddSubmit={add} onStartEditing={startEditing} onArchive={changeArchived} onRestore={changeArchived}
-      onSave={save} onCancelEditing={closeEditing} onPrevious={previousPage} onNext={nextPage} />
-    <SubjectsViewToggle showArchived={showArchived} listKind={list.kind} t={t} onSwitchView={switchView} />
+    <div className="min-w-0 max-w-5xl">
+      <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
+    </div>
+    <div className="mt-6 min-w-0 max-w-5xl">
+      {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
+        <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
+        <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>
+      </div> : null}
+      {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
+      <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
+      <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
+        cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing} transfer={transfer}
+        interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
+        onStartEditing={startEditing} onArchive={changeArchived} onRestore={changeArchived}
+        onSave={save} onCancelEditing={closeEditing} onPrevious={previousPage} onNext={nextPage} />
+      <SubjectsViewToggle showArchived={showArchived} listKind={list.kind} t={t} onSwitchView={switchView} />
     </div>
   </section>;
 }

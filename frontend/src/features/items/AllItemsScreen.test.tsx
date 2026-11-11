@@ -304,7 +304,7 @@ describe('All items', () => {
     expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
   });
 
-  it('words the attention date by state, never repeating "Needs attention" without "since"', async () => {
+  it('words the attention date by state so the words agree with the state tile and icon', async () => {
     await openAllItems([
       makeItem(1, { title: 'Overdue result', attentionOn: '2025-11-18', attention: 'needs_attention' }),
       makeItem(2, { title: 'Upcoming result', attentionOn: '2026-02-15', attention: 'upcoming' }),
@@ -312,8 +312,20 @@ describe('All items', () => {
     ]);
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
     expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
-    expect(row('Upcoming result').getByText('Needs attention Feb 15, 2026')).toBeVisible();
+    // An open upcoming item keeps its mint "coming up" tile, so it names a plain attention date, never "Needs attention".
+    expect(row('Upcoming result').getByText('Attention date Feb 15, 2026')).toBeVisible();
+    expect(row('Upcoming result').queryByText(/Needs attention/)).not.toBeInTheDocument();
     expect(row('Paused result').getByText('Paused · Attention date Mar 1, 2026')).toBeVisible();
+  });
+
+  it('lists archived rows with the same archived words and state value the detail pill uses', async () => {
+    window.history.replaceState(null, '', '/items?status=archived');
+    installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { archived: true, attentionOn: '2026-03-02' })]) });
+    app();
+    await screen.findByRole('heading', { name: 'All items' });
+    const row = (await within(screen.getByRole('main')).findByText('Item 1')).closest('li')!;
+    expect(within(row).getByText('Archived · Attention date Mar 2, 2026')).toBeVisible();
+    expect(row.querySelector('[data-item-state]')).toHaveAttribute('data-item-state-kind', 'archived');
   });
 
   it('sends all combined filter values to both summary and list', async () => {
@@ -382,17 +394,24 @@ describe('All items', () => {
     expect(reqs(fake.requests, `${base}/items`).some((request) => request.query.get('archived') === 'true')).toBe(true);
   });
 
-  it('renders item title links at a minimum 44px target with metadata separated beneath', async () => {
+  it('renders compact rows with a 44px title target, a real subject tile and the state in words', async () => {
     await openAllItems([makeItem(1, { title: 'A long Czech title: nejneobhospodarovavatelnejsiho příslušenství'.repeat(2) })]);
     const link = screen.getByRole('link', { name: /A long Czech title/ });
     const row = link.closest('li')!;
-    const metadata = row.querySelector('p')!;
+    const metadata = row.querySelector('[data-item-meta]')!;
     expect(link).toHaveClass('min-h-11');
-    expect(row).toHaveClass('py-3');
-    expect(metadata).toHaveClass('mt-1');
+    expect(row).toHaveClass('pt-[11px]', 'pb-2');
+    expect(metadata).toHaveClass('mt-0.5');
+    // The tile derives from the real subject type, and the state is written next to an icon rather than colour alone.
+    expect(row.querySelector('[data-subject-icon]')).toHaveAttribute('data-subject-icon', 'person');
+    expect(within(row as HTMLElement).getByText('Café')).toHaveAttribute('data-subject-pill');
+    const state = row.querySelector('[data-item-state]')!;
+    expect(state).toHaveTextContent('Needs attention');
+    expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     link.focus();
     expect(link).toHaveFocus();
-    expect(link).toHaveClass('focus-visible:outline-2');
+    // The outline is drawn inside the 44 px target, so it never paints over the row divider.
+    expect(link).toHaveClass('focus-visible:outline-2', 'focus-visible:outline-offset-[-2px]');
   });
 
   it('replaces page rows, preserves previous cursors, and focuses results only after paging', async () => {

@@ -1,4 +1,3 @@
-import type { MessageKey } from '../../i18n';
 import type { Item, ItemField, Recurrence } from './itemsApi';
 import type { ItemFormValues } from './ItemForm';
 
@@ -54,14 +53,4 @@ export function rebaseEdit(values: ItemFormValues, original: Item, latest: Item)
 
 export function invalidEditField(field: string): ItemField | null {
   return EDITABLE_FIELDS.find((editable) => editable === field) ?? null;
-}
-
-
-export function detailStatusKey(item: Item): MessageKey {
-  if (item.done) return 'itemDetail.state.done';
-  if (item.workflowState === 'in_progress') return 'itemDetail.state.progress';
-  if (item.workflowState === 'waiting') return 'itemDetail.state.waiting';
-  if (item.workflowState === 'paused') return 'itemDetail.state.paused';
-  if (item.attention === 'upcoming') return 'items.group.upcoming';
-  return 'items.group.needs';
 }

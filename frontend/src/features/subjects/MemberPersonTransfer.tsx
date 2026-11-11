@@ -78,8 +78,8 @@ export function MemberPersonTransfer({ subject, etag, members, membersLoaded, ap
   }
 
   return <section aria-labelledby={titleId} className="mt-6 space-y-3 border-t border-line pt-4">
-    <h3 id={titleId} className="text-lg font-semibold text-ink">{t('subjects.transfer.title')}</h3>
-    <p className="text-sm text-muted">{t('subjects.transfer.intro')}</p>
+    <h3 id={titleId} className="text-lg font-bold text-ink">{t('subjects.transfer.title')}</h3>
+    <p className="max-w-prose text-small text-muted">{t('subjects.transfer.intro')}</p>
     <MemberPicker id={selectId} memberId={memberId} members={members} pending={pending} onChange={choose} />
     <PreviewFeedback preview={preview} member={member} memberId={memberId} subjectName={subject.name} pending={pending}
       onRetry={() => void choose(memberId)} />
@@ -122,14 +122,14 @@ function PreviewFeedback({ preview, member, memberId, subjectName, pending, onRe
     return <p className="text-sm text-muted">{t('subjects.transfer.checking')}</p>;
   }
   if (preview.kind === 'ok' && member) {
-    return <p className="rounded-xl bg-sand px-4 py-3 text-sm text-ink">
+    return <p className="rounded-xl border border-line bg-sand px-4 py-3 text-small text-ink">
       {t('subjects.transfer.confirm', { name: subjectName, login: member.login, current: preview.name })}
     </p>;
   }
-  if (preview.kind === 'missing') return <p role="alert" className="text-sm text-danger">{t('subjects.transfer.previewMissing')}</p>;
+  if (preview.kind === 'missing') return <p role="alert" className="text-small text-danger">{t('subjects.transfer.previewMissing')}</p>;
   if (preview.kind !== 'failed') return null;
   return <div className="space-y-2">
-    <p role="alert" className="text-sm text-danger">{t('subjects.transfer.previewFailed')}</p>
+    <p role="alert" className="text-small text-danger">{t('subjects.transfer.previewFailed')}</p>
     <Button type="button" variant="quiet" size="small" disabled={pending} onClick={onRetry}>
       {t('subjects.transfer.retry')}
     </Button>

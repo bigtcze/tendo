@@ -116,14 +116,41 @@ describe('item details', () => {
     await screen.findByText('Looked after by petr');
     expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(1);
     const main = within(screen.getByRole('main'));
-    const card = main.getByText('Bring old passport').closest('div.rounded-2xl')!;
+    // The state is a header pill written out beside an icon; the facts card keeps the dated facts in order.
+    const state = main.getByText('Needs attention', { exact: true });
+    expect(state).toHaveAttribute('data-item-state');
+    expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    const card = main.getByText('Bring old passport').closest('[data-item-facts]')!;
     const text = card.textContent!;
-    expect(text.indexOf('Needs attention')).toBeLessThan(text.indexOf('Due Oct 10, 2026'));
     expect(text.indexOf('Due Oct 10, 2026')).toBeLessThan(text.indexOf('Last done Oct 10, 2025'));
     expect(text.indexOf('Last done Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
     expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('Looked after by petr'));
     expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Bring old passport'));
     expect(text).not.toMatch(/attentionOn|workflow|ETag|fluid/i);
+  });
+
+  it('reads the archived state on an archived detail item, with the archived tone and icon', async () => {
+    const archived = item({ archived: true, done: true, attention: 'needs_attention' });
+    installFakeServer(common({ [`GET ${path}`]: json(200, archived, { ETag: '"1"' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    const pill = await screen.findByText('Archived', { exact: true });
+    expect(pill).toHaveAttribute('data-item-state');
+    expect(pill).toHaveAttribute('data-item-state-kind', 'archived');
+    // Icon, tone and words all come from the same state value: the archived pair, not the done pair.
+    expect(pill).toHaveClass('bg-sand', 'text-muted');
+    expect(pill.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    expect(pill).not.toHaveTextContent('Done');
+    expect(screen.getByText('Archived. This item stays here and its history is still available.')).toBeVisible();
+  });
+
+  it('renders no facts surface for an item that has no dates, repeat, responsible member or notes', async () => {
+    const bare = item({ attentionOn: null, lastCompletedOn: null, recurrence: null, notes: null });
+    installFakeServer(common({ [`GET ${path}`]: json(200, bare, { ETag: '"1"' }) }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { level: 1, name: 'Renew passport' });
+    expect(document.querySelector('[data-item-facts]')).toBeNull();
+    // The action band is still the one obvious next step.
+    expect(within(screen.getByRole('main')).getByRole('button', { name: 'Done: Renew passport' })).toBeVisible();
   });
 
   it('completes and undoes from detail through shared outcomes with fresh ETags', async () => {
@@ -152,9 +179,10 @@ describe('item details', () => {
     app();
     const doneButton = await screen.findByRole('button', { name: 'Done: Renew passport' });
     expect(doneButton).toHaveAttribute('data-variant', 'primary');
-    const actionRow = doneButton.parentElement!;
-    expect(actionRow.firstElementChild).toBe(doneButton);
-    expect(within(actionRow).getByRole('button', { name: 'Start' })).toHaveAttribute('data-variant', 'secondary');
+    // Done is the only filled primary action, and Start stays a secondary action in the same action band.
+    const actionBand = doneButton.closest('[data-item-actions]')!;
+    expect(actionBand.querySelectorAll('button[data-variant="primary"]')).toHaveLength(1);
+    expect(within(actionBand as HTMLElement).getByRole('button', { name: 'Start' })).toHaveAttribute('data-variant', 'secondary');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', path).length).toBeGreaterThanOrEqual(1));
     await userEvent.click(doneButton);
     await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));

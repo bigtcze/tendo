@@ -24,12 +24,14 @@ export function AddItemCatalogueStatus(props: CatalogueStatusProps) {
     {adding && subjectLoading && !editingRecovery
       ? <p role="status" className="text-muted">{t('items.subjects.loading')}</p>
       : null}
-    {adding && subjectState === 'error' && !editingRecovery ? <div className="space-y-3">
-      <p className="text-muted">{t('items.subjects.error')}</p>
-      <Button ref={retryRef} type="button" variant="quiet" disabled={subjectLoading} onClick={onRetry}>
-        {t('app.error.retry')}
-      </Button>
-      <Button type="button" variant="quiet" onClick={onCancel}>{t('items.cancel')}</Button>
+    {adding && subjectState === 'error' && !editingRecovery ? <div className="space-y-3 rounded-xl border border-line bg-sand p-4">
+      <p className="text-ink">{t('items.subjects.error')}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button ref={retryRef} type="button" variant="secondary" disabled={subjectLoading} onClick={onRetry}>
+          {t('app.error.retry')}
+        </Button>
+        <Button type="button" variant="quiet" onClick={onCancel}>{t('items.cancel')}</Button>
+      </div>
     </div> : null}
   </>;
 }
@@ -76,12 +78,14 @@ export function AddItemPanel(props: AddItemPanelProps) {
       onSubmit={onSubmit}
       onCancel={onCancel}
     /> : null}
-    {showEmpty ? <div className="rounded-2xl border border-line bg-paper p-5">
-      <p>{t('items.noSubjects')}</p>
-      <Button ref={noSubjectsRef} type="button" variant="quiet" className="mt-3" onClick={onOpenPeople}>
-        {t('home.people')}
-      </Button>
-      <Button type="button" variant="quiet" className="mt-3" onClick={onCancel}>{t('items.cancel')}</Button>
+    {showEmpty ? <div className="rounded-2xl border border-line bg-sand p-5">
+      <p className="text-ink">{t('items.noSubjects')}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button ref={noSubjectsRef} type="button" variant="secondary" onClick={onOpenPeople}>
+          {t('home.people')}
+        </Button>
+        <Button type="button" variant="quiet" onClick={onCancel}>{t('items.cancel')}</Button>
+      </div>
     </div> : null}
     {subjectLoading && !recovering
       ? <Button type="button" variant="quiet" className="mt-3" onClick={onCancel}>{t('items.cancel')}</Button>

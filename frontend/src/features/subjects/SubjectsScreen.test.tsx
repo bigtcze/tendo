@@ -208,6 +208,15 @@ describe('list', () => {
       'Pet',
       'Other',
     ]);
+    // The row tile is the real subject type and stays decorative; the type is still written out.
+    expect(rows.map((r) => r.querySelector('[data-subject-icon]')!.getAttribute('data-subject-icon'))).toEqual([
+      'person',
+      'home',
+      'vehicle',
+      'pet',
+      'custom',
+    ]);
+    expect(rows[0]!.querySelector('[data-subject-icon]')!.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.queryByText(/subject|custom/i)).not.toBeInTheDocument();
   });
 

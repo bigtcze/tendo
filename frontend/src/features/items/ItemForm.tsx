@@ -41,7 +41,7 @@ export function ItemForm(props: ItemFormProps) {
   const pendingOrLocked = state.pending || locked;
   return <form
     aria-label={t(mode === 'edit' ? 'itemDetail.edit.formLabel' : 'items.add.formLabel')} noValidate onSubmit={state.submit}
-    className="space-y-5 px-1 pb-1"
+    className="space-y-5"
   >
     <ItemFormFields
       id={id} errorId={errorId} state={state} mode={mode} subjects={subjects} members={members}
@@ -55,7 +55,7 @@ export function ItemForm(props: ItemFormProps) {
         if (node && state.showNotice && initialFocusRef) initialFocusRef.current = node;
       }} tabIndex={-1} role="status" className="rounded-xl border border-line bg-sand px-3 py-2 text-sm text-muted outline-none">{notice}</div>
       : null}
-    {state.error ? <div id={errorId} role="alert" className="text-danger">{errorMessage(state.error, t)}</div> : null}
+    {state.error ? <div id={errorId} role="alert" className="rounded-xl border border-danger bg-danger-bg px-4 py-3 text-danger">{errorMessage(state.error, t)}</div> : null}
     <FormActions {...props} busy={busy} mode={mode} locked={locked} pending={state.pending} onCancel={onCancel} />
   </form>;
 }
@@ -66,7 +66,7 @@ function FormActions({ busy, mode, locked, pending, onCancel, retryLabel, submit
   const { t } = useI18n();
   const idleLabel = locked ? (retryLabel ?? t('items.add.submit')) : t(mode === 'edit' ? 'itemDetail.save' : 'items.add.submit');
   const label = pending ? (submittingLabel ?? t(mode === 'edit' ? 'itemDetail.saving' : 'items.add.submitting')) : idleLabel;
-  return <div className="flex flex-wrap gap-2">
+  return <div className="flex flex-wrap items-center gap-2 border-t border-line pt-5">
     <Button type="submit" disabled={pending || busy}>{label}</Button>
     <Button type="button" variant="quiet" onClick={onCancel} disabled={pending || (mode === 'edit' && busy)}>{t('items.cancel')}</Button>
   </div>;

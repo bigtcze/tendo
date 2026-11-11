@@ -32,18 +32,23 @@ function invalidProps(state: ItemFormState, errorId: string, field: FormField, h
   return { 'aria-invalid': invalid, 'aria-describedby': describedBy };
 }
 
+/** Hairline-separated form sections: the everyday fields, then repeat, then who, then the optional notes. */
 export function ItemFormFields(props: FormFieldsProps) {
   const { state, mode, members } = props;
   const showResponsible = members.length > 1 || state.draft.responsibleUserId !== null;
-  return <>
-    <TitleField {...props} onTitleRef={props.onTitleRef} />
-    <SubjectField {...props} />
-    <DateField {...props} />
-    <RepeatSwitch {...props} />
-    {state.draft.repeat ? <RecurrencePanel {...props} withHistory={mode === 'add'} /> : null}
-    {showResponsible ? <ResponsibleField {...props} /> : null}
-    <NotesField {...props} />
-  </>;
+  return <div className="divide-y divide-line">
+    <div className="space-y-5 pb-5">
+      <TitleField {...props} onTitleRef={props.onTitleRef} />
+      <SubjectField {...props} />
+      <DateField {...props} />
+    </div>
+    <div className="py-5">
+      <RepeatSwitch {...props} />
+      {state.draft.repeat ? <RecurrencePanel {...props} withHistory={mode === 'add'} /> : null}
+    </div>
+    {showResponsible ? <div className="py-5"><ResponsibleField {...props} /></div> : null}
+    <div className="pt-5"><NotesField {...props} /></div>
+  </div>;
 }
 
 type TitleFieldProps = FieldProps & Pick<FormFieldsProps, 'titleRef' | 'onTitleRef'>;
@@ -87,7 +92,7 @@ type SwitchProps = { checked: boolean; disabled: boolean; onChange: (checked: bo
 function Switch({ checked, disabled, onChange, label, describedBy }: SwitchProps) {
   return <label className="flex min-h-11 items-center gap-3 text-ink">
     <Toggle checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} aria-describedby={describedBy} />
-    <span>{label}</span>
+    <span className="font-semibold">{label}</span>
   </label>;
 }
 
@@ -95,7 +100,7 @@ function RepeatSwitch({ state, disabled, mode }: FieldProps & { mode: 'add' | 'e
   const { t } = useI18n();
   return <div>
     <Switch disabled={disabled} checked={state.draft.repeat} onChange={(repeat) => state.update({ repeat })} label={t('items.repeat')} />
-    {mode === 'edit' ? <p className="text-meta text-muted">{t('itemDetail.repeatEditHint')}</p> : null}
+    {mode === 'edit' ? <p className="mt-1 text-meta text-muted">{t('itemDetail.repeatEditHint')}</p> : null}
   </div>;
 }
 
@@ -135,29 +140,31 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
   const { id, state, disabled, withHistory } = props;
   const { t, locale } = useI18n();
   const exampleId = `${id}-repeat-example`;
-  return <div className="space-y-4 border-l-2 border-line pl-4">
+  return <div className="mt-4 space-y-4 rounded-xl border border-line bg-sand p-4">
     <IntervalFieldset {...props} />
-    <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })}
-      label={t('items.repeat.afterCompletion')} describedBy={exampleId} />
-    <p id={exampleId} className="text-meta text-muted">
-      {t(state.draft.fluid ? 'items.repeatExample.after' : 'items.repeatExample.fixed', {
-        interval: intervalLabel(t, locale, state.draft.interval, state.draft.unit),
-      })}
-    </p>
+    <div className="border-t border-line pt-4">
+      <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })}
+        label={t('items.repeat.afterCompletion')} describedBy={exampleId} />
+      <p id={exampleId} className="mt-1 text-meta text-muted">
+        {t(state.draft.fluid ? 'items.repeatExample.after' : 'items.repeatExample.fixed', {
+          interval: intervalLabel(t, locale, state.draft.interval, state.draft.unit),
+        })}
+      </p>
+    </div>
     {withHistory ? <HistoricalCompletion {...props} /> : null}
   </div>;
 }
 
 function HistoricalCompletion({ id, errorId, state, historyDisabled }: FieldProps & { historyDisabled: boolean }) {
   const { t, locale } = useI18n();
-  return <div className="border-t border-line/70 pt-2">
+  return <div className="border-t border-line pt-3">
     <Button
       type="button" variant="quiet" size="small" disabled={historyDisabled}
       aria-expanded={state.historicalOpen} onClick={state.toggleHistorical}
     >
       {t(state.historicalOpen ? 'items.historical.hide' : 'items.historical.show')}
     </Button>
-    {state.historicalOpen ? <div className="mt-2 space-y-2">
+    {state.historicalOpen ? <div className="mt-2">
       <Field id={controlId(id, 'historicalCompletedOn')} label={t('items.historical.label')}
         hint={t('items.historical.hint')}>
         {(field) => <Input disabled={historyDisabled} type="date" lang={locale}
@@ -176,7 +183,7 @@ function ResponsibleField({ id, errorId, state, disabled, members }: FieldProps 
   return <Field id={controlId(id, 'responsibleUserId')} label={t('items.responsible.label')}
 >
     {(field) => <Select
-      disabled={disabled} className="max-w-sm text-sm"
+      disabled={disabled}
       value={selected ?? ''}
       onChange={(event) => state.update({ responsibleUserId: event.target.value || null })}
       {...field} {...invalidProps(state, errorId, 'responsibleUserId')}
@@ -191,7 +198,8 @@ function ResponsibleField({ id, errorId, state, disabled, members }: FieldProps 
 function NotesField({ id, errorId, state, disabled }: FieldProps) {
   const { t } = useI18n();
   return <div>
-    <Button type="button" variant="quiet" size="small" disabled={disabled} aria-expanded={state.notesOpen} onClick={state.toggleNotes}>
+    <Button type="button" variant="quiet" size="small" disabled={disabled} aria-expanded={state.notesOpen} onClick={state.toggleNotes}
+      className="-ml-3 min-h-11">
       {t(state.notesOpen ? 'items.notes.hide' : 'items.notes.show')}
     </Button>
     {state.notesOpen ? <div className="mt-2">
