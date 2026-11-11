@@ -196,14 +196,21 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
   const oidcOutcomePage = await oidcContext.newPage();
   await oidcOutcomePage.route('**/api/v1/session', route => route.fulfill({ status: 401, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401 }) }));
   await oidcOutcomePage.route('**/api/v1/auth/setup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ required: false }) }));
-  await oidcOutcomePage.goto('/login#oidcError=cancelled');
+  // A provider callback always arrives as a full document load. Playwright's goto to the same path with a
+  // different fragment is a same-document navigation, so the app would never re-read the fragment: pass
+  // through about:blank to give every outcome a fresh document, exactly like the real redirect.
+  const openLoginFragment = async (hash: string) => {
+    await oidcOutcomePage.goto('about:blank');
+    await oidcOutcomePage.goto(`/login#${hash}`);
+  };
+  await openLoginFragment('oidcError=cancelled');
   await expect(oidcOutcomePage.getByRole('status')).toContainText(en['oidc.error.cancelled']);
   expect(new URL(oidcOutcomePage.url()).hash, 'OIDC callback fragment is scrubbed').toBe('');
   await shot(oidcOutcomePage, dir, 'auth-login-oidc-outcome-en-390.png', capture, 390);
 
   // identity_conflict: the callback refuses an identity whose verified address belongs to an account
   // with a different subject. Copy is asserted from the catalogs so audit and product stay in sync.
-  await oidcOutcomePage.goto('/login#oidcError=identity_conflict');
+  await openLoginFragment('oidcError=identity_conflict');
   await expect(oidcOutcomePage.getByRole('status')).toHaveText(en['oidc.error.identity_conflict']);
   expect(new URL(oidcOutcomePage.url()).hash, 'conflict callback fragment is scrubbed').toBe('');
   await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-en-390');
@@ -216,14 +223,14 @@ export async function captureAuth(page: Page, browser: Browser, dir: string, cap
 
   await oidcOutcomePage.setViewportSize({ width: 390, height: heightFor(390) });
   await applySavedDarkPreference(oidcOutcomePage);
-  await oidcOutcomePage.goto('/login#oidcError=identity_conflict');
+  await openLoginFragment('oidcError=identity_conflict');
   await expect(oidcOutcomePage.getByRole('status')).toHaveText(en['oidc.error.identity_conflict']);
   await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-dark-en-390');
   await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-dark-en-390.png', capture, 390);
   await applySystemAppearance(oidcOutcomePage);
 
   await oidcOutcomePage.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
-  await oidcOutcomePage.goto('/login#oidcError=identity_conflict');
+  await openLoginFragment('oidcError=identity_conflict');
   await expect(oidcOutcomePage.getByRole('status')).toHaveText(cs['oidc.error.identity_conflict']);
   await expectNoAxeViolations(oidcOutcomePage, 'auth-login-oidc-conflict-cs-390');
   await shot(oidcOutcomePage, dir, 'auth-login-oidc-conflict-cs-390.png', capture, 390);

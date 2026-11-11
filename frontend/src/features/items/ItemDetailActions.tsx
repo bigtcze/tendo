@@ -37,29 +37,30 @@ function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
 }
 
 function StaleItemNotice({ busy, onReload, t }: Pick<Props, 'busy' | 'onReload' | 't'>) {
-  return <div className="mt-3 space-y-2">
+  return <div className="space-y-2">
     <p role="alert" className="text-small text-muted">{t('itemDetail.refreshFailed')}</p>
     <Button type="button" variant="quiet" disabled={busy} onClick={onReload}>{t('itemDetail.reload')}</Button>
   </div>;
 }
 
-/** The quiet Edit stays first in the tab order, then the obvious Done with the workflow options beside it. */
+/**
+ * The quiet Edit stays first in the tab order and shares the first line with the obvious Done; the workflow
+ * options wrap below them on a phone and sit inline from `sm`.
+ */
 function LiveRow(props: Props) {
   const { item, busy, editLoading, editRef, t, onEdit, onDone, stale } = props;
-  return <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+  return <div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
     <Button ref={editRef} type="button" variant="quiet" disabled={busy || editLoading || stale} onClick={onEdit}>
       {t('itemDetail.edit.button')}
     </Button>
     <span aria-hidden="true" className="hidden h-6 w-px bg-line sm:block" />
-    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-      <Button
-        type="button" data-action="detail-done" className="w-full sm:w-auto"
-        aria-label={t('items.done.label', { title: item.title })} disabled={busy || stale} onClick={onDone}
-      >
-        {t('items.done')}
-      </Button>
-      <WorkflowButtons {...props} busy={busy || stale} />
-    </div>
+    <Button
+      type="button" data-action="detail-done" className="flex-1 sm:flex-none"
+      aria-label={t('items.done.label', { title: item.title })} disabled={busy || stale} onClick={onDone}
+    >
+      {t('items.done')}
+    </Button>
+    <WorkflowButtons {...props} busy={busy || stale} />
   </div>;
 }
 
@@ -87,14 +88,17 @@ export function ItemDetailActions(props: Props) {
     ? <StaleItemNotice busy={busy} onReload={props.onReload} t={t} /> : null;
   const archive = <ArchiveControl item={item} busy={busy} stale={props.stale} t={t} onArchive={props.onArchive} onRestore={props.onRestore} />;
   if (!live && !props.completionNotice) {
-    // Nothing to do on a finished or archived item beyond its facts, so keep a quiet footer row instead of an empty card.
-    return <div className="mt-4 flex flex-wrap items-center gap-2">{staleNotice}{archive}</div>;
+    // Nothing to do on a finished or archived item beyond its facts: keep the quiet action in its own surface.
+    return <section data-item-actions className="mt-4 space-y-3 rounded-2xl border border-line bg-raised p-4 sm:px-5">
+      {staleNotice}
+      <div className="flex flex-wrap items-center gap-2">{archive}</div>
+    </section>;
   }
-  return <section data-item-actions className="mt-4 rounded-2xl border border-line bg-raised p-4 sm:p-5">
+  return <section data-item-actions className="mt-4 space-y-3 rounded-2xl border border-line bg-raised p-4 sm:p-5">
     {staleNotice}
-    {props.editLoading ? <p role="status" className="mb-3 text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
+    {props.editLoading ? <p role="status" className="text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
     {live ? <LiveRow {...props} /> : null}
     {props.completionNotice ? <CompletionNotice {...props} /> : null}
-    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-3">{archive}</div>
+    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">{archive}</div>
   </section>;
 }

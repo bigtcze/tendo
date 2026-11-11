@@ -2,12 +2,12 @@ import type { RefObject } from 'react';
 import { NavLink } from '../../app/NavLink';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty-state';
-import { useI18n, type MessageKey, type Translate } from '../../i18n';
+import { useI18n, type Translate } from '../../i18n';
 import type { Member } from '../members/membersApi';
 import { SubjectTypeIcon } from '../subjects/SubjectTypeIcon';
 import type { SubjectType } from '../subjects/subjectsApi';
 import { formatDate } from './formatDate';
-import { ItemStateIcon, itemState, itemStateTone } from './itemStateTone';
+import { ItemStateIcon, itemState, itemStateLabel, itemStateTone } from './itemStateTone';
 import { repeatSummary } from './repeatSummary';
 import type { Item } from './itemsApi';
 import type { PageState } from './allItemsPageState';
@@ -16,7 +16,11 @@ import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 // Same compact rhythm as a Home row: one text line in layout, a 44 px pointer target through compensated padding.
-const titleLink = `relative z-10 flex min-h-11 max-w-full items-center rounded-lg py-[11px] -my-[11px] [overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent ${focusRing}`;
+// The focus outline is drawn inside the target box (-2px offset) so it never paints over the row divider, while
+// staying a real outline that focus-indicator tooling can measure.
+const titleLink = 'relative z-10 flex min-h-11 max-w-full items-center rounded-lg py-[11px] -my-[11px] '
+  + '[overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent '
+  + 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus';
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
 const subjectPill = 'inline-flex max-w-full items-center rounded-full bg-upcoming-bg px-2.5 py-0.5 text-meta font-semibold text-ink [overflow-wrap:anywhere]';
 
@@ -46,20 +50,11 @@ export function outcomeText(view: ResultsView, context: Context, page: PageState
   return view === 'rows' ? rangeLabel(context, page, t, locale) : '';
 }
 
-const stateLabels: Partial<Record<Item['workflowState'], MessageKey>> = {
-  paused: 'items.group.paused', in_progress: 'items.group.inProgress', waiting: 'items.group.waiting',
-};
-
-function stateLabel(item: Item): MessageKey {
-  if (item.archived) return 'allItems.status.archived';
-  if (item.done) return 'itemDetail.state.done';
-  return stateLabels[item.workflowState] ?? (item.attention === 'upcoming' ? 'items.group.upcoming' : 'items.group.needs');
-}
-
-// Same wording as Home rows: only an open item can be due on or overdue since its date.
-function attentionKey(item: Item): MessageKey {
-  if (item.archived || item.done || item.workflowState !== 'open') return 'items.rowAttentionDate';
-  return item.attention === 'upcoming' ? 'items.attentionOn' : 'items.needsSince';
+// Same wording as Home rows: only an open needs-attention item is "since" a date; every other state names a
+// plain attention date, so the words always agree with the tile and icon.
+function attentionKey(item: Item): 'items.needsSince' | 'items.rowAttentionDate' {
+  const open = item.workflowState === 'open' && !item.done && !item.archived;
+  return open && item.attention === 'needs_attention' ? 'items.needsSince' : 'items.rowAttentionDate';
 }
 
 function ItemRow({ item, subjectName, subjectType, members, onOpenItem }: {
@@ -73,9 +68,9 @@ function ItemRow({ item, subjectName, subjectType, members, onOpenItem }: {
   const tone = itemStateTone[state];
   const status = attention && item.workflowState === 'open' && !item.done && !item.archived
     ? attention
-    : [t(stateLabel(item)), attention].filter(Boolean).join(' · ');
+    : [t(itemStateLabel(item)), attention].filter(Boolean).join(' · ');
   return <li data-item-id={item.id} className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-3 px-4 pb-2 pt-[11px] xl:pb-0 xl:pt-2">
-    <span aria-hidden="true" data-subject-icon={subjectType ?? 'unknown'}
+    <span aria-hidden="true" data-subject-icon={subjectType ?? 'custom'}
       className={`grid size-9 place-items-center rounded-xl ${tone.tile}`}>
       <SubjectTypeIcon type={subjectType ?? 'custom'} />
     </span>
@@ -84,15 +79,17 @@ function ItemRow({ item, subjectName, subjectType, members, onOpenItem }: {
         className={titleLink}>{item.title}</NavLink>
       <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta leading-snug">
         <span data-subject-pill className={subjectPill}>{subjectName ?? t('items.subject.unknown')}</span>
-        <span data-item-state className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
+        <span data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
           <ItemStateIcon state={state} className="size-4 shrink-0" />
           <span className="[overflow-wrap:anywhere]">{status}</span>
         </span>
         {item.responsibleUserId
-          ? <span className="text-muted [overflow-wrap:anywhere]">{t('items.responsible.read', { name: responsible })}</span>
+          ? <span data-item-responsible className="text-muted [overflow-wrap:anywhere]">{t('items.responsible.read', { name: responsible })}</span>
           : null}
       </div>
-      {item.recurrence ? <p className="mt-0.5 text-meta text-muted">{repeatSummary(t, item.recurrence, locale)}</p> : null}
+      {item.recurrence
+        ? <p data-item-recurrence className="mt-0.5 text-meta text-muted">{repeatSummary(t, item.recurrence, locale)}</p>
+        : null}
     </div>
   </li>;
 }
@@ -133,7 +130,7 @@ export function AllItemsResults({ view, context, page, subjectNames, subjectType
   if (view !== 'rows') return null;
   const range = rangeLabel(context, page, t, locale);
   return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="min-w-0 space-y-3 outline-none">
-    <h2 className="text-small font-semibold text-muted">{range}</h2>
+    <h2 className="text-row-title font-semibold text-ink">{range}</h2>
     <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
       {page.items.map((item) =>
         <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem}

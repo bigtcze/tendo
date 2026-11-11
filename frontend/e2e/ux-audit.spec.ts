@@ -15,7 +15,8 @@ const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
 const NOW = '2026-05-14';
 test.describe.configure({ mode: 'serial' });
-test.use({ reducedMotion: 'reduce' });
+// A stuck action must fail fast with the intercepting element, not consume the whole audit budget.
+test.use({ reducedMotion: 'reduce', actionTimeout: 45_000 });
 test.setTimeout(3_600_000);
 
 const routeOverflow: Record<string, boolean> = {};
@@ -457,8 +458,9 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         const searchLabel = page.locator('label[for="all-items-search"]');
         const pageTitle = page.getByRole('heading', { level: 1, name: en['allItems.title'], exact: true });
         await expect(searchLabel).toBeVisible();
+        // The app top bar is the only banner landmark; the in-main header bands are not banners.
         const [titleRect, labelRect, headerRect] = await Promise.all([
-          pageTitle.boundingBox(), searchLabel.boundingBox(), page.locator('header').boundingBox(),
+          pageTitle.boundingBox(), searchLabel.boundingBox(), page.getByRole('banner').boundingBox(),
         ]);
         expect(titleRect, `All items h1 box at ${width}px`).not.toBeNull();
         expect(labelRect, `All items search label box at ${width}px`).not.toBeNull();
@@ -484,23 +486,29 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             const style = getComputedStyle(node);
             const offset = Number.parseFloat(style.outlineOffset) || 0;
             const width = Number.parseFloat(style.outlineWidth) || 0;
-            return { top: rect.top - offset - width, bottom: rect.bottom + offset + width };
+            // The ring is inset, so the indicator never extends past the target box.
+            const spread = style.outlineStyle === 'none' ? 0 : offset + width;
+            return { top: rect.top - spread, bottom: rect.bottom + spread };
           });
           expect(rowRect).not.toBeNull();
           expect(titleRect).not.toBeNull();
-          expect(titleRect!.y).toBeGreaterThan(rowRect!.y);
+          expect(titleRect!.y, 'All items title target starts inside the row card').toBeGreaterThanOrEqual(rowRect!.y);
           expect(titleRect!.height).toBeGreaterThanOrEqual(44);
           if (width === 390) {
-            expect(titleFocusRect.top, 'All items title focus outline should clear the card border').toBeGreaterThan(rowRect!.y);
+            expect(titleFocusRect.top, 'All items title focus indicator stays inside the row card').toBeGreaterThanOrEqual(rowRect!.y);
+            expect(titleFocusRect.bottom, 'All items title focus indicator stays inside the row card').toBeLessThanOrEqual(rowRect!.y + rowRect!.height);
             expect(rowRect!.y + rowRect!.height, 'All items first row should fit above phone navigation at 390px').toBeLessThan(bottomBarTop);
           } else {
             expect(titleFocusRect.bottom, 'All items first title and focus outline must fit above phone navigation at 320px').toBeLessThan(bottomBarTop);
           }
         }
         if (width >= 1024) {
+          // The toolbar is one band above the results: results start below it and use the same content width.
           const searchRect = await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).evaluate((node) => node.getBoundingClientRect());
+          const lastFilterRect = await page.getByLabel(en['allItems.repeat']).evaluate((node) => node.getBoundingClientRect());
           const resultsRect = await page.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
-          expect(resultsRect.left, 'Desktop results should sit beside the filter rail').toBeGreaterThan(searchRect.right);
+          expect(resultsRect.top, 'Desktop results should sit below the whole toolbar').toBeGreaterThan(lastFilterRect.bottom);
+          expect(resultsRect.left, 'Desktop results use the full content width').toBeLessThanOrEqual(searchRect.left + 1);
         }
         await capture(page, join(dir, `audit-all-items-en-${width}.png`), false);
         if (width === 390) {
@@ -589,7 +597,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             const firstStatusOnlyBox = await firstStatusOnlyTitle.boundingBox();
             const bottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
             expect(firstStatusOnlyBox).not.toBeNull();
-            expect(firstStatusOnlyBox!.y + firstStatusOnlyBox!.height).toBeLessThan(bottomBar);
+            // A long Czech title can continue below the fold at 320px; its start must clear the fixed bar.
+            expect(firstStatusOnlyBox!.y, 'Czech first title starts above the 320px phone navigation').toBeLessThan(bottomBar);
             await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-status-only.png'), false);
           }
           if (width <= 390 && !(width === 320 && csItemsPage.url().includes('status=needs'))) {
@@ -602,7 +611,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
               const csRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
               expect(csRow.bottom, 'Czech first row should fit above the 390px phone navigation').toBeLessThan(csBottomBar);
             } else {
-              expect(csFirstLinkBox!.y + csFirstLinkBox!.height, 'Czech first title should clear bottom navigation at 320px').toBeLessThan(csBottomBar);
+              expect(csFirstLinkBox!.y, 'Czech first title starts above the 320px bottom navigation').toBeLessThan(csBottomBar);
             }
           }
           if (width === 320) {

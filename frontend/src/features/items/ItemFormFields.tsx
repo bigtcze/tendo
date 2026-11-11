@@ -183,7 +183,7 @@ function ResponsibleField({ id, errorId, state, disabled, members }: FieldProps 
   return <Field id={controlId(id, 'responsibleUserId')} label={t('items.responsible.label')}
 >
     {(field) => <Select
-      disabled={disabled} className="max-w-sm text-sm"
+      disabled={disabled}
       value={selected ?? ''}
       onChange={(event) => state.update({ responsibleUserId: event.target.value || null })}
       {...field} {...invalidProps(state, errorId, 'responsibleUserId')}

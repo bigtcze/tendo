@@ -7,8 +7,7 @@ import { ItemDetailHistory } from './ItemDetailHistory';
 import { ItemDetailNotice } from './ItemDetailNotice';
 import { ItemDetailReadView } from './ItemDetailReadView';
 import { ItemEditSection } from './ItemEditSection';
-import { ItemStateIcon, itemState, itemStateTone } from './itemStateTone';
-import { detailStatusKey } from './itemEditModel';
+import { ItemStateIcon, itemState, itemStateLabel, itemStateTone } from './itemStateTone';
 import type { ItemDetailBusy } from './useItemDetailBusy';
 import type { ItemDetailHistoryState } from './useItemDetailHistory';
 import type { ItemDetailState } from './useItemDetail';
@@ -18,9 +17,10 @@ import type { useItemDetailEdit } from './useItemDetailEdit';
 /** The item's real state, written out and paired with its icon so colour is never the only signal. */
 function StatePill({ item, t }: { item: Item; t: Translate }) {
   const state = itemState(item);
-  return <p data-item-state className={`inline-flex shrink-0 items-center gap-2 self-start rounded-full border px-3 py-1 text-small font-semibold ${itemStateTone[state].pill}`}>
+  return <p data-item-state data-item-state-kind={state}
+    className={`inline-flex shrink-0 items-center gap-2 self-start rounded-full border px-3 py-1 text-small font-semibold ${itemStateTone[state].pill}`}>
     <ItemStateIcon state={state} className="size-4 shrink-0" />
-    {t(detailStatusKey(item))}
+    {t(itemStateLabel(item))}
   </p>;
 }
 

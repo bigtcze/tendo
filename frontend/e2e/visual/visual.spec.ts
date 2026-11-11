@@ -272,6 +272,19 @@ test('approved reference fixture at approved widths, locales and themes', async 
     await capture(page, `home-reference-en-dark-${width}`, width, height, true);
   }
   await page.evaluate(() => localStorage.setItem('tendo.theme', 'light'));
+  await page.reload();
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
+  // All items reuses the same state vocabulary: an upcoming item keeps its mint tile and names a plain date.
+  await page.goto('/items?status=upcoming');
+  const upcomingRow = page.locator('main li[data-item-id]').filter({ hasText: 'Schedule the car inspection' });
+  await expect(upcomingRow).toBeVisible();
+  await expect(upcomingRow.locator('[data-item-state]')).toHaveAttribute('data-item-state-kind', 'upcoming');
+  const carDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date('2026-05-28T00:00:00Z'));
+  await expect(upcomingRow.locator('[data-item-state]')).toContainText(en['items.rowAttentionDate'].replace('{date}', carDate));
+  await expect(upcomingRow.locator('[data-item-state]')).not.toContainText(en['items.attentionOn'].replace('{date}', carDate));
+  await expect(page.getByRole('main').getByRole('heading', { level: 2, name: 'Showing 1–3 of 3' })).toBeVisible();
+  await capture(page, 'all-items-upcoming-en-light-1440', 1440, 1080, false);
+  await page.goto('/');
   // Title and Done are separate controls: the title links to detail, Done completes without navigating, and Undo restores.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
@@ -343,13 +356,25 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await page.goto('/items');
   await waitForAllItemsSummary(page);
   for (const width of [320, 390, 768, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
-  // Density guard: a two-line result row (title + one metadata line) stays as compact as a Home row at 1440.
+  // Density guard: the first two-line row (title + one metadata line carrying pill, state and responsible)
+  // stays as compact as a Home row at 1440. The row is chosen structurally, not by a fixture title.
   await page.setViewportSize({ width: 1440, height: 900 });
-  const compactRow = page.locator('main li[data-item-id]').filter({ hasText: 'Výměna filtru' });
+  const compactRow = page.locator('main li[data-item-id]')
+    .filter({ has: page.locator('[data-item-meta] [data-subject-pill]') })
+    .filter({ has: page.locator('[data-item-meta] [data-item-state]') })
+    .filter({ has: page.locator('[data-item-meta] [data-item-responsible]') })
+    .filter({ hasNot: page.locator('[data-item-recurrence]') })
+    .first();
+  await expect(compactRow, 'a two-line All items row exists at 1440').toHaveCount(1);
   const compactRowHeight = await compactRow.evaluate((row) => row.getBoundingClientRect().height);
   console.info(`visual-all-items-row-height height=${compactRowHeight}`);
   expect(compactRowHeight, 'two-line All items row height at 1440').toBeGreaterThanOrEqual(48);
   expect(compactRowHeight, 'two-line All items row height at 1440').toBeLessThanOrEqual(58);
+  // The desktop toolbar scans as one band: Show and the three refinements share a single row.
+  const filterTops = await page.getByRole('main').getByRole('combobox')
+    .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
+  expect(filterTops, 'desktop filters share one row').toHaveLength(4);
+  expect(new Set(filterTops).size, 'desktop filters share one row').toBe(1);
   await page.getByRole('searchbox', { name: en['allItems.search'], exact: true }).fill('no-such-visual-item');
   await page.getByRole('button', { name: en['allItems.searchButton'], exact: true }).click();
   await expect(page.getByRole('main').getByRole('heading', { name: en['allItems.noMatch'] })).toBeVisible();
@@ -419,11 +444,42 @@ test('Edit form and optimistic conflict', async ({ browser }) => {
 test('People current and archived', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await page.goto('/people'); await captureScreen(page, 'people-current', true);
+  // Compact rows at 390: the actions share the name band and a member row stays under 100px tall.
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
+  const peopleRows = await page.getByRole('main').locator('li:has([data-subject-name])').evaluateAll((rows) => rows.map((row) => {
+    const name = row.querySelector('[data-subject-name]')!.getBoundingClientRect();
+    const edit = row.querySelector('button[aria-label^="Edit"]')!.getBoundingClientRect();
+    const lastText = (row.querySelector('[data-subject-member]') ?? row.querySelector('[data-subject-type]')!).getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const editCentre = edit.top + edit.height / 2;
+    return { height: Math.round(rowRect.height), inTextBand: editCentre > name.top && editCentre < lastText.bottom };
+  }));
+  console.info(`visual-people-row-heights ${JSON.stringify(peopleRows.slice(0, 3))}`);
+  expect(peopleRows.length).toBeGreaterThan(1);
+  for (const row of peopleRows) {
+    // The actions sit beside the text, never in a separate block below it.
+    expect(row.inTextBand, 'People row actions sit in the text band at 390').toBe(true);
+    expect(row.height, 'People row height at 390').toBeLessThanOrEqual(120);
+  }
+  // At 320px the actions fall back to their own right-aligned row so the name keeps a readable column.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
+  const narrowRow = await page.getByRole('main').locator('li:has([data-subject-name])').first().evaluate((row) => {
+    const name = row.querySelector('[data-subject-name]')!.getBoundingClientRect();
+    const edit = row.querySelector('button[aria-label^="Edit"]')!.getBoundingClientRect();
+    const type = row.querySelector('[data-subject-type]')!.getBoundingClientRect();
+    return { nameWidth: Math.round(name.width), actionsBelow: edit.top >= type.bottom - 1, overflow: document.documentElement.scrollWidth - window.innerWidth };
+  });
+  expect(narrowRow.overflow, 'People page overflow at 320').toBeLessThanOrEqual(0);
+  expect(narrowRow.actionsBelow, 'People row actions drop below the metadata at 320').toBe(true);
+  expect(narrowRow.nameWidth, 'People name column at 320').toBeGreaterThanOrEqual(150);
+  await capture(page, 'people-320', 320, 640, false);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'cs'));
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
   await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
-  await capture(page, 'people-cs-390', 390, 900, true);
+  await capture(page, 'people-cs-390', 390, 900, false);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await page.reload();
   const subject = requiredFixture().subjects[0];

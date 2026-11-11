@@ -44,6 +44,25 @@ function statusOption(id: AllItemsStatus, label: string, summary: ItemSummary | 
   return <option key={id} value={id}>{label}{summary ? ` (${countFor(id, summary)})` : ''}</option>;
 }
 
+/** Phone-only disclosure; the panel is always visible from `lg`, where the toggle is hidden. */
+function FiltersDisclosure({ expanded, activeCount, panelId, t, onToggle }: {
+  expanded: boolean; activeCount: number; panelId: string;
+  t: (key: 'allItems.filters') => string; onToggle: () => void;
+}) {
+  return <div className="lg:hidden">
+    <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
+      className="min-h-11 justify-start rounded-xl border border-field bg-raised px-4 text-ink"
+      data-all-items-filter-disclosure onClick={onToggle}>
+      {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" data-all-items-filter-chevron
+        className={`ml-1 size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}>
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </Button>
+  </div>;
+}
+
 export function AllItemsFilters({ draft, summary, facets, userId, actions, showClear }: {
   draft: Draft; summary: ItemSummary | null; facets: AllItemsFacets; userId: string; actions: AllItemsActions; showClear: boolean;
 }) {
@@ -87,32 +106,21 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
     </FilterSelect>
   </>;
   return <div className="min-w-0 space-y-3">
-    <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
-      <label className={`${labelClass} min-w-0 flex-1 sm:w-60 sm:flex-none`}>
+    {clear ? <div className="flex flex-wrap justify-end">{clear}</div> : null}
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-3 lg:grid-cols-4">
+      <label className={`${labelClass} min-w-0`}>
         {t('allItems.status.label')}
         <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
           className={controlClass}>
           {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
         </select>
       </label>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="lg:hidden">
-          <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
-            className="min-h-11 justify-start rounded-xl border border-field bg-raised px-4 text-ink"
-            data-all-items-filter-disclosure onClick={() => setExpanded((open) => !open)}>
-            {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
-            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" data-all-items-filter-chevron
-              className={`ml-1 size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}>
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </Button>
-        </div>
-        {clear}
+      <FiltersDisclosure expanded={expanded} activeCount={activeCount} panelId={panelId} t={t}
+        onToggle={() => setExpanded((open) => !open)} />
+      {/* From lg the panel flattens into the same four-column row, so Show and the refinements scan as one band. */}
+      <div id={panelId} className={`${expanded ? 'col-span-2 grid gap-3 sm:grid-cols-2' : 'hidden'} lg:contents`}>
+        {fields}
       </div>
-    </div>
-    <div id={panelId} className={`${expanded ? 'mt-3 block' : 'hidden'} lg:mt-0 lg:block`}>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{fields}</div>
     </div>
   </div>;
 }

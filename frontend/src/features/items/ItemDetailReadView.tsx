@@ -11,12 +11,15 @@ export function repeatLabel(recurrence: Recurrence, locale: string, t: Translate
   };
 }
 
+function attentionText({ item, t, locale }: { item: Item; t: Translate; locale: string }) {
+  if (!item.attentionOn || item.done) return null;
+  return t(item.attention === 'upcoming' ? 'itemDetail.nextAttention' : 'itemDetail.attentionDate', {
+    date: formatDate(item.attentionOn, locale),
+  });
+}
+
 function Dates({ item, t, locale }: { item: Item; t: Translate; locale: string }) {
-  const attention = item.attentionOn && !item.done
-    ? t(item.attention === 'upcoming' ? 'itemDetail.nextAttention' : 'itemDetail.attentionDate', {
-      date: formatDate(item.attentionOn, locale),
-    })
-    : null;
+  const attention = attentionText({ item, t, locale });
   const lastDone = item.lastCompletedOn ? t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) }) : null;
   if (!attention && !lastDone) return null;
   return <div className="space-y-1 text-muted">
@@ -35,10 +38,12 @@ function Repeat({ recurrence, t, locale }: { recurrence: Recurrence; t: Translat
 
 /**
  * Read-only item facts in everyday language on one hairline-divided surface; the state itself lives in the
- * header pill and the completion controls stay with the action band.
+ * header pill and the completion controls stay with the action band. An item with none of these facts gets
+ * no surface at all rather than an empty bordered sliver.
  */
 export function ItemDetailReadView({ item, t, locale, responsible }: { item: Item; t: Translate; locale: string; responsible: string | null }) {
   const hasTimeline = Boolean(item.done || item.lastCompletedOn || (item.attentionOn && !item.done));
+  if (!hasTimeline && !item.recurrence && !responsible && !item.notes) return null;
   return <div data-item-facts className="mt-6 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
     {hasTimeline ? <div className="space-y-2 p-4 sm:px-5">
       {item.done ? <p className="text-muted">{t('itemDetail.done')}</p> : null}

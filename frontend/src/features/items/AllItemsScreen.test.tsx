@@ -304,7 +304,7 @@ describe('All items', () => {
     expect(within(screen.getByRole('region', { name: 'Results' })).getByText('Named result')).toBeVisible();
   });
 
-  it('words the attention date by state, never repeating "Needs attention" without "since"', async () => {
+  it('words the attention date by state so the words agree with the state tile and icon', async () => {
     await openAllItems([
       makeItem(1, { title: 'Overdue result', attentionOn: '2025-11-18', attention: 'needs_attention' }),
       makeItem(2, { title: 'Upcoming result', attentionOn: '2026-02-15', attention: 'upcoming' }),
@@ -312,8 +312,20 @@ describe('All items', () => {
     ]);
     const row = (title: string) => within(within(screen.getByRole('main')).getByText(title).closest('li')!);
     expect(row('Overdue result').getByText('Needs attention since Nov 18, 2025')).toBeVisible();
-    expect(row('Upcoming result').getByText('Needs attention Feb 15, 2026')).toBeVisible();
+    // An open upcoming item keeps its mint "coming up" tile, so it names a plain attention date, never "Needs attention".
+    expect(row('Upcoming result').getByText('Attention date Feb 15, 2026')).toBeVisible();
+    expect(row('Upcoming result').queryByText(/Needs attention/)).not.toBeInTheDocument();
     expect(row('Paused result').getByText('Paused · Attention date Mar 1, 2026')).toBeVisible();
+  });
+
+  it('lists archived rows with the same archived words and state value the detail pill uses', async () => {
+    window.history.replaceState(null, '', '/items?status=archived');
+    installFakeServer({ ...bootRoutes, ...itemRoutes(base, [makeItem(1, { archived: true, attentionOn: '2026-03-02' })]) });
+    app();
+    await screen.findByRole('heading', { name: 'All items' });
+    const row = (await within(screen.getByRole('main')).findByText('Item 1')).closest('li')!;
+    expect(within(row).getByText('Archived · Attention date Mar 2, 2026')).toBeVisible();
+    expect(row.querySelector('[data-item-state]')).toHaveAttribute('data-item-state-kind', 'archived');
   });
 
   it('sends all combined filter values to both summary and list', async () => {
@@ -398,7 +410,8 @@ describe('All items', () => {
     expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     link.focus();
     expect(link).toHaveFocus();
-    expect(link).toHaveClass('focus-visible:outline-2');
+    // The outline is drawn inside the 44 px target, so it never paints over the row divider.
+    expect(link).toHaveClass('focus-visible:outline-2', 'focus-visible:outline-offset-[-2px]');
   });
 
   it('replaces page rows, preserves previous cursors, and focuses results only after paging', async () => {

@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react';
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
 import type { Translate } from '../../i18n';
 import type { DetailLoadState } from './useItemDetail';
 
 /** Eyebrow + bold message + white surface, the same rhythm as the full-page secondary states. */
-function StatePanel({ eyebrow, children, tone = 'neutral' }: { eyebrow?: string; children: React.ReactNode; tone?: 'neutral' | 'danger' }) {
+function StatePanel({ eyebrow, children, tone = 'neutral' }: { eyebrow?: string; children: ReactNode; tone?: 'neutral' | 'danger' }) {
   return <div className="mt-4 w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">
     {eyebrow ? <p className={`text-[0.68rem] font-semibold uppercase tracking-[0.18em] ${tone === 'danger' ? 'text-danger' : 'text-muted'}`}>{eyebrow}</p> : null}
     {children}
@@ -13,7 +14,11 @@ function StatePanel({ eyebrow, children, tone = 'neutral' }: { eyebrow?: string;
 
 /** Loading, failed-load and gone states; the ready state renders the item itself. */
 export function ItemDetailLoadStates({ state, t, onRetry }: { state: DetailLoadState; t: Translate; onRetry: () => void }) {
-  if (state === 'loading') return <p role="status" className="mt-6 text-muted">{t('items.loading')}</p>;
+  if (state === 'loading') {
+    return <StatePanel eyebrow={t('app.loading.eyebrow')}>
+      <p role="status" className="mt-2 text-lg text-ink">{t('items.loading')}</p>
+    </StatePanel>;
+  }
   if (state === 'error') {
     return <StatePanel eyebrow={t('app.error.eyebrow')} tone="danger">
       <Heading className="mt-2 text-h1 leading-tight text-ink">{t('app.error.title')}</Heading>
