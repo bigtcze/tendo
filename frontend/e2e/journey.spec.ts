@@ -659,7 +659,8 @@ test.describe('Tendo production journey', () => {
   }
 
   test('n0. item history pages 25 receipts at a time, newest first, and every receipt stays reachable', async () => {
-    const displayDate = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+    // Dates render as one non-breaking unit (V4-17); RegExp matchers see the raw U+00A0, so expect it explicitly.
+    const displayDate = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)).replace(/\s/g, '\u00a0');
     const doneRow = (value: string) => en['itemDetail.historyDone'].replace('{date}', displayDate(value));
     const title = 'Water the balcony plants';
     const subjectsResponse = await page.request.get(`/api/v1/households/${householdId}/subjects?archived=false`);
@@ -784,7 +785,8 @@ test.describe('Tendo production journey', () => {
       const rows = history.getByRole('listitem');
       const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') => history.getByRole('button', { name: en[key], exact: true });
       const visitedDates: string[] = [];
-      const historyDoneRow = (value: string) => en['itemDetail.historyDone'].replace('{date}', new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)));
+      // Non-breaking date unit (V4-17): the RegExp matcher below compares the raw U+00A0.
+      const historyDoneRow = (value: string) => en['itemDetail.historyDone'].replace('{date}', new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)).replace(/\s/g, '\u00a0'));
       const newestDates = Array.from({ length: count }, (_, index) => {
         const date = new Date(initialDate);
         date.setUTCDate(date.getUTCDate() + index);
@@ -4634,7 +4636,8 @@ test.describe('Tendo production journey', () => {
         const body = await response.json() as { items: Array<{ id?: string; userId?: string; login?: string; name?: string; createdAt?: string }>; nextCursor: string | null };
         pages.push(body.items.map((item) => ({
           id: item.id ?? item.userId!,
-          label: item.name ?? item.login ?? en['members.invitation.created'].replace('{date}', createdDate.format(new Date(item.createdAt!))),
+          // Raw textContent: the rendered date is one non-breaking unit (V4-17).
+          label: item.name ?? item.login ?? en['members.invitation.created'].replace('{date}', createdDate.format(new Date(item.createdAt!)).replace(/\s/g, '\u00a0')),
         })));
         cursor = body.nextCursor ?? undefined;
       } while (cursor);

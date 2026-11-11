@@ -15,7 +15,7 @@ export function BrandMark() {
       </span>
       <span className="text-xl font-semibold tracking-tight text-ink">{t('app.name')}</span>
       <span aria-hidden="true" className="hidden h-6 w-px bg-line md:block" />
-      <span className="hidden text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted md:inline">
+      <span className="hidden text-[0.75rem] font-semibold uppercase tracking-[0.18em] text-muted md:inline">
         {t('app.tagline')}
       </span>
     </div>

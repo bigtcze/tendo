@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { NoticeRegion } from '../../components/ui/notice';
 import { LoginProviderOptions } from './LoginProviderOptions';
 import { Input } from '../../components/ui/input';
@@ -116,7 +117,7 @@ export function LoginScreen({ onSignedIn, notice, initialLogin }: {
 
   return (
     <section className="settle mx-auto w-full max-w-md lg:mt-10">
-      <p className="text-center text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('login.eyebrow')}</p>
+      <Eyebrow className="text-center">{t('login.eyebrow')}</Eyebrow>
       <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('login.welcome')}</Heading>
       <p className="mt-3 text-center text-base text-muted">{t('login.subtitle')}</p>
       <div className="mt-8 w-full overflow-hidden rounded-2xl border border-line bg-raised">

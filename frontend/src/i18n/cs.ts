@@ -462,6 +462,7 @@ export const cs: Record<MessageKey, string> = {
   'items.done': 'Hotovo',
   'items.done.label': 'Hotovo: {title}',
   'items.needsSince': 'Vyžaduje pozornost od {date}',
+  'items.needsSinceCompact': 'Od {date}',
   'items.rowAttentionDate': 'Plánované datum: {date}',
   'items.responsible.you': 'Stará se: vy',
   'items.assignee.you': 'vy',

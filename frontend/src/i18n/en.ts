@@ -459,6 +459,7 @@ export const en = {
   'items.done': 'Done',
   'items.done.label': 'Done: {title}',
   'items.needsSince': 'Needs attention since {date}',
+  'items.needsSinceCompact': 'Since {date}',
   'items.rowAttentionDate': 'Attention date {date}',
   'items.responsible.you': 'Looked after by you',
   'items.assignee.you': 'you',

@@ -124,10 +124,21 @@ function referenceDate(iso: string, locale: 'en' | 'cs') {
   return new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
     .format(new Date(`${iso}T00:00:00Z`));
 }
+// The needs-attention fact keeps its full wording in the desktop status column and drops the words the
+// group heading already says on phones; the date itself is never dropped at either width.
+async function assertNeedsSinceWording(page: Page, locale: 'en' | 'cs', width: number) {
+  const catalog = locale === 'cs' ? cs : en;
+  const date = referenceDate('2026-05-12', locale);
+  const row = page.locator('main li[data-item-id]').filter({ hasText: "Renew Tom's passport" });
+  const wide = row.getByText(catalog['items.needsSince'].replace('{date}', date), { exact: true }).first();
+  const phone = row.getByText(catalog['items.needsSinceCompact'].replace('{date}', date), { exact: true }).first();
+  await expect(phone).toBeVisible({ visible: width < 1280 });
+  await expect(wide).toBeVisible({ visible: width >= 1280 });
+}
 async function assertReferenceFactsAt390(page: Page, locale: 'en' | 'cs') {
   const catalog = locale === 'cs' ? cs : en;
   const tom = page.locator('main li[data-item-id]').filter({ hasText: "Renew Tom's passport" });
-  await expect(tom.getByText(catalog['items.needsSince'].replace('{date}', referenceDate('2026-05-12', locale)), { exact: true }).first()).toBeVisible();
+  await expect(tom.getByText(catalog['items.needsSinceCompact'].replace('{date}', referenceDate('2026-05-12', locale)), { exact: true }).first()).toBeVisible();
   await expect(tom.getByText(catalog['items.responsible.read'].replace('{name}', 'anna_novak'), { exact: true }).first()).toBeVisible();
   const car = page.locator('main li[data-item-id]').filter({ hasText: 'Schedule the car inspection' });
   await expect(car.getByText(referenceDate('2026-05-28', locale)).first()).toBeVisible();
@@ -236,6 +247,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
   for (const [width, height] of [[1440, 1080], [390, 844], [320, 640], [360, 740], [768, 900], [1024, 900]] as const) {
     await page.setViewportSize({ width, height });
     await assertSettledReference(page, 'en');
+    await assertNeedsSinceWording(page, 'en', width);
     if (width === 390) await assertReferenceFactsAt390(page, 'en');
     if ([320, 390, 1024, 1440].includes(width)) await assertTitleTargetGeometry(page, width);
     if (width === 1440 || width === 1024) {
@@ -248,6 +260,14 @@ test('approved reference fixture at approved widths, locales and themes', async 
         expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(56);
       }
     }
+    if (width === 390) {
+      // V4-17 phone density: every real fact still renders, but on a flowing line instead of one line per fact.
+      const phoneRow = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
+      const phoneRowHeight = await phoneRow.evaluate((row) => row.getBoundingClientRect().height);
+      const phoneRows = await page.locator('main li[data-item-id]').evaluateAll((rows) => rows.map((row) => Math.round(row.getBoundingClientRect().height)));
+      console.info(`visual-reference-phone-row-height height=${phoneRowHeight} rows=${phoneRows.join(',')}`);
+      expect(phoneRowHeight, 'phone row height for an ordinary title at 390').toBeLessThanOrEqual(110);
+    }
     await capture(page, `home-reference-en-light-${width}`, width, height, true);
   }
 
@@ -257,6 +277,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
   for (const [width, height] of [[390, 844], [1440, 1080]] as const) {
     await page.setViewportSize({ width, height });
     await assertSettledReference(page, 'cs');
+    await assertNeedsSinceWording(page, 'cs', width);
     if (width === 390) await assertReferenceFactsAt390(page, 'cs');
     await capture(page, `home-reference-cs-light-${width}`, width, height, true);
   }

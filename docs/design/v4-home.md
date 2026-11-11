@@ -39,13 +39,17 @@ tokens=`v4-design-system.md` (V4-02)
 - **Metadata is complete at every width.** Attention status, last completion,
   recurrence summary (interval + fixed/after-completion mode) and the
   responsible member are independent facts and are all rendered. Below `xl`
-  they stack in the order time/attention (semantic colour + icon), responsible
-  member, then recurrence/last-done in muted text; from `xl` the right column
-  carries the date/assignee while the metadata line keeps recurrence/last-done
-  plus whichever of responsible or attention is not already in that column.
-  Nothing is suppressed. The normal title link keeps its text selectable; its
-  one-line layout box carries a 44 px pointer target through compensated
-  vertical padding. A one-line row measures 56 px at 1440.
+  they flow inline on one wrapping line after the subject pill (V4-17),
+  starting with the fact the desktop status column shows (the attention date
+  for Needs attention and Coming up, the responsible member for the other
+  groups) and then the remaining facts; for the needs group the phone
+  attention fact reads "Since 12 May" because the group heading already states
+  the state, and the date itself is always kept whole. From `xl` the right
+  column carries the date/assignee while the metadata line keeps
+  recurrence/last-done plus whichever of responsible or attention is not
+  already in that column. Nothing is suppressed. The normal title link keeps
+  its text selectable; its one-line layout box carries a 44 px pointer target
+  through compensated vertical padding. A one-line row measures 56 px at 1440.
 
 ## Deliberate deviations
 

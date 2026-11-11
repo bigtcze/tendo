@@ -121,7 +121,8 @@ describe('item details', () => {
     expect(state).toHaveAttribute('data-item-state');
     expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     const card = main.getByText('Bring old passport').closest('[data-item-facts]')!;
-    const text = card.textContent!;
+    // Dates are rendered as non-breaking units (U+00A0 inside the date), so the order check reads them as plain text.
+    const text = card.textContent!.replaceAll('\u00a0', ' ');
     expect(text.indexOf('Due Oct 10, 2026')).toBeLessThan(text.indexOf('Last done Oct 10, 2025'));
     expect(text.indexOf('Last done Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
     expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('Looked after by petr'));
@@ -179,10 +180,12 @@ describe('item details', () => {
     app();
     const doneButton = await screen.findByRole('button', { name: 'Done: Renew passport' });
     expect(doneButton).toHaveAttribute('data-variant', 'primary');
-    // Done is the only filled primary action, and Start stays a secondary action in the same action band.
+    // Done is the only filled primary action; every other action in the band is the same outlined secondary.
     const actionBand = doneButton.closest('[data-item-actions]')!;
     expect(actionBand.querySelectorAll('button[data-variant="primary"]')).toHaveLength(1);
-    expect(within(actionBand as HTMLElement).getByRole('button', { name: 'Start' })).toHaveAttribute('data-variant', 'secondary');
+    for (const action of ['Edit', 'Start', 'Waiting', 'Pause', 'Archive']) {
+      expect(within(actionBand as HTMLElement).getByRole('button', { name: action }), `${action} is secondary`).toHaveAttribute('data-variant', 'secondary');
+    }
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', path).length).toBeGreaterThanOrEqual(1));
     await userEvent.click(doneButton);
     await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));

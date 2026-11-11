@@ -24,45 +24,72 @@ type FactInput = {
   locale: string;
   t: Translate;
   responsibleLabel: string | null;
+  assigneeLabel: string | null;
 };
 
-export type RowFacts = {
-  /** Last completion and recurrence summary, both real fields when present. */
-  details: string | null;
-  /** Attention status; needs uses "since", every other group uses the planned date. */
-  attention: string | null;
-  responsible: string | null;
+export type RowFactKind = 'attention' | 'responsible' | 'details';
+
+/**
+ * One real fact of a Home row, written for each width. On a phone the attention fact may drop the words the
+ * group heading already says ("Since May 12" under "Needs attention"); the desktop status column keeps the
+ * full wording. `column` marks the fact that becomes that column from `xl` rather than staying in the line.
+ */
+export type RowFact = {
+  kind: RowFactKind;
+  /** Words used on the metadata line below `xl`. */
+  phone: string;
+  /** Words used in the status column, or in the metadata line, from `xl`. */
+  wide: string;
+  tone: 'attention' | 'muted';
+  icon: 'alert' | 'calendar' | null;
+  column: boolean;
 };
 
-/** Independent facts, never substituted for one another. */
-export function rowFacts({ item, group, evaluatedOn, locale, t, responsibleLabel }: FactInput): RowFacts {
+/** The needs group is already headed "Needs attention", so its row only names the date on a phone. */
+function attentionFact(group: ItemGroup, date: string, t: Translate): RowFact {
+  const needs = group === 'needs';
+  const phone = needs ? t('items.needsSinceCompact', { date }) : t('items.rowAttentionDate', { date });
+  const wide = needs
+    ? t('items.needsSince', { date })
+    : group === 'upcoming' ? date : t('items.rowAttentionDate', { date });
   return {
-    details: [
-      item.lastCompletedOn ? t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) }) : null,
-      item.recurrence ? repeatSummary(t, item.recurrence, locale) : null,
-    ].filter(Boolean).join(' · ') || null,
-    attention: item.attentionOn
-      ? group === 'needs'
-        ? t('items.needsSince', { date: formatAttentionDate(item.attentionOn, evaluatedOn, locale) })
-        : t('items.rowAttentionDate', { date: formatAttentionDate(item.attentionOn, evaluatedOn, locale) })
-      : null,
-    responsible: responsibleLabel,
+    kind: 'attention',
+    phone,
+    wide,
+    tone: needs ? 'attention' : 'muted',
+    icon: needs ? 'alert' : 'calendar',
+    column: needs || group === 'upcoming',
   };
 }
 
-export type RowStatus = { kind: 'attention' | 'date' | 'person'; text: string } | null;
+/** The desktop column names a bare login in the upcoming group, where the date is its neighbour. */
+function responsibleFact(group: ItemGroup, label: string, assignee: string | null): RowFact {
+  return {
+    kind: 'responsible',
+    phone: label,
+    wide: group === 'upcoming' ? assignee ?? label : label,
+    tone: 'muted',
+    icon: null,
+    column: group !== 'needs',
+  };
+}
 
-/** Desktop date/assignee column; mobile keeps the same facts in the row's metadata lines. */
-export function rowStatus({ item, group, evaluatedOn, locale, t, responsibleLabel, assigneeLabel }: FactInput & { assigneeLabel?: string | null }): RowStatus {
-  if (group === 'needs') {
-    return item.attentionOn
-      ? { kind: 'attention', text: t('items.needsSince', { date: formatAttentionDate(item.attentionOn, evaluatedOn, locale) }) }
-      : null;
-  }
-  if (group === 'upcoming' && item.attentionOn) {
-    const date = formatAttentionDate(item.attentionOn, evaluatedOn, locale);
-    const assignee = assigneeLabel ?? responsibleLabel;
-    return { kind: 'date', text: assignee ? `${date} · ${assignee}` : date };
-  }
-  return responsibleLabel ? { kind: 'person', text: responsibleLabel } : null;
+function detailsFact(item: Item, locale: string, t: Translate): RowFact | null {
+  const details = [
+    item.lastCompletedOn ? t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) }) : null,
+    item.recurrence ? repeatSummary(t, item.recurrence, locale) : null,
+  ].filter(Boolean).join(' · ');
+  return details ? { kind: 'details', phone: details, wide: details, tone: 'muted', icon: null, column: false } : null;
+}
+
+/**
+ * Independent facts, never substituted for one another: attention status, responsible member, then last
+ * completion plus recurrence summary. The facts that form the desktop status column come first so the
+ * phone line and the desktop columns read from the same element per fact.
+ */
+export function rowFacts({ item, group, evaluatedOn, locale, t, responsibleLabel, assigneeLabel }: FactInput): RowFact[] {
+  const attention = item.attentionOn ? attentionFact(group, formatAttentionDate(item.attentionOn, evaluatedOn, locale), t) : null;
+  const responsible = responsibleLabel === null ? null : responsibleFact(group, responsibleLabel, assigneeLabel);
+  const facts = [attention, responsible, detailsFact(item, locale, t)].filter((fact): fact is RowFact => fact !== null);
+  return [...facts.filter((fact) => fact.column), ...facts.filter((fact) => !fact.column)];
 }

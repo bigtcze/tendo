@@ -40,11 +40,34 @@ gone). Headings are 700, row titles 600, body 400, controls 600.
 | Small | 14 px / 1.35 | 400 | Compact supporting text |
 
 `h1`/`h2` get tightened letter-spacing in the base layer (`-0.02em` / `-0.01em`); explicit text
-utilities still win over those defaults. Meta and body text stay at 14 px or larger. Two
-uppercase micro-labels are smaller today: the section eyebrow (`text-[0.68rem]`, 10.88 px), which
-the V4-13 production UX audit measured as the smallest visible text on 487 of 495 audited routes,
-and the brand tagline in the top bar (`text-[0.7rem]`, 11.2 px, from `md`). Raising
-both to at least 12 px is tracked in #439.
+utilities still win over those defaults. Meta and body text stay at 14 px or larger.
+
+### 12 px text floor (V4-17)
+
+No visible text renders below **12 px** (0.75rem). The one micro-label is the shared
+`components/ui/eyebrow.tsx`: `text-[0.75rem] font-semibold uppercase tracking-[0.12em]` in
+`text-muted`, or `text-danger` for a failure state. Every section eyebrow, the rail's "Workspace"
+label and the top-bar tagline use it or match it; the tagline was raised from 11.2 px
+(`text-[0.7rem]`) and the section eyebrow from 10.88 px (`text-[0.68rem]`, which the V4-13 audit
+measured as the smallest visible text on 487 of 495 audited routes). The phone bottom bar labels
+are `text-xs` (12 px) so five tabs, including the longer Czech labels, fit at 320 px. No
+`text-[0.68rem]` or `text-[0.7rem]` remains in `frontend/src`, and the production UX audit fails a
+route whose smallest visible text is under 12 px.
+
+### Phone list rows (V4-17)
+
+- One markup tree at every width: subject tile, title link, then one metadata line. Below `xl` the
+  subject pill and every real fact flow inline on that wrapping line — the pill, then the fact the
+  desktop status column shows, then the remaining facts — so a row is a title plus one or two
+  metadata lines instead of one line per fact.
+- Inside the "Needs attention" group the phone attention fact says "Since 12 May"
+  (`items.needsSinceCompact`): the group heading already carries the state. The date itself and
+  every other fact (responsible member, last done, recurrence) still render at every width.
+- From `xl` the same elements move into the aligned columns through `display: contents`; the
+  desktop status column therefore costs no duplicated markup, one element per fact.
+- Formatted dates are non-breaking units. `formatDate`, `formatAttentionDate` and the Members list
+  join the parts of a date with U+00A0, so "14 May 2026", "14. 5. 2026" and "May 10" never split
+  across lines while the surrounding sentence still wraps.
 
 ## Colour tokens
 
@@ -138,7 +161,9 @@ Normal text ≥ 4.5:1, large text ≥ 3:1, non-text controls/focus ≥ 3:1. Both
 | Notice | Neutral sunken surface, success and error use their token pair as border/background/text, with status/alert roles unchanged. |
 | Dialog | Raised surface, 16 px radius, element border, subtle functional shadow; native modal, focus return, busy lock and Escape behaviour unchanged. |
 | Group header | 24 px 700 heading with a supplementary count pill; the count is not part of the heading name. |
-| List row | 16 px 600 title, 14 px meta, 1 px divider (removed on the last row), minimum 64 px height; composition changes are V4-03. |
+| Eyebrow | The shared 12 px uppercase micro-label (`components/ui/eyebrow.tsx`), muted or danger; never smaller and never re-styled per screen. |
+| List row | 16 px 600 title, 14 px meta, 1 px divider (removed on the last row), minimum 64 px height; phone rows flow the pill and facts inline, from `xl` the aligned columns, one element per fact. |
+| Navigation | Rail from `lg` with body-size labels; the phone bottom bar keeps five 44 px targets with 12 px labels at 320 px. |
 | Empty state / skeleton / pagination | Raised empty panel; skeleton uses the line token and `animate-pulse` disabled by reduced motion; pagination keeps quiet buttons, named navigation and disabled bounds. |
 
 ## Theme behaviour
@@ -167,6 +192,11 @@ its paper constants were updated to the new palette.
   text is served as `text/plain` with no SPA fallback and no HTML CSP.
 - `frontend/e2e/visual/capture.ts` — every visual capture asserts Inter Variable is the computed
   body family and a face is loaded before pixels are taken.
+- `frontend/src/components/ui/primitives.test.tsx` — the eyebrow primitive keeps the 12 px size, the
+  uppercase treatment and the two tone tokens, so a screen cannot quietly shrink the micro-label.
+- `frontend/src/features/items/formatDate.test.ts` — formatted dates contain no breakable space.
+- `frontend/src/features/items/ItemsScreen.test.tsx` — each Home row renders one element per fact
+  (`data-item-fact`) instead of desktop/mobile copies, and the facts keep text boundaries.
 - `frontend/e2e/ux-audit.spec.ts` — captures a real invalid + focused field state for evidence.
 
 ## Evidence and reference fidelity

@@ -1,4 +1,5 @@
 import { Button } from '../components/ui/button';
+import { Eyebrow } from '../components/ui/eyebrow';
 import { useI18n } from '../i18n';
 import { Heading } from './Heading';
 
@@ -6,7 +7,7 @@ import { Heading } from './Heading';
 function StatePanel({ eyebrow, children, tone = 'neutral' }: { eyebrow: string; children: React.ReactNode; tone?: 'neutral' | 'danger' }) {
   return (
     <div className="w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">
-      <p className={`text-[0.68rem] font-semibold uppercase tracking-[0.18em] ${tone === 'danger' ? 'text-danger' : 'text-muted'}`}>{eyebrow}</p>
+      <Eyebrow tone={tone === 'danger' ? 'danger' : 'muted'}>{eyebrow}</Eyebrow>
       {children}
     </div>
   );

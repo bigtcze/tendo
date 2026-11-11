@@ -38,7 +38,7 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
       triggerRef={editRef} t={t} onSave={onSave} onArchive={() => onArchive(subject, true, false)}
       onCancel={() => onCancelEditing(subject.id)} /> : <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
       <span aria-hidden="true" data-subject-icon={subject.type}
-        className="grid size-9 shrink-0 self-start place-items-center rounded-xl bg-sand text-muted">
+        className="grid size-9 shrink-0 place-items-center rounded-xl bg-sand text-muted">
         <SubjectTypeIcon type={subject.type} />
       </span>
       <div className="min-w-0 grow basis-40">

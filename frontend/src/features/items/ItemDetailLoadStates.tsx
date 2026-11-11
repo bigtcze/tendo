@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react';
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import type { Translate } from '../../i18n';
 import type { DetailLoadState } from './useItemDetail';
 
 /** Eyebrow + bold message + white surface, the same rhythm as the full-page secondary states. */
 function StatePanel({ eyebrow, children, tone = 'neutral' }: { eyebrow?: string; children: ReactNode; tone?: 'neutral' | 'danger' }) {
   return <div className="mt-4 w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">
-    {eyebrow ? <p className={`text-[0.68rem] font-semibold uppercase tracking-[0.18em] ${tone === 'danger' ? 'text-danger' : 'text-muted'}`}>{eyebrow}</p> : null}
+    {eyebrow ? <Eyebrow tone={tone === 'danger' ? 'danger' : 'muted'}>{eyebrow}</Eyebrow> : null}
     {children}
   </div>;
 }

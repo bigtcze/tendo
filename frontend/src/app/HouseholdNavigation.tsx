@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { Eyebrow } from '../components/ui/eyebrow';
 import { useI18n, type MessageKey } from '../i18n';
 import { useViewerRole } from './HouseholdData';
 import { NavIcon } from './NavIcons';
@@ -53,7 +54,7 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
   const active = navigation.route === 'item' ? 'allItems' : navigation.route;
   return (
     <nav aria-label={t('nav.label')} className={rail ? NAV_RAIL : NAV_INLINE}>
-      {rail ? <p className="hidden px-7 pb-2 pt-6 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted lg:block">{t('nav.workspace')}</p> : null}
+      {rail ? <Eyebrow className="hidden px-7 pb-2 pt-6 lg:block">{t('nav.workspace')}</Eyebrow> : null}
       <ul className={rail ? LIST_RAIL : LIST_INLINE}>
         {links.map((link) => (
           <li key={link.route} className={link.desktopOnly ? 'hidden min-w-0 lg:block lg:border-t lg:border-line lg:pt-1' : 'min-w-0 flex-1 lg:flex-none'}>
@@ -61,8 +62,10 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
               aria-current={active === link.route ? 'page' : undefined}
               className={`${rail ? LINK_RAIL : LINK_INLINE} ${active === link.route ? 'bg-nav-selected font-semibold text-ink' : 'font-medium text-muted hover:bg-sand/60 hover:text-ink'}`}>
               {rail ? <NavIcon route={link.route} /> : null}
-              {rail ? <span className="max-w-full text-small lg:hidden">{t(link.compactLabel ?? link.label)}</span> : null}
-              <span className={rail ? 'hidden lg:inline' : ''}>{t(link.label)}</span>
+              {rail ? <>
+                <span className="max-w-full lg:hidden">{t(link.compactLabel ?? link.label)}</span>
+                <span className="hidden lg:inline">{t(link.label)}</span>
+              </> : t(link.label)}
             </NavLink>
           </li>
         ))}
@@ -78,8 +81,10 @@ const NAV_RAIL = [
   'lg:sticky lg:top-0 lg:col-start-1 lg:row-start-2 lg:self-start lg:border-t-0 lg:bg-transparent lg:pb-0',
 ].join(' ');
 const LIST_RAIL = 'mx-auto flex max-w-xl gap-1 px-1 py-1 lg:mx-0 lg:max-w-none lg:flex-col lg:gap-1 lg:px-3 lg:pb-4 lg:pt-0';
+// 12 px labels at 320 px: five tabs of ~59 px, so the longest label ("Members"/"Členové") still fits
+// without clipping or creeping into its neighbour. The rail keeps the body size from `lg`.
 const LINK_RAIL = [
-  'flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-center leading-tight transition-colors',
+  'flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-center text-xs leading-tight transition-colors',
   'lg:min-h-11 lg:flex-row lg:justify-start lg:gap-2.5 lg:whitespace-nowrap lg:px-2.5 lg:text-left lg:text-body',
   FOCUS,
 ].join(' ');

@@ -1,6 +1,6 @@
 # V4-13 final qualification
 
-status=in_progress (visual sign-off waits for #439)
+status=complete (visual sign-off after #439, see "V4-17 follow-up and visual sign-off")
 issue=#422 (V4-13)
 main_under_review=`d4d818d`
 fixed_business_date=2026-05-14
@@ -101,3 +101,57 @@ No security, migration or deployment release blocker was found.
   OIDC provider was used.
 - Deployment review used source reading and two local Compose smokes (startup, v3.0.0 upgrade);
   the remaining deployment smokes run in required CI.
+
+## V4-17 follow-up and visual sign-off
+
+#439 (V4-17) fixed the should-fix visual set listed above. Before/after captures are production
+visual baselines from the `d4d818d` baseline set and the V4-17 branch, copied to [v4-17/](v4-17/).
+
+| Check | `d4d818d` | After V4-17 | Evidence |
+| --- | --- | --- | --- |
+| Smallest visible text, production UX audit (495 routes) | 10.88 px on 487 routes | 12 px on 494, 14 px on 1 | `ux-audit.spec.ts` now fails a route below 12 px |
+| Interactive targets under 44 px | 0 (not asserted) | 0, asserted | same audit; asserted per route |
+| Horizontal overflow | 0 | 0 | same audit |
+| Initial 1200-item audit Home DOM (125 rows) | 3076 | 2694 at every width, EN/CZ | audit stage `1200-*`; now asserted `< 3000` |
+| Phone row, ordinary title ("Replace the smoke alarm battery", 390 px) | 112 px | 91 px | `visual.spec.ts` logs the heights and guards ≤ 110 px |
+| All ten reference rows at 390 px | 112, 171, 130, 192, 112, 110, 111, 173, 171, 150 (avg 145) | 91, 127, 89, 148, 89, 88, 88, 146, 166, 145 (avg 118) | same log |
+| Desktop one-line row at 1440 px | 56 px | 56 px | unchanged guard |
+| Dates split across lines | "May / 10", "14 May / 2026" possible | never; date parts joined with U+00A0 | `formatDate.test.ts` |
+| Eyebrow | 16 files with `text-[0.68rem]`, tagline `text-[0.7rem]` | one shared `Eyebrow` (12 px), tagline 12 px | `primitives.test.tsx` |
+
+Every metadata fact still renders at every width (V4-03 rule). Phone facts flow inline after the
+subject pill and wrap as whole units, so a line breaks between facts, not inside one; only a
+fact wider than the line (a long recurrence sentence, or "Attention date May 13" at 320 px)
+wraps internally. In the Needs attention group the phone fact reads "Since May 12", because the
+group heading already gives the state.
+
+Consistency fixes: item detail has one primary action (Done), and the rest are secondary; the
+invalid reset link uses the shared auth layout; the phone bottom bar uses 12 px labels with
+five 44 px targets at 320 px; member and people rows centre like their siblings; Home and People
+align Add item with the header band; the auth-shell top bar is 56 px like the app shell, and the
+Account column starts at the shell inset.
+
+| Before | After | View |
+| --- | --- | --- |
+| [390](v4-17/home-reference-en-light-390-before.png) | [390](v4-17/home-reference-en-light-390-after.png) | Home phone, EN light |
+| [320](v4-17/home-reference-en-light-320-before.png) | [320](v4-17/home-reference-en-light-320-after.png) | Home smallest width |
+| [cs 390](v4-17/home-reference-cs-light-390-before.png) | [cs 390](v4-17/home-reference-cs-light-390-after.png) | Home phone, Czech |
+| [1440](v4-17/home-reference-en-light-1440-before.png) | [1440](v4-17/home-reference-en-light-1440-after.png) | Home desktop |
+| [detail](v4-17/detail-open-1440-before.png) | [detail](v4-17/detail-open-1440-after.png) | Item detail actions |
+| [reset](v4-17/reset-password-invalid-390-before.png) | [reset](v4-17/reset-password-invalid-390-after.png) | Invalid reset link |
+| [members 320](v4-17/members-owner-320-before.png) | [members 320](v4-17/members-owner-320-after.png) | Bottom bar and invitation dates |
+| [account](v4-17/account-light-1440-before.png) | [account](v4-17/account-light-1440-after.png) | Account inset |
+
+**Visual sign-off:** an independent reviewer compared the after captures side by side with both
+tracked references. The real Home still reproduces the key composition and visual character of the
+desktop and phone references. Phone rows are closer to the reference height but remain taller,
+because Tendo shows every real fact that the reference omits (for example the responsible member
+and the recurrence on one row). This is a measured implementation adjustment, not a major
+deviation, so no human approval is requested.
+
+V4-17 reviewer limits: an independent AI subagent, read-only. It inspected both references and 25
+product images, screened the dimensions and changed-pixel regions of all 132 changed baselines (not
+an eyeball review of each), parsed all 495 audit route records, and used isolated Chromium
+diagnostics with production CSS for header geometry, copy behaviour and accessibility text. No
+real screen reader, manual keyboard session or 200/400 % zoom exercise was performed; those rely
+on the existing E2E gate. No human approval is claimed.

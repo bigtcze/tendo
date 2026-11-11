@@ -919,6 +919,48 @@ describe('Home items', () => {
     }
   });
 
+  it('renders each row fact once and words the needs date for the phone line', async () => {
+    const extra = { attentionOn: '2026-01-02', lastCompletedOn: '2025-12-02', recurrence: { intervalValue: 1, intervalUnit: 'month' as const, mode: 'fixed' as const }, responsibleUserId: 'u-2' };
+    const entries = [
+      item({ id: 'once-needs', title: 'Once needs', ...extra }),
+      item({ id: 'once-progress', title: 'Once progress', workflowState: 'in_progress', ...extra }),
+    ];
+    installFakeServer({ ...routes, ...itemRoutes(base, entries), [subjectList]: subjectPages, [memberList]: memberPage() });
+    app();
+    await screen.findByText('Once needs');
+    const needs = screen.getByText('Once needs').closest('li')!;
+    await waitFor(() => expect(needs).toHaveTextContent('Looked after by petr'));
+    // One element per fact: the phone line and the desktop status column share it instead of duplicating it.
+    expect([...needs.querySelectorAll('[data-item-fact]')].map((fact) => fact.getAttribute('data-item-fact')))
+      .toEqual(['attention', 'responsible', 'details']);
+    // The phone drops the words the group heading already says; the wide wording keeps the full sentence.
+    expect(within(needs).getByText('Since Jan 2')).toBeInTheDocument();
+    expect(within(needs).getByText('Needs attention since Jan 2')).toBeInTheDocument();
+    const progress = screen.getByText('Once progress').closest('li')!;
+    await waitFor(() => expect(progress).toHaveTextContent('Looked after by petr'));
+    // The fact that fills the desktop status column comes first in the phone line, so every width reads in order.
+    const text = progress.textContent!.replaceAll('\u00a0', ' ');
+    expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Attention date Jan 2'));
+    expect(text.indexOf('Attention date Jan 2')).toBeLessThan(text.indexOf('Last done Dec 2, 2025'));
+    // The row stays compact: tile, link, one line of facts and the Done control, not copies of each fact.
+    // The densest row (three facts, one of them wording both widths) stays at 23 elements.
+    expect(needs.querySelectorAll('*').length).toBeLessThanOrEqual(23);
+  });
+
+  it('keeps a real space between the subject pill and each fact in the row metadata', async () => {
+    const entry = item({ id: 'space-needs', title: 'Space needs', attentionOn: '2026-01-02', lastCompletedOn: '2025-12-02', responsibleUserId: 'u-2' });
+    installFakeServer({ ...routes, ...itemRoutes(base, [entry]), [subjectList]: subjectPages, [memberList]: memberPage() });
+    app();
+    const row = (await screen.findByText('Space needs')).closest('li')!;
+    await waitFor(() => expect(row).toHaveTextContent('Looked after by petr'));
+    // The flowing line separates units by margins only, so the text itself needs ordinary spaces:
+    // without them a copied row reads "AnnaSince Jan 2Looked after by petr…".
+    const text = row.querySelector('[data-item-meta]')!.textContent!;
+    expect(text, 'space after the subject pill').toMatch(/^Anna\s/);
+    expect(text, 'space between the attention fact and the responsible fact').toMatch(/2\s+Looked after by petr/);
+    expect(text, 'space between the responsible fact and the details fact').toMatch(/Looked after by petr\s+Last done Dec/);
+  });
+
   it('retries only failed label IDs while retaining names from the successful partition', async () => {
     let failArchived = true;
     const two = [item({ id: 'label-one', subjectId: 's-1' }), item({ id: 'label-two', subjectId: 's-2', workflowState: 'in_progress' })];

@@ -2,6 +2,7 @@ import type { FormEvent, RefObject } from 'react';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n, type Translate } from '../../i18n';
@@ -33,7 +34,7 @@ type FormProps = {
 };
 
 function InviteEyebrow({ t }: { t: Translate }) {
-  return <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('invite.eyebrow')}</p>;
+  return <Eyebrow>{t('invite.eyebrow')}</Eyebrow>;
 }
 
 function InviteNotice({ error, accepted, noticeRef, t }: {

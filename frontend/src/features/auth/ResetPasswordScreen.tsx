@@ -2,6 +2,7 @@ import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { LOGIN_PATH } from '../../app/routes';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useI18n } from '../../i18n';
@@ -11,19 +12,20 @@ import { usePasswordResetRedeem } from './usePasswordResetRedeem';
 function ReturnLink({ href, label }: { href: string; label: string }) {
   return <a
     href={href}
-    className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-small font-semibold text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+    className="inline-flex min-h-11 items-center rounded-xl px-3 text-small font-semibold text-muted hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
   >
     {label}
   </a>;
 }
 
+/** The expired/invalid link state keeps the same auth shell rhythm as the form: eyebrow, title, sentence, panel. */
 function InvalidLink({ signedIn }: { signedIn: boolean }) {
   const { t } = useI18n();
-  return <Layout><section className="settle mx-auto w-full max-w-md">
-    <p className="text-center text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('reset.eyebrow')}</p>
-    <div className="mt-2 rounded-2xl border border-line bg-raised p-5 text-center sm:p-7">
-      <Heading className="text-[2.125rem] font-bold leading-[1.08] text-ink">{t('reset.invalid.title')}</Heading>
-      <p className="mt-3 text-base text-muted">{t('reset.invalid.body')}</p>
+  return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
+    <Eyebrow className="text-center">{t('reset.eyebrow')}</Eyebrow>
+    <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('reset.invalid.title')}</Heading>
+    <p className="mt-3 text-center text-base text-muted">{t('reset.invalid.body')}</p>
+    <div className="mt-8 flex w-full justify-center rounded-2xl border border-line bg-raised p-5 sm:p-7">
       <ReturnLink
         href={signedIn ? '/' : LOGIN_PATH}
         label={t(signedIn ? 'reset.invalid.home' : 'reset.invalid.signIn')}
@@ -47,8 +49,8 @@ export function ResetPasswordScreen({ token, signedIn, onRedeemed }: {
   const lengthInvalid = failure === 'length';
   const mismatch = failure === 'mismatch';
   const message = failure ? t(resetFailureKey(failure)) : null;
-  return <Layout><section className="settle mx-auto w-full max-w-md">
-    <p className="text-center text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('reset.eyebrow')}</p>
+  return <Layout><section className="settle mx-auto w-full max-w-md lg:mt-10">
+    <Eyebrow className="text-center">{t('reset.eyebrow')}</Eyebrow>
     <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('reset.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.intro')}</p>
     <div className="mt-8 rounded-2xl border border-line bg-raised p-5 sm:p-7">
