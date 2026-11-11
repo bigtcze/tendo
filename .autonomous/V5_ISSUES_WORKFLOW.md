@@ -1,0 +1,31 @@
+# V5 autonomous execution and Renovate contract
+
+status=locked_human_authorized
+release=v5.0.0
+milestone=Tendo v5.0.0 - Refined & Reliable
+managed_issue_label=tendo:v5-autonomous
+work_status=GitHub_Issues_and_PRs_only
+
+## Ownership and claims
+1. A V5 work Issue is agent-owned ONLY if it is a real Issue, is in `bigtcze/tendo`, has BOTH EXACT V5 milestone and EXACT label `tendo:v5-autonomous`. Neither a similar title nor milestone alone is authority. Never adopt/change/close/comment on unrelated or historical V1–V4 Issues. New verified defects get new owned Issues, label+milestone set AT creation, not retroactive mutation.
+2. Status on every OPEN managed Issue is exactly one of `status:idle`, `status:in-progress`, `status:blocked`. Claim only idle, dependency-ready Issues. Comment `CLAIM agent=<stable identity> time=<UTC>`, update status, wait 3–5 s, reread all claims/comments and the two ownership selectors; earliest active claim timestamp/comment ID wins. Loser releases; no concurrent coding on same worktree. STOP immediately when ownership selector disappears.
+3. Issue body is stable acceptance contract. Comments/PRs hold evidence, blockers, claims and handoff. Never create STATE.md, parallel TODO tracker, status database, hidden claim service or GitHub issue sync bot.
+4. One focused branch/PR at a time unless blocked with documented safe independent work. Real tests, independent reviewer, `bash scripts/dev-exec.sh -- bash scripts/verify-local.sh`, required green CI, merge via protected main, verify green post-merge main. No direct main writes, weakened tests, skipped checks, pretend screenshots, speculative refactor or unattended controller/toolchain configuration changes.
+5. On interrupted cycle inspect actual repo state, current branch, uncommitted work, open PRs, managed issue claims/dependencies/comments, required CI, security alerts and Renovate Dashboard before any new work. Finish/reconcile an active PR BEFORE unrelated work. Do not silently abandon PRs.
+
+## Dependency maintenance is mandatory, not optional backlog leftovers
+- At EVERY cycle inspect ALL open PRs (including bot PRs), new dependency/security alerts and `Dependency Dashboard`, plus current merged PR history. Don't filter only V5 Issues when discovering open PRs.
+- Priority: (a) broken main CI; (b) urgent security; (c) unfinished active PR; (d) any untriaged Renovate PR older than 48h; (e) ordinary dependency PR when TWO feature PRs were merged since last dependency PR; (f) highest-value dependency-ready V5 issue; (g) remaining Renovate PRs. Derive count from GitHub merged PR history, never a separate mutable counter/file. First triage of an aged Renovate PR is time-bounded; triage alone isn't a completion exemption: process actionable ones to merge in the ordinary dependency slot.
+- The initially open Renovate #404 (Vite), #405 (go-jose), #406 (Playwright) are known pending work as of V5 authorization. Reconcile current reality; do not assume each remains open or safe to merge. Bring them into the above triage priority, not into V5 ownership label.
+- Renovate PRs are ordinary PRs, NEVER to be silently ignored because a V5 feature Issue remains. For each: read changelog/security, check support/migration requirements, execute full applicable tests and original failed check; fix actual Go/React/build/lockfile/toolchain/API compat regressions on the Renovate branch where safe, review and merge only after green CI. Do NOT suppress tests, downgrade to make green, endlessly retry red checks or close unmerged updates without evidence. Record deterministic blocker and upstream issue in affected PR; skip unchanged blockers until external facts change.
+- Apply `docs/development/dependencies.md` exactly; keep Renovate automation and required CI. A blocked PR may remain open across release only with evidence and a justified decision. All outstanding PRs require explicit review in V5 release issue; don't publish an unverified dependency queue.
+- Controller tests MUST verify this selection policy: V5 milestone always has feature work and an older-than-48h Renovate PR exists -> Renovate gets triaged; after two merged features, actionable Renovate chosen; active PR gets priority; security/main-red supersedes; blocked unchanged PR skipped; external Issues remain untouched.
+
+## Maintenance controller / systemd handoff
+- Active controller is user `tendo-autonomous.service` running `scripts/autonomous-loop.sh` from canonical `/home/tomas/repositories/tendo`, one fresh OpenCode session per cycle. V4_COMPLETE stays immutable historical evidence; V5 controller stops only when NEW `.autonomous/V5_COMPLETE` is tracked on clean protected main after verified release.
+- Existing separate `tendo-maintenance.timer/.service` uses the maintenance `flock`. The V5 controller must hold the SAME shared maintenance lock during its whole feature loop so scheduled maintenance does no competing work. Unlike V4, an ENABLED maintenance timer is NOT a reason to refuse V5 operation: while feature lock is held a maintenance run should cleanly skip, and after V5_COMPLETE the next scheduled maintenance execution should resume automatically. Controller must check actual active maintenance work and refuse conflicting launch; test lock races, enabled timer, disabled timer and completion handoff.
+- Governance transition V5-00 may modify AGENTS, FLOW, V5 controller and supporting host startup only through human-authorized reviewed protected PR/bootstrap; don't edit locked historical files or existing credential/OpenCode configs. Do not introduce another background orchestrator, scheduler or external state database.
+
+## Release and completion
+- Every managed Issue must be closed only with merged PR+green main or independently verified release evidence. Full V5 DoD, independent security/visual QA, published GitHub v5.0.0 tag/release, public GHCR amd64/arm64 and real clean-install + populated published-v4->v5 upgrade are required.
+- Last separate protected PR adds immutable `.autonomous/V5_COMPLETE`, after all other V5-owned Issues are closed and release verified. Verify clean main, controller exits, maintenance timer remains enabled and maintenance may resume in the next cycle; no fake finish marker or premature feature-loop stop.
