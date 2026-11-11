@@ -14,19 +14,19 @@ repeat them.
 
 | Evidence | Source | Result |
 | --- | --- | --- |
-| Production UX audit (`TENDO_UX_AUDIT_DIR`, see [testing](../development/testing.md)) | production build of `d4d818d`, 524 PNG + `metrics.json` | exit 0; 495 audited routes; 0 horizontal overflow; 0 targets under 44 px; smallest visible text 10.88 px on 487 routes and 14 px on 8 |
+| Production UX audit (`TENDO_UX_AUDIT_DIR`, see [testing](../development/testing.md)) | production build of `d4d818d`, 523 PNG + `metrics.json` | exit 0; 495 audited routes; 0 horizontal overflow; 0 targets under 44 px; smallest visible text 10.88 px on 487 routes and 14 px on 8 |
 | Committed visual baselines | `frontend/e2e/visual/visual.spec.ts-snapshots/` (140 production captures) | used for the reference matrix below |
 | Large data | audit stages empty/1/30/100/500/1200 at 320–1440 px, EN/CZ | initial 1200-item Home (five groups, 25 rows each) renders 125 rows and 3076 DOM elements at every width, time to content 157–372 ms; 13 "Show more" clicks render up to 388 rows at 107–226 ms each; People walks 1016 active people in 21 pages of at most 50 rows |
 | Compose startup smoke | `scripts/compose-startup-smoke.sh` | pass (127 s); now also asserts that the serving app keeps no administrator connection and serves through the restricted `tendo` role |
 | Upgrade smoke from published v3.0.0 | `scripts/upgrade-smoke.sh` with `TENDO_UPGRADE_FROM=v3.0.0` | pass (25 s); table counts, migration ledger, response bodies and ETags preserved |
 | Identity integration | `backend/internal/identity/postgres/oidc_jit_test.go` | new regression subtest: a changed provider email never overwrites the stored address on an existing identity; fails when the `email IS NULL` guard is removed |
 
-The English 1200-item Home stages report 26–31 requests because the harness records requests
-across the initial load plus the dark and System theme reloads it captures for that stage
-(`frontend/e2e/audit/appearance.ts`). Each load uses the same 11 bounded paths (session,
-household, members, summary, one 25-item page per group, two batched subject-label reads) with no
-per-item fetch; the Czech stages, which skip the theme reloads, report 12–18 (the 11 paths plus
-requests from the previous stage cancelled by navigation, recorded with 0 bytes).
+The English 1200-item Home stages record 33 requests (the `requestCount` snapshot reads 26–31)
+because the harness records the initial load plus the dark and System theme reloads it captures
+for that stage (`frontend/e2e/audit/appearance.ts`). Each of the three loads uses the same 11
+bounded paths (session, household, members, summary, one 25-item page per group, two batched
+subject-label reads) with no per-item fetch; the Czech stages, which skip the theme reloads, report 12–18 (the 11 paths plus
+a few aborted responses from the locale-switch navigation, recorded with 0 bytes).
 
 The initial 1200-item Home DOM (3076 elements for 125 rows, about 25 per row) is bounded but
 three times the V2 measurement (1091 for the same 125 rows in
@@ -95,7 +95,7 @@ No security, migration or deployment release blocker was found.
 - All reviews were independent AI subagent sessions; no human participants were observed and no
   human approval is claimed.
 - Visual review inspected 58 production screenshots and 12 measured crops against both
-  references, not every one of the 524 captures. Static images do not exercise screen readers,
+  references, not every one of the 523 captures. Static images do not exercise screen readers,
   focus restoration, motion or 200/400 % zoom; those rely on the existing E2E gate.
 - Security review used code reading and unit and integration tests; no penetration test or live
   OIDC provider was used.

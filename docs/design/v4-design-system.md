@@ -43,7 +43,7 @@ gone). Headings are 700, row titles 600, body 400, controls 600.
 utilities still win over those defaults. Meta and body text stay at 14 px or larger. Two
 uppercase micro-labels are smaller today: the section eyebrow (`text-[0.68rem]`, 10.88 px), which
 the V4-13 production UX audit measured as the smallest visible text on 487 of 495 audited routes,
-and the `aria-hidden` brand tagline in the top bar (`text-[0.7rem]`, 11.2 px, from `md`). Raising
+and the brand tagline in the top bar (`text-[0.7rem]`, 11.2 px, from `md`). Raising
 both to at least 12 px is tracked in #439.
 
 ## Colour tokens
