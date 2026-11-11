@@ -60,6 +60,11 @@ GRANT SELECT, INSERT, DELETE ON oidc_pending_logins TO tendo;
 GRANT UPDATE (attempts) ON oidc_pending_logins TO tendo;
 
 -- +goose Down
+-- Lossy by necessity: this drops every recorded email address with its
+-- verification provenance and all pending OIDC continuations. OIDC identities
+-- (issuer, subject) are kept, so linked accounts still sign in, but automatic
+-- verified-email attachment starts again from no recorded addresses. Restore a
+-- pre-downgrade backup if the recorded emails matter.
 REVOKE ALL ON oidc_pending_logins FROM tendo;
 DROP TABLE oidc_pending_logins;
 ALTER TABLE oidc_flows DROP CONSTRAINT oidc_flows_invite_login_only;

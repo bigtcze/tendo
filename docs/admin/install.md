@@ -1,6 +1,6 @@
 # Install Tendo
 
-This guide installs Tendo with Docker Compose on one server. Compose runs two containers: PostgreSQL and the Tendo app. On startup the app creates or validates its restricted database role, applies any pending database migrations, and only then serves the web interface. The app image is published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64`; you do not need to build anything.
+This guide installs Tendo with Docker Compose on one server. Compose runs two containers: PostgreSQL and the Tendo app. On startup the app creates or validates its restricted database role, applies any pending database migrations, and only then serves the web interface. Because of this, the long-running app container keeps the PostgreSQL administrator password in its environment; read the [security tradeoff](configuration.md) before you expose the Docker daemon or the container to anyone else. The app image is published at `ghcr.io/bigtcze/tendo` for `linux/amd64` and `linux/arm64`; you do not need to build anything.
 
 ## Before you start
 
@@ -59,7 +59,7 @@ Compose downloads the images, waits for PostgreSQL to become healthy, and starts
 curl --fail --show-error http://localhost:8080/health/ready
 ```
 
-It prints `{"status":"ok"}`. If the app is still starting, wait a few seconds and run it again. Large databases take longer to migrate; `docker compose ps` shows the app with `(health: starting)` until startup finishes. If it does not become healthy, see [troubleshooting](troubleshooting.md).
+It prints `{"status":"ok"}`. If the app is still starting, wait a few seconds and run it again. Large databases take longer to migrate; `docker compose ps` shows the app with `(health: starting)` until startup finishes, for up to ten minutes before Docker reports it unhealthy. If it does not become healthy, see [troubleshooting](troubleshooting.md).
 
 ## 4. Create your household
 

@@ -51,7 +51,7 @@ Each link:
 
 Select **Cancel link** on an outstanding reset if it should no longer be used. The person cannot use a cancelled or replaced link; ask them to tell you if a link no longer works, then create a new one.
 
-Password reset works only for accounts with a local password (password only, or password plus single sign-on). A member who signs in only with single sign-on cannot use it, because Tendo does not set passwords for those accounts. Administrators cannot reset their own password through the Admin center; use **Account** instead.
+Password reset works only for accounts with a local password (password only, or password plus single sign-on). A member who signs in only with single sign-on cannot use it, because Tendo does not set passwords for those accounts. Administrators cannot reset their own password, and Tendo has no password change in **Account**. To replace your own password, ask another administrator to send you a reset link. Keep at least two administrators if you can: when the only administrator forgets their password, nobody in the household can send them a link.
 
 The part of the link after `#` never reaches the server, a proxy, or another site's address, and Tendo removes it from the address bar when the page opens.
 

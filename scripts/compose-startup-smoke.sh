@@ -160,6 +160,12 @@ role_flags=$(psql_at "SELECT rolsuper||'|'||rolcreatedb||'|'||rolcreaterole||'|'
 [[ "$role_flags" == 'false|false|false|false|false|false' ]] || { printf 'Role tendo flags are %s\n' "$role_flags" >&2; exit 1; }
 [[ "$(psql_at "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='tendo'")" == 0 ]] \
   || { printf 'Role tendo has role memberships\n' >&2; exit 1; }
+# The serving app keeps no administrator connection open. The app connects over the Compose network;
+# this psql session and the postgres healthcheck use the local socket (client_addr NULL) and are excluded.
+admin_sessions=$(psql_at "SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND usename=current_user AND client_addr IS NOT NULL")
+[[ "$admin_sessions" == 0 ]] || { printf 'Serving app still holds %s administrator connection(s)\n' "$admin_sessions" >&2; exit 1; }
+[[ "$(psql_at "SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND usename='tendo'")" -ge 1 ]] \
+  || { printf 'Serving app has no restricted runtime connection\n' >&2; exit 1; }
 # Mark data inside the database so recovery checks below prove it survives.
 psql_at "UPDATE installation_state SET setup_required=false" >/dev/null
 counts_before=$(row_counts)
