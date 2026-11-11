@@ -79,7 +79,7 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
   const activeCount = Number(Boolean(draft.subjectId)) + Number(Boolean(draft.responsible)) + Number(draft.recurring !== '');
   const hasActiveFilters = activeCount > 0 || Boolean(draft.search.trim()) || draft.status !== 'active';
   const clear = hasActiveFilters && showClear
-    ? <Button type="button" data-all-items-clear variant="quiet" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
+    ? <Button type="button" data-all-items-clear variant="quiet" size="small" onClick={actions.clearFilters}>{t('allItems.clear')}</Button>
     : null;
   const fields = <>
     {subjects.state === 'ready' ? <FilterSelect label={t('items.subject')} value={draft.subjectId}
@@ -105,22 +105,24 @@ export function AllItemsFilters({ draft, summary, facets, userId, actions, showC
       <option value="false">{t('allItems.oneOff')}</option>
     </FilterSelect>
   </>;
-  return <div className="min-w-0 space-y-3">
-    {clear ? <div className="flex flex-wrap justify-end">{clear}</div> : null}
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-3 lg:grid-cols-4">
-      <label className={`${labelClass} min-w-0`}>
-        {t('allItems.status.label')}
-        <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
-          className={controlClass}>
-          {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
-        </select>
-      </label>
-      <FiltersDisclosure expanded={expanded} activeCount={activeCount} panelId={panelId} t={t}
-        onToggle={() => setExpanded((open) => !open)} />
-      {/* From lg the panel flattens into the same four-column row, so Show and the refinements scan as one band. */}
-      <div id={panelId} className={`${expanded ? 'col-span-2 grid gap-3 sm:grid-cols-2' : 'hidden'} lg:contents`}>
-        {fields}
-      </div>
+  // Phones wrap like any flex row, so the status, the disclosure and the reset can never overlap: each
+  // control drops to the next line only when its content does not fit. From lg the same children form one
+  // four-column band with the reset as its last cell.
+  return <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2 lg:grid lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+    <label className={`${labelClass} min-w-0 grow basis-32`}>
+      {t('allItems.status.label')}
+      <select value={draft.status} onChange={(event) => select('status', (value) => ({ status: value as AllItemsStatus }))(event.target.value)}
+        className={controlClass}>
+        {statuses.map((id) => statusOption(id, t(statusKeys[id]), summary))}
+      </select>
+    </label>
+    <FiltersDisclosure expanded={expanded} activeCount={activeCount} panelId={panelId} t={t}
+      onToggle={() => setExpanded((open) => !open)} />
+    {/* The reset follows the disclosure on phones and closes the desktop band as its last cell. */}
+    {clear ? <div className="ml-auto lg:col-start-5 lg:row-start-1">{clear}</div> : null}
+    {/* From lg the panel flattens into the same row, so Show, the refinements and the reset scan as one band. */}
+    <div id={panelId} className={`${expanded ? 'w-full grid gap-3 sm:grid-cols-2' : 'hidden'} lg:contents`}>
+      {fields}
     </div>
   </div>;
 }

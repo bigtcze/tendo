@@ -31,8 +31,13 @@ export function SubjectsScreenContent({
   switchView: () => void;
 }) {
   const canAdd = list.kind === 'ready' && !showArchived;
-  return <section className="settle min-w-0">
-    <div className="min-w-0 max-w-5xl">
+  // The notice is first in the DOM so its Undo keeps the original tab order (notice → Add → rows); `order`
+  // keeps it visually under the header band, where it has always been shown.
+  return <section className="settle flex min-w-0 flex-col">
+    <div className="order-2 min-w-0 max-w-5xl">
+      <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
+    </div>
+    <div className="order-1 min-w-0 max-w-5xl">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
         <div className="min-w-0">
           <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('subjects.eyebrow')}</p>
@@ -45,22 +50,20 @@ export function SubjectsScreenContent({
             onAdd={startAdding} onCancelAdd={cancelAdding} onAddSubmit={add} />
         </div> : null}
       </div>
-      <div className="mt-6 min-w-0">
-        {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
-          <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
-          <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>
-        </div> : null}
-        <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t}
-          onUndo={undoArchive} />
-        {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
-        <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
-        <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
-          cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing} transfer={transfer}
-          interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
-          onStartEditing={startEditing} onArchive={changeArchived} onRestore={changeArchived}
-          onSave={save} onCancelEditing={closeEditing} onPrevious={previousPage} onNext={nextPage} />
-        <SubjectsViewToggle showArchived={showArchived} listKind={list.kind} t={t} onSwitchView={switchView} />
-      </div>
+    </div>
+    <div className="order-3 mt-6 min-w-0 max-w-5xl">
+      {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
+        <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
+        <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>
+      </div> : null}
+      {actionFailed ? <p role="alert" className="mt-4 text-danger">{t('subjects.error.action')}</p> : null}
+      <SubjectsStatus list={list} t={t} onRetry={retryLoad} />
+      <SubjectList list={list} showArchived={showArchived} adding={adding} empty={empty} items={items}
+        cursorStack={cursorStack} members={members} membersLoaded={membersLoaded} editing={editing} transfer={transfer}
+        interactionLocked={interactionLocked} t={t} yourEntry={yourEntry}
+        onStartEditing={startEditing} onArchive={changeArchived} onRestore={changeArchived}
+        onSave={save} onCancelEditing={closeEditing} onPrevious={previousPage} onNext={nextPage} />
+      <SubjectsViewToggle showArchived={showArchived} listKind={list.kind} t={t} onSwitchView={switchView} />
     </div>
   </section>;
 }

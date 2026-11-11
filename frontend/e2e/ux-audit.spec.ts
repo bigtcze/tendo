@@ -597,8 +597,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
             const firstStatusOnlyBox = await firstStatusOnlyTitle.boundingBox();
             const bottomBar = await csItemsPage.getByRole('navigation', { name: cs['nav.label'] }).evaluate((node) => node.getBoundingClientRect().top);
             expect(firstStatusOnlyBox).not.toBeNull();
-            // A long Czech title can continue below the fold at 320px; its start must clear the fixed bar.
-            expect(firstStatusOnlyBox!.y, 'Czech first title starts above the 320px phone navigation').toBeLessThan(bottomBar);
+            expect(firstStatusOnlyBox!.y + firstStatusOnlyBox!.height, 'Czech first title clears the 320px phone navigation').toBeLessThan(bottomBar);
             await capture(csItemsPage, join(dir, 'audit-all-items-cs-320-status-only.png'), false);
           }
           if (width <= 390 && !(width === 320 && csItemsPage.url().includes('status=needs'))) {
@@ -611,7 +610,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
               const csRow = await csItemsPage.locator('main li[data-item-id]').first().evaluate((node) => node.getBoundingClientRect());
               expect(csRow.bottom, 'Czech first row should fit above the 390px phone navigation').toBeLessThan(csBottomBar);
             } else {
-              expect(csFirstLinkBox!.y, 'Czech first title starts above the 320px bottom navigation').toBeLessThan(csBottomBar);
+              expect(csFirstLinkBox!.y + csFirstLinkBox!.height, 'Czech first title clears the 320px bottom navigation').toBeLessThan(csBottomBar);
             }
           }
           if (width === 320) {

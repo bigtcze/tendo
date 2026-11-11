@@ -35,17 +35,18 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));
   const subjectTypes = new Map(facets.subjects.values.map((subject) => [subject.id, subject.type]));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle min-w-0 space-y-6">
+    <section className="settle min-w-0 space-y-6 max-sm:space-y-4">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
       <AllItemsHeader />
       <div className="min-w-0 rounded-2xl border border-line bg-raised p-4 sm:p-5">
         <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
-        <div className="mt-4 border-t border-line pt-4">
+        {/* On phones the single card needs no divider between the search and the filters; removing it keeps the results higher. */}
+        <div className="mt-4 border-t border-line pt-4 max-sm:mt-3 max-sm:border-t-0 max-sm:pt-0">
           <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
             actions={actions} showClear={view !== 'noMatch'} />
         </div>
       </div>
-      <div className="min-w-0 space-y-4">
+      <div className="min-w-0 space-y-4 max-sm:space-y-3">
         {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}
         {page.loading ? <p role="status" className="text-small text-muted">{t('items.loading')}</p> : null}
         {page.error ? <Notice tone="error" role={null} className="space-y-3"><p>{t('app.error.body')}</p>

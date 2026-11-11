@@ -13,11 +13,11 @@ import type { Subject } from './subjectsApi';
 import type { MemberPersonTransferApi } from './useMemberPersonTransfer';
 
 /**
- * Compact row: the icon tile, the name and the row actions share the first line. The type and member
- * metadata then fills the width beneath them — spanning under the actions on phones, where the name column
- * would otherwise squeeze it, and staying in the name column from `sm`, where the actions span both text
- * lines instead and add no height. No two grid items ever share a cell. Below 360px the actions drop to
- * their own row, the only width where the name would be squeezed.
+ * Compact row: the icon tile, the name and the row actions share the first line while the name keeps a
+ * readable column, and the type/member metadata follows the name in the DOM so assistive tech hears it
+ * before the actions. The wrapping is width-driven: the name column has a 10 rem basis, so the actions drop
+ * to their own right-aligned line only when they would squeeze the name below that (the Czech actions are
+ * wider than the English ones, so neither locale collapses a name into mid-word breaks).
  */
 export function SubjectRow({ subject, editing, transfer, members, membersLoaded, showArchived, interactionLocked, t, yourEntry,
   onStartEditing, onArchive, onRestore, onSave, onCancelEditing }: {
@@ -36,16 +36,22 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
     {editing && editing.subject.id === subject.id ? <SubjectEditDialog subject={editing.subject} etag={editing.etag}
       conflict={editing.conflict} transfer={transfer} members={members} membersLoaded={membersLoaded} yourEntry={yourEntry}
       triggerRef={editRef} t={t} onSave={onSave} onArchive={() => onArchive(subject, true, false)}
-      onCancel={() => onCancelEditing(subject.id)} /> : <div className="grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-3 max-[359px]:grid-cols-[2.25rem_minmax(0,1fr)]">
+      onCancel={() => onCancelEditing(subject.id)} /> : <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
       <span aria-hidden="true" data-subject-icon={subject.type}
-        className="col-start-1 col-end-2 row-start-1 row-end-3 grid size-9 place-items-center self-center rounded-xl bg-sand text-muted max-[359px]:row-end-4">
+        className="grid size-9 shrink-0 self-start place-items-center rounded-xl bg-sand text-muted">
         <SubjectTypeIcon type={subject.type} />
       </span>
-      <p data-subject-name
-        className="col-start-2 col-end-3 row-start-1 min-w-0 [overflow-wrap:anywhere] text-row-title font-semibold leading-snug text-ink">
-        {subject.name}
-      </p>
-      <div className="col-start-3 col-end-4 row-start-1 ml-auto flex flex-wrap items-center justify-end gap-1 self-center sm:row-end-3 max-[359px]:col-start-2 max-[359px]:col-end-3 max-[359px]:row-start-3 max-[359px]:row-end-4">
+      <div className="min-w-0 grow basis-40">
+        <p data-subject-name
+          className="[overflow-wrap:anywhere] text-row-title font-semibold leading-snug text-ink">
+          {subject.name}
+        </p>
+        <p className="mt-0.5 text-meta text-muted" data-subject-type>{t(typeLabelKey(subject.type))}</p>
+        {memberPerson ? <p className="text-meta text-muted [overflow-wrap:anywhere]" data-subject-member>
+          {member ? t('subjects.member.row', { login: member.login }) : t('subjects.member')}
+        </p> : null}
+      </div>
+      <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1">
         {!showArchived && navigation ? <NavLink href={`/items?subject=${encodeURIComponent(subject.id)}`}
           onNavigate={() => navigation.actions.allItems(subject.id)}
           aria-label={t('subjects.seeItems.label', { name: subject.name })}
@@ -57,12 +63,6 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
           onClick={() => onRestore(subject, false, false)}>{t('subjects.restore')}</Button> : <Button ref={editRef} type="button" variant="secondary" size="small" data-focus={`row:${subject.id}`}
           aria-label={t('subjects.edit.label', { name: subject.name })} disabled={interactionLocked}
           onClick={() => onStartEditing(subject)}>{t('subjects.edit')}</Button>}
-      </div>
-      <div className="col-start-2 col-end-4 row-start-2 min-w-0 sm:col-end-3 max-[359px]:col-end-3">
-        <p className="mt-0.5 text-meta text-muted" data-subject-type>{t(typeLabelKey(subject.type))}</p>
-        {memberPerson ? <p className="text-meta text-muted [overflow-wrap:anywhere]" data-subject-member>
-          {member ? t('subjects.member.row', { login: member.login }) : t('subjects.member')}
-        </p> : null}
       </div>
     </div>}
   </li>;

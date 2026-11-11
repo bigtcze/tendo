@@ -281,8 +281,9 @@ test('approved reference fixture at approved widths, locales and themes', async 
   await expect(upcomingRow.locator('[data-item-state]')).toHaveAttribute('data-item-state-kind', 'upcoming');
   const carDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date('2026-05-28T00:00:00Z'));
   await expect(upcomingRow.locator('[data-item-state]')).toContainText(en['items.rowAttentionDate'].replace('{date}', carDate));
-  await expect(upcomingRow.locator('[data-item-state]')).not.toContainText(en['items.attentionOn'].replace('{date}', carDate));
-  await expect(page.getByRole('main').getByRole('heading', { level: 2, name: 'Showing 1–3 of 3' })).toBeVisible();
+  await expect(upcomingRow.locator('[data-item-state]')).not.toContainText('Needs attention');
+  const upcomingRange = en['allItems.range'].replace('{from}', '1').replace('{to}', '3').replace('{total}', '3');
+  await expect(page.getByRole('main').getByRole('heading', { level: 2, name: upcomingRange })).toBeVisible();
   await capture(page, 'all-items-upcoming-en-light-1440', 1440, 1080, false);
   await page.goto('/');
   // Title and Done are separate controls: the title links to detail, Done completes without navigating, and Undo restores.
@@ -355,7 +356,7 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await page.goto('/items');
   await waitForAllItemsSummary(page);
-  for (const width of [320, 390, 768, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
+  for (const width of [320, 390, 768, 1024, 1440]) await capture(page, `all-items-${width}`, width, width === 320 ? 640 : 900, false);
   // Density guard: the first two-line row (title + one metadata line carrying pill, state and responsible)
   // stays as compact as a Home row at 1440. The row is chosen structurally, not by a fixture title.
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -385,6 +386,42 @@ test('All items populated, no-match and dark', async ({ browser }) => {
   await expect(page.getByRole('heading', { level: 1, name: cs['allItems.title'] })).toBeVisible();
   await expect(page.getByRole('main').getByRole('listitem').first()).toBeVisible();
   await capture(page, 'all-items-cs-390', 390, 900, false);
+  // The reset and the "Filters" toggle share a phone line: they must never overlap, in either locale, at
+  // either phone width, expanded or collapsed.
+  const assertFilterControlsDoNotOverlap = async (label: string) => {
+    const boxes = await page.evaluate(() => {
+      const reset = document.querySelector('[data-all-items-clear]');
+      const filters = document.querySelector('[data-all-items-filter-disclosure]');
+      if (!reset || !filters) return null;
+      const a = reset.getBoundingClientRect();
+      const b = filters.getBoundingClientRect();
+      return {
+        overlap: Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0
+          && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0,
+        insideViewport: a.right <= window.innerWidth + 0.5 && a.left >= -0.5,
+      };
+    });
+    expect(boxes, `reset visible for ${label}`).not.toBeNull();
+    expect(boxes!.overlap, `Filters and reset do not overlap (${label})`).toBe(false);
+    expect(boxes!.insideViewport, `reset inside the viewport (${label})`).toBe(true);
+  };
+  for (const [width, locale] of [[320, 'cs'], [390, 'cs'], [320, 'en'], [390, 'en']] as const) {
+    await page.setViewportSize({ width, height: width === 320 ? 640 : 900 });
+    await page.evaluate((value) => localStorage.setItem('tendo.locale', value), locale);
+    await page.goto('/items');
+    const catalog = locale === 'cs' ? cs : en;
+    await expect(page.getByRole('heading', { level: 1, name: catalog['allItems.title'] })).toBeVisible();
+    const disclosure = page.locator('[data-all-items-filter-disclosure]');
+    await expect(disclosure).toBeVisible();
+    if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+    await page.getByLabel(catalog['items.subject']).selectOption({ index: 1 });
+    await expect(page.locator('[data-all-items-clear]')).toBeVisible();
+    await assertFilterControlsDoNotOverlap(`${locale} ${width} expanded`);
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await assertFilterControlsDoNotOverlap(`${locale} ${width} collapsed`);
+  }
+  await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await darkScreen(browser, statePath, '/items', 'all-items');
   await context.close();
@@ -444,25 +481,54 @@ test('Edit form and optimistic conflict', async ({ browser }) => {
 test('People current and archived', async ({ browser }) => {
   const { context, page } = await authenticated(browser);
   await page.goto('/people'); await captureScreen(page, 'people-current', true);
-  // Compact rows at 390: the actions share the name band and a member row stays under 100px tall.
+  await capture(page, 'people-1024', 1024, 900, true);
+  // Locale-independent guard: at 390 the name keeps a readable column and never breaks mid-word, because the
+  // wrapping is driven by the name's width rather than by a breakpoint.
+  const assertPeopleNames = async (label: string) => {
+    const names = await page.getByRole('main').locator('li:has([data-subject-name])').evaluateAll((rows) => rows.map((row) => {
+      const name = row.querySelector<HTMLElement>('[data-subject-name]')!;
+      const rect = name.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(getComputedStyle(name).lineHeight) || 22;
+      // With normal word wrapping the text must still fit its column: otherwise a word had to be broken
+      // mid-word, which is exactly the squeeze this guard exists to catch.
+      const previousWrap = name.style.overflowWrap;
+      name.style.overflowWrap = 'normal';
+      const fitsWithoutMidWordBreak = name.scrollWidth <= name.clientWidth + 1;
+      name.style.overflowWrap = previousWrap;
+      return { text: name.textContent?.trim().slice(0, 24), width: Math.round(rect.width), lines: Math.max(1, Math.round(rect.height / lineHeight)), fitsWithoutMidWordBreak };
+    }));
+    console.info(`visual-people-names ${label} ${JSON.stringify(names)}`);
+    expect(names.length).toBeGreaterThan(1);
+    for (const name of names) {
+      expect(name.width, `People name column at 390 (${label})`).toBeGreaterThanOrEqual(150);
+      expect(name.fitsWithoutMidWordBreak, `People name is not broken mid-word at 390 (${label})`).toBe(true);
+    }
+  };
   await page.setViewportSize({ width: 390, height: 900 });
   await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
+  await assertPeopleNames('en');
   const peopleRows = await page.getByRole('main').locator('li:has([data-subject-name])').evaluateAll((rows) => rows.map((row) => {
     const name = row.querySelector('[data-subject-name]')!.getBoundingClientRect();
-    const edit = row.querySelector('button[aria-label^="Edit"]')!.getBoundingClientRect();
-    const lastText = (row.querySelector('[data-subject-member]') ?? row.querySelector('[data-subject-type]')!).getBoundingClientRect();
+    const actions = (row.querySelector('button[aria-label^="Edit"]') ?? row.querySelector('a[href^="/items?subject="]')!).getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
-    const editCentre = edit.top + edit.height / 2;
-    return { height: Math.round(rowRect.height), inTextBand: editCentre > name.top && editCentre < lastText.bottom };
+    return { height: Math.round(rowRect.height), actionsBelowName: actions.top >= name.bottom, rightAligned: Math.round(rowRect.right - actions.right) <= 24 };
   }));
   console.info(`visual-people-row-heights ${JSON.stringify(peopleRows.slice(0, 3))}`);
   expect(peopleRows.length).toBeGreaterThan(1);
   for (const row of peopleRows) {
-    // The actions sit beside the text, never in a separate block below it.
-    expect(row.inTextBand, 'People row actions sit in the text band at 390').toBe(true);
-    expect(row.height, 'People row height at 390').toBeLessThanOrEqual(120);
+    // Width-driven wrap: the actions take their own right-aligned line once they would squeeze the name.
+    expect(row.actionsBelowName, 'People actions wrap below the name at 390').toBe(true);
+    expect(row.rightAligned, 'People actions stay right-aligned at 390').toBe(true);
+    expect(row.height, 'People row height at 390').toBeLessThanOrEqual(150);
   }
-  // At 320px the actions fall back to their own right-aligned row so the name keeps a readable column.
+  // From sm the same markup keeps the actions on the name line without any breakpoint-specific layout.
+  await page.setViewportSize({ width: 768, height: 900 });
+  const inlineActions = await page.getByRole('main').locator('li:has([data-subject-name])').first().evaluate((row) => {
+    const name = row.querySelector('[data-subject-name]')!.getBoundingClientRect();
+    const actions = row.querySelector('button[aria-label^="Edit"]')!.getBoundingClientRect();
+    return actions.top < name.bottom;
+  });
+  expect(inlineActions, 'People actions sit on the name line at 768').toBe(true);
   await page.setViewportSize({ width: 320, height: 640 });
   await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
   const narrowRow = await page.getByRole('main').locator('li:has([data-subject-name])').first().evaluate((row) => {
@@ -479,6 +545,8 @@ test('People current and archived', async ({ browser }) => {
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: cs['subjects.title'] })).toBeVisible();
   await expect(page.getByRole('main').locator('[data-subject-name]').first()).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 900 });
+  await assertPeopleNames('cs');
   await capture(page, 'people-cs-390', 390, 900, false);
   await page.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await page.reload();

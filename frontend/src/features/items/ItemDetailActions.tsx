@@ -88,11 +88,11 @@ export function ItemDetailActions(props: Props) {
     ? <StaleItemNotice busy={busy} onReload={props.onReload} t={t} /> : null;
   const archive = <ArchiveControl item={item} busy={busy} stale={props.stale} t={t} onArchive={props.onArchive} onRestore={props.onRestore} />;
   if (!live && !props.completionNotice) {
-    // Nothing to do on a finished or archived item beyond its facts: keep the quiet action in its own surface.
-    return <section data-item-actions className="mt-4 space-y-3 rounded-2xl border border-line bg-raised p-4 sm:px-5">
+    // Nothing to do on a finished or archived item beyond its facts: a slim hairline band, not an empty card.
+    return <div data-item-actions className="mt-4 space-y-3 border-t border-line pt-3">
       {staleNotice}
       <div className="flex flex-wrap items-center gap-2">{archive}</div>
-    </section>;
+    </div>;
   }
   return <section data-item-actions className="mt-4 space-y-3 rounded-2xl border border-line bg-raised p-4 sm:p-5">
     {staleNotice}
