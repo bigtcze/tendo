@@ -23,8 +23,8 @@ surfaces moved.
   narrow basis so it shares the first line with that disclosure at 320 px in both locales (the status never
   stretches across a tablet). The quiet "Clear search and filters" reset exists only while filters are
   active: it comes after the refinements in the DOM, closes the band as a trailing cell from `xl` where the
-  four labels still fit beside it, and takes its own right-aligned line at `lg` and on phones, wrapping
-  rather than ever overlapping the disclosure. Results are one grouped white list of compact rows using the Home vocabulary: real
+  four labels still fit beside it, and takes its own right-aligned line at `lg` and on phones (after the fields when the phone panel is
+  open), wrapping rather than ever overlapping the disclosure. Results are one grouped white list of compact rows using the Home vocabulary: real
   subject-type icon tile, title link, mint subject pill, the semantic state written out next to its icon
   (coral attention, teal in progress, amber waiting, green-teal coming up, neutral paused/archived, green
   done), the responsible line and the recurrence summary. The state words and the state colour come from
