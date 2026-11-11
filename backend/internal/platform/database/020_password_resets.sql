@@ -35,6 +35,9 @@ GRANT SELECT, INSERT ON password_reset_tokens TO tendo;
 GRANT UPDATE (used_at, revoked_at) ON password_reset_tokens TO tendo;
 
 -- +goose Down
+-- Lossy by necessity: this drops the reset-link audit rows (issuer, target,
+-- used/revoked times) and the credential version. Passwords already set through
+-- a reset stay in effect. Restore a pre-downgrade backup if that audit matters.
 ALTER TABLE local_credentials DROP COLUMN credential_version;
 REVOKE ALL ON password_reset_tokens FROM tendo;
 DROP TABLE password_reset_tokens;

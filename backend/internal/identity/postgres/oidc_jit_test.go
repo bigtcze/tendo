@@ -134,6 +134,42 @@ func TestOIDCJITReturningLoginAndVerifiedEmailMatch(t *testing.T) {
 			t.Fatalf("row 1 created state: accounts=%d identities=%d", accounts, identities)
 		}
 	})
+	t.Run("row 1 keeps the stored email when the provider address changes", func(t *testing.T) {
+		ctx, admin, app, _ := invitationPools(t)
+		invitationFixture(t, ctx, admin)
+		repo := jitRepo(app)
+		now := time.Now().UTC().Truncate(time.Second)
+		bound := now.Add(-24 * time.Hour)
+		var user string
+		if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login, email, email_verified_at, email_source, email_issuer)
+			VALUES('changed', 'old@example.test', $1, 'oidc_claim', $2) RETURNING id::text`, bound, jitIssuer).Scan(&user); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, `INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES($1,'subject-changed',$2,$3)`, jitIssuer, user, bound); err != nil {
+			t.Fatal(err)
+		}
+		_, handleHash := jitHandle(22)
+		outcome := jitResolve(t, repo, identity.OIDCVerifiedIdentity{Issuer: jitIssuer, Subject: "subject-changed", Email: "new@example.test", EmailVerified: true}, handleHash, now, nil)
+		if outcome.Resolution != identity.OIDCLoginSignedIn {
+			t.Fatalf("outcome=%+v", outcome)
+		}
+		var email, source, issuer string
+		var verifiedAt time.Time
+		if err := admin.QueryRow(ctx, `SELECT email, email_verified_at, email_source, email_issuer FROM user_accounts WHERE id=$1`, user).
+			Scan(&email, &verifiedAt, &source, &issuer); err != nil {
+			t.Fatal(err)
+		}
+		if email != "old@example.test" || !verifiedAt.Equal(bound) || source != "oidc_claim" || issuer != jitIssuer {
+			t.Fatalf("provider email change overwrote the stored email: %q %v %q %q", email, verifiedAt, source, issuer)
+		}
+		var owners int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_accounts WHERE email='new@example.test'`).Scan(&owners); err != nil {
+			t.Fatal(err)
+		}
+		if accounts, identities, _, _ := jitCounts(t, ctx, admin); owners != 0 || accounts != 2 || identities != 1 {
+			t.Fatalf("provider email change created state: owners=%d accounts=%d identities=%d", owners, accounts, identities)
+		}
+	})
 	t.Run("row 2 reuses the verified email owner and its membership", func(t *testing.T) {
 		ctx, admin, app, _ := invitationPools(t)
 		owner, house := invitationFixture(t, ctx, admin)
