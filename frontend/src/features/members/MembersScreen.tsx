@@ -2,8 +2,10 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type Translate } from '../../i18n';
+import { nonBreaking } from '../items/formatDate';
 import { InvitationsError, InvitePanel } from './InvitePanel';
 import { MemberListSection } from './MemberListSection';
 import { useInvitationList } from './useInvitationList';
@@ -35,9 +37,9 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     notice: state === 'error' ? null : notice, noticeRef, t, link: actions.link, linkRef: actions.linkRef, pendingLinkFocusRef: actions.pendingLinkFocusRef,
     revokeId: actions.revokeId, restoreFocusIdRef: actions.restoreFocusIdRef, revokeButtonsRef: actions.revokeButtonsRef,
   });
-  const formatDate = (date: string) => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date));
+  const formatDate = (date: string) => nonBreaking(new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date)));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('members.eyebrow')}</p>
+    <Eyebrow>{t('members.eyebrow')}</Eyebrow>
     <Heading className="mt-2 text-h1 leading-tight text-ink">{t('members.title')}</Heading>
     <p className="mt-2 max-w-prose text-base text-muted">{t('members.subtitle')}</p>
     <div ref={noticeRef} tabIndex={-1} role="status" aria-atomic="true" className="mt-5 outline-none empty:mt-0">

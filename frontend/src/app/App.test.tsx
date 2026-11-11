@@ -340,6 +340,43 @@ describe('signed in', () => {
     );
   });
 
+  it.each([
+    {
+      shell: 'household',
+      routes: () => ({
+        'GET /api/v1/session': json(200, session()),
+        ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+        [householdPath]: json(200, household),
+      }),
+      ready: () => screen.findByRole('heading', { level: 1, name: 'Veselí' }),
+    },
+    {
+      shell: 'household without a membership',
+      routes: () => ({ 'GET /api/v1/session': json(200, session(false)) }),
+      ready: () => screen.findByRole('heading', { level: 1, name: 'Join your household by invitation' }),
+    },
+    {
+      shell: 'signed out',
+      routes: () => ({
+        'GET /api/v1/session': problem(401),
+        'GET /api/v1/auth/setup': json(200, { required: false }),
+        'GET /api/v1/auth/oidc': json(200, { enabled: false }),
+      }),
+      ready: () => screen.findByRole('heading', { level: 1, name: 'Welcome back' }),
+    },
+  ])('the $shell top bar has a minimum height and no fixed height', async ({ routes, ready }) => {
+    installFakeServer(routes());
+    renderApp();
+    await ready();
+    const header = screen.getByRole('banner');
+    const tokens = header.className.split(/\s+/).filter(Boolean);
+    // A minimum keeps the bar at 56 px normally; a fixed height would let a wrapped identity block or a
+    // sign-out failure message paint over main.
+    expect(tokens).toContain('min-h-14');
+    expect(tokens.filter((token) => /^(?:[a-z]+:)*h-(?:\d+(?:\/\d+)?|\[[^\]]+\])$/.test(token)), 'fixed header height').toEqual([]);
+    expect(tokens).toContain('flex-wrap');
+  });
+
   it('sign out calls DELETE /api/v1/session and returns to login', async () => {
     const fake = installFakeServer({
       'GET /api/v1/session': json(200, session()),

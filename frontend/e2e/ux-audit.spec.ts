@@ -14,6 +14,7 @@ import { applySavedDarkPreference, applySystemAppearance } from './audit/appeara
 const baseURL = process.env.E2E_BASE_URL!;
 const dir = resolve(process.env.E2E_AUDIT_DIR!);
 const NOW = '2026-05-14';
+const MIN_VISIBLE_FONT_PX = 12;
 test.describe.configure({ mode: 'serial' });
 // A stuck action must fail fast with the intercepting element, not consume the whole audit budget.
 test.use({ reducedMotion: 'reduce', actionTimeout: 45_000 });
@@ -30,6 +31,9 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   if (!width) throw new Error(`Capture requires a viewport: ${path}`);
   const height = page.viewportSize()?.height ?? 900;
   await page.setViewportSize({ width, height });
+  // Media queries are re-evaluated in the next rendering step, not on forced layout; measuring right after a
+  // resize (e.g. 1440 -> 390) can read desktop-rail styles at phone width. Let two frames render first.
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
   expect(await page.evaluate(() => window.innerWidth), `viewport width for ${path}`).toBe(width);
   const file = path.split('/').pop()!;
   if (!file.startsWith('auth-boot-loading-')) await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
@@ -982,6 +986,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         return { dom: document.getElementsByTagName('*').length, rows: document.querySelectorAll('li[data-item-id]').length, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, height: document.documentElement.scrollHeight, overflowOffenders: offenders };
       });
       if (stage === '1') expect(observed.rows, `1-item stage shows exactly one Home row (${locale} ${width}px)`).toBe(1);
+      // V4-17: the initial 1200-item Home (five groups of 25 rows) stays below the V2-era DOM budget.
+      if (stage === '1200') expect(observed.dom, `initial 1200-item Home DOM elements (${locale} ${width}px)`).toBeLessThan(3000);
       if (stage === '100') {
         await expect(overview, `100-item overview is visible (${locale} ${width}px)`).toBeVisible();
         const renderedGroups = await targetPage.locator('main section[id^="group-"] ul').evaluateAll((lists) =>
@@ -1068,7 +1074,8 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         expect(stack.width, `Home fills the main column at ${width}px`).toBeGreaterThanOrEqual(stack.mainWidth - 80);
         if (width === 1440) expect(stack.width, `Home uses desktop width at ${width}px`).toBeGreaterThanOrEqual(900);
         expect(new Set(stack.lefts).size, `Home groups share one left edge at ${width}px`).toBe(1);
-        expect(stack.rowColumns, `Home row grid columns at ${width}px`).toBe(width === 1440 ? 4 : 3);
+        // Desktop: tile, title/meta, subject pill, status, Done (V4-17 gives the pill its own column); phone: tile, content, Done.
+        expect(stack.rowColumns, `Home row grid columns at ${width}px`).toBe(width === 1440 ? 5 : 3);
         // Each overview chip's 2px outline + 2px offset must stay inside the horizontally clipped nav when focused.
         const overviewNav = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
         for (const link of await overviewNav.getByRole('link').all()) {
@@ -1142,4 +1149,13 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
   writeFileSync(join(dir, 'metrics.json'), safeMetrics);
   const overflowFiles = Object.entries(routeOverflow).filter(([, overflow]) => overflow).map(([file]) => file);
   expect(overflowFiles, `route captures with horizontal overflow: ${overflowFiles.join(', ') || 'none'}`).toEqual([]);
+  // V4-17: every audited route keeps visible text at or above the 12 px floor and every interactive target at 44 px.
+  const smallTextFiles = Object.entries(routeMetrics)
+    .filter(([, route]) => route.smallestVisibleFontPx !== null && route.smallestVisibleFontPx < MIN_VISIBLE_FONT_PX)
+    .map(([file, route]) => `${file} (${route.smallestVisibleFontPx} px)`);
+  expect(smallTextFiles, `route captures with visible text below ${MIN_VISIBLE_FONT_PX} px`).toEqual([]);
+  const smallTargetFiles = Object.entries(routeMetrics)
+    .filter(([, route]) => route.interactiveTargetsUnder44 > 0)
+    .map(([file, route]) => `${file}: ${JSON.stringify(route.targetOffenders)}`);
+  expect(smallTargetFiles, 'route captures with interactive targets below 44 px').toEqual([]);
  });

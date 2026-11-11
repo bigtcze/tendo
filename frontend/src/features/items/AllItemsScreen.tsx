@@ -2,6 +2,7 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
@@ -14,7 +15,7 @@ import { useAllItemsFacets } from './useAllItemsFacets';
 function AllItemsHeader() {
   const { t } = useI18n();
   return <header className="min-w-0">
-    <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('allItems.eyebrow')}</p>
+    <Eyebrow>{t('allItems.eyebrow')}</Eyebrow>
     <Heading className="mt-2 text-h1 leading-tight text-ink">{t('allItems.title')}</Heading>
     <p className="mt-2 max-w-prose text-base text-muted">{t('allItems.subtitle')}</p>
   </header>;

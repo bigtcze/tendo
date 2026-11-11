@@ -1,5 +1,6 @@
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select } from '../../components/ui/select';
@@ -104,10 +105,6 @@ function OnboardingSubmit({ pending }: { pending: boolean }) {
       {pending ? t('onboarding.submitting') : t('onboarding.submit')}
     </Button>
   );
-}
-
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{children}</p>;
 }
 
 function StepHeading({ step, children }: { step: string; children: React.ReactNode }) {

@@ -13,6 +13,7 @@ import { Select } from './select';
 import { Textarea } from './textarea';
 import { Skeleton } from './skeleton';
 import { EmptyState } from './empty-state';
+import { Eyebrow } from './eyebrow';
 import { GroupHeader } from './group-header';
 import { Notice, NoticeRegion } from './notice';
 
@@ -233,6 +234,17 @@ describe('UI primitive behavior', () => {
     expect(screen.getByRole('heading', { name: 'Nothing here' })).toBeVisible();
     expect(screen.getByRole('heading', { name: /^Needs attention$/ })).toBeVisible();
     expect(screen.getByText('4')).toBeVisible();
+  });
+  it('eyebrow is one 12 px uppercase label with the two existing tones', () => {
+    const { container } = render(<><Eyebrow>Your home</Eyebrow><Eyebrow tone="danger">Connection problem</Eyebrow></>);
+    const [muted, danger] = [...container.querySelectorAll('p')];
+    for (const eyebrow of [muted, danger]) {
+      // The shared size is the product's text floor; 11 px or smaller would fail the UX audit.
+      expect(eyebrow).toHaveClass('text-[0.75rem]', 'uppercase', 'tracking-[0.12em]', 'font-semibold');
+    }
+    expect(muted).toHaveClass('text-muted');
+    expect(danger).toHaveClass('text-danger');
+    expect(danger).toHaveTextContent('Connection problem');
   });
   it('notice assigns default roles by tone and supports presentation-only rendering', () => {
     const { container, rerender } = render(<Notice tone="error">Try again</Notice>);

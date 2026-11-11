@@ -31,29 +31,28 @@ function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
   }
   return <>
     {start}
-    <Button type="button" variant="quiet" disabled={busy} onClick={() => onWorkflow('waiting')}>{t('itemDetail.waitingAction')}</Button>
-    <Button type="button" variant="quiet" disabled={busy} onClick={() => onWorkflow('paused')}>{t('itemDetail.pause')}</Button>
+    <Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('waiting')}>{t('itemDetail.waitingAction')}</Button>
+    <Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('paused')}>{t('itemDetail.pause')}</Button>
   </>;
 }
 
 function StaleItemNotice({ busy, onReload, t }: Pick<Props, 'busy' | 'onReload' | 't'>) {
   return <div className="space-y-2">
     <p role="alert" className="text-small text-muted">{t('itemDetail.refreshFailed')}</p>
-    <Button type="button" variant="quiet" disabled={busy} onClick={onReload}>{t('itemDetail.reload')}</Button>
+    <Button type="button" variant="secondary" disabled={busy} onClick={onReload}>{t('itemDetail.reload')}</Button>
   </div>;
 }
 
 /**
- * The quiet Edit stays first in the tab order and shares the first line with the obvious Done; the workflow
- * options wrap below them on a phone and sit inline from `sm`.
+ * One action hierarchy: the obvious Done is the only primary, and every other action (Edit, the workflow
+ * options, Archive/Restore) is the same outlined secondary. Edit stays first in the tab order.
  */
 function LiveRow(props: Props) {
   const { item, busy, editLoading, editRef, t, onEdit, onDone, stale } = props;
-  return <div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
-    <Button ref={editRef} type="button" variant="quiet" disabled={busy || editLoading || stale} onClick={onEdit}>
+  return <div className="flex flex-wrap items-center gap-2">
+    <Button ref={editRef} type="button" variant="secondary" disabled={busy || editLoading || stale} onClick={onEdit}>
       {t('itemDetail.edit.button')}
     </Button>
-    <span aria-hidden="true" className="hidden h-6 w-px bg-line sm:block" />
     <Button
       type="button" data-action="detail-done" className="flex-1 sm:flex-none"
       aria-label={t('items.done.label', { title: item.title })} disabled={busy || stale} onClick={onDone}
@@ -68,16 +67,16 @@ function CompletionNotice(props: Props) {
   const { busy, t, completionNotice, undoAvailable, retryAvailable, stale, onReload, completionNoticeRef, onUndo, onRetry } = props;
   return <div className="space-y-2">
     <Notice role="status" ref={completionNoticeRef} tabIndex={-1}>{completionNotice}</Notice>
-    {undoAvailable ? <Button type="button" variant="quiet" disabled={busy} onClick={onUndo}>{t('items.undo')}</Button> : null}
-    {retryAvailable ? <Button type="button" variant="quiet" data-action="detail-retry" disabled={busy || stale} onClick={onRetry}>{t('items.retry')}</Button> : null}
+    {undoAvailable ? <Button type="button" variant="secondary" disabled={busy} onClick={onUndo}>{t('items.undo')}</Button> : null}
+    {retryAvailable ? <Button type="button" variant="secondary" data-action="detail-retry" disabled={busy || stale} onClick={onRetry}>{t('items.retry')}</Button> : null}
     {stale ? <StaleItemNotice busy={busy} onReload={onReload} t={t} /> : null}
   </div>;
 }
 
 function ArchiveControl({ item, busy, stale, t, onArchive, onRestore }: Pick<Props, 'item' | 'busy' | 'stale' | 't' | 'onArchive' | 'onRestore'>) {
   return item.archived
-    ? <Button type="button" variant="quiet" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
-    : <Button type="button" variant="quiet" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
+    ? <Button type="button" variant="secondary" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
+    : <Button type="button" variant="secondary" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
 }
 
 /** One action band: Edit, the obvious Done and the workflow options, with Archive/Restore kept apart below. */

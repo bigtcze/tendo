@@ -1,5 +1,6 @@
 import { Heading } from '../../app/Heading';
 import { Button, buttonVariants } from '../../components/ui/button';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type MessageKey } from '../../i18n';
 import { OidcContinueLinkForm } from './OidcContinueLinkForm';
@@ -140,7 +141,7 @@ export function OidcContinueScreen({ onSignedIn, onCancelled, onExpired }: {
 
   return (
     <section className="settle mx-auto w-full max-w-md lg:mt-10">
-      <p className="text-center text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('oidc.continue.eyebrow')}</p>
+      <Eyebrow className="text-center">{t('oidc.continue.eyebrow')}</Eyebrow>
       <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{title}</Heading>
       {flow.load === 'loading' || flow.load === 'ready'
         ? <p className="mt-3 text-center text-base text-muted">{t('oidc.continue.intro')}</p>

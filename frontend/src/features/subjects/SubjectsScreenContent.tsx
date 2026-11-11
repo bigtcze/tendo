@@ -1,4 +1,5 @@
 import { Heading } from '../../app/Heading';
+import { Eyebrow } from '../../components/ui/eyebrow';
 import { SubjectAddAction } from './SubjectAddAction';
 import { SubjectList } from './SubjectList';
 import { SubjectNotice } from './SubjectNotice';
@@ -35,13 +36,13 @@ export function SubjectsScreenContent({
   // first thing a keyboard user reaches, as on Home.
   return <section className="settle flex min-w-0 flex-col">
     <div className="min-w-0 max-w-5xl">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-        <div className="min-w-0">
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">{t('subjects.eyebrow')}</p>
+      <div className="grid gap-y-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-x-8 lg:gap-y-2">
+        <div className="col-start-1 row-start-1 min-w-0">
+          <Eyebrow>{t('subjects.eyebrow')}</Eyebrow>
           <Heading className="mt-2 text-h1 leading-tight text-ink">{t('subjects.title')}</Heading>
-          <p className="mt-2 max-w-prose text-base text-muted">{t('subjects.subtitle')}</p>
         </div>
-        {canAdd ? <div className="shrink-0 lg:pb-1">
+        <p className="col-start-1 row-start-2 max-w-prose text-base text-muted">{t('subjects.subtitle')}</p>
+        {canAdd ? <div className="col-start-1 row-start-3 shrink-0 lg:col-start-2 lg:row-start-1">
           <SubjectAddAction adding={adding} createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
             pendingInitial={pendingFormInitial(createUncertain, pendingCreate)} addDisabled={addDisabled} t={t}
             onAdd={startAdding} onCancelAdd={cancelAdding} onAddSubmit={add} />

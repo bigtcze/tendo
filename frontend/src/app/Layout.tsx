@@ -23,8 +23,12 @@ const FRAME: Record<Shell, string> = {
   householdLess: 'mx-auto flex min-h-dvh max-w-3xl flex-col',
   centered: 'mx-auto flex min-h-dvh w-full max-w-6xl flex-col',
 };
-const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-raised px-5 py-2 sm:px-8';
-const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:h-14 lg:px-8 lg:py-0';
+// The bar has a minimum height but never a fixed one: a wrapped identity block, a long login or the
+// sign-out failure message must grow the header instead of painting over main. `lg:py-0` keeps the
+// household bar at exactly 56 px in the normal case, because its 44 px account actions fit inside the
+// 56 px minimum; the same minimum keeps the signed-out and household-less bars at 56 px on phones.
+const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-raised px-5 py-2 sm:px-8 lg:py-0';
+const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:px-8';
 const MAIN = 'w-full min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8';
 /** Bottom padding keeps the last content row clear of the fixed bar (bar height + safe area). */
 const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:min-w-0 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
