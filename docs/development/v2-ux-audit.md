@@ -1,5 +1,7 @@
 # V2 UX and scale audit
 
+> Historical record. It describes the V2 stage (released as `v2.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=baseline_2026-10-16
 source_commit=e802241 (v1.0.0 + V2 authorization)
 evidence=opt-in production-build capture `TENDO_UX_AUDIT_DIR=… scripts/e2e-smoke.sh` (see [testing](testing.md#uxscale-audit-capture)); real PostgreSQL 18, fixed clock 2026-05-14 Europe/Prague; Chromium with reduced motion

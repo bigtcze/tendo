@@ -19,5 +19,4 @@ run python3 scripts/autonomy-work-selection.py --self-check
 run bash scripts/autonomy-controller-test.sh
 run python3 scripts/test_autonomy_migration.py
 run bash scripts/install-autonomy-service-test.sh
-# Retained legacy V5 loop: kept runnable for installer --rollback.
-run bash scripts/autonomous-loop-test.sh
+run python3 scripts/test_governance_contracts.py

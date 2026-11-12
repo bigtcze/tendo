@@ -1,11 +1,13 @@
 # V4 baseline audit (shipped v3.0.0)
 
+> Historical record. It describes the V4 stage (released as `v4.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=V4-01_baseline_evidence
 issue=#409 (V4-01)
 source_commit=abdcc21 (main after v3.0.0 + V4-00 governance; application code identical to published v3.0.0)
 evidence=production-build capture `TENDO_UX_AUDIT_DIR=/tmp/opencode/v4-01/ux-audit bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh` on 2026-11-09: real PostgreSQL 18, fixed business date 2026-05-14, Chromium; exit 0, 521 PNG + `metrics.json`, 494 measured route captures, 0 with horizontal overflow, 0 interactive targets under 44 px, smallest visible font 14 px
 curated=25 PNG in [`v4-baseline/`](v4-baseline/) (1.4 MiB)
-references=`docs/design/reference/tendo-v4-desktop.png`, `docs/design/reference/tendo-v4-mobile.png` (SHA-256 verified against `.autonomous/V4_DESIGN_BRIEF.md`; visual targets only, never screenshot evidence)
+references=`docs/design/reference/tendo-v4-desktop.png`, `docs/design/reference/tendo-v4-mobile.png` (SHA-256 verified against [`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md); visual targets only, never screenshot evidence)
 limits=read-only audit; proposals below are plans for the owning V4 Issues, not implemented behavior
 
 This is the starting point for V4. It records what v3 actually does in code, data, API and browser,

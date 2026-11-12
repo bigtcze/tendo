@@ -59,9 +59,13 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import autonomy_dependencies as deps  # noqa: E402  (read-only lifecycle helpers)
 
 REPO = "bigtcze/tendo"
 OWNED_LABEL = "release"
@@ -310,6 +314,54 @@ def dependency_states_for(issue: dict, owned: dict, dependency_states: dict) -> 
             notes.append(f"#{issue['number']} depends on open non-owned Issue #{number}; not ready")
         return False, notes
     return True, notes
+
+
+def recovery_candidate(snapshot: dict, owned: dict, selectable: list[dict],
+                       status_by_number: dict, notes: list[str],
+                       open_prs: list[dict] | None = None) -> dict | None:
+    """Priority-6 dependency recovery input, fail closed.
+
+    An Issue takes part only when its comment history is present in the
+    snapshot (`comments`, paginated by the collector). A malformed trusted
+    lifecycle comment is noted and excludes that Issue, so any group touching it
+    (or depending on it while open) is not eligible.
+    """
+    owned_open: dict[int, dict] = {}
+    lifecycle: dict[int, dict] = {}
+    for issue in selectable:
+        number = issue["number"]
+        if "comments" not in issue:
+            continue
+        try:
+            lifecycle[number] = deps.replay(issue.get("comments") or [])
+        except deps.LifecycleError as exc:
+            notes.append(f"#{number} lifecycle comments malformed ({exc}); excluded from recovery")
+            continue
+        owned_open[number] = issue
+        blocked = lifecycle[number]["blocked"]
+        if (status_by_number[number] == ["status:blocked"] and blocked is not None
+                and blocked.get("status") == "unknown"):
+            notes.append(f"#{number} has unstructured or external BLOCKED prose; no dependency "
+                         "review is emitted and no work is selected from it")
+    dependency_states = snapshot.get("dependency_states") or {}
+
+    def closed(number: int) -> bool:
+        if number in owned:
+            return str(owned[number].get("state", "")).upper() == "CLOSED"
+        raw = dependency_states.get(str(number)) or dependency_states.get(number)
+        return str(raw or "").upper() == "CLOSED"
+
+    declared = {n: (blocked_by(issue) or []) for n, issue in owned_open.items()}
+    status = {n: status_by_number[n][0] for n in owned_open}
+    # Open, non-dependency PRs that reference an owned Issue (evidence only).
+    linked: dict[int, list[int]] = {}
+    for pr in open_prs or []:
+        if is_dependency(pr):
+            continue
+        for number in refs(pr):
+            if number in owned_open:
+                linked.setdefault(number, []).append(pr["number"])
+    return deps.plan_recovery(owned_open, status, lifecycle, declared, closed, linked)
 
 
 def coordinator_in_flight(open_owned: list[dict], latest_tag: str | None) -> tuple[str, int] | None:
@@ -582,6 +634,18 @@ def select(snapshot: dict, now: datetime) -> dict:
         return decide(6, "claim-issue", issue_ref(best),
                       "highest-value dependency-ready idle owned Issue")
 
+    # 6b advisory dependency review (only when no ordinary ready Issue exists).
+    # Never executable: the controller forwards it; an agent must reconcile live
+    # state under FLOW before any action, and the selector grants no claim.
+    recovery = recovery_candidate(snapshot, owned, selectable, status_by_number, notes, open_prs)
+    if recovery is not None:
+        return decide(6, "review-owned-dependencies",
+                      {"type": "issue", "number": recovery["issue"], "group": recovery["group"],
+                       "evidence": recovery["evidence"], "blocker": recovery["blocker"],
+                       "pr": recovery["pr"], "claim": recovery["claim"],
+                       "conflicts": recovery["conflicts"]},
+                      recovery["reason"])
+
     # 7 dependency-pr
     if actionable:
         return decide(7, "dependency-pr", pr_ref(actionable[0]), "remaining actionable dependency PR")
@@ -801,6 +865,18 @@ def check_quota(run_gh) -> None:
             raise RateLimited(reset, f"{name} quota remaining {remaining} < {MIN_QUOTA}")
 
 
+def _normalise_issue_comment(item: dict) -> dict:
+    """Lifecycle fields of an Issue comment; missing ordering keys are an error."""
+    user = item.get("user") or {}
+    if item.get("id") is None or not item.get("created_at"):
+        raise SelectionError("issue comment without id/created_at; lifecycle cannot be ordered")
+    return {"id": item["id"], "createdAt": item["created_at"],
+            "updatedAt": item.get("updated_at"),
+            "author": {"login": user.get("login", "")},
+            "authorAssociation": item.get("author_association", ""),
+            "body": item.get("body") or ""}
+
+
 def _normalise_merged(item: dict) -> dict:
     labels = item.get("labels") or []
     return {"number": item.get("number"), "title": item.get("title", ""),
@@ -890,6 +966,12 @@ def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None) -> di
     # Only owned Issues are ever listed; unowned lookalikes are not work items.
     issues = gh_list(run_gh, "issue", "--repo", repo, "--label", OWNED_LABEL, "--state", "all",
                      "--json", "number,title,state,labels,body")
+    # Lifecycle comments (paginated, fail closed) only for open owned Issues; they
+    # drive claim/handoff/blocker replay for dependency recovery.
+    for issue in issues:
+        if is_owned(issue) and str(issue.get("state", "")).upper() == "OPEN":
+            issue["comments"] = [_normalise_issue_comment(c) for c in gh_paginated(
+                run_gh, f"repos/{repo}/issues/{issue['number']}/comments?per_page=100")]
     merged = walk_merged(repo, run_gh)
 
     owned = {i["number"]: i for i in issues if is_owned(i)}

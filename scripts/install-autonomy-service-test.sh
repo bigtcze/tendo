@@ -69,8 +69,8 @@ file_mode() { stat -c '%a' "$1"; }
 # ---------------------------------------------------------------------------
 # sandbox construction
 # ---------------------------------------------------------------------------
-write_units() {
-  local unit_dir=$1
+write_units() { # unit_dir sandbox_repo_root
+  local unit_dir=$1 root=$2
   mkdir -p "${unit_dir}/tendo-autonomous.service.d"
   cat >"${unit_dir}/tendo-autonomous.service" <<'EOF'
 [Unit]
@@ -101,6 +101,8 @@ EOF
     >"${unit_dir}/tendo-autonomous.service.d/30-cycle-spacing.conf"
   printf '[Unit]\nWants=opencode-v2.service\nAfter=opencode-v2.service\n' \
     >"${unit_dir}/tendo-autonomous.service.d/40-opencode-dependency.conf"
+  # Point the fake legacy unit at the sandbox checkout (never a bypass path).
+  sed -i "s#/srv/tendo-checkout#${root}#g" "${unit_dir}/tendo-autonomous.service"
 
   cat >"${unit_dir}/tendo-maintenance.service" <<'EOF'
 [Unit]
@@ -489,7 +491,7 @@ build_sandbox() { # dir -> pristine sandbox used as the per-case template
   printf 'False\n' >"${CD}/state/guard-pending"
   printf 'True\n' >"${CD}/state/guard-ready"
 
-  write_units "${sb}/home/.config/systemd/user"
+  write_units "${sb}/home/.config/systemd/user" "${sb}/repo"
   write_fakes "${CD}/bin"
 
   printf 'enabled\n' >"${CD}/state/systemd/tendo-autonomous.service.enabled"
@@ -552,6 +554,17 @@ EOF
   cp "$REAL_MIGRATION" "${sb}/repo/scripts/autonomy_migration.py"
   printf '# Autonomy prompt (test fixture)\n' >"${sb}/repo/.autonomous/AUTONOMY_PROMPT.md"
 
+  # Fake legacy runtime (committed with the checkout, so the restored historical
+  # runtime is ready): the loop, its prompt, workflow and selector.
+  cat >"${sb}/repo/scripts/autonomous-loop.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "legacy V5 loop (test fixture)"
+EOF
+  chmod +x "${sb}/repo/scripts/autonomous-loop.sh"
+  printf '# V5 cycle prompt (test fixture)\n' >"${sb}/repo/.autonomous/V5_CYCLE_PROMPT.md"
+  printf '# V5 issues workflow (test fixture)\n' >"${sb}/repo/.autonomous/V5_ISSUES_WORKFLOW.md"
+  printf '#!/usr/bin/env python3\nprint("V5 SELECTOR OK")\n' >"${sb}/repo/scripts/v5_work_selection.py"
+
   git -C "${sb}/repo" init -q -b main
   git -C "${sb}/repo" config user.email "test@example.com"
   git -C "${sb}/repo" config user.name "Test"
@@ -571,6 +584,10 @@ build_case() { # name -> sets CD from a fast copy of the pristine template
   rm -rf "$CD"
   cp -a "$TEMPLATE" "$CD"
   git -C "${CD}/sandbox/repo" remote set-url origin "${CD}/origin.git"
+  # The template unit names the template checkout; rebind it to this case's own
+  # sandbox so readiness and the backup copy describe this case's runtime.
+  sed -i "s#${TEMPLATE}/sandbox/repo#${CD}/sandbox/repo#g" \
+    "${CD}/sandbox/home/.config/systemd/user/tendo-autonomous.service"
 }
 
 run_as() { # case_dir [installer args...]
@@ -1597,6 +1614,73 @@ case_effective_config_drift() {
 }
 
 # ---------------------------------------------------------------------------
+# case 18: rollback readiness refuses before any service/label/unit mutation
+# ---------------------------------------------------------------------------
+case_rollback_readiness() {
+  build_case readiness
+  local cd=$CD
+  local sb="${CD}/sandbox"
+  local unit_dir="${sb}/home/.config/systemd/user"
+  local backup
+  shrink_store "$cd" 3
+  EXTRA_ENV=("FAKE_GH_FAIL=GET:issues?state=all")
+  run_as "$cd" --apply
+  EXTRA_ENV=()
+  backup=$(cat "${cd}/backups/latest")
+  assert_eq "case18 backup stays backed-up" "backed-up" "$(phase_of "$backup")"
+  local head_sha
+  head_sha=$(git -C "$sb/repo" rev-parse HEAD)
+  rm -rf "${cd}/pristine" "${cd}/pristine-backup"
+  cp -a "$sb" "${cd}/pristine"
+  cp -a "$backup" "${cd}/pristine-backup"
+
+  readiness_refuses() { # name mutate-snippet expected-text
+    local name=$1 mutate=$2 want=$3 marker unit_sha
+    rm -rf "$sb" "$backup"
+    cp -a "${cd}/pristine" "$sb"
+    cp -a "${cd}/pristine-backup" "$backup"
+    eval "$mutate"
+    unit_sha=$(sha256sum "${unit_dir}/tendo-autonomous.service" | cut -d' ' -f1)
+    marker=$(wc -l <"${cd}/state/calls.log")
+    run_as "$cd" --rollback
+    assert_rc "case18 ${name}: refused" 3
+    assert_output_contains "case18 ${name}: reason" "$want"
+    assert_output_contains "case18 ${name}: prints the recovery revision" "root_head at backup (recovery revision): ${head_sha}"
+    assert_eq "case18 ${name}: no stop/enable/disable/start" "0" \
+      "$(tail -n +$((marker + 1)) "${cd}/state/calls.log" | grep -cE '^systemctl (--user )?(disable|stop|start|enable|daemon-reload)( |$)')"
+    assert_eq "case18 ${name}: no label mutation" "0" \
+      "$(tail -n +$((marker + 1)) "${cd}/state/calls.log" | grep -cE '^gh (POST|DELETE)')"
+    assert_eq "case18 ${name}: unit unchanged" "$unit_sha" \
+      "$(sha256sum "${unit_dir}/tendo-autonomous.service" | cut -d' ' -f1)"
+    assert_small_labels "$cd" original 3
+  }
+
+  readiness_refuses missing-legacy-loop 'rm -f "${sb}/repo/scripts/autonomous-loop.sh"' "does not exist"
+  readiness_refuses nonexec-legacy-loop 'chmod -x "${sb}/repo/scripts/autonomous-loop.sh"' "is not executable"
+  readiness_refuses missing-v5-prompt 'rm -f "${sb}/repo/.autonomous/V5_CYCLE_PROMPT.md"' "V5_CYCLE_PROMPT.md"
+  readiness_refuses missing-v5-workflow 'rm -f "${sb}/repo/.autonomous/V5_ISSUES_WORKFLOW.md"' "V5_ISSUES_WORKFLOW.md"
+  readiness_refuses missing-v5-selector 'rm -f "${sb}/repo/scripts/v5_work_selection.py"' "v5_work_selection.py"
+  readiness_refuses missing-migration 'rm -f "${sb}/repo/scripts/autonomy_migration.py"' "autonomy_migration.py"
+  readiness_refuses backup-unit-missing 'rm -f "${backup}/units/tendo-autonomous.service"' "backup has no unit copy"
+  readiness_refuses backup-maint-copy-missing 'rm -f "${backup}/files/tendo-maintenance.sh"' "backup has no copy of tendo-maintenance.sh"
+  readiness_refuses unknown-restored-command 'sed -i "s#^ExecStart=.*#ExecStart=/bin/true#" "${backup}/units/tendo-autonomous.service"' "is not a known command"
+
+  # Positive path: the untouched historical runtime still rolls back.
+  rm -rf "$sb" "$backup"
+  cp -a "${cd}/pristine" "$sb"
+  cp -a "${cd}/pristine-backup" "$backup"
+  run_as "$cd" --rollback
+  assert_rc "case18 positive rollback exits 0" 0
+  assert_output_contains "case18 positive rollback prints recovery revision" "recovery revision (root_head at backup): ${head_sha}"
+  assert_small_labels "$cd" original 3
+  if diff -r "${cd}/pristine/home/.config/systemd/user" "$unit_dir" >/dev/null 2>&1; then
+    pass "case18 positive rollback restores units byte-exact"
+  else
+    fail "case18 positive rollback restores units byte-exact" "unit tree differs"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # run all cases
 # ---------------------------------------------------------------------------
 build_sandbox "$TEMPLATE"
@@ -1618,6 +1702,7 @@ case_installer_lock
 case_command_failures
 case_multiline_redaction
 case_effective_config_drift
+case_rollback_readiness
 
 printf '\n'
 if ((failures == 0)); then

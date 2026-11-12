@@ -1,5 +1,7 @@
 # V3 baseline UX audit (shipped v2.1)
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=V3-02_baseline_evidence_complete
 source_commit=9fe718e (main after v2.1.0 + V3 Issues migration; no UI change since v2.1.0)
 evidence=opt-in production-build capture `TENDO_UX_AUDIT_DIR=/tmp/opencode/v3-02/ux-audit bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh`; real PostgreSQL 18, fixed business date 2026-05-14 Europe/Prague, Chromium with reduced motion; successful run on 2026-11-01, 273 PNG + `metrics.json`, all 12 journey records, zero horizontal overflow

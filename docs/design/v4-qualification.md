@@ -1,13 +1,15 @@
 # V4-13 final qualification
 
+> Historical record. It describes the V4 stage (released as `v4.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=complete (visual sign-off after #439, see "V4-17 follow-up and visual sign-off")
 issue=#422 (V4-13)
 main_under_review=`d4d818d`
 fixed_business_date=2026-05-14
-references=`reference/tendo-v4-desktop.png` (SHA-256 `9fb1901b…`, 1448×1086), `reference/tendo-v4-mobile.png` (SHA-256 `40a1571f…`, 941×1672); both match the hashes in `.autonomous/V4_DESIGN_BRIEF.md`
+references=`reference/tendo-v4-desktop.png` (SHA-256 `9fb1901b…`, 1448×1086), `reference/tendo-v4-mobile.png` (SHA-256 `40a1571f…`, 941×1672); both match the hashes in [`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md)
 
-This record covers the independent V4-13 reviews. The rules are in `.autonomous/V4_SCOPE.md`,
-`.autonomous/V4_DEFINITION_OF_DONE.md` and `.autonomous/V4_DESIGN_BRIEF.md`; this file does not
+This record covers the independent V4-13 reviews. The rules are in [`.autonomous/V4_SCOPE.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_SCOPE.md),
+[`.autonomous/V4_DEFINITION_OF_DONE.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DEFINITION_OF_DONE.md) and [`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md); this file does not
 repeat them.
 
 ## Evidence used

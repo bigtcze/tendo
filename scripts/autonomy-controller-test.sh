@@ -482,6 +482,20 @@ expect_eq "markers: three loops still select work" 3 "$(sel_calls)"
 expect_eq "markers: no session for an idle backlog" 0 "$(run_calls)"
 expect_grep "markers: the loop stops only at its test bound" 'max loops reached' "${OUT_FILE}"
 
+# A completed release still permits a new unit of maintenance/recovery work.
+new_case post-release-work
+echo "complete" >"${REPO}/.autonomous/V99_COMPLETE"
+printf 'DECISION priority=6 kind=review-owned-dependencies target=issue #900 existing claimant only\nNOTE Never authorises takeover\n' >"${STATE}/selout.1"
+printf 'DECISION priority=7 kind=dependency-pr target=pr #901 maintenance after release\n' >"${STATE}/selout.2"
+printf 'DECISION priority=idle kind=none target=-\n' >"${STATE}/selout.3"
+run_controller AUTONOMY_MAX_LOOPS=3
+expect_eq "post-release: controller remains operational" 0 "${RC}"
+expect_eq "post-release: recovery and maintenance sessions both run" 2 "$(run_calls)"
+expect_eq "post-release: idle polling continues afterward" 3 "$(sel_calls)"
+expect_grep "post-release: advisory kind passed unchanged" 'kind=review-owned-dependencies' "${STATE}/prompt.1"
+expect_grep "post-release: no automatic claim permission added" 'Never authorises takeover' "${STATE}/prompt.1"
+expect_grep "post-release: dependency maintenance remains available" 'kind=dependency-pr' "${STATE}/prompt.2"
+
 # --- 6. selection failures back off and are never idle ----------------------
 
 new_case selection-error

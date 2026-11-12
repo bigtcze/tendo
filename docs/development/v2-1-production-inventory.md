@@ -1,5 +1,7 @@
 # V2.1 hand-written production code inventory
 
+> Historical record. It describes the V2.1 stage (released as `v2.1.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 > Historical V2.1 record. The tooling and baselines referenced below were replaced in #359; current checks: [testing.md](testing.md#maintainability-checks).
 
 Regenerate with `bash scripts/dev-exec.sh -- python3 scripts/production_inventory.py --out docs/development/v2-1-production-inventory.md`.

@@ -1,11 +1,13 @@
 # V4 design system — modern everyday tokens (V4-02)
 
+> Historical record. It describes the V4 stage (released as `v4.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=V4-02_system_tokens
 issue=#410 (V4-02)
 supersedes=visual tokens, typography, radii and control styling of [v3-design-system.md](v3-design-system.md)
 scope=system-level primitives only; shell/navigation/Home composition is V4-03, per-screen work is V4-04/V4-05
 
-This is the implemented V4 visual foundation. Values come from `.autonomous/V4_DESIGN_BRIEF.md`
+This is the implemented V4 visual foundation. Values come from [`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md)
 (initial palette + Inter Variable + 10–16 px radii) adjusted only where a measured contrast check
 required it. Measured ratios are computed from the token source by `frontend/src/designTokens.test.ts`
 and the CSS/TS mirror is parity-tested; the tables below repeat those measured values.
@@ -216,8 +218,8 @@ Committed captures are real production-build screenshots (Playwright Chromium, f
 | [login-light-390](v4-tokens/login-light-390.png) | Signed-out Login |
 
 Reference-vs-capture composites are review artifacts only: they embed the AI reference images, so per
-`.autonomous/FLOW.md` "V4 design and visual validation" they stay review-only artifacts outside the repository (described in the V4-02 PR), never
-committed. Side-by-side checklist against `.autonomous/V4_DESIGN_BRIEF.md` §"Required visual comparison",
+[`.autonomous/FLOW.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/FLOW.md) "V4 design and visual validation" they stay review-only artifacts outside the repository (described in the V4-02 PR), never
+committed. Side-by-side checklist against [`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md) §"Required visual comparison",
 limited to what V4-02 owns:
 
 | Check | Result in V4-02 |
