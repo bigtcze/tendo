@@ -56,9 +56,10 @@ func TestCompletionContractGoldenPostgres(t *testing.T) {
 				if step.Want == "" {
 					persisted = ""
 				}
-				scheduletest.Check(t, tc.Name+" (returned)", index, dueText, step, returned)
-				scheduletest.Check(t, tc.Name+" (stored receipt)", index, dueText, step, stored)
-				scheduletest.Check(t, tc.Name+" (persisted item)", index, dueText, step, persisted)
+				if returned != stored || returned != persisted {
+					t.Fatalf("step %d: returned %q, stored receipt %q, persisted item %q differ", index+1, returned, stored, persisted)
+				}
+				tc.Check(t, index, dueText, persisted)
 				dueText = persisted
 			}
 			var entries int

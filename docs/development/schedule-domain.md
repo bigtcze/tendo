@@ -20,6 +20,8 @@ The canonical package is `backend/internal/schedule` (`internal/schedule` from t
 - Month/year arithmetic clamps to the last valid day in the target month. Each step is clamped independently, so Jan 31 + 1 month = Feb 28 (or Feb 29 in leap years), then another monthly step = Mar 28/29. Feb 29 + 1 year = Feb 28 in the following non-leap year.
 - Missing or past/current attention anchors derive as `needs_attention`; future anchors derive as `upcoming`.
 
+The sequential clamping below is the pre-V5 behavior. It collides with the locked V5 recurrence contract (the original anchor must never drift); see [recurrence audit](recurrence-audit.md) finding R1 and the strict expected-failure locks there until the fix in #447.
+
 Examples (monthly interval): fixed anchor 2026-01-01 completed 2026-03-15 advances to 2026-04-01; fluid completion on 2026-03-15 advances to 2026-04-15. The sequential clamping choice deliberately preserves each consecutive interval step rather than reapplying the original day-of-month after a clamp.
 
 These functions remain pure calculations and do not persist schedule state or implement lifecycle, completion history, or completion transactions. The items API persists recurrence policy separately from the current attention date; the completion transaction that uses these calculations is described in [ADR 0005](../adr/0005-completion-receipts.md).

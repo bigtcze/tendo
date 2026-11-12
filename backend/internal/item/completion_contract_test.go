@@ -30,7 +30,7 @@ func TestCompletionContractGoldenReturnedAndPersisted(t *testing.T) {
 					t.Fatalf("step %d: replayed=%v err=%v", index+1, replayed, err)
 				}
 				row, _ := e.repo.Row(missingID)
-				due = checkContractStep(t, tc.Name, index, due, step, receipt, row)
+				due = checkContractStep(t, tc, index, due, receipt, row)
 			}
 			history, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 50, "", item.CompletionOrderOldest)
 			if err != nil || len(history.Items) != len(tc.Steps) {
@@ -41,8 +41,9 @@ func TestCompletionContractGoldenReturnedAndPersisted(t *testing.T) {
 }
 
 // checkContractStep asserts one Done's receipt and persisted row and returns the new due date.
-func checkContractStep(t *testing.T, name string, index int, due string, step scheduletest.Step, receipt item.Completion, row item.Item) string {
+func checkContractStep(t *testing.T, tc scheduletest.Case, index int, due string, receipt item.Completion, row item.Item) string {
 	t.Helper()
+	name, step := tc.Name, tc.Steps[index]
 	if receipt.CompletedOn.String() != step.Completion || receipt.CycleAttentionOn == nil || receipt.CycleAttentionOn.String() != due {
 		t.Fatalf("%s step %d: receipt completed=%s cycle=%v, want %s/%s", name, index+1, receipt.CompletedOn, receipt.CycleAttentionOn, step.Completion, due)
 	}
@@ -65,8 +66,10 @@ func checkContractStep(t *testing.T, name string, index int, due string, step sc
 	if row.Done {
 		t.Fatalf("%s step %d: recurring item marked done", name, index+1)
 	}
-	scheduletest.Check(t, name+" (returned)", index, due, step, returned)
-	scheduletest.Check(t, name+" (persisted)", index, due, step, persisted)
+	if returned != persisted {
+		t.Fatalf("%s step %d: returned %q differs from persisted %q", name, index+1, returned, persisted)
+	}
+	tc.Check(t, index, due, persisted)
 	return persisted
 }
 

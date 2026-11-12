@@ -35,10 +35,11 @@ func runContractCases(t *testing.T, cases []scheduletest.Case) {
 				if got != nil {
 					gotText = got.String()
 				}
-				scheduletest.Check(t, tc.Name, index, due.String(), step, gotText)
+				tc.Check(t, index, due.String(), gotText)
 				if got == nil {
 					return
 				}
+				// Continue from the date the engine actually produced, as repeated Done presses do.
 				due = *got
 			}
 		})
