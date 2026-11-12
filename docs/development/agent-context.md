@@ -4,8 +4,8 @@ How the autonomous agent's instructions fit together, which files it loads and w
 
 ## How OpenCode loads context
 
-- V5 Refined & Reliable is the current stage (human-authorized, activated by managed Issue V5-00). The controller is the existing user unit `tendo-autonomous.service`, which runs `scripts/autonomous-loop.sh`; each cycle is one fresh `opencode run --agent orchestrator` session whose first message is the byte-exact `.autonomous/V5_CYCLE_PROMPT.md`, followed by the advisory work selection of `scripts/v5_work_selection.py` (locked V5_ISSUES_WORKFLOW priority computed from live GitHub state, no state of its own). The loop exits successfully only once `.autonomous/V5_COMPLETE` is tracked on clean `main`; `V4_COMPLETE` and older markers are history and never stop it. `V4_CYCLE_PROMPT.md` and `CYCLE_PROMPT.md` are kept unchanged as history and are no longer sent.
-- Post-release maintenance (daily user timer `tendo-maintenance.timer` → `~/.local/bin/tendo-maintenance.sh` with the owner's prompt, outside this repository) stays enabled during V5. Both controllers use the flock `$XDG_RUNTIME_DIR/tendo-maintenance-$UID.lock`: the V5 loop takes it before its first cycle and holds it until it exits, so a scheduled maintenance run exits "already running"; if a maintenance run already holds it, the loop refuses to start (exit 3, no session). Unlike V4, the loop no longer refuses merely because the timer is enabled, and never queries unit state. When `V5_COMPLETE` stops the loop the lock is released and the next scheduled maintenance run resumes. Dependency and security work continues inside V5 cycles (FLOW). Behavior tests: `bash scripts/autonomous-loop-test.sh` (local gate and required CI).
+- The controller is evergreen. The existing user unit `tendo-autonomous.service` runs `scripts/autonomy-controller.sh`, a single serialized process. Each unit of work is one fresh `opencode run --agent orchestrator` session whose first message is `.autonomous/AUTONOMY_PROMPT.md`, followed by the advisory work selection of `scripts/autonomy-work-selection.py`. That selection is FLOW "Scheduler order" computed from live GitHub state; the selector keeps no state of its own. Ownership is the `release` label alone, so future releases need no new prompt, milestone filter, label or controller code. No `*_COMPLETE` marker stops it. `V5_CYCLE_PROMPT.md`, `scripts/autonomous-loop.sh` and `scripts/v5_work_selection.py` are retained unchanged and unused, so that the installer `--rollback` can restore the V5 loop. `V4_CYCLE_PROMPT.md` and `CYCLE_PROMPT.md` are history.
+- The separate daily maintenance timer (`tendo-maintenance.timer` → `~/.local/bin/tendo-maintenance.sh` with the owner's out-of-repo prompt) is disabled at cutover; its duties (dependency PRs, security, CI recovery, 14-day patch releases) are scheduler priorities 1–8. The controller holds the singleton lock `$XDG_RUNTIME_DIR/tendo-autonomous-$UID.lock` and the legacy maintenance lock `tendo-maintenance-$UID.lock` for its lifetime, so a manually started maintenance run exits "already running". Behavior tests: `bash scripts/autonomy-test.sh` (local gate and required CI).
 - OpenCode injects the repository `AGENTS.md` into every session's system prompt (it appears as "Instructions from: …/AGENTS.md"). Reading it again with a tool only duplicates it.
 - In the verified configuration no other repository `.autonomous` document is loaded automatically. OpenCode and the installed plugin also supply their own agent and tool instructions, which this repository does not control. Every `.autonomous/*` file is loaded by explicit tool reads that the agent decides on from `AGENTS.md`. Child subagents do not inherit the parent's read history; they get their own system and project instructions plus whatever requirements the orchestrator puts in the packet.
 - A file read with a tool stays in the model-visible input of every later step of the session, until compaction summarizes it. Prompt caching lowers the price of that repeated input but does not remove it from the context window. After compaction the exact text may be gone, so `AGENTS.md` tells the agent to re-read a governing file rather than rely on a summary.
@@ -16,10 +16,12 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | File | Kind | Editable by agent | Loaded |
 | --- | --- | --- | --- |
 | `AGENTS.md` | entry point, read set, authority list | yes (navigation only) | injected |
-| `V5_CYCLE_PROMPT.md` | V5 controller prompt, human-authorized through V5-00 (byte-exact packet copy) | no: controller input of `scripts/autonomous-loop.sh` | as the session prompt |
-| V5_SCOPE, V5_RECURRENCE_CONTRACT, V5_SECURITY_AND_MCP, V5_DEFINITION_OF_DONE, V5_ISSUES_WORKFLOW | locked, human-authorized V5 contract (imported byte-for-byte by V5-00) | no | always during V5 |
+| `AUTONOMY_PROMPT.md` | evergreen controller prompt, owner-authorized governance PR | no: controller input of `scripts/autonomy-controller.sh` | as the session prompt |
+| `V5_CYCLE_PROMPT.md` | retained V5 controller prompt (rollback only) | no | never |
+| V5_SCOPE, V5_RECURRENCE_CONTRACT, V5_SECURITY_AND_MCP, V5_DEFINITION_OF_DONE, V5_ISSUES_WORKFLOW | locked, human-authorized V5 contract (imported byte-for-byte by V5-00); ownership selector and controller handoff superseded by AGENTS "Evergreen precedence" | no | working a migrated V5 `release` Issue; recurrence/security/MCP concerns |
 | V5_DESIGN_BRIEF | locked V5 visual direction (no reference image) | no | frontend UI, design tokens, rendering or visual-baseline changes |
-| `scripts/autonomous-loop.sh`, `scripts/v5_work_selection.py` | controller and its work-selection policy | no: human-authorized governance PR only | executed by the controller |
+| `scripts/autonomy-controller.sh`, `scripts/autonomy-work-selection.py`, `scripts/install-autonomy-service.sh`, `scripts/autonomy_migration.py` | controller, work-selection policy, one-time host installer and label migration | no: human-authorized governance PR only; agents never run the installer's `--apply`/`--rollback` | executed by the controller / owner |
+| `scripts/autonomous-loop.sh`, `scripts/v5_work_selection.py` | retained V5 loop and selector (rollback only) | no | never |
 | `V4_CYCLE_PROMPT.md` | historical V4 controller prompt | no | never |
 | V4_SCOPE, V4_DEFINITION_OF_DONE | locked, historical V4 contract | no | V4 semantics changes, UI work, release |
 | V4_ISSUES_WORKFLOW | locked, historical | no | only to interpret historical V4 Issue evidence |
@@ -38,26 +40,36 @@ How the autonomous agent's instructions fit together, which files it loads and w
 | DEFINITION_OF_DONE (V1) | locked, historical | no | item or subject forms, recurrence, lifecycle, history, auth, household, onboarding, security, deployment, backup; semantics changes; release/completion |
 | V3_ISSUES_READY | issue identifiers, not status | no (migration output) | when an Issue ID is needed |
 | V3_ISSUES_MIGRATION_PROMPT | executed one-shot bootstrap prompt | no | never for routine work |
-| PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE, V3_COMPLETE, V4_COMPLETE | historical completion markers | never edit or delete | never for routine work; never stop the V5 controller |
-| V5_COMPLETE (future) | V5 completion marker, only via V5-17 final protected PR | created once by V5-17 | stops the controller |
+| PROJECT_COMPLETE, V2_COMPLETE, V2_1_COMPLETE, V3_COMPLETE, V4_COMPLETE, V5_COMPLETE (if added) | historical completion markers / evidence | never edit or delete | never for routine work; never stop the controller |
 | `docs/development/dependencies.md`, `release.md`, `release-qualification.md` | agent-maintained development docs | yes | dependency/toolchain/security work; releases |
 
-Precedence when two sources seem to disagree: locked files over FLOW and AGENTS; V5_ISSUES_WORKFLOW over every other statement about V5 Issues, Renovate priority and the controller handoff, V4_ISSUES_WORKFLOW and V3_ISSUES_WORKFLOW over every statement about historical V4 and V3 Issues; V5_DESIGN_BRIEF over the V4 and V3 briefs for visual direction; V5_RECURRENCE_CONTRACT and V5_SECURITY_AND_MCP over earlier statements on their concerns, and the V5 precedence in `AGENTS.md` for earlier exclusions of authorized V5 deliverables; the newer V3 documents refine but never relax the historical V1/V2/V2.1 invariants (GUARDRAILS "Scope safety").
+Precedence when two sources seem to disagree: locked files over FLOW and AGENTS, except where AGENTS "Evergreen precedence" (owner-authorized) replaces the V5 ownership selector, controller handoff and stop rule; V5_ISSUES_WORKFLOW over other statements about V5 acceptance and Renovate triage, V4_ISSUES_WORKFLOW and V3_ISSUES_WORKFLOW over every statement about historical V4 and V3 Issues; V5_DESIGN_BRIEF over the V4 and V3 briefs for visual direction; V5_RECURRENCE_CONTRACT and V5_SECURITY_AND_MCP over earlier statements on their concerns, and the V5 precedence in `AGENTS.md` for earlier exclusions of authorized V5 deliverables; the newer V3 documents refine but never relax the historical V1/V2/V2.1 invariants (GUARDRAILS "Scope safety").
 
-## V5 activation and controller runbook
+## Evergreen controller runbook
 
-V5-00 (#444) imported the seven human-approved V5 specifications byte-for-byte, switched this read set, FLOW and the loop to V5 and added the work-selection policy with tests. It changed no systemd unit, wrapper or OpenCode configuration. The human-run bootstrap pauses the maintenance timer only while the governance PR is made, then starts `tendo-autonomous.service` and re-enables `tendo-maintenance.timer`; from then on both stay enabled and the shared flock decides who works:
+The owner-authorized evergreen governance PR added the controller, selector, prompt, one-time installer and their tests. It changed no host state. The owner performs cutover once, after the PR merges and required CI on `main` is green, from the canonical checkout synced to `origin/main`:
+
+```bash
+bash scripts/install-autonomy-service.sh --check   # redacted dry run; refuses on active work, pending marker, dirty/unsynced checkout, red CI, unknown drop-ins
+bash scripts/install-autonomy-service.sh --apply   # backup (0700) → quiesce → labels add release / remove tendo:v5-autonomous → new unit → timer disabled → start + verify
+bash scripts/install-autonomy-service.sh --rollback  # restore units, drop-ins, timer state and labels from the latest backup
+```
+
+`--apply` is idempotent: a completed migration exits "already complete", and an interrupted one resumes from its backup. A pending safe-wrapper marker (`~/.local/state/tendo-cycle.pending`) blocks `--check`; the printed remediation explains how the owner inspects it and, only if that cycle's work is verifiably finished, archives it. Monitoring:
 
 ```bash
 systemctl --user status tendo-autonomous.service
-systemctl --user status tendo-maintenance.timer          # stays enabled during V5
-journalctl --user -u tendo-autonomous.service -f
-journalctl --user -u tendo-maintenance.service           # "already running" while V5 holds the lock
+journalctl --user -u tendo-autonomous.service -f        # "[autonomy] ..." lines; one DECISION per cycle
+systemctl --user is-enabled tendo-maintenance.timer     # disabled after cutover
 ```
 
-Inside the loop, a failed or timed-out OpenCode cycle is retried with backoff in a new session. The loop process itself exits on a refusal (exit 3: a maintenance run holds the shared lock), a missing tool or V5 governance file (exit 2), or completion (exit 0); because of the unit's `Restart=no` drop-in it then stays stopped until the owner starts it again. The loop always uses the canonical checkout `/home/tomas/repositories/tendo`, the same one the host wrapper runs and recovers sessions in. After V5-17 merges `V5_COMPLETE` the loop exits and releases the lock; the next timer trigger runs maintenance (its prompt is the owner's file and is not changed by this repository).
+The unit runs with `Restart=on-failure`, `RestartSec=60`, `KillMode=control-group` and `TimeoutStopSec=120`, and survives reboot via user linger. A busy lock exits 75 and is retried. Cycle failures, selection errors and rate limits back off inside the process. The legacy `20-safe.conf` `Restart=no` drop-in is removed at cutover; it was why the V5 loop stayed failed after a stuck wrapper marker.
 
-Known limitation: the host wrapper `~/.local/bin/opencode-tendo-safe` (outside this repository) embeds a recovery prompt that still mentions `.autonomous/STATE.md`; under AGENTS "Context rules" that means the owned managed V5 Issue.
+Known limitation: the host wrapper `~/.local/bin/opencode-tendo-safe` (outside this repository) embeds a recovery prompt that still mentions `.autonomous/STATE.md`; under AGENTS "Context rules" that means the owned `release` Issue.
+
+## V5 activation (historical)
+
+V5-00 (#444) imported the seven human-approved V5 specifications, switched the read set, FLOW and the loop to V5 and kept the maintenance timer enabled with a shared flock. The V5 loop stopped at `V5_COMPLETE`. The evergreen governance PR superseded that handoff; the V5 loop files are retained for rollback.
 
 ## V4 activation (historical)
 

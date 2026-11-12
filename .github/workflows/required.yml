@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Autonomous controller behavior
-        run: bash scripts/autonomous-loop-test.sh
+      - name: Autonomy controller behavior
+        run: bash scripts/autonomy-test.sh
       - uses: ./.github/actions/toolchain
       - name: Check Go formatting
         shell: bash
