@@ -11,6 +11,7 @@ const projects: Project[] = [
   { name: 'clock', testMatch: ['attention-clock.spec.ts'] },
   { name: 'readme-screenshot', testMatch: ['readme-screenshot.spec.ts'] },
   { name: 'ux-audit', testMatch: ['ux-audit.spec.ts'] },
+  { name: 'design-capture', testMatch: ['design-capture.spec.ts'] },
   ...(process.env.TENDO_VISUAL_MODE ? [{ name: 'visual', testMatch: ['visual/**/*.spec.ts'], use: { browserName: 'chromium' as const } }] : []),
   {
     name: 'screen-reader',
