@@ -1,5 +1,6 @@
 import { expect, type Browser, type Page } from '@playwright/test';
 import { en } from '../../src/i18n/en';
+import { expectHome } from '../home';
 
 export interface JourneyResult {
   viewport: string;
@@ -47,7 +48,7 @@ export async function runFirstRunSetup(page: Page, setupToken: string, ownerPass
   const password = page.locator('#onboarding-password'); await password.fill(ownerPassword); recorder.interaction(ownerPassword.length);
   recorder.step();
   await page.getByRole('button', { name: en['onboarding.submit'] }).click(); recorder.interaction();
-  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expectHome(page, 'Audit household');
   return recorder.result('390x844');
 }
 
@@ -194,7 +195,7 @@ export async function runHouseholdJourneys(page: Page, browser: Browser, househo
     await loginPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_owner'); loginRecorder.interaction('audit_owner'.length);
     await loginPage.getByLabel(en['login.password'], { exact: true }).fill(ownerPassword); loginRecorder.interaction(ownerPassword.length);
     await loginPage.getByRole('button', { name: en['login.submit'], exact: true }).click(); loginRecorder.interaction();
-    await expect(loginPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+    await expectHome(loginPage, 'Audit household');
     loginRecorder.step(); results['J8 sign in from /login 390x844'] = loginRecorder.result('390x844');
   } finally { await loginContext.close(); }
 

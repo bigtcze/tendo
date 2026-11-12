@@ -84,7 +84,7 @@ describe('Admin center', () => {
     });
     app('/');
     // Let the household read settle first: only then is the rail's rendered state meaningful.
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(fake.requests.filter((request) => request.method === 'GET' && request.path === base)).toHaveLength(1);
     await waitFor(() => expect(within(nav()).getAllByRole('link')).toHaveLength(5));
     expect(within(nav()).queryByRole('link', { name: 'Admin center' })).not.toBeInTheDocument();

@@ -36,7 +36,7 @@ function appWithLocale(setterRef: LocaleSetterRef) {
 }
 function requestsOf(requests: RecordedRequest[], method: string, path: string) { return requests.filter((request) => request.method === method && request.path === path); }
 async function openForm() {
-  await screen.findByRole('heading', { name: 'Veselí' });
+  await screen.findByRole('heading', { name: 'Overview' });
   await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
   return screen.findByRole('form', { name: 'Add an item' });
 }
@@ -230,7 +230,7 @@ describe('item creation', () => {
       [memberList]: memberPage(),
     });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     expect(within(form).getByRole('option', { name: 'Anna' })).toBeVisible();
@@ -243,7 +243,7 @@ describe('item creation', () => {
       return request.query.get('cursor') === 'subject-cursor' ? json(200, { items: [second], nextCursor: null }) : json(200, { items: [subject], nextCursor: 'subject-cursor' });
     }, [memberList]: memberPage() });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await screen.findByRole('button', { name: 'Add item' });
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
@@ -361,7 +361,7 @@ describe('item creation', () => {
     const pending = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => ++calls === 1 ? pending : json(200, { items: [subject], nextCursor: null }), [memberList]: memberPage() });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
@@ -445,12 +445,12 @@ describe('item creation', () => {
     let calls = 0;
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: () => ++calls === 1 ? memberPage() : pending });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
     await act(async () => resolveMembers(json(401)));
-    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
   });
@@ -510,7 +510,7 @@ describe('item creation', () => {
       [`POST ${base}/items`]: (request) => { const saved = { ...created, title: JSON.parse(request.body).title }; source.push(saved); return json(201, saved); },
     });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await screen.findByRole('button', { name: 'Add item' });
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     const form = await openForm();
@@ -602,7 +602,7 @@ describe('item creation', () => {
   it('distinguishes no subjects from a retryable subjects error', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(200, { items: [], nextCursor: null }) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     expect(await screen.findByText('Add a person or thing before adding an item.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'People and things' })).toBeVisible();
@@ -612,7 +612,7 @@ describe('item creation', () => {
     cleanup();
     const failed = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(503) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
     expect(screen.queryByText('Add a person or thing before adding an item.')).not.toBeInTheDocument();
@@ -624,7 +624,7 @@ describe('Home items', () => {
   it('avoids catalogue requests without rows and batch-loads only unique row subjects across groups', async () => {
     const noRows = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     expect(requestsOf(noRows.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     cleanup();
 
@@ -735,7 +735,7 @@ describe('Home items', () => {
     expect(calls).toHaveLength(4);
     expect(calls.slice(2).map((request) => request.query.getAll('id'))).toEqual([['s-9'], ['s-9']]);
     await act(async () => { setterRef.current?.('cs'); });
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Veselí/ })).toBeVisible());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Přehled/ })).toBeVisible());
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);
   });
 
@@ -841,12 +841,14 @@ describe('Home items', () => {
     expect(screen.getByText('One-off').closest('li')!.textContent).not.toMatch(/Repeats|Opakuje|planned|plánované|done ·|dokončení/);
   });
 
-  it('keeps the household heading accessible name exact and hides the accent period', async () => {
+  it('titles Home with the compact Overview heading and names the household in the switcher and document title', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    expect(heading.textContent).toBe('Veselí.');
-    expect(within(heading).getByText('.', { exact: true })).toHaveAttribute('aria-hidden', 'true');
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    expect(heading.textContent).toBe('Overview');
+    expect(document.title).toBe('Overview · Veselí — Tendo');
+    const switcher = screen.getByRole('button', { name: 'Active household: Veselí' });
+    expect(switcher).toHaveAttribute('aria-expanded', 'false');
     expect(await screen.findByRole('button', { name: 'Add item' })).toBeVisible();
   });
 
@@ -1162,7 +1164,7 @@ describe('Home items', () => {
     let memberCalls = 0;
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects, [memberList]: () => ++memberCalls === 1 ? deferred : memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
     await act(async () => { release(json(401)); });
@@ -1213,7 +1215,7 @@ describe('Home items', () => {
     await screen.findByText('“Renew passport” is done.');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
     await act(async () => { setterRef.current?.('cs'); });
-    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Přehled' })).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
   });
 
@@ -1926,7 +1928,7 @@ describe('Home items', () => {
   it('maps a notes 422 to the expanded, focused accessible notes field', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'notes', code: 'invalid_characters' }) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'A note');
     await userEvent.click(within(form).getByRole('button', { name: 'Add notes (optional)' }));
@@ -2439,7 +2441,7 @@ describe('Home items', () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Přehled' });
     const main = screen.getByRole('main');
     expect(await within(main).findByText(/Začněte tlačítkem Přidat položku\./)).toBeVisible();
     expect(within(main).getAllByRole('button', { name: 'Přidat položku' })).toHaveLength(1);
@@ -2470,7 +2472,7 @@ describe('Home items', () => {
   it('creates an item and focuses Add after success', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Call dentist');
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
@@ -2483,7 +2485,7 @@ describe('Home items', () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Přehled' });
     await userEvent.click(await screen.findByRole('button', { name: 'Přidat položku' }));
     const form = await screen.findByRole('form', { name: 'Přidat položku' });
     await userEvent.click(within(form).getByRole('switch', { name: 'Opakovat' }));

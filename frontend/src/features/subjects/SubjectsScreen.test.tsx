@@ -111,7 +111,7 @@ describe('navigation', () => {
   it('opens from home, focuses the heading, and goes back home with the Back button too', async () => {
     const fake = installFakeServer({ ...signedIn, [listKey]: page([anna]) });
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'People and things' })).toHaveAttribute('href', '/people');
 
     const heading = await openPeople();
@@ -122,14 +122,14 @@ describe('navigation', () => {
     expect(fake.requests.find((r) => r.path === `${base}/subjects`)!.query.get('archived')).toBe('false');
 
     await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
-    const home = await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    const home = await screen.findByRole('heading', { level: 1, name: 'Overview' });
     expect(home).toHaveFocus();
     expect(window.location.pathname).toBe('/');
 
     window.history.back();
     expect(await screen.findByRole('heading', { level: 1, name: 'People and things' })).toBeVisible();
     window.history.back();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   });
 
   it('opens straight on /people', async () => {
@@ -143,7 +143,7 @@ describe('navigation', () => {
   it('keeps Home calm with one obvious Add item action and one People and things link', async () => {
     installFakeServer(signedIn);
     renderApp();
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1));
     expect(screen.getByRole('link', { name: 'People and things' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /^add$/i })).not.toBeInTheDocument();
@@ -299,9 +299,9 @@ describe('list', () => {
     renderApp(); await openPeople();
     await userEvent.click(await within(screen.getByRole('main')).findByRole('button', { name: 'Next page' }));
     await userEvent.click(screen.getByRole('link', { name: 'Home' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     await act(async () => { release(problem(401)); await pending; });
-    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: /sign in/i })).not.toBeInTheDocument();
   });
 
@@ -971,7 +971,7 @@ describe('edit', () => {
       [itemKey('s-3')]: etagged(bea, '"1"'),
     });
     renderApp();
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
     await openPeople();
     deferFirstEditor = true;
     await userEvent.click(await screen.findByRole('button', { name: 'Edit Anna' }));
@@ -1006,12 +1006,12 @@ describe('edit', () => {
     // Anchor the release to the People screen's own in-flight member read, not to a later Home read.
     await waitFor(() => expect(memberRequests()).toHaveLength(1));
     await userEvent.click(await screen.findByRole('link', { name: /^Home$/ }));
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
     await waitFor(() => expect(memberRequests()).toHaveLength(2));
     await act(async () => { release(problem(401)); await delayed; });
     // The release really settled, and the unmounted People read must not sign the user out.
     expect(calls).toBe(2);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
     app.unmount();
   });
@@ -2039,7 +2039,7 @@ describe('other failures and edge cases', () => {
     renderApp();
     await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(window.location.pathname).toBe('/');
   });
 });

@@ -3,7 +3,11 @@ import type { MessageKey } from './en';
 // Typed to require exactly the keys of the English resource.
 export const cs: Record<MessageKey, string> = {
   'app.name': 'Tendo',
-  'app.tagline': 'Domov pod kontrolou.',
+  'search.label': 'Hledat položky',
+  'search.placeholder': 'Hledat položky',
+  'search.submit': 'Hledat',
+  'household.switch.label': 'Aktivní domácnost',
+  'household.switch.manage': 'Spravovat domácnosti',
   'app.loading': 'Tendo se připravuje…',
   'app.loading.eyebrow': 'Jen chvilku',
   'app.error.eyebrow': 'Problém s připojením',
@@ -128,9 +132,7 @@ export const cs: Record<MessageKey, string> = {
   'oidc.continue.error.unavailable': 'Tendo se teď k vašemu účtu nedostane. Zkuste to za chvíli.',
   'oidc.continue.emailNotSaved': 'Jste přihlášeni, ale e-mailovou adresu se k tomuto účtu nepodařilo uložit.',
   'home.loading': 'Otevírám vaši domácnost…',
-  'home.eyebrow.desktop': 'VÁŠ DOMOV · PŘEHLED',
-  'home.eyebrow.mobile': 'VAŠE DOMÁCNOST',
-  'home.tagline': 'Klidnější způsob, jak udržet důležité věci v pohybu.',
+  'home.overview': 'Přehled',
   'home.empty.title': 'Teď nic nevyžaduje pozornost.',
   'home.empty.body': 'Až bude něco potřebovat vás, objeví se to tady.',
   'home.empty.addHint': 'Začněte tlačítkem Přidat položku.',

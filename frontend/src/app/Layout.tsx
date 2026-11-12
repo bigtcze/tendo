@@ -1,38 +1,39 @@
 import { useContext, useRef, type ReactNode, type RefObject } from 'react';
 import { useI18n } from '../i18n';
 import { BrandMark } from './BrandMark';
+import { HeaderSearch } from './HeaderSearch';
 import { HouseholdNavigation, HouseholdNavigationContext } from './HouseholdNavigation';
+import { HouseholdSwitcher } from './HouseholdSwitcher';
 import { LanguageSwitch } from './LanguageSwitch';
 
 /**
- * Shell variants. `household`: rail from `lg`, fixed bottom bar below it. `householdLess`: signed in without a
- * household — small inline navigation, no rail space. `centered`: signed out (sign-in, setup, invite, boot states).
+ * Shell variants. `household`: full-width top bar, 224 px sidebar from `lg`, fixed bottom bar below it.
+ * `householdLess`: signed in without a household — the same top bar with inline navigation and no sidebar.
+ * `centered`: signed out (sign-in, setup, invite, boot states).
  */
 type Shell = 'household' | 'householdLess' | 'centered';
 
 /**
  * Padding alone only clears the end of the page. When Tab scrolls a control into view, the browser also needs to
  * know the fixed bottom bar covers the viewport's last ~5rem, so every descendant reserves it as scroll margin.
- * Off where the bar is static (short viewports) or replaced by the rail (lg).
+ * Off where the bar is static (short viewports) or replaced by the sidebar (lg).
  */
 const KEEP_FOCUS_ABOVE_BAR = '[&_*]:scroll-mb-[calc(6rem+env(safe-area-inset-bottom))] short:[&_*]:scroll-mb-0 lg:[&_*]:scroll-mb-0';
 
 const FRAME: Record<Shell, string> = {
-  household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh flex-col lg:mx-auto lg:grid lg:w-full lg:max-w-[90rem]`
-    + ' lg:grid-cols-[14rem_minmax(0,1fr)] lg:grid-rows-[auto_1fr_auto]',
-  householdLess: 'mx-auto flex min-h-dvh max-w-3xl flex-col',
+  household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh w-full flex-col lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:grid-rows-[auto_1fr_auto]`,
+  householdLess: 'mx-auto flex min-h-dvh w-full max-w-3xl flex-col',
   centered: 'mx-auto flex min-h-dvh w-full max-w-6xl flex-col',
 };
-// The bar has a minimum height but never a fixed one: a wrapped identity block, a long login or the
-// sign-out failure message must grow the header instead of painting over main. `lg:py-0` keeps the
-// household bar at exactly 56 px in the normal case, because its 44 px account actions fit inside the
-// 56 px minimum; the same minimum keeps the signed-out and household-less bars at 56 px on phones.
-const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-raised px-5 py-2 sm:px-8 lg:py-0';
-const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:px-8';
-const MAIN = 'w-full min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8';
+// Full-viewport bar (no framed container). The minimum keeps it at 56 px in the normal case and lets a wrapped
+// identity, a long sign-out failure message or the household name grow the header instead of covering main.
+// Phones keep one row: the household switcher truncates instead of wrapping onto a second line that pushes main down.
+const HEADER = 'flex min-h-14 flex-nowrap items-center gap-x-3 gap-y-1 border-b border-line bg-raised px-4 py-1.5 sm:flex-wrap sm:px-6';
+const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:px-6';
+const MAIN = 'w-full min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8';
 /** Bottom padding keeps the last content row clear of the fixed bar (bar height + safe area). */
 const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:min-w-0 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
-const FOOTER = 'flex justify-end px-5 py-3 sm:px-8';
+const FOOTER = 'flex justify-end px-4 py-3 sm:px-6';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
   const { t } = useI18n();
@@ -54,6 +55,8 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
       <SkipLink target={mainRef} />
       <header className={`${HEADER} ${household ? HEADER_HOUSEHOLD : ''}`}>
         <BrandMark />
+        {navigation ? <HouseholdSwitcher /> : null}
+        {navigation ? <HeaderSearch /> : <span className="flex-1" />}
         {actions}
       </header>
       <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>

@@ -9,6 +9,8 @@ export type HouseholdRoute = 'home' | 'allItems' | 'people' | 'members' | 'accou
 export type NavigationActions = {
   home: () => void;
   allItems: (subjectId?: string) => void;
+  /** Header search: opens All items filtered by the query text. */
+  search: (query: string) => void;
   people: () => void;
   members: () => void;
   account: () => void;
@@ -54,7 +56,7 @@ export function HouseholdNavigation({ rail }: { rail: boolean }) {
   const active = navigation.route === 'item' ? 'allItems' : navigation.route;
   return (
     <nav aria-label={t('nav.label')} className={rail ? NAV_RAIL : NAV_INLINE}>
-      {rail ? <Eyebrow className="hidden px-7 pb-2 pt-6 lg:block">{t('nav.workspace')}</Eyebrow> : null}
+      {rail ? <Eyebrow className="hidden px-4 pb-2 pt-5 lg:block">{t('nav.workspace')}</Eyebrow> : null}
       <ul className={rail ? LIST_RAIL : LIST_INLINE}>
         {links.map((link) => (
           <li key={link.route} className={link.desktopOnly ? 'hidden min-w-0 lg:block lg:border-t lg:border-line lg:pt-1' : 'min-w-0 flex-1 lg:flex-none'}>
@@ -80,12 +82,12 @@ const NAV_RAIL = [
   'short:static short:pb-0',
   'lg:sticky lg:top-0 lg:col-start-1 lg:row-start-2 lg:self-start lg:border-t-0 lg:bg-transparent lg:pb-0',
 ].join(' ');
-const LIST_RAIL = 'mx-auto flex max-w-xl gap-1 px-1 py-1 lg:mx-0 lg:max-w-none lg:flex-col lg:gap-1 lg:px-3 lg:pb-4 lg:pt-0';
+const LIST_RAIL = 'mx-auto flex max-w-xl gap-1 px-1 py-1 lg:mx-0 lg:max-w-none lg:flex-col lg:gap-0.5 lg:px-3 lg:pb-4 lg:pt-0';
 // 12 px labels at 320 px: five tabs of ~59 px, so the longest label ("Members"/"Členové") still fits
 // without clipping or creeping into its neighbour. The rail keeps the body size from `lg`.
 const LINK_RAIL = [
   'flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-center text-xs leading-tight transition-colors',
-  'lg:min-h-11 lg:flex-row lg:justify-start lg:gap-2.5 lg:whitespace-nowrap lg:px-2.5 lg:text-left lg:text-body',
+  'lg:min-h-11 lg:flex-row lg:justify-start lg:gap-2.5 lg:whitespace-nowrap lg:px-2.5 lg:text-left lg:text-small',
   FOCUS,
 ].join(' ');
 const NAV_INLINE = 'border-b border-line';

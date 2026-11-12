@@ -121,7 +121,7 @@ describe('OIDC continue interstitial', () => {
     });
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: en['oidc.continue.create.action'] }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(await screen.findByText(en['home.notice.invitationAccepted'], { exact: true })).toBeVisible();
   });
 
@@ -136,7 +136,7 @@ describe('OIDC continue interstitial', () => {
     await userEvent.type(screen.getByLabelText(en['oidc.continue.link.login']), 'anna');
     await userEvent.type(screen.getByLabelText(en['oidc.continue.link.password']), 'correct horse battery');
     await userEvent.click(screen.getByRole('button', { name: en['oidc.continue.link.submit'] }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(await screen.findByText(en['oidc.continue.emailNotSaved'], { exact: true })).toBeVisible();
     const link = fake.requests.find((request) => request.path === '/api/v1/auth/oidc/pending/link');
     expect(JSON.parse(link!.body)).toEqual({ login: 'anna', password: 'correct horse battery' });
@@ -260,7 +260,7 @@ describe('signed-in OIDC notices', () => {
     window.history.replaceState(null, '', '/#oidcNotice=something_else');
     installFakeServer({ ...signedInHome, ...provider });
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(screen.queryByText(en['home.notice.invitationAccepted'], { exact: true })).not.toBeInTheDocument();
     expect(window.location.hash).toBe('#oidcNotice=something_else');
   });

@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { en } from '../src/i18n/en';
 import { cs } from '../src/i18n/cs';
+import { expectHome } from './home';
 import { HOME_GROUP_ROW_CAP } from '../src/features/items/homeGroups';
 import { measureCapture, type CaptureMetrics } from './audit/metrics';
 import { JourneyRecorder, runFirstRunSetup, runHouseholdJourneys } from './audit/journeys';
@@ -98,7 +99,7 @@ async function captureShell(page: Page) {
   for (const [width, height, expected] of [[320, 640, 'fixed'], [390, 844, 'fixed'], [768, 1024, 'fixed'], [640, 360, 'static'], [1024, 768, 'sticky'], [1440, 900, 'sticky']] as const) {
     await page.setViewportSize({ width, height });
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+    await expectHome(page, 'Audit household');
     await expect(page.locator('main li[data-item-id]').first(), `loaded Home rows at ${width}x${height}`).toBeVisible();
     evidence[`${width}x${height}`] = await nav.evaluate((element) => getComputedStyle(element).position);
     expect(evidence[`${width}x${height}`], `household navigation presentation at ${width}x${height}`).toBe(expected);
@@ -163,13 +164,13 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   await page.setViewportSize({ width: 390, height: 844 });
   const setupRecorder = new JourneyRecorder(); setupRecorder.start();
   journeyMetrics['J9 first-run setup 390x844'] = await runFirstRunSetup(page, process.env.E2E_SETUP_TOKEN!, process.env.E2E_OWNER_PASSWORD!, setupRecorder);
-  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expectHome(page, 'Audit household');
   for (const width of [320, 360, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await capture(page, join(dir, `home-after-setup-en-${width}.png`));
     if (width === 390) {
       await applySavedDarkPreference(page);
-      await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await expectHome(page, 'Audit household');
       await capture(page, join(dir, 'home-empty-dark-en-390.png'));
       await applySystemAppearance(page);
     }
@@ -189,7 +190,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   await capturePeopleMemberOnly(page, browser, dir, capture);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expectHome(page, 'Audit household');
   const invite = await api(page, 'post', `${root}/invitations`, {}, { 'Idempotency-Key': key() });
   expect(invite.status(), 'create member invitation').toBe(201);
   const invitation = await invite.json() as { token: string };
@@ -908,7 +909,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
         await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
         await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-        await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expectHome(memberPage, 'Audit household');
         await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.list.title'] }).getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.help.title'] }).getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
@@ -1007,7 +1008,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await capture(targetPage, join(dir, `${file}-fold.png`), false);
       if (stage === '1200' && locale === 'en') {
         await applySavedDarkPreference(targetPage);
-        await expect(targetPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expectHome(targetPage, 'Audit household');
         await capture(targetPage, join(dir, `home-1200-en-${width}-dark.png`), false);
         await applySystemAppearance(targetPage);
       }
@@ -1018,7 +1019,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await darkCsHome.goto('/');
         await darkCsHome.evaluate(() => { localStorage.setItem('tendo.locale', 'cs'); localStorage.setItem('tendo.theme', 'dark'); });
         await darkCsHome.reload();
-        await expect(darkCsHome.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expectHome(darkCsHome, 'Audit household');
         await capture(darkCsHome, join(dir, 'home-1200-cs-390-dark.png'), false);
         await darkCsHomeContext.close();
       }
@@ -1101,7 +1102,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await darkContext.addCookies(await page.context().cookies());
       const darkPage = await darkContext.newPage();
       await darkPage.goto('/');
-      await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await expectHome(darkPage, 'Audit household');
       await darkPage.waitForLoadState('networkidle');
       await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
       metrics.stages.darkMode = {
@@ -1115,7 +1116,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await darkPage.setViewportSize({ width, height: 900 });
         await expect(darkPage.evaluate(() => window.innerWidth)).resolves.toBe(width);
         await applySavedDarkPreference(darkPage);
-        await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expectHome(darkPage, 'Audit household');
         await capture(darkPage, join(dir, `home-1200-en-${width}-dark.png`), false);
         await applySystemAppearance(darkPage);
       }

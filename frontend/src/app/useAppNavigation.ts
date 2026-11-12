@@ -28,25 +28,39 @@ function useCanonicalUrl(route: Route, state: BootState) {
   }, [noHouseholdScreen, signedInOnLogin]);
 }
 
+type AllItemsEntryOptions = Pick<Options, 'setRoute' | 'transitionedRef' | 'setAllItemsVisit'>;
+
+/** Every entry into All items: one place for the URL, the fresh-visit key and the route. */
+function useAllItemsEntry({ setRoute, transitionedRef, setAllItemsVisit }: AllItemsEntryOptions) {
+  const enterAllItems = useCallback((search: string) => {
+    transitionedRef.current = true;
+    window.history.pushState({ allItemsCursors: [] }, '', `/items${search}`);
+    setAllItemsVisit((visit) => visit + 1);
+    setRoute({ kind: 'allItems' });
+  }, [setAllItemsVisit, setRoute, transitionedRef]);
+  const openAllItems = useCallback((subjectId?: string) => {
+    enterAllItems(subjectId ? `?subject=${encodeURIComponent(subjectId)}` : '');
+  }, [enterAllItems]);
+  /** Header search: All items filtered by the typed text. An empty query opens the unfiltered list. */
+  const searchAllItems = useCallback((query: string) => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    const search = params.toString();
+    enterAllItems(search ? `?${search}` : '');
+  }, [enterAllItems]);
+  const openAllItemsForStatus = useCallback((status: ItemGroup) => {
+    enterAllItems(`?status=${status}`);
+  }, [enterAllItems]);
+  return { openAllItems, searchAllItems, openAllItemsForStatus };
+}
+
 export function useAppNavigation({ route, setRoute, transitionedRef, setAllItemsVisit, setOidcOutcome, clearHomeNotice, state }: Options) {
   // A notice belongs to the screen that received it; any move away retires it together with callback fragments.
   const clearTransient = useCallback(() => {
     setOidcOutcome(null);
     clearHomeNotice();
   }, [clearHomeNotice, setOidcOutcome]);
-  const openAllItems = useCallback((subjectId?: string) => {
-    transitionedRef.current = true;
-    const query = subjectId ? `?subject=${encodeURIComponent(subjectId)}` : '';
-    window.history.pushState({ allItemsCursors: [] }, '', `/items${query}`);
-    setAllItemsVisit((visit) => visit + 1);
-    setRoute({ kind: 'allItems' });
-  }, [setAllItemsVisit, setRoute, transitionedRef]);
-  const openAllItemsForStatus = useCallback((status: ItemGroup) => {
-    transitionedRef.current = true;
-    window.history.pushState({ allItemsCursors: [] }, '', `/items?status=${status}`);
-    setAllItemsVisit((visit) => visit + 1);
-    setRoute({ kind: 'allItems' });
-  }, [setAllItemsVisit, setRoute, transitionedRef]);
+  const { openAllItems, searchAllItems, openAllItemsForStatus } = useAllItemsEntry({ setAllItemsVisit, setRoute, transitionedRef });
   const openPeople = useCallback(() => {
     transitionedRef.current = true;
     window.history.pushState(null, '', '/people');
@@ -107,6 +121,6 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   }, [clearTransient, setRoute, transitionedRef]);
   useCanonicalUrl(route, state);
 
-  return { openAllItems, openAllItemsForStatus, openPeople, openAccount, openMembers, openAdmin,
+  return { openAllItems, searchAllItems, openAllItemsForStatus, openPeople, openAccount, openMembers, openAdmin,
     goHome, goBackFromItem, openItemFromAllItems, openItemFromHome };
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { assertInterReady, capture } from './capture';
+import { expectHome } from '../home';
 import { api, BASE_URL, firstRun, HOUSEHOLD, OWNER_LOGIN, ownerPassword, pinInvitationDates, seed, type Fixture } from './fixtures';
 import { captureLargeDataset } from './largeData';
 import { REFERENCE_COUNTS, REFERENCE_HOUSEHOLD, REFERENCE_MEMBER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from '../referenceFixture';
@@ -102,7 +103,7 @@ function escapeRegExp(value: string) {
 // Every reference capture starts from the same settled UI: real heading counts, ten resolved titles and subject pills.
 async function assertSettledReference(page: Page, locale: 'en' | 'cs') {
   const catalog = locale === 'cs' ? cs : en;
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expectHome(page, REFERENCE_HOUSEHOLD);
   await expect(page.locator('main li[data-item-id]')).toHaveCount(REFERENCE_TITLES.length);
   const headings: Array<[string, number]> = [
     [catalog['items.group.needs'], REFERENCE_COUNTS.needsAttention],
@@ -235,7 +236,7 @@ test('approved reference fixture at approved widths, locales and themes', async 
   const apiRoot = `/api/v1/households/${householdId}`;
   const reference = await seedReferenceFixture(page, { householdId, apiRoot, ownerPassword });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expectHome(page, REFERENCE_HOUSEHOLD);
   await expect(page.locator('main li[data-item-id]')).toHaveCount(REFERENCE_TITLES.length);
   const summaryResponse = await page.request.get(`${apiRoot}/items/summary`);
   expect(summaryResponse.status()).toBe(200);

@@ -21,16 +21,16 @@ export function HomeGroupSection({ group, summary, state, countLabel, children, 
   const contextKey = groupContextKey[group.id];
   return (
     <section id={`group-${group.id}`} className="min-w-0">
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2
           ref={headingRef}
           data-group-heading={group.id}
           tabIndex={-1}
-          className="flex min-w-0 flex-wrap items-center gap-2 text-lg font-bold leading-snug text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          className="flex min-w-0 flex-wrap items-center gap-2 text-small font-semibold uppercase tracking-[0.04em] text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
-          <span aria-hidden="true" className={`size-2.5 shrink-0 rounded-full ${groupTone[group.id].dot}`} />
+          <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${groupTone[group.id].dot}`} />
           <span>{t(group.key)}</span>{' '}
-          <span className="rounded-full bg-sand px-2 py-0.5 text-meta font-semibold text-muted">{countLabel}</span>
+          <span className="text-meta font-medium normal-case tracking-normal text-muted">{countLabel}</span>
         </h2>
         <div className="ml-auto flex items-center gap-3">
           {contextKey ? <span className="hidden text-meta text-muted lg:inline">{t(contextKey)}</span> : null}

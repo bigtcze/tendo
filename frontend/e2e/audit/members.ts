@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { en } from '../../src/i18n/en';
 import { cs } from '../../src/i18n/cs';
 import { expectNoAxeViolations } from '../a11y';
+import { expectHome } from '../home';
 import { applySavedDarkPreference, applySystemAppearance } from './appearance';
 
 const widths = [320, 360, 390, 768, 1024, 1440] as const;
@@ -246,7 +247,7 @@ export async function captureMembers(page: Page, browser: Browser, dir: string, 
   await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expectHome(memberPage, 'Audit household');
   await memberPage.evaluate(() => localStorage.setItem('tendo.locale', 'en'));
   await memberPage.reload();
   for (const width of [390, 1440] as const) {

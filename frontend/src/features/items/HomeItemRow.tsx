@@ -17,8 +17,9 @@ const ROW = [
   'sm:px-4',
   'xl:grid-cols-[2.25rem_minmax(0,1fr)_8rem_14rem_auto] xl:gap-x-4 xl:py-0 xl:pt-[11px]',
 ].join(' ');
-const SUBJECT_PILL = 'mr-2 inline-flex max-w-full items-center rounded-full bg-upcoming-bg px-2.5 py-0.5 align-top '
-  + 'text-meta font-semibold text-ink [overflow-wrap:anywhere] xl:col-start-3 xl:row-span-2 xl:mr-0 xl:self-center xl:justify-self-start';
+// Direction B: the subject is plain metadata text, not a pill on every row, so the status colour stays rare.
+const SUBJECT_PILL = 'mr-2 inline align-top font-semibold text-ink [overflow-wrap:anywhere] '
+  + 'xl:col-start-3 xl:row-span-2 xl:mr-0 xl:self-center xl:justify-self-start';
 // One text line in layout, 44 px pointer target: 11 px above and below the title line, both compensated by
 // negative margins so the row keeps its compact height.
 const TITLE_LINK = 'relative z-10 flex min-w-0 items-center rounded-lg pt-[11px] pb-[11px] -my-[11px] '

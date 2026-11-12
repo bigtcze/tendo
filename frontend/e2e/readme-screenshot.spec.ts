@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { en } from '../src/i18n/en';
+import { expectHome } from './home';
 import { REFERENCE_HOUSEHOLD, REFERENCE_OWNER_LOGIN, REFERENCE_TITLES, seedReferenceFixture } from './referenceFixture';
 
 function required(name: string): string {
@@ -24,7 +25,7 @@ test('capture populated README household home screen', async ({ page }) => {
   await page.locator('#onboarding-login').fill(REFERENCE_OWNER_LOGIN);
   await page.locator('#onboarding-password').fill(ownerPassword);
   await page.getByRole('button', { name: en['onboarding.submit'] }).click();
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expectHome(page, REFERENCE_HOUSEHOLD);
 
   const sessionResponse = await page.request.get('/api/v1/session');
   expect(sessionResponse.status()).toBe(200);
@@ -36,7 +37,7 @@ test('capture populated README household home screen', async ({ page }) => {
   await page.reload();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.waitForLoadState('networkidle');
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expectHome(page, REFERENCE_HOUSEHOLD);
   const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const heading of [en['items.group.needs'], en['items.group.inProgress'], en['items.group.waiting'], en['items.group.upcoming']]) {
     await expect(page.getByRole('heading', { level: 2, name: new RegExp(`^${escapeRegExp(heading)}(\\s|$)`) })).toBeVisible();

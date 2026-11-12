@@ -142,7 +142,7 @@ describe('signed in', () => {
     await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(await screen.findByText('Nothing needs attention right now.')).toBeVisible();
 
     const post = fake.requests.find((r) => r.method === 'POST')!;
@@ -150,7 +150,7 @@ describe('signed in', () => {
     expect(JSON.parse(post.body)).toEqual({ login: 'anna', password: 'correct horse battery' });
     expect(fake.requests.some((r) => r.path === `/api/v1/households/${HOUSEHOLD_ID}`)).toBe(true);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toHaveFocus();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toHaveFocus();
     expect(screen.getByText('Signed in as anna')).toBeVisible();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
@@ -180,7 +180,7 @@ describe('signed in', () => {
       ['People and things', '/people', 'People and things'],
       ['Household members', '/members', 'Household members'],
       ['Your account', '/account', 'Your account'],
-      ['Home', '/', 'Veselí'],
+      ['Home', '/', 'Overview'],
     ] as const) {
       await userEvent.click(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('link', { name: new RegExp(`^${name}$`) }));
       expect(await screen.findByRole('heading', { level: 1, name: heading })).toHaveFocus();
@@ -221,7 +221,7 @@ describe('signed in', () => {
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
     expect(screen.queryByRole('contentinfo'), 'a signed-in shell has no footer language switch').not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('link', { name: 'Your account' }));
     const main = await screen.findByRole('main');
@@ -230,7 +230,7 @@ describe('signed in', () => {
     expect(within(language).getByRole('button', { name: 'Čeština' })).toBeVisible();
   });
 
-  it('shows the workspace rail label, brand tagline, avatar initial and mobile account affordance', async () => {
+  it('shows the workspace rail label, the active household in the top bar, avatar initial and mobile account affordance', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       [householdPath]: json(200, household),
@@ -239,13 +239,63 @@ describe('signed in', () => {
     renderApp();
     const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
     expect(screen.getByText('Workspace')).toBeVisible();
-    expect(screen.getByText('Home, handled.')).toBeVisible();
+    // Direction B: no brand tagline; the active household is named by the switcher in the top bar.
+    expect(screen.queryByText('Home, handled.')).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Active household: Veselí' })).toBeVisible();
     expect(document.querySelector('[data-avatar]')).toHaveTextContent('A');
     expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     const account = screen.getByRole('link', { name: 'Account settings' });
     expect(account).toHaveAttribute('href', '/account');
     await userEvent.click(account);
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
+  });
+
+  it('the household switcher names the active household and offers Manage households only to an admin', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const switcher = await screen.findByRole('button', { name: 'Active household: Veselí' });
+    expect(switcher).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(switcher);
+    expect(switcher).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByRole('link', { name: 'Manage households' })).toHaveAttribute('href', '/admin');
+    await userEvent.keyboard('{Escape}');
+    expect(switcher).toHaveAttribute('aria-expanded', 'false');
+    expect(switcher).toHaveFocus();
+  });
+
+  it('a member sees the active household but no Manage households entry', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, { ...household, viewerRole: 'member' }),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const switcher = await screen.findByRole('button', { name: 'Active household: Veselí' });
+    await userEvent.click(switcher);
+    expect(screen.queryByRole('link', { name: 'Manage households' })).not.toBeInTheDocument();
+  });
+
+  it('the header search opens All items filtered by the typed text', async () => {
+    const fake = installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    const search = screen.getByRole('searchbox', { name: 'Search items' });
+    await userEvent.type(search, '  passport  ');
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'All items' })).toHaveFocus();
+    expect(window.location.pathname + window.location.search).toBe('/items?q=passport');
+    expect(fake.requests.some((request) => request.path === `/api/v1/households/${HOUSEHOLD_ID}/items` && request.query.get('q') === 'passport')).toBe(true);
+    // All items owns its search field, so the header search (#header-search) is not offered twice on that page.
+    expect(document.querySelector('#header-search')).not.toBeInTheDocument();
+    expect(document.querySelector('#all-items-search')).toBeInTheDocument();
   });
 
   it('shared navigation and popstate restore the prior route and focus', async () => {
@@ -302,7 +352,7 @@ describe('signed in', () => {
       [householdPath]: json(200, household),
     });
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(document.body).toHaveFocus();
     expect(screen.getByRole('banner')).toHaveTextContent('Tendo');
     expect(screen.getByRole('main')).toBeInTheDocument();
@@ -348,7 +398,7 @@ describe('signed in', () => {
         ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
         [householdPath]: json(200, household),
       }),
-      ready: () => screen.findByRole('heading', { level: 1, name: 'Veselí' }),
+      ready: () => screen.findByRole('heading', { level: 1, name: 'Overview' }),
     },
     {
       shell: 'household without a membership',
@@ -374,7 +424,9 @@ describe('signed in', () => {
     // sign-out failure message paint over main.
     expect(tokens).toContain('min-h-14');
     expect(tokens.filter((token) => /^(?:[a-z]+:)*h-(?:\d+(?:\/\d+)?|\[[^\]]+\])$/.test(token)), 'fixed header height').toEqual([]);
-    expect(tokens).toContain('flex-wrap');
+    // Phones stay on one row (switcher truncates); wrapping is allowed only from `sm`, where the bar can grow.
+    expect(tokens).toContain('flex-nowrap');
+    expect(tokens).toContain('sm:flex-wrap');
   });
 
   it('sign out calls DELETE /api/v1/session and returns to login', async () => {
@@ -405,7 +457,7 @@ describe('signed in', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign you out. Try again.');
-    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   });
 
   it('401 on household fetch explains the ended session, then deliberate sign out has no notice', async () => {
@@ -423,11 +475,11 @@ describe('signed in', () => {
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
     expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
-    expect(screen.queryByRole('heading', { name: 'Veselí' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Overview' })).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
@@ -469,7 +521,7 @@ describe('signed in', () => {
     });
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   });
 });
 
