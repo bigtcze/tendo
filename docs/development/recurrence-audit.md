@@ -80,14 +80,16 @@ Failing tests: the contract rows listed above on all three layers (`TestNextCycl
 
 | Case | Evidence available | Recoverable? |
 |---|---|---|
-| `attention_on` day is 29–31, or Feb 29 | the stored date is itself an unclamped anchor | yes, exactly |
-| `attention_on` is a month's last day below 31 (for example Feb 28, Apr 30) and the item has active receipts | `item_completions.cycle_attention_on` of earlier active receipts may show the pre-clamp day (for example 2027-01-31). A historical initialization receipt stores `cycle_attention_on` NULL; its `completed_on` was the fixed anchor (`item_test.go` historical initialization test: 2026-01-31 → 2026-02-28) | yes, when the active receipt chain for the current cadence shows a larger day; otherwise ambiguous. A policy edit after those receipts makes them ambiguous too |
-| same, without receipts, or receipts that only ever show the clamped day | none; Feb 28 is indistinguishable from an intended day 28 | no; ambiguous |
+| monthly/yearly fixed, `attention_on` day is below 28, or day 28–30 that is not its month's last day (for example Jan 30, Mar 29) | the date cannot be a clamp result, so its day is the anchor day | yes, exactly |
+| `attention_on` is day 31 | no clamp produces day 31 | yes, exactly |
+| `attention_on` is its month's last day below 31 (Feb 28, Feb 29, Apr 30, Jun 30, Sep 30, Nov 30) | the day may be the anchor or a clamp of a larger anchor (Jan 31 → Feb 29, Mar 31 → Apr 30). `item_completions.cycle_attention_on` of earlier active receipts may show the pre-clamp day. A historical initialization receipt stores `cycle_attention_on` NULL; its `completed_on` was the fixed anchor (`item_test.go` historical initialization test: 2026-01-31 → 2026-02-28) | only with trustworthy receipt continuity: an unbroken active receipt chain for the current policy whose `next_attention_on` equals the following receipt's `cycle_attention_on` and the last one equals `attention_on`, with no intervening attention or policy edit (the version gap between receipts proves this). Otherwise ambiguous |
+| month-end without such a chain (no receipts, undone receipts, edits in between, or a policy change) | none; Feb 28 is indistinguishable from an intended day 28 | no; ambiguous |
 | fluid items, one-off items, daily/weekly fixed items | anchor is not a day-of-month | not applicable |
 
-Proposed conservative migration (for review in #447): initialize the anchor from receipt evidence where it is
-unambiguous, otherwise from `attention_on` as stored; never rewrite `attention_on` or historical receipts, and
-never guess a later day. Ambiguous items keep today's date and only drift-free behavior from then on.
+Proposed conservative migration (for review in #447): initialize the anchor from receipt evidence only when the
+continuity rule above holds, otherwise from `attention_on` as stored without claiming exact recovery; never
+rewrite `attention_on` or historical receipts, and never guess a later day. Ambiguous items keep today's date
+and only drift-free behavior from then on.
 
 ### R2 — a later Done reuses a committed completion's key and keeps the same date (confirmed, user-visible)
 
