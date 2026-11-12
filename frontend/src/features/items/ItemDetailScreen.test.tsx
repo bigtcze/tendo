@@ -225,27 +225,29 @@ describe('item details', () => {
     expect(posted[1]!.headers.get('Idempotency-Key')).toBe(posted[0]!.headers.get('Idempotency-Key'));
   });
 
-  it('KNOWN DEFECT R2 (#447): a later Done reuses the key of a completion that committed while detail was unmounted and shows the same date', async () => {
-    // docs/development/recurrence-audit.md R2. The success handler that clears the pending key only runs while
-    // detail is mounted, so the committed key survives in sessionStorage and the next Done replays the old
-    // receipt: nothing advances and the notice repeats the current due date. Strict expected failure: when #447
-    // fixes it, this test fails and must be flipped to require a fresh key and an advanced date.
+  it.each(['fixed', 'after_completion'] as const)('advances a %s monthly item with a new idempotency key after the first completion committed while detail was unmounted (#446 same-date reproducer)', async (mode) => {
+    // A completion that commits while detail is unmounted keeps its key in sessionStorage; a later Done
+    // that reuses that key makes the server replay the old receipt, so the item keeps its same due date.
+    // The fake server models the documented replay: a reused key returns the original receipt unchanged.
     clearPendingCompletions();
-    const monthly = { intervalUnit: 'month' as const, intervalValue: 1, mode: 'fixed' as const };
+    const monthly = { intervalUnit: 'month' as const, intervalValue: 1, mode };
     let currentItem = item({ attentionOn: '2026-12-31', recurrence: monthly });
     let version = 1;
+    let posts = 0;
     let firstKey: string | null = null;
-    const first = completion('first', '2026-12-31', { cycleAttentionOn: '2026-12-31', nextAttentionOn: '2027-01-31' });
     let releaseFirst!: (response: Response) => void;
     const firstPending = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    const first = completion('first', '2026-12-31', { cycleAttentionOn: '2026-12-31', nextAttentionOn: '2027-01-31' });
     const fake = installFakeServer(common({
       ...itemRoutes(base, () => [currentItem]),
       [`GET ${path}`]: () => json(200, currentItem, { ETag: `"${version}"` }),
       [`POST ${historyPath}`]: (request) => {
+        posts++;
         const key = request.headers.get('Idempotency-Key');
-        if (firstKey === null) { firstKey = key; return firstPending; }
-        // Server contract (api/openapi.yaml): a known key replays its original receipt and does not advance.
+        if (posts === 1) { firstKey = key; return firstPending; }
         if (key === firstKey) return json(201, first);
+        currentItem = item({ attentionOn: '2027-02-28', recurrence: monthly, lastCompletedOn: '2027-01-31' });
+        version++;
         return json(201, completion('second', '2027-01-31', { cycleAttentionOn: '2027-01-31', nextAttentionOn: '2027-02-28' }));
       },
     }));
@@ -259,13 +261,13 @@ describe('item details', () => {
     version++;
     await act(async () => releaseFirst(json(201, first)));
     await userEvent.click(await screen.findByRole('link', { name: 'Renew passport' }));
+    const dueText = () => (document.querySelector('[data-item-facts]')?.textContent ?? '').replaceAll('\u00a0', ' ');
+    await waitFor(() => expect(dueText()).toContain('Next attention date: Jan 31, 2027'));
     await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(2));
     const posted = requestsOf(fake.requests, 'POST', historyPath);
-    // Contract: a separate Done after a committed completion must use a new key and advance to 2027-02-28.
-    expect(posted[1]!.headers.get('Idempotency-Key'), 'known defect R2 changed: flip to not.toBe and require Feb 28, 2027').toBe(posted[0]!.headers.get('Idempotency-Key'));
-    const notice = await screen.findByText(/is done\. Next time:/);
-    expect(notice.textContent!.replaceAll('\u00a0', ' ')).toBe('“Renew passport” is done. Next time: Jan 31, 2027');
+    expect(posted[1]!.headers.get('Idempotency-Key')).not.toBe(posted[0]!.headers.get('Idempotency-Key'));
+    await waitFor(() => expect(dueText()).toContain('Next attention date: Feb 28, 2027'));
   });
 
   it('does not move focus to a retry outcome after the user moved focus elsewhere', async () => {

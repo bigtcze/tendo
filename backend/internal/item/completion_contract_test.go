@@ -30,7 +30,7 @@ func TestCompletionContractGoldenReturnedAndPersisted(t *testing.T) {
 					t.Fatalf("step %d: replayed=%v err=%v", index+1, replayed, err)
 				}
 				row, _ := e.repo.Row(missingID)
-				due = checkContractStep(t, tc, index, due, receipt, row)
+				due = checkContractStep(t, tc.Name, index, due, step, receipt, row)
 			}
 			history, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 50, "", item.CompletionOrderOldest)
 			if err != nil || len(history.Items) != len(tc.Steps) {
@@ -41,9 +41,8 @@ func TestCompletionContractGoldenReturnedAndPersisted(t *testing.T) {
 }
 
 // checkContractStep asserts one Done's receipt and persisted row and returns the new due date.
-func checkContractStep(t *testing.T, tc scheduletest.Case, index int, due string, receipt item.Completion, row item.Item) string {
+func checkContractStep(t *testing.T, name string, index int, due string, step scheduletest.Step, receipt item.Completion, row item.Item) string {
 	t.Helper()
-	name, step := tc.Name, tc.Steps[index]
 	if receipt.CompletedOn.String() != step.Completion || receipt.CycleAttentionOn == nil || receipt.CycleAttentionOn.String() != due {
 		t.Fatalf("%s step %d: receipt completed=%s cycle=%v, want %s/%s", name, index+1, receipt.CompletedOn, receipt.CycleAttentionOn, step.Completion, due)
 	}
@@ -66,10 +65,8 @@ func checkContractStep(t *testing.T, tc scheduletest.Case, index int, due string
 	if row.Done {
 		t.Fatalf("%s step %d: recurring item marked done", name, index+1)
 	}
-	if returned != persisted {
-		t.Fatalf("%s step %d: returned %q differs from persisted %q", name, index+1, returned, persisted)
-	}
-	tc.Check(t, index, due, persisted)
+	scheduletest.Check(t, name+" (returned)", index, due, step, returned)
+	scheduletest.Check(t, name+" (persisted)", index, due, step, persisted)
 	return persisted
 }
 
@@ -105,5 +102,28 @@ func TestCompletionContractDaylightSavingLocalDate(t *testing.T) {
 				t.Fatalf("completed=%s returned=%v persisted=%v, want %s -> %s", receipt.CompletedOn, receipt.NextAttentionOn, row.AttentionOn, tc.wantCompleted, tc.wantNext)
 			}
 		})
+	}
+}
+
+// TestCompletionContractUndoRejectsInterveningAttentionEdit is the reproducer for the contract rule
+// "reject undo for an intervening changed state rather than corrupting history". The caller sends the
+// latest ETag, so only the intervening attention edit can justify the rejection. Today's documented
+// policy (api/openapi.yaml completion undo; TestUndoOverwritesAttentionEditedAfterCompletion) overwrites
+// the edit instead; the collision is recorded in docs/development/recurrence-audit.md (R3).
+func TestCompletionContractUndoRejectsInterveningAttentionEdit(t *testing.T) {
+	monthly := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	e := completionEnv("Europe/Prague", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-10-20"), Recurrence: monthly})
+	day := "2026-10-20"
+	receipt, _, err := runCompletion(t, e, missingID, "undo-after-edit", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{AttentionOn: item.Some("2026-10-25")}); err != nil {
+		t.Fatal(err)
+	}
+	_, undoErr := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 3)
+	row, _ := e.repo.Row(missingID)
+	if undoErr == nil || row.AttentionOn == nil || row.AttentionOn.String() != "2026-10-25" || row.Version != 3 {
+		t.Fatalf("undo after an intervening attention edit: err=%v attention=%v version=%d, want rejection keeping 2026-10-25 at version 3", undoErr, row.AttentionOn, row.Version)
 	}
 }

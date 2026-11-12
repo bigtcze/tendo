@@ -11,9 +11,10 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/schedule/scheduletest"
 )
 
-// TestCompletionContractGoldenPostgres drives every V5_RECURRENCE_CONTRACT golden row through the item
-// service on real PostgreSQL and asserts the returned receipt, the committed item row, the stored
-// receipt row and one ledger entry per Done. The household clock is injected per step.
+// TestCompletionContractGoldenPostgres drives every V5_RECURRENCE_CONTRACT golden row and mandatory
+// coverage row through the item service on real PostgreSQL and asserts the returned receipt, the
+// committed item row, the stored receipt row and one ledger entry per Done. The household clock is
+// injected per step.
 func TestCompletionContractGoldenPostgres(t *testing.T) {
 	ctx := context.Background()
 	appURL, adminURL := integrationURLs(t)
@@ -25,7 +26,7 @@ func TestCompletionContractGoldenPostgres(t *testing.T) {
 	var now time.Time
 	houses := func(context.Context, string, string) (string, error) { return "Europe/Prague", nil }
 	svc := item.NewService(f.repo, houses, nil, nil, func() time.Time { return now })
-	for _, tc := range scheduletest.Golden() {
+	for _, tc := range append(scheduletest.Golden(), scheduletest.Coverage()...) {
 		t.Run(tc.Name, func(t *testing.T) {
 			due := scheduletest.Date(tc.Due)
 			created := f.create(t, "contract "+tc.Name, &due, tc.Policy)
@@ -56,10 +57,9 @@ func TestCompletionContractGoldenPostgres(t *testing.T) {
 				if step.Want == "" {
 					persisted = ""
 				}
-				if returned != stored || returned != persisted {
-					t.Fatalf("step %d: returned %q, stored receipt %q, persisted item %q differ", index+1, returned, stored, persisted)
-				}
-				tc.Check(t, index, dueText, persisted)
+				scheduletest.Check(t, tc.Name+" (returned)", index, dueText, step, returned)
+				scheduletest.Check(t, tc.Name+" (stored receipt)", index, dueText, step, stored)
+				scheduletest.Check(t, tc.Name+" (persisted item)", index, dueText, step, persisted)
 				dueText = persisted
 			}
 			var entries int
