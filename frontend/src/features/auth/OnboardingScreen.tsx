@@ -235,7 +235,7 @@ export function OnboardingScreen({
     <section className="settle w-full max-w-4xl">
       <OnboardingIntroduction />
       <form onSubmit={form.submit} className="mt-8" noValidate>
-        <div className="overflow-hidden rounded-2xl border border-line bg-raised">
+        <div className="overflow-hidden rounded-xl border border-line bg-raised">
           <SetupSection form={form} target={target} />
           <OwnerSection form={form} target={target} locale={locale} />
           <div className="flex flex-col gap-4 border-t border-line bg-sand/40 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">

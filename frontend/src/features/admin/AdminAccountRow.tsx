@@ -34,9 +34,10 @@ export function AdminAccountRow({ account, viewerId, busy, formatExpiry, onChang
         {self ? <span className="font-normal text-muted"> ({t('members.you')})</span> : null}
       </p>
       <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-muted">
-        <span data-account-role className="rounded-full bg-sand px-2 py-0.5 text-small font-semibold text-muted">
+        <span data-account-role className="text-small font-medium text-ink">
           {t(isAdmin ? 'members.role.admin' : 'members.role.member')}
         </span>
+        <span aria-hidden="true" className="text-muted">·</span>
         <span>{t(`admin.signIn.${signInMethod(account)}`)}</span>
       </p>
       {reset

@@ -146,7 +146,7 @@ export function OidcContinueScreen({ onSignedIn, onCancelled, onExpired }: {
       {flow.load === 'loading' || flow.load === 'ready'
         ? <p className="mt-3 text-center text-base text-muted">{t('oidc.continue.intro')}</p>
         : null}
-      <div className="mt-8 w-full overflow-hidden rounded-2xl border border-line bg-raised">
+      <div className="mt-8 w-full overflow-hidden rounded-xl border border-line bg-raised">
         <ContinueBody flow={flow} />
       </div>
     </section>

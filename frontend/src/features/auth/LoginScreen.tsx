@@ -120,7 +120,7 @@ export function LoginScreen({ onSignedIn, notice, initialLogin }: {
       <Eyebrow className="text-center">{t('login.eyebrow')}</Eyebrow>
       <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('login.welcome')}</Heading>
       <p className="mt-3 text-center text-base text-muted">{t('login.subtitle')}</p>
-      <div className="mt-8 w-full overflow-hidden rounded-2xl border border-line bg-raised">
+      <div className="mt-8 w-full overflow-hidden rounded-xl border border-line bg-raised">
         <LoginForm
           notice={notice}
           loginName={loginName}

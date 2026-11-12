@@ -9,8 +9,8 @@ import type { AllItemsFacets } from './useAllItemsFacets';
 import type { AllItemsActions } from './useAllItems';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-const labelClass = 'block min-w-0 text-label font-semibold text-ink';
-const controlClass = `mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-field bg-raised px-3 text-ink ${focusRing}`;
+const labelClass = 'block min-w-0 text-meta font-medium text-muted';
+const controlClass = `mt-1 block min-h-11 w-full min-w-0 rounded-lg border border-field bg-raised px-3 text-control text-ink transition-colors hover:border-muted ${focusRing}`;
 
 export function AllItemsSearch({ draft, page, actions, searchRef }: {
   draft: Draft; page: PageState; actions: AllItemsActions; searchRef: RefObject<HTMLInputElement | null>;
@@ -22,7 +22,7 @@ export function AllItemsSearch({ draft, page, actions, searchRef }: {
       <input ref={searchRef} id="all-items-search" type="search" value={draft.search}
         onChange={(event) => actions.editSearch(event.target.value)}
         aria-invalid={page.searchError} aria-describedby={page.searchError ? 'all-items-search-error' : undefined}
-        className={`min-h-11 min-w-0 flex-1 rounded-xl border border-field bg-raised px-3 text-control text-ink ${focusRing}`} />
+        className={`min-h-11 min-w-0 flex-1 rounded-lg border border-field bg-raised px-3 text-control text-ink transition-colors hover:border-muted ${focusRing}`} />
       <Button type="submit" className="min-h-11 shrink-0 px-4 sm:px-6">{t('allItems.searchButton')}</Button>
     </div>
     {page.searchError
@@ -51,7 +51,7 @@ function FiltersDisclosure({ expanded, activeCount, panelId, t, onToggle }: {
 }) {
   return <div className="lg:hidden">
     <Button type="button" variant="quiet" aria-expanded={expanded} aria-controls={panelId}
-      className="min-h-11 justify-start rounded-xl border border-field bg-raised px-4 text-ink"
+      className="min-h-11 justify-start rounded-lg border border-field bg-raised px-4 text-ink"
       data-all-items-filter-disclosure onClick={onToggle}>
       {t('allItems.filters')}{activeCount ? ` (${activeCount})` : ''}
       <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"

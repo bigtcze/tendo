@@ -16,7 +16,7 @@ export function SubjectsStatus({ list, t, onRetry }: { list: ListState; t: (key:
       <p>{t('app.error.body')}</p>
       <Button type="button" onClick={onRetry}>{t('app.error.retry')}</Button>
     </Notice> : null}
-    {list.kind === 'noHousehold' ? <div className="mt-6 w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">
+    {list.kind === 'noHousehold' ? <div className="mt-6 w-full rounded-xl border border-line bg-raised p-6 sm:p-8">
       <h2 className="text-h2 font-bold text-ink">{t('home.noHousehold.title')}</h2>
       <p className="mt-2 text-muted">{t('home.noHousehold.body')}</p>
     </div> : null}

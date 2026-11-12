@@ -34,19 +34,18 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
     setOidcOutcome(null);
     clearHomeNotice();
   }, [clearHomeNotice, setOidcOutcome]);
+  // All items destinations differ only in their query: subject, group status or the archive filter.
+  const openItemsPath = useCallback((search = '') => {
+    transitionedRef.current = true;
+    window.history.pushState({ allItemsCursors: [] }, '', `/items${search}`);
+    setAllItemsVisit((visit) => visit + 1);
+    setRoute({ kind: 'allItems' });
+  }, [setAllItemsVisit, setRoute, transitionedRef]);
   const openAllItems = useCallback((subjectId?: string) => {
-    transitionedRef.current = true;
-    const query = subjectId ? `?subject=${encodeURIComponent(subjectId)}` : '';
-    window.history.pushState({ allItemsCursors: [] }, '', `/items${query}`);
-    setAllItemsVisit((visit) => visit + 1);
-    setRoute({ kind: 'allItems' });
-  }, [setAllItemsVisit, setRoute, transitionedRef]);
-  const openAllItemsForStatus = useCallback((status: ItemGroup) => {
-    transitionedRef.current = true;
-    window.history.pushState({ allItemsCursors: [] }, '', `/items?status=${status}`);
-    setAllItemsVisit((visit) => visit + 1);
-    setRoute({ kind: 'allItems' });
-  }, [setAllItemsVisit, setRoute, transitionedRef]);
+    openItemsPath(subjectId ? `?subject=${encodeURIComponent(subjectId)}` : '');
+  }, [openItemsPath]);
+  const openArchive = useCallback(() => openItemsPath('?status=archived'), [openItemsPath]);
+  const openAllItemsForStatus = useCallback((status: ItemGroup) => openItemsPath(`?status=${status}`), [openItemsPath]);
   const openPeople = useCallback(() => {
     transitionedRef.current = true;
     window.history.pushState(null, '', '/people');
@@ -107,6 +106,6 @@ export function useAppNavigation({ route, setRoute, transitionedRef, setAllItems
   }, [clearTransient, setRoute, transitionedRef]);
   useCanonicalUrl(route, state);
 
-  return { openAllItems, openAllItemsForStatus, openPeople, openAccount, openMembers, openAdmin,
+  return { openAllItems, openAllItemsForStatus, openArchive, openPeople, openAccount, openMembers, openAdmin,
     goHome, goBackFromItem, openItemFromAllItems, openItemFromHome };
 }

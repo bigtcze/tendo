@@ -1,7 +1,6 @@
 import type { RefObject } from 'react';
 import { Heading } from '../../app/Heading';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { useI18n } from '../../i18n';
 import { PlusIcon } from './HomeIcons';
 
@@ -14,26 +13,18 @@ type HomeHeaderProps = {
 };
 
 /**
- * Eyebrow, household headline and the one primary action in a single band. From `lg` the action sits in
- * the headline row and shares its baseline block, as in the desktop reference; on phones it keeps the
- * last row below the supporting sentence, full width.
+ * One compact band: the screen name and its single primary action on the same line. The household
+ * name is already in the header selector, so it is used only for the window title here.
  */
 export function HomeHeader({ householdName, ready, adding, addRef, onAdd }: HomeHeaderProps) {
   const { t } = useI18n();
   return (
-    <div className="grid gap-y-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-x-8 lg:gap-y-2">
-      <div className="col-start-1 row-start-1 min-w-0">
-        <Eyebrow>
-          <span className="hidden lg:inline">{t('home.eyebrow.desktop')}</span>
-          <span className="lg:hidden">{t('home.eyebrow.mobile')}</span>
-        </Eyebrow>
-        <Heading documentTitle={householdName} className="mt-2 text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display lg:text-[2.5rem]">
-          {householdName}<span aria-hidden="true" className="text-accent">.</span>
-        </Heading>
-      </div>
-      <p className="col-start-1 row-start-2 max-w-2xl text-base text-muted">{t('home.tagline')}</p>
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+      <Heading documentTitle={`${t('home.overview')} · ${householdName}`} className="min-w-0 text-h1 font-semibold text-ink">
+        {t('home.overview')}
+      </Heading>
       {ready ? (
-        <div className={`col-start-1 row-start-3 shrink-0 lg:col-start-2 lg:row-start-1 ${adding ? 'invisible' : ''}`}>
+        <div className={`shrink-0 ${adding ? 'invisible' : ''}`}>
           <Button
             ref={addRef}
             data-action="completion-trigger"
@@ -41,9 +32,9 @@ export function HomeHeader({ householdName, ready, adding, addRef, onAdd }: Home
             aria-hidden={adding || undefined}
             tabIndex={adding ? -1 : undefined}
             onClick={onAdd}
-            className="w-full lg:w-auto"
+            className="min-h-10 gap-1.5 px-4"
           >
-            <PlusIcon />
+            <PlusIcon className="size-4" />
             {t('items.add')}
           </Button>
         </div>

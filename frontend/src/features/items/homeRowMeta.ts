@@ -6,72 +6,45 @@ import { repeatSummary } from './repeatSummary';
 
 export function responsibleLabels(
   item: Item, members: Member[], membersLoaded: boolean, userId: string, t: Translate,
-): { responsibleLabel: string | null; assigneeLabel: string | null } {
-  if (!item.responsibleUserId || !membersLoaded) return { responsibleLabel: null, assigneeLabel: null };
+): { responsibleLabel: string | null } {
+  if (!item.responsibleUserId || !membersLoaded) return { responsibleLabel: null };
   const member = members.find((entry) => entry.userId === item.responsibleUserId);
-  if (!member) {
-    const unknown = t('items.responsible.unknown');
-    return { responsibleLabel: unknown, assigneeLabel: unknown };
-  }
-  if (member.userId === userId) return { responsibleLabel: t('items.responsible.you'), assigneeLabel: t('items.assignee.you') };
-  return { responsibleLabel: t('items.responsible.read', { name: member.login }), assigneeLabel: member.login };
+  if (!member) return { responsibleLabel: t('items.responsible.unknown') };
+  if (member.userId === userId) return { responsibleLabel: t('items.responsible.you') };
+  return { responsibleLabel: t('items.responsible.read', { name: member.login }) };
 }
 
-type FactInput = {
-  item: Item;
-  group: ItemGroup;
-  evaluatedOn: string;
-  locale: string;
-  t: Translate;
-  responsibleLabel: string | null;
-  assigneeLabel: string | null;
-};
-
-export type RowFactKind = 'attention' | 'responsible' | 'details';
-
-/**
- * One real fact of a Home row, written for each width. On a phone the attention fact may drop the words the
- * group heading already says ("Since May 12" under "Needs attention"); the desktop status column keeps the
- * full wording. `column` marks the fact that becomes that column from `xl` rather than staying in the line.
- */
 export type RowFact = {
-  kind: RowFactKind;
-  /** Words used on the metadata line below `xl`. */
-  phone: string;
-  /** Words used in the status column, or in the metadata line, from `xl`. */
-  wide: string;
+  kind: 'attention' | 'responsible' | 'details';
+  /** The one wording used at every width; a fact is never hidden on small screens. */
+  text: string;
+  /** The part of the text that carries the attention colour, if any. */
+  emphasis?: string;
   tone: 'attention' | 'muted';
   icon: 'alert' | 'calendar' | null;
-  column: boolean;
 };
 
-/** The needs group is already headed "Needs attention", so its row only names the date on a phone. */
+/** The group heading already says "needs attention", so the row names the date and marks it quietly. */
 function attentionFact(group: ItemGroup, date: string, t: Translate): RowFact {
-  const needs = group === 'needs';
-  const phone = needs ? t('items.needsSinceCompact', { date }) : t('items.rowAttentionDate', { date });
-  const wide = needs
-    ? t('items.needsSince', { date })
-    : group === 'upcoming' ? date : t('items.rowAttentionDate', { date });
+  if (group === 'needs') {
+    return {
+      kind: 'attention',
+      text: t('items.needsSinceCompact', { date }),
+      emphasis: date,
+      tone: 'attention',
+      icon: 'alert',
+    };
+  }
   return {
     kind: 'attention',
-    phone,
-    wide,
-    tone: needs ? 'attention' : 'muted',
-    icon: needs ? 'alert' : 'calendar',
-    column: needs || group === 'upcoming',
+    text: group === 'upcoming' ? date : t('items.rowAttentionDate', { date }),
+    tone: 'muted',
+    icon: 'calendar',
   };
 }
 
-/** The desktop column names a bare login in the upcoming group, where the date is its neighbour. */
-function responsibleFact(group: ItemGroup, label: string, assignee: string | null): RowFact {
-  return {
-    kind: 'responsible',
-    phone: label,
-    wide: group === 'upcoming' ? assignee ?? label : label,
-    tone: 'muted',
-    icon: null,
-    column: group !== 'needs',
-  };
+function responsibleFact(label: string): RowFact {
+  return { kind: 'responsible', text: label, tone: 'muted', icon: null };
 }
 
 function detailsFact(item: Item, locale: string, t: Translate): RowFact | null {
@@ -79,17 +52,22 @@ function detailsFact(item: Item, locale: string, t: Translate): RowFact | null {
     item.lastCompletedOn ? t('itemDetail.lastDone', { date: formatDate(item.lastCompletedOn, locale) }) : null,
     item.recurrence ? repeatSummary(t, item.recurrence, locale) : null,
   ].filter(Boolean).join(' · ');
-  return details ? { kind: 'details', phone: details, wide: details, tone: 'muted', icon: null, column: false } : null;
+  return details ? { kind: 'details', text: details, tone: 'muted', icon: null } : null;
 }
 
 /**
- * Independent facts, never substituted for one another: attention status, responsible member, then last
- * completion plus recurrence summary. The facts that form the desktop status column come first so the
- * phone line and the desktop columns read from the same element per fact.
+ * The row's independent facts in reading order: the date that needs attention, who looks after it,
+ * then last completion and repeat cadence. Nothing is substituted for anything else.
  */
-export function rowFacts({ item, group, evaluatedOn, locale, t, responsibleLabel, assigneeLabel }: FactInput): RowFact[] {
+export function rowFacts({ item, group, evaluatedOn, locale, t, responsibleLabel }: {
+  item: Item;
+  group: ItemGroup;
+  evaluatedOn: string;
+  locale: string;
+  t: Translate;
+  responsibleLabel: string | null;
+}): RowFact[] {
   const attention = item.attentionOn ? attentionFact(group, formatAttentionDate(item.attentionOn, evaluatedOn, locale), t) : null;
-  const responsible = responsibleLabel === null ? null : responsibleFact(group, responsibleLabel, assigneeLabel);
-  const facts = [attention, responsible, detailsFact(item, locale, t)].filter((fact): fact is RowFact => fact !== null);
-  return [...facts.filter((fact) => fact.column), ...facts.filter((fact) => !fact.column)];
+  const responsible = responsibleLabel === null ? null : responsibleFact(responsibleLabel);
+  return [attention, responsible, detailsFact(item, locale, t)].filter((fact): fact is RowFact => fact !== null);
 }

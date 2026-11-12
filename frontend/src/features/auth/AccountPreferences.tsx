@@ -10,7 +10,7 @@ function SettingsRow({ id, title, description, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} className="rounded-2xl border border-line bg-raised p-5 sm:p-6">
+    <section aria-labelledby={id} className="border-t border-line pt-5">
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
         <div className="min-w-0">
           <h2 id={id} className="text-lg font-bold text-ink">{title}</h2>

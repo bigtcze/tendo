@@ -92,7 +92,7 @@ function HomeLink({ t }: { t: Translate }) {
 }
 
 function IncompleteInvite({ t }: { t: Translate }) {
-  return <div className="rounded-2xl border border-line bg-raised p-5 sm:p-7">
+  return <div className="rounded-xl border border-line bg-raised p-5 sm:p-7">
     <Heading className="text-[2.125rem] font-bold leading-[1.08] text-ink">{t('invite.incomplete')}</Heading>
     <p className="mt-3 text-base text-muted">{t('invite.incomplete.body')}</p>
     <HomeLink t={t} />
@@ -123,7 +123,7 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
       <InviteNotice error={flow.error} accepted={flow.accepted} noticeRef={flow.noticeRef} t={t} />
       {flow.error === 'alreadyMember' || flow.error === 'invalid' ? <div><HomeLink t={t} /></div> : null}
       {flow.accepted || !flow.invalidLink ? (
-        <div data-invite-panel className="mt-5 rounded-2xl border border-line bg-raised p-5 sm:p-6">
+        <div data-invite-panel className="mt-5 rounded-xl border border-line bg-raised p-5 sm:p-6">
           {flow.accepted
             ? <Button disabled={flow.pending} onClick={() => void flow.retrySession()}>
               {t('invite.continue')}

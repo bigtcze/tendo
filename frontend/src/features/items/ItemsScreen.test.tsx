@@ -36,7 +36,7 @@ function appWithLocale(setterRef: LocaleSetterRef) {
 }
 function requestsOf(requests: RecordedRequest[], method: string, path: string) { return requests.filter((request) => request.method === method && request.path === path); }
 async function openForm() {
-  await screen.findByRole('heading', { name: 'Veselí' });
+  await screen.findByRole('heading', { name: 'Overview' });
   await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
   return screen.findByRole('form', { name: 'Add an item' });
 }
@@ -230,7 +230,7 @@ describe('item creation', () => {
       [memberList]: memberPage(),
     });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     expect(within(form).getByRole('option', { name: 'Anna' })).toBeVisible();
@@ -243,7 +243,7 @@ describe('item creation', () => {
       return request.query.get('cursor') === 'subject-cursor' ? json(200, { items: [second], nextCursor: null }) : json(200, { items: [subject], nextCursor: 'subject-cursor' });
     }, [memberList]: memberPage() });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await screen.findByRole('button', { name: 'Add item' });
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
@@ -361,7 +361,7 @@ describe('item creation', () => {
     const pending = new Promise<Response>((resolve) => { release = resolve; });
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: () => ++calls === 1 ? pending : json(200, { items: [subject], nextCursor: null }), [memberList]: memberPage() });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await screen.findByRole('button', { name: 'Add item' });
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(1));
@@ -445,12 +445,12 @@ describe('item creation', () => {
     let calls = 0;
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: () => ++calls === 1 ? memberPage() : pending });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     const form = await screen.findByRole('form', { name: 'Add an item' });
     await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
     await act(async () => resolveMembers(json(401)));
-    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /^(Overview|Přehled)$/ })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Add an item' })).not.toBeInTheDocument();
   });
@@ -510,7 +510,7 @@ describe('item creation', () => {
       [`POST ${base}/items`]: (request) => { const saved = { ...created, title: JSON.parse(request.body).title }; source.push(saved); return json(201, saved); },
     });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await screen.findByRole('button', { name: 'Add item' });
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     const form = await openForm();
@@ -602,7 +602,7 @@ describe('item creation', () => {
   it('distinguishes no subjects from a retryable subjects error', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(200, { items: [], nextCursor: null }) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     expect(await screen.findByText('Add a person or thing before adding an item.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'People and things' })).toBeVisible();
@@ -612,7 +612,7 @@ describe('item creation', () => {
     cleanup();
     const failed = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: json(503) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(await screen.findByRole('button', { name: 'Add item' }));
     expect(await screen.findByText('People and things could not be loaded. Try again.')).toBeVisible();
     expect(screen.queryByText('Add a person or thing before adding an item.')).not.toBeInTheDocument();
@@ -624,7 +624,7 @@ describe('Home items', () => {
   it('avoids catalogue requests without rows and batch-loads only unique row subjects across groups', async () => {
     const noRows = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     expect(requestsOf(noRows.requests, 'GET', `${base}/subjects`)).toHaveLength(0);
     cleanup();
 
@@ -735,7 +735,7 @@ describe('Home items', () => {
     expect(calls).toHaveLength(4);
     expect(calls.slice(2).map((request) => request.query.getAll('id'))).toEqual([['s-9'], ['s-9']]);
     await act(async () => { setterRef.current?.('cs'); });
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Veselí/ })).toBeVisible());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /^(Overview|Přehled)$/ })).toBeVisible());
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects`)).toHaveLength(4);
   });
 
@@ -770,7 +770,7 @@ describe('Home items', () => {
     await screen.findByText('Need now');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(['Needs attention 1 item', 'In progress 1 item', 'Waiting 1 item', 'Coming up 1 item', 'Paused 1 item']);
-    expect(screen.getByText('Attention date Nov 1')).toBeVisible();
+    expect(screen.getByText('Nov 1')).toBeVisible();
     const rows = screen.getByRole('main').querySelectorAll('li[data-item-id]');
     expect([...rows].map((row) => row.querySelector('[data-item-title]')?.textContent)).toEqual(['Need now', 'Started', 'Waiting item', 'Future item', 'Paused item']);
   });
@@ -779,16 +779,17 @@ describe('Home items', () => {
     { name: 'attention and secondary', entries: () => [item({ id: 'mix-needs', title: 'Mix needs' }), item({ id: 'mix-progress', title: 'Mix progress', workflowState: 'in_progress' })], first: 'Mix needs' },
     { name: 'needs only', entries: () => [item({ id: 'needs-only', title: 'Needs only' })], first: 'Needs only' },
     { name: 'secondary only', entries: () => [item({ id: 'secondary-only', title: 'Secondary only', workflowState: 'in_progress' })], first: 'Secondary only' },
-  ])('keeps $name Home in one wide aligned stack', async ({ entries, first }) => {
+  ])('keeps $name Home in one reading column', async ({ entries, first }) => {
     installFakeServer({ ...routes, ...itemRoutes(base, entries()), [subjectList]: subjects });
     app();
     await screen.findByRole('link', { name: `Open item ${first}` });
     const main = screen.getByRole('main');
-    const stack = main.querySelector('[data-home-layout="wide"]');
+    const stack = main.querySelector('[data-home-layout="list"]');
     expect(stack).toBeInTheDocument();
+    // The list is one measured column, never a card grid or a nested narrow frame.
     expect(stack!.closest('.max-w-3xl')).toBeNull();
     expect([...stack!.children].every((child) => child.tagName === 'SECTION')).toBe(true);
-    expect(stack!.querySelector('li[data-item-id]')).toHaveClass('grid');
+    expect(stack!.querySelector('li[data-item-id]')).toHaveClass('flex');
   });
 
   it('shows calm row date, last-done, and assignee metadata and loads members once', async () => {
@@ -805,7 +806,7 @@ describe('Home items', () => {
     const needs = await screen.findByRole('link', { name: 'Open item Needs date' });
     const needsRow = needs.closest('li')!;
     await waitFor(() => expect(needsRow).toHaveTextContent('Looked after by you'));
-    expect(needsRow).toHaveTextContent('Needs attention since Dec 3');
+    expect(needsRow).toHaveTextContent('Since Dec 3');
     expect(needsRow).toHaveTextContent('Last done Dec 1, 2025');
     expect(needsRow).toHaveTextContent('Looked after by you');
     const progressRow = screen.getByText('In progress date').closest('li')!;
@@ -819,7 +820,7 @@ describe('Home items', () => {
     expect(needsGroup).toBeVisible();
     expect(needsRow).toHaveTextContent('Anna');
     expect(noDateRow).not.toHaveTextContent('Attention date');
-    expect(noDateRow).not.toHaveTextContent('Needs attention since');
+    expect(noDateRow).not.toHaveTextContent('Since');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1));
   });
 
@@ -841,22 +842,25 @@ describe('Home items', () => {
     expect(screen.getByText('One-off').closest('li')!.textContent).not.toMatch(/Repeats|Opakuje|planned|plánované|done ·|dokončení/);
   });
 
-  it('keeps the household heading accessible name exact and hides the accent period', async () => {
+  it('replaces the household hero with a compact screen name and one primary action', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Veselí' });
-    expect(heading.textContent).toBe('Veselí.');
-    expect(within(heading).getByText('.', { exact: true })).toHaveAttribute('aria-hidden', 'true');
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Overview' });
+    expect(heading).toHaveClass('text-h1');
+    expect(screen.queryByText('YOUR HOME · OVERVIEW')).not.toBeInTheDocument();
+    expect(screen.queryByText('YOUR HOUSEHOLD')).not.toBeInTheDocument();
+    expect(screen.queryByText('A calmer way to keep the important things moving.')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Add item' })).toBeVisible();
   });
 
-  it('shows the paused status pill only when paused items exist', async () => {
+  it('heads only the groups that actually have items, with their counts', async () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'active-pill', title: 'Active pill' }), item({ id: 'paused-pill', title: 'Paused pill', workflowState: 'paused' })]), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
     await screen.findByText('Paused pill');
-    const nav = screen.getByRole('navigation', { name: 'Group overview' });
-    expect(within(nav).getByRole('link', { name: 'Paused 1 item' })).toBeVisible();
-    expect(within(nav).getByRole('link', { name: 'Needs attention 1 item' })).toBeVisible();
+    // The index that repeated these groups was removed: the section headings are the one place counts live.
+    expect(screen.getByRole('heading', { level: 2, name: 'Paused 1 item' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Needs attention 1 item' })).toBeVisible();
+    expect(screen.queryByRole('navigation', { name: 'Group overview' })).not.toBeInTheDocument();
   });
 
   it('derives row icons and metadata only from the real subject type and item fields', async () => {
@@ -884,7 +888,7 @@ describe('Home items', () => {
     expect(await icon('Flea treatment')).toBe('pet');
     expect(await icon('Paint the shed')).toBe('custom');
     const passport = (await screen.findByText('Passport')).closest('li')!;
-    expect(passport).toHaveTextContent('Needs attention since Mar 2');
+    expect(passport).toHaveTextContent('Since Mar 2');
     expect(passport).toHaveTextContent('Anna');
     expect(within(passport).getByRole('button', { name: 'Done: Passport' })).toBeVisible();
     const filter = (await screen.findByText('Water filter')).closest('li')!;
@@ -915,7 +919,7 @@ describe('Home items', () => {
       expect(row).toHaveTextContent('Last done Dec 2, 2025');
       expect(row).toHaveTextContent('1 month · stays on the planned dates');
       expect(row).toHaveTextContent('Looked after by petr');
-      expect(row).toHaveTextContent(title === 'Facts needs' ? 'Needs attention since Jan 2' : title === 'Facts upcoming' ? 'Attention date Mar 2' : 'Attention date Jan 2');
+      expect(row).toHaveTextContent(title === 'Facts needs' ? 'Since Jan 2' : title === 'Facts upcoming' ? 'Mar 2' : 'Attention date Jan 2');
     }
   });
 
@@ -930,21 +934,22 @@ describe('Home items', () => {
     await screen.findByText('Once needs');
     const needs = screen.getByText('Once needs').closest('li')!;
     await waitFor(() => expect(needs).toHaveTextContent('Looked after by petr'));
-    // One element per fact: the phone line and the desktop status column share it instead of duplicating it.
+    // One element per fact, each written once for every width.
     expect([...needs.querySelectorAll('[data-item-fact]')].map((fact) => fact.getAttribute('data-item-fact')))
       .toEqual(['attention', 'responsible', 'details']);
-    // The phone drops the words the group heading already says; the wide wording keeps the full sentence.
-    expect(within(needs).getByText('Since Jan 2')).toBeInTheDocument();
-    expect(within(needs).getByText('Needs attention since Jan 2')).toBeInTheDocument();
+    // The group heading already says "needs attention": the row names only the date and marks it.
+    expect(needs).toHaveTextContent('Since Jan 2');
+    expect(within(needs).getByText('Jan 2')).toHaveClass('text-needs-attention');
+    expect(needs).not.toHaveTextContent('Needs attention since');
     const progress = screen.getByText('Once progress').closest('li')!;
     await waitFor(() => expect(progress).toHaveTextContent('Looked after by petr'));
-    // The fact that fills the desktop status column comes first in the phone line, so every width reads in order.
+    // The line reads subject, due date, responsibility, then routine: the same order at every width.
     const text = progress.textContent!.replaceAll('\u00a0', ' ');
-    expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Attention date Jan 2'));
-    expect(text.indexOf('Attention date Jan 2')).toBeLessThan(text.indexOf('Last done Dec 2, 2025'));
-    // The row stays compact: tile, link, one line of facts and the Done control, not copies of each fact.
-    // The densest row (three facts, one of them wording both widths) stays at 23 elements.
-    expect(needs.querySelectorAll('*').length).toBeLessThanOrEqual(23);
+    expect(text.indexOf('Attention date Jan 2')).toBeLessThan(text.indexOf('Looked after by petr'));
+    expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Last done Dec 2, 2025'));
+    // The row stays compact: one completion control, one title link and one metadata line.
+    expect(needs.querySelectorAll('[data-action="done"]')).toHaveLength(1);
+    expect(needs.querySelectorAll('[data-item-meta]')).toHaveLength(1);
   });
 
   it('keeps a real space between the subject pill and each fact in the row metadata', async () => {
@@ -957,8 +962,8 @@ describe('Home items', () => {
     // without them a copied row reads "AnnaSince Jan 2Looked after by petr…".
     const text = row.querySelector('[data-item-meta]')!.textContent!;
     expect(text, 'space after the subject pill').toMatch(/^Anna\s/);
-    expect(text, 'space between the attention fact and the responsible fact').toMatch(/2\s+Looked after by petr/);
-    expect(text, 'space between the responsible fact and the details fact').toMatch(/Looked after by petr\s+Last done Dec/);
+    expect(text, 'space between the attention fact and the responsible fact').toMatch(/2\s+·\s+Looked after by petr/);
+    expect(text, 'space between the responsible fact and the details fact').toMatch(/Looked after by petr\s+·\s+Last done Dec/);
   });
 
   it('retries only failed label IDs while retaining names from the successful partition', async () => {
@@ -1162,7 +1167,7 @@ describe('Home items', () => {
     let memberCalls = 0;
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects, [memberList]: () => ++memberCalls === 1 ? deferred : memberPage(), 'GET /api/v1/auth/setup': json(200, { required: false }) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     await userEvent.click(screen.getByRole('link', { name: 'People and things' }));
     await screen.findByRole('heading', { name: 'People and things' });
     await act(async () => { release(json(401)); });
@@ -1213,7 +1218,7 @@ describe('Home items', () => {
     await screen.findByText('“Renew passport” is done.');
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', `${base}/items/summary`)).toHaveLength(2));
     await act(async () => { setterRef.current?.('cs'); });
-    expect(screen.getByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /^(Overview|Přehled)$/ })).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/members`)).toHaveLength(1);
   });
 
@@ -1221,9 +1226,9 @@ describe('Home items', () => {
     installFakeServer({ ...routes, ...itemRoutes(base, [item({ title: 'Renew passport' })]), [subjectList]: subjects });
     app();
     const title = await screen.findByText('Renew passport');
-    const done = within(title.closest('li')!).getByRole('button', { name: /Done:/ });
-    expect(done).toHaveTextContent('Done');
-    expect(done).toHaveAttribute('data-variant', 'secondary');
+    const done = within(title.closest('li')!).getByRole('button', { name: 'Done: Renew passport' });
+    expect(done).toHaveAttribute('data-action', 'done');
+    expect(done.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('reuses the unresolved key when the server committed but the response was lost', async () => {
@@ -1926,7 +1931,7 @@ describe('Home items', () => {
   it('maps a notes 422 to the expanded, focused accessible notes field', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: json(422, { type: 'about:blank', title: 'Validation Failed', status: 422, field: 'notes', code: 'invalid_characters' }) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'A note');
     await userEvent.click(within(form).getByRole('button', { name: 'Add notes (optional)' }));
@@ -2043,46 +2048,24 @@ describe('Home items', () => {
     installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
     await screen.findByText('Overview needs');
-    const nav = screen.getByRole('navigation', { name: 'Group overview' });
-    const needsLink = within(nav).getByRole('link', { name: 'Needs attention 1 item' });
-    expect(needsLink).toBeVisible();
-    expect(needsLink).toHaveClass('bg-needs-attention-bg');
-    expect(needsLink).toHaveClass('text-needs-attention');
-    const progress = within(nav).getByRole('link', { name: 'In progress 1 item' });
-    expect(progress).toBeVisible();
-    expect(progress).toHaveClass('bg-raised');
-    expect(within(nav).getByRole('link', { name: 'Coming up 1 item' })).toBeVisible();
-    expect(within(nav).queryByRole('link', { name: 'Waiting' })).not.toBeInTheDocument();
-    expect(within(nav).queryByRole('link', { name: 'Paused' })).not.toBeInTheDocument();
-    const progressLink = progress;
-    expect(progressLink).toHaveAttribute('href', '#group-inProgress');
-    const modified = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true, button: 0 });
-    progressLink.dispatchEvent(modified);
-    expect(modified.defaultPrevented).toBe(false);
-    expect(screen.getByRole('heading', { level: 2, name: 'In progress 1 item' })).not.toHaveFocus();
-    await userEvent.click(progressLink);
-    expect(screen.getByRole('heading', { level: 2, name: 'In progress 1 item' })).toHaveFocus();
+    // Only populated groups get a heading, and the heading carries the same server count.
+    expect(screen.getByRole('heading', { level: 2, name: 'Needs attention 1 item' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'In progress 1 item' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Coming up 1 item' })).toBeVisible();
+    expect(screen.queryByRole('heading', { level: 2, name: /^Waiting/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: /^Paused/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
     const addForm = await screen.findByRole('form', { name: 'Add an item' });
-    expect(screen.queryByRole('navigation', { name: 'Group overview' })).not.toBeInTheDocument();
     await userEvent.click(within(addForm).getByRole('button', { name: 'Cancel' }));
-    expect(await screen.findByRole('navigation', { name: 'Group overview' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Needs attention 1 item' })).toBeVisible();
   });
 
-  it('localizes the group overview landmark label to Czech', async () => {
+  it('keeps the Czech group headings and counts', async () => {
     vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['cs-CZ']);
     const entries = [item({ id: 'overview-cs-needs' }), item({ id: 'overview-cs-upcoming', attention: 'upcoming', attentionOn: '2027-01-01' })];
     installFakeServer({ ...routes, ...itemRoutes(base, entries, { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
     app();
-    const nav = await screen.findByRole('navigation', { name: 'Přehled skupin' });
-    expect(within(nav).getByRole('link', { name: 'Vyžaduje pozornost 1 položka' })).toBeVisible();
-  });
-
-  it('hides the group overview when fewer than two groups are populated', async () => {
-    installFakeServer({ ...routes, ...itemRoutes(base, [item({ id: 'overview-only' })], { evaluatedOn: '2026-01-15' }), [subjectList]: subjects });
-    app();
-    await screen.findByText('Renew passport');
-    expect(screen.queryByRole('navigation', { name: 'Group overview' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Vyžaduje pozornost 1 položka' })).toBeVisible();
   });
 
   it('shows server summary counts and requests only populated groups with exact attention query params', async () => {
@@ -2439,7 +2422,7 @@ describe('Home items', () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjects });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: /^(Overview|Přehled)$/ });
     const main = screen.getByRole('main');
     expect(await within(main).findByText(/Začněte tlačítkem Přidat položku\./)).toBeVisible();
     expect(within(main).getAllByRole('button', { name: 'Přidat položku' })).toHaveLength(1);
@@ -2470,7 +2453,7 @@ describe('Home items', () => {
   it('creates an item and focuses Add after success', async () => {
     const fake = installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages, [memberList]: memberPage(), [`POST ${base}/items`]: (request) => json(201, item({ title: JSON.parse(request.body).title })) });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     const form = await openForm();
     await userEvent.type(within(form).getByLabelText('What needs doing?'), 'Call dentist');
     await userEvent.click(within(form).getByRole('button', { name: 'Add item' }));
@@ -2483,7 +2466,7 @@ describe('Home items', () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer({ ...routes, ...itemRoutes(base, []), [subjectList]: subjectPages });
     app();
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: /^(Overview|Přehled)$/ });
     await userEvent.click(await screen.findByRole('button', { name: 'Přidat položku' }));
     const form = await screen.findByRole('form', { name: 'Přidat položku' });
     await userEvent.click(within(form).getByRole('switch', { name: 'Opakovat' }));

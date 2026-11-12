@@ -40,6 +40,7 @@ export function SignedInApp(props: Props) {
   const navigationActions = {
     home: navigation.goHome,
     allItems: navigation.openAllItems,
+    archive: navigation.openArchive,
     people: navigation.openPeople,
     members: navigation.openMembers,
     account: navigation.openAccount,

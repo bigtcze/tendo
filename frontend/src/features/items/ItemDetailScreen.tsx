@@ -12,11 +12,17 @@ type Props = { householdId: string; itemId: string; login: string; userId: strin
 const BACK_LINK_CLASS = '-ml-3 inline-flex min-h-11 max-w-full whitespace-normal break-words text-left items-center rounded-xl px-3 text-muted '
   + 'hover:bg-sand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
-/** Detail opened from All items keeps an exact "Back to all items" link to the filtered page it came from. */
-function BackToAllItems({ onBack, t }: { onBack: () => void; t: Translate }) {
+/** Detail opened from All items keeps an exact return link; a deep link still offers the way home. */
+function BackLink({ onBack, t }: { onBack: () => void; t: Translate }) {
   const returnTo = window.history.state?.returnTo;
-  if (typeof returnTo !== 'string' || !returnTo.startsWith('/items')) return null;
-  return <NavLink href={returnTo} onNavigate={onBack} className={BACK_LINK_CLASS}>{t('itemDetail.backAllItems')}</NavLink>;
+  const fromAllItems = typeof returnTo === 'string' && returnTo.startsWith('/items');
+  return <NavLink href={fromAllItems ? returnTo : '/'} onNavigate={onBack} className={BACK_LINK_CLASS}>
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+      strokeLinecap="round" strokeLinejoin="round" className="mr-1 size-4 shrink-0">
+      <path d="M14 6l-6 6 6 6" />
+    </svg>
+    {fromAllItems ? t('itemDetail.backAllItems') : t('itemDetail.backHome')}
+  </NavLink>;
 }
 
 export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, onSignedOut }: Props) {
@@ -27,11 +33,11 @@ export function ItemDetailScreen({ householdId, itemId, login, userId, onBack, o
   useItemDetailFocus({ ...focus, actions: { ...focus.actions, undoFocusRef: completion.focusAfterUndo } });
   const { state, item, subjectOverride, subjectName } = detail;
 
-  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    <BackToAllItems onBack={onBack} t={t} />
+  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle measure">
+    <BackLink onBack={onBack} t={t} />
     <ItemDetailLoadStates state={state} t={t} onRetry={detail.retry} />
     {state === 'ready' && item ? <ItemDetailReady
-      item={item} subjectOverride={subjectOverride} subjectName={subjectName} detail={detail} busy={busy} edit={edit} history={history} locale={locale} t={t}
+      item={item} subjectOverride={subjectOverride} subjectName={subjectName} detail={detail} busy={busy} edit={edit} history={history} locale={locale} viewerId={userId} t={t}
       onReload={screen.actions.reload}
       refs={{
         notice: screen.noticeRef,

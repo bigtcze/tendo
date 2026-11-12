@@ -1,19 +1,24 @@
 import type { ReactNode } from 'react';
 import type { HouseholdRoute } from './HouseholdNavigation';
 
-/** Decorative navigation glyphs: one consistent 20px outline set; the link text always names the destination. */
-function Glyph({ children }: { children: ReactNode }) {
+/** Decorative navigation glyphs: one consistent outline set; the link text always names the destination. */
+function Glyph({ children, className = 'size-5' }: { children: ReactNode; className?: string }) {
   return (
     <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="size-5 shrink-0">
+      strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className}>
       {children}
     </svg>
   );
 }
 
-const paths: Record<Exclude<HouseholdRoute, 'item'>, ReactNode> = {
+export type NavIconRoute = Exclude<HouseholdRoute, 'item'> | 'archive';
+
+type IconRoute = NavIconRoute;
+
+const paths: Record<IconRoute, ReactNode> = {
   home: <><path d="M4 10.5 12 4l8 6.5" /><path d="M6 9v10h12V9" /><path d="M10 19v-5h4v5" /></>,
   allItems: <><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="4.5" cy="6" r="1" /><circle cx="4.5" cy="12" r="1" /><circle cx="4.5" cy="18" r="1" /></>,
+  archive: <><path d="M4 7.5h16M6.5 7.5V19h11V7.5M9.5 11.5h5" /><path d="M5 4.5h14v3H5z" /></>,
   people: <>
     <circle cx="9" cy="8" r="3.5" />
     <path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5" />
@@ -25,6 +30,6 @@ const paths: Record<Exclude<HouseholdRoute, 'item'>, ReactNode> = {
   admin: <><path d="M12 3.2 5 5.9v5.5c0 4.2 2.8 7.8 7 9.2 4.2-1.4 7-5 7-9.2V5.9L12 3.2Z" /><circle cx="12" cy="10.4" r="1.7" /><path d="M12 12.1v3.5" /></>,
 };
 
-export function NavIcon({ route }: { route: Exclude<HouseholdRoute, 'item'> }) {
-  return <Glyph>{paths[route]}</Glyph>;
+export function NavIcon({ route, className }: { route: IconRoute; className?: string }) {
+  return <Glyph className={className}>{paths[route]}</Glyph>;
 }

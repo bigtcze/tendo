@@ -1,5 +1,4 @@
 import { Heading } from '../../app/Heading';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { SubjectAddAction } from './SubjectAddAction';
 import { SubjectList } from './SubjectList';
 import { SubjectNotice } from './SubjectNotice';
@@ -35,13 +34,12 @@ export function SubjectsScreenContent({
   // Header band first, then the notice: DOM order matches what a reader sees, so the Add control is also the
   // first thing a keyboard user reaches, as on Home.
   return <section className="settle flex min-w-0 flex-col">
-    <div className="min-w-0 max-w-5xl">
+    <div className="min-w-0 measure">
       <div className="grid gap-y-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-x-8 lg:gap-y-2">
         <div className="col-start-1 row-start-1 min-w-0">
-          <Eyebrow>{t('subjects.eyebrow')}</Eyebrow>
-          <Heading className="mt-2 text-h1 leading-tight text-ink">{t('subjects.title')}</Heading>
+          <Heading className="text-h1 font-semibold text-ink">{t('subjects.title')}</Heading>
         </div>
-        <p className="col-start-1 row-start-2 max-w-prose text-base text-muted">{t('subjects.subtitle')}</p>
+        <p className="col-start-1 row-start-2 max-w-prose text-body text-muted">{t('subjects.subtitle')}</p>
         {canAdd ? <div className="col-start-1 row-start-3 shrink-0 lg:col-start-2 lg:row-start-1">
           <SubjectAddAction adding={adding} createUncertain={createUncertain} createLocked={createUncertain && !!pendingCreate}
             pendingInitial={pendingFormInitial(createUncertain, pendingCreate)} addDisabled={addDisabled} t={t}
@@ -49,10 +47,10 @@ export function SubjectsScreenContent({
         </div> : null}
       </div>
     </div>
-    <div className="min-w-0 max-w-5xl">
+    <div className="min-w-0 measure">
       <SubjectNotice notice={notice} noticeRef={noticeRef} interactionLocked={interactionLocked} t={t} onUndo={undoArchive} />
     </div>
-    <div className="mt-6 min-w-0 max-w-5xl">
+    <div className="mt-6 min-w-0 measure">
       {showArchived && list.kind !== 'noHousehold' ? <div className="mb-5 min-w-0">
         <h2 className="text-h2 font-bold leading-snug text-ink">{t('subjects.archived.title')}</h2>
         <p className="mt-1 max-w-prose text-muted">{t('subjects.archived.body')}</p>

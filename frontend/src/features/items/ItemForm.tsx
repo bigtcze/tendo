@@ -41,7 +41,7 @@ export function ItemForm(props: ItemFormProps) {
   const pendingOrLocked = state.pending || locked;
   return <form
     aria-label={t(mode === 'edit' ? 'itemDetail.edit.formLabel' : 'items.add.formLabel')} noValidate onSubmit={state.submit}
-    className="space-y-5"
+    className="space-y-6"
   >
     <ItemFormFields
       id={id} errorId={errorId} state={state} mode={mode} subjects={subjects} members={members}
@@ -67,7 +67,7 @@ function FormActions({ busy, mode, locked, pending, onCancel, retryLabel, submit
   const idleLabel = locked ? (retryLabel ?? t('items.add.submit')) : t(mode === 'edit' ? 'itemDetail.save' : 'items.add.submit');
   const label = pending ? (submittingLabel ?? t(mode === 'edit' ? 'itemDetail.saving' : 'items.add.submitting')) : idleLabel;
   return <div className="flex flex-wrap items-center gap-2 border-t border-line pt-5">
-    <Button type="submit" disabled={pending || busy}>{label}</Button>
+    <Button type="submit" className="min-w-28" disabled={pending || busy}>{label}</Button>
     <Button type="button" variant="quiet" onClick={onCancel} disabled={pending || (mode === 'edit' && busy)}>{t('items.cancel')}</Button>
   </div>;
 }

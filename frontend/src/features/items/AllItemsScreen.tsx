@@ -2,7 +2,6 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n } from '../../i18n';
 import { AllItemsFilters, AllItemsSearch } from './AllItemsControls';
@@ -11,13 +10,12 @@ import { buildQuery } from './allItemsUrl';
 import { useAllItems } from './useAllItems';
 import { useAllItemsFacets } from './useAllItemsFacets';
 
-/** Eyebrow, screen heading and supporting sentence, matching the Home and settings header band. */
+/** The screen name and its one supporting sentence, in the same measured column as the list. */
 function AllItemsHeader() {
   const { t } = useI18n();
   return <header className="min-w-0">
-    <Eyebrow>{t('allItems.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('allItems.title')}</Heading>
-    <p className="mt-2 max-w-prose text-base text-muted">{t('allItems.subtitle')}</p>
+    <Heading className="text-h1 font-semibold text-ink">{t('allItems.title')}</Heading>
+    <p className="mt-1.5 max-w-prose text-body text-muted">{t('allItems.subtitle')}</p>
   </header>;
 }
 
@@ -36,16 +34,13 @@ export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));
   const subjectTypes = new Map(facets.subjects.values.map((subject) => [subject.id, subject.type]));
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle min-w-0 space-y-6 max-sm:space-y-4">
+    <section className="settle measure min-w-0 space-y-6 max-sm:space-y-5">
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{outcomeText(view, context, page, t, locale)}</p>
       <AllItemsHeader />
-      <div className="min-w-0 rounded-2xl border border-line bg-raised p-4 sm:p-5">
+      <div className="min-w-0 space-y-4 border-b border-line pb-5">
         <AllItemsSearch draft={draft} page={page} actions={actions} searchRef={searchRef} />
-        {/* On phones the single card needs no divider between the search and the filters; removing it keeps the results higher. */}
-        <div className="mt-4 border-t border-line pt-4 max-sm:mt-3 max-sm:border-t-0 max-sm:pt-0">
-          <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
-            actions={actions} showClear={view !== 'noMatch'} />
-        </div>
+        <AllItemsFilters draft={draft} summary={page.summary} facets={facets} userId={userId}
+          actions={actions} showClear={view !== 'noMatch'} />
       </div>
       <div className="min-w-0 space-y-4 max-sm:space-y-3">
         {page.notice ? <Notice>{t('allItems.stale')}</Notice> : null}

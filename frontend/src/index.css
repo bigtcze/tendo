@@ -36,95 +36,107 @@
   --color-upcoming: var(--state-upcoming);
   --color-paused: var(--state-paused);
   --color-done: var(--state-done);
-  --text-display: 2.25rem;
-  --text-display--line-height: 1.12;
-  --text-h1: 1.875rem;
+  /*
+   * Type scale. One family (self-hosted Inter), few sizes, tight display tracking and generous
+   * line height for reading. Page titles are deliberately modest: the list is the subject of the
+   * screen, not a marketing headline.
+   */
+  --text-display: 2rem;
+  --text-display--line-height: 1.15;
+  --text-display--letter-spacing: -0.022em;
+  --text-h1: 1.625rem;
   --text-h1--line-height: 1.2;
-  --text-h2: 1.5rem;
-  --text-h2--line-height: 1.3;
+  --text-h1--letter-spacing: -0.016em;
+  --text-h2: 1.0625rem;
+  --text-h2--line-height: 1.35;
   --text-row-title: 1rem;
   --text-row-title--line-height: 1.4;
-  --text-body: 1rem;
-  --text-body--line-height: 1.5;
-  --text-meta: 0.875rem;
-  --text-meta--line-height: 1.45;
-  --text-label: 0.875rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.5;
+  --text-label: 0.8125rem;
   --text-label--line-height: 1.35;
-  --text-control: 1rem;
-  --text-control--line-height: 1.25;
+  --text-control: 0.9375rem;
+  --text-control--line-height: 1.4;
   --text-small: 0.875rem;
-  --text-small--line-height: 1.35;
+  --text-small--line-height: 1.5;
+  --text-micro: 0.75rem;
+  --text-micro--line-height: 1.35;
+  /* Spacing rhythm: 4 / 8 / 12 / 16 / 24 / 32. Tailwind's 4 px base already expresses all six. */
+  --spacing: 0.25rem;
 }
 
 /*
  * Theme tokens. Each token is written once as light-dark(light, dark); the browser picks the side that matches the
  * element's color-scheme. Default (no data-theme) follows the device; data-theme="light|dark" (set before first paint
  * by public/theme-boot.js from the saved choice) pins the scheme. Values mirror src/designTokens.ts (tested).
+ * A warm neutral paper keeps long lists quiet; the single pine accent marks the one primary action per screen.
  * Plain light values below are the fallback for browsers without light-dark() (before Safari 17.5 / Chrome and Edge 123 / Firefox 120).
  */
 :root {
   color-scheme: light;
-  --surface-paper: #f1f5fa;
-  --surface-raised: #ffffff;
-  --surface-sunken: #e8eff6;
-  --text-ink: #16283c;
-  --text-muted: #52647b;
-  --border-line: #d7e2eb;
-  --border-field: #6b7c90;
-  --accent: #006d82;
-  --accent-strong: #005566;
+  --surface-paper: #f8f7f3;
+  --surface-raised: #fffefc;
+  --surface-sunken: #eeece4;
+  --text-ink: #1c1b17;
+  --text-muted: #5f5c53;
+  --border-line: #e3dfd4;
+  --border-field: #857f72;
+  --accent: #1a6a55;
+  --accent-strong: #12513f;
   --on-accent: #ffffff;
-  --focus-ring: #005566;
-  --nav-selected: #ddecf4;
-  --state-needs-attention: #be3a29;
-  --state-needs-attention-bg: #fcebe7;
-  --state-in-progress: #006d82;
-  --state-in-progress-bg: #e3f2f5;
-  --state-waiting: #935300;
-  --state-waiting-bg: #fdf1dc;
-  --state-upcoming: #04796b;
-  --state-upcoming-bg: #e4f4f0;
-  --state-paused: #52647b;
-  --state-paused-bg: #edf2f7;
-  --state-done: #35694a;
-  --state-done-bg: #e7f2ec;
-  --state-danger: #a3243b;
-  --state-danger-bg: #f9e4e8;
-  --state-success: #35694a;
-  --state-success-bg: #e7f2ec;
+  --focus-ring: #1a6a55;
+  --nav-selected: #e7e3d7;
+  --state-needs-attention: #a63f2d;
+  --state-needs-attention-bg: #fbeae4;
+  --state-in-progress: #1a6a55;
+  --state-in-progress-bg: #e4f1ec;
+  --state-waiting: #8a5a10;
+  --state-waiting-bg: #fbf0d9;
+  --state-upcoming: #4b6472;
+  --state-upcoming-bg: #e9eef2;
+  --state-paused: #6d6a61;
+  --state-paused-bg: #efede8;
+  --state-done: #3f6b4e;
+  --state-done-bg: #e8f1e9;
+  --state-danger: #a32b3f;
+  --state-danger-bg: #f9e6e9;
+  --state-success: #3f6b4e;
+  --state-success-bg: #e8f1e9;
 }
 
 @supports (color: light-dark(#000, #fff)) {
   :root {
     color-scheme: light dark;
-    --surface-paper: light-dark(#f1f5fa, #0f1a24);
-    --surface-raised: light-dark(#ffffff, #16232f);
-    --surface-sunken: light-dark(#e8eff6, #1e2c3a);
-    --text-ink: light-dark(#16283c, #eaf1f8);
-    --text-muted: light-dark(#52647b, #a9b8c8);
-    --border-line: light-dark(#d7e2eb, #2c3d4d);
-    --border-field: light-dark(#6b7c90, #8496a8);
-    --accent: light-dark(#006d82, #4fc8da);
-    --accent-strong: light-dark(#005566, #7bdce9);
-    --on-accent: light-dark(#ffffff, #072028);
-    --focus-ring: light-dark(#005566, #6fd6e6);
-    --nav-selected: light-dark(#ddecf4, #1d3546);
-    --state-needs-attention: light-dark(#be3a29, #ffa98f);
-    --state-needs-attention-bg: light-dark(#fcebe7, #3b241e);
-    --state-in-progress: light-dark(#006d82, #5bcbde);
-    --state-in-progress-bg: light-dark(#e3f2f5, #10333c);
-    --state-waiting: light-dark(#935300, #f0c46b);
-    --state-waiting-bg: light-dark(#fdf1dc, #34280f);
-    --state-upcoming: light-dark(#04796b, #5bd8c4);
-    --state-upcoming-bg: light-dark(#e4f4f0, #0f322c);
-    --state-paused: light-dark(#52647b, #b9c7d7);
-    --state-paused-bg: light-dark(#edf2f7, #26323f);
-    --state-done: light-dark(#35694a, #8ad9b2);
-    --state-done-bg: light-dark(#e7f2ec, #163229);
-    --state-danger: light-dark(#a3243b, #ff97a6);
-    --state-danger-bg: light-dark(#f9e4e8, #3b1e26);
-    --state-success: light-dark(#35694a, #8ad9b2);
-    --state-success-bg: light-dark(#e7f2ec, #163229);
+    --surface-paper: light-dark(#f8f7f3, #171614);
+    --surface-raised: light-dark(#fffefc, #1f1e1b);
+    --surface-sunken: light-dark(#eeece4, #262420);
+    --text-ink: light-dark(#1c1b17, #f2efe8);
+    --text-muted: light-dark(#5f5c53, #aaa599);
+    --border-line: light-dark(#e3dfd4, #33312b);
+    --border-field: light-dark(#857f72, #8b8578);
+    --accent: light-dark(#1a6a55, #7ad3b6);
+    --accent-strong: light-dark(#12513f, #a5e4cf);
+    --on-accent: light-dark(#ffffff, #0b211a);
+    --focus-ring: light-dark(#1a6a55, #8fe0c6);
+    --nav-selected: light-dark(#e7e3d7, #2b2823);
+    --state-needs-attention: light-dark(#a63f2d, #ffa48c);
+    --state-needs-attention-bg: light-dark(#fbeae4, #3a231d);
+    --state-in-progress: light-dark(#1a6a55, #7ad3b6);
+    --state-in-progress-bg: light-dark(#e4f1ec, #12332a);
+    --state-waiting: light-dark(#8a5a10, #e8bf72);
+    --state-waiting-bg: light-dark(#fbf0d9, #33280f);
+    --state-upcoming: light-dark(#4b6472, #a9c3d3);
+    --state-upcoming-bg: light-dark(#e9eef2, #1e2a33);
+    --state-paused: light-dark(#6d6a61, #b3aea3);
+    --state-paused-bg: light-dark(#efede8, #2a2823);
+    --state-done: light-dark(#3f6b4e, #93d8b0);
+    --state-done-bg: light-dark(#e8f1e9, #163026);
+    --state-danger: light-dark(#a32b3f, #ff9aa8);
+    --state-danger-bg: light-dark(#f9e6e9, #3a1d22);
+    --state-success: light-dark(#3f6b4e, #93d8b0);
+    --state-success-bg: light-dark(#e8f1e9, #163026);
   }
   /* System follows OS without JavaScript; unsupported browsers keep the light token and native-control fallback. */
   @media (prefers-color-scheme: dark) {
@@ -137,14 +149,20 @@
 
 @layer base {
   /* Inter needs a genuinely bold hierarchy at display sizes; explicit utilities still win over this default. */
-  h1, h2, h3, h4 { font-weight: 700; }
-  h1 { letter-spacing: -0.02em; }
-  h2 { letter-spacing: -0.01em; }
+  h1, h2, h3, h4 { font-weight: 600; }
+  h1 { letter-spacing: -0.016em; }
+  h2 { letter-spacing: -0.008em; }
 }
 
-dialog::backdrop { background: rgb(7 20 30 / 60%); }
+dialog::backdrop { background: rgb(20 18 14 / 55%); }
 html { background: var(--surface-paper); }
 body { margin: 0; min-height: 100dvh; font-family: var(--font-sans); color: var(--text-ink); background: var(--surface-paper); -webkit-font-smoothing: antialiased; }
+
+/*
+ * Reading measure: the long lists (Home, All items, item detail) never stretch beyond a comfortable
+ * line length, and never centre themselves into a floating column on wide screens.
+ */
+@utility measure { max-width: 47.5rem; }
 
 @keyframes settle { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .settle { animation: settle 400ms ease-out both; }

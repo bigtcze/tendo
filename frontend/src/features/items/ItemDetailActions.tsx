@@ -22,17 +22,17 @@ type Props = {
 function WorkflowButtons({ item, busy, t, onWorkflow }: Props) {
   const startable = item.workflowState === 'open' || item.workflowState === 'waiting';
   const start = startable
-    ? <Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('in_progress')}>
+    ? <Button type="button" variant="quiet" disabled={busy} onClick={() => onWorkflow('in_progress')}>
       {t(item.workflowState === 'waiting' ? 'itemDetail.resumeWork' : 'itemDetail.start')}
     </Button>
     : null;
   if (item.workflowState === 'paused') {
-    return <>{start}<Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('open')}>{t('itemDetail.resume')}</Button></>;
+    return <>{start}<Button type="button" variant="quiet" disabled={busy} onClick={() => onWorkflow('open')}>{t('itemDetail.resume')}</Button></>;
   }
   return <>
     {start}
-    <Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('waiting')}>{t('itemDetail.waitingAction')}</Button>
-    <Button type="button" variant="secondary" disabled={busy} onClick={() => onWorkflow('paused')}>{t('itemDetail.pause')}</Button>
+    <Button type="button" variant="quiet" disabled={busy} onClick={() => onWorkflow('waiting')}>{t('itemDetail.waitingAction')}</Button>
+    <Button type="button" variant="quiet" disabled={busy} onClick={() => onWorkflow('paused')}>{t('itemDetail.pause')}</Button>
   </>;
 }
 
@@ -44,23 +44,25 @@ function StaleItemNotice({ busy, onReload, t }: Pick<Props, 'busy' | 'onReload' 
 }
 
 /**
- * One action hierarchy: the obvious Done is the only primary, and every other action (Edit, the workflow
- * options, Archive/Restore) is the same outlined secondary. Edit stays first in the tab order.
+ * One action band under the facts: one filled Done, then quiet secondary work (Edit, the workflow
+ * options) and Archive kept at the end, away from the primary action.
  */
 function LiveRow(props: Props) {
   const { item, busy, editLoading, editRef, t, onEdit, onDone, stale } = props;
-  return <div className="flex flex-wrap items-center gap-2">
-    <Button ref={editRef} type="button" variant="secondary" disabled={busy || editLoading || stale} onClick={onEdit}>
-      {t('itemDetail.edit.button')}
-    </Button>
+  return <>
     <Button
-      type="button" data-action="detail-done" className="flex-1 sm:flex-none"
+      type="button" data-action="detail-done" className="w-full sm:mr-1.5 sm:w-auto sm:px-5"
       aria-label={t('items.done.label', { title: item.title })} disabled={busy || stale} onClick={onDone}
     >
       {t('items.done')}
     </Button>
-    <WorkflowButtons {...props} busy={busy || stale} />
-  </div>;
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+      <Button ref={editRef} type="button" variant="quiet" disabled={busy || editLoading || stale} onClick={onEdit}>
+        {t('itemDetail.edit.button')}
+      </Button>
+      <WorkflowButtons {...props} busy={busy || stale} />
+    </div>
+  </>;
 }
 
 function CompletionNotice(props: Props) {
@@ -73,31 +75,36 @@ function CompletionNotice(props: Props) {
   </div>;
 }
 
+/** Archive stays a quiet text action: it is rare, and it must never compete with Done. */
 function ArchiveControl({ item, busy, stale, t, onArchive, onRestore }: Pick<Props, 'item' | 'busy' | 'stale' | 't' | 'onArchive' | 'onRestore'>) {
   return item.archived
-    ? <Button type="button" variant="secondary" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
-    : <Button type="button" variant="secondary" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
+    ? <Button type="button" variant="quiet" size="small" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
+    : <Button type="button" variant="quiet" size="small" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
 }
 
-/** One action band: Edit, the obvious Done and the workflow options, with Archive/Restore kept apart below. */
 export function ItemDetailActions(props: Props) {
   const { item, busy, t } = props;
   const live = !item.done && !item.archived;
   const staleNotice = props.stale && !props.completionNotice
-    ? <StaleItemNotice busy={busy} onReload={props.onReload} t={t} /> : null;
+    ? <StaleItemNotice busy={busy} onReload={props.onReload} t={t} />
+    : null;
   const archive = <ArchiveControl item={item} busy={busy} stale={props.stale} t={t} onArchive={props.onArchive} onRestore={props.onRestore} />;
   if (!live && !props.completionNotice) {
-    // Nothing to do on a finished or archived item beyond its facts: a slim hairline band, not an empty card.
-    return <div data-item-actions className="mt-4 space-y-3 border-t border-line pt-3">
-      {staleNotice}
-      <div className="flex flex-wrap items-center gap-2">{archive}</div>
+    return <div data-item-actions className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+      {staleNotice ?? <span />}
+      {archive}
     </div>;
   }
-  return <section data-item-actions className="mt-4 space-y-3 rounded-2xl border border-line bg-raised p-4 sm:p-5">
+  return <section data-item-actions className="mt-5 space-y-3">
     {staleNotice}
     {props.editLoading ? <p role="status" className="text-small text-muted">{t('itemDetail.edit.loading')}</p> : null}
-    {live ? <LiveRow {...props} /> : null}
+    {live ? <div className="flex flex-col items-start gap-3 border-t border-line pt-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <LiveRow {...props} />
+      </div>
+      {archive}
+    </div> : null}
     {props.completionNotice ? <CompletionNotice {...props} /> : null}
-    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">{archive}</div>
+    {!live ? <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line pt-4">{archive}</div> : null}
   </section>;
 }

@@ -78,7 +78,7 @@ export function AddItemPanel(props: AddItemPanelProps) {
       onSubmit={onSubmit}
       onCancel={onCancel}
     /> : null}
-    {showEmpty ? <div className="rounded-2xl border border-line bg-sand p-5">
+    {showEmpty ? <div className="rounded-xl border border-line bg-sand p-5">
       <p className="text-ink">{t('items.noSubjects')}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button ref={noSubjectsRef} type="button" variant="secondary" onClick={onOpenPeople}>

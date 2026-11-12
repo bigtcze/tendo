@@ -43,7 +43,7 @@ export function InvitationRows({ invitations, actions, formatDate, t }: {
   formatDate: (date: string) => string;
   t: Translate;
 }) {
-  return <ul aria-labelledby="invitations-history-heading" className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">{invitations.map((inv) => (
+  return <ul aria-labelledby="invitations-history-heading" className="mt-3 divide-y divide-line border-t border-line">{invitations.map((inv) => (
     <li key={inv.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
         <span className={`inline-flex rounded-full px-2.5 py-0.5 text-small font-semibold ${STATUS_PILL[inv.status]}`}>{t(`members.invitation.status.${inv.status}`)}</span>

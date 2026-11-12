@@ -5,8 +5,8 @@ type EmptyStateProps = { title: string; children?: ReactNode; action?: ReactNode
 
 export function EmptyState({ title, children, action }: EmptyStateProps) {
   return (
-    <section className="rounded-2xl border border-line bg-raised p-6 text-center sm:p-8">
-      <h2 className="text-h2 font-bold text-ink">{title}</h2>
+    <section className="border-t border-line py-10 text-center">
+      <h2 className="text-h2 font-semibold text-ink">{title}</h2>
       {children ? <div className="mt-2 text-base text-muted">{children}</div> : null}
       {action ? <div className="mt-5">{action}</div> : null}
     </section>

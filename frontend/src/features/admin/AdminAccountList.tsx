@@ -20,15 +20,15 @@ export function AdminAccountList({ accounts, viewerId, busy, headingRef, stack, 
   t: Translate;
 }) {
   return <section role="region" aria-labelledby="admin-accounts-heading" className="mt-6 sm:mt-8">
-    <h2 id="admin-accounts-heading" ref={headingRef} tabIndex={-1} className="text-h2 text-ink outline-none">{t('admin.list.title')}</h2>
+    <h2 id="admin-accounts-heading" ref={headingRef} tabIndex={-1} className="text-meta font-semibold uppercase tracking-[0.08em] text-muted outline-none">{t('admin.list.title')}</h2>
     {accounts.length
-      ? <ul aria-labelledby="admin-accounts-heading" className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
+      ? <ul aria-labelledby="admin-accounts-heading" className="mt-3 divide-y divide-line border-y border-line">
         {accounts.map((account) => (
           <AdminAccountRow key={account.userId} account={account} viewerId={viewerId} busy={busy} formatExpiry={formatExpiry}
             onChange={onChange} onReset={onReset} onCancelReset={onCancelReset} t={t} />
         ))}
       </ul>
-      : <p className="mt-3 rounded-2xl border border-line bg-raised px-4 py-5 text-body text-muted">{t('admin.list.empty')}</p>}
+      : <p className="mt-3 border-y border-line px-1 py-5 text-body text-muted">{t('admin.list.empty')}</p>}
     <p className="mt-3 max-w-prose text-small text-muted">{t('admin.list.explained')}</p>
     {stack.length > 0 || nextCursor
       ? <CursorPager kind="account" stack={stack} cursor={nextCursor} busy={busy} onPrevious={onPrevious} onNext={onNext} t={t} />

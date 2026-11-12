@@ -58,11 +58,13 @@ describe('item details', () => {
     const assigned = item({ responsibleUserId: secondMember.userId });
     installFakeServer(common({ [`GET ${path}`]: json(200, assigned, { ETag: '"1"' }), [`GET ${base}/members`]: members }));
     window.history.replaceState(null, '', `/items/${itemId}`); app();
-    expect(await screen.findByText('Looked after by petr')).toBeVisible();
+    expect(await screen.findByText('Looked after by')).toBeVisible();
+    expect(screen.getByText('petr')).toBeVisible();
     cleanup(); window.history.replaceState(null, '', `/items/${itemId}`);
     installFakeServer(common({ [`GET ${base}/members`]: members })); app();
     await screen.findByRole('heading', { name: 'Renew passport' });
     expect(screen.queryByText(/Looked after by/)).not.toBeInTheDocument();
+    expect(screen.queryByText('petr')).not.toBeInTheDocument();
   });
 
   it('loads history while the member list is still pending', async () => {
@@ -113,7 +115,7 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`);
     app();
     await screen.findByRole('heading', { name: fixture.title });
-    await screen.findByText('Looked after by petr');
+    await screen.findByText('petr');
     expect(requestsOf(fake.requests, 'GET', path)).toHaveLength(1);
     const main = within(screen.getByRole('main'));
     // The state is a header pill written out beside an icon; the facts card keeps the dated facts in order.
@@ -121,12 +123,14 @@ describe('item details', () => {
     expect(state).toHaveAttribute('data-item-state');
     expect(state.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     const card = main.getByText('Bring old passport').closest('[data-item-facts]')!;
-    // Dates are rendered as non-breaking units (U+00A0 inside the date), so the order check reads them as plain text.
+    // Facts are definition rows: label, then value. Dates keep their non-breaking units (U+00A0).
     const text = card.textContent!.replaceAll('\u00a0', ' ');
-    expect(text.indexOf('Due Oct 10, 2026')).toBeLessThan(text.indexOf('Last done Oct 10, 2025'));
-    expect(text.indexOf('Last done Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
-    expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('Looked after by petr'));
-    expect(text.indexOf('Looked after by petr')).toBeLessThan(text.indexOf('Bring old passport'));
+    const labels = [...card.querySelectorAll('dt')].map((cell) => cell.textContent);
+    expect(labels).toEqual(['Due', 'Last completed', 'Repeats', 'Looked after by', 'Notes']);
+    expect(text.indexOf('Oct 10, 2026')).toBeLessThan(text.indexOf('Oct 10, 2025'));
+    expect(text.indexOf('Oct 10, 2025')).toBeLessThan(text.indexOf('Repeats every 2 years'));
+    expect(text.indexOf('Repeats every 2 years')).toBeLessThan(text.indexOf('petr'));
+    expect(text.indexOf('petr')).toBeLessThan(text.indexOf('Bring old passport'));
     expect(text).not.toMatch(/attentionOn|workflow|ETag|fluid/i);
   });
 
@@ -184,7 +188,7 @@ describe('item details', () => {
     const actionBand = doneButton.closest('[data-item-actions]')!;
     expect(actionBand.querySelectorAll('button[data-variant="primary"]')).toHaveLength(1);
     for (const action of ['Edit', 'Start', 'Waiting', 'Pause', 'Archive']) {
-      expect(within(actionBand as HTMLElement).getByRole('button', { name: action }), `${action} is secondary`).toHaveAttribute('data-variant', 'secondary');
+      expect(within(actionBand as HTMLElement).getByRole('button', { name: action }), `${action} is quiet`).toHaveAttribute('data-variant', 'quiet');
     }
     await waitFor(() => expect(requestsOf(fake.requests, 'GET', path).length).toBeGreaterThanOrEqual(1));
     await userEvent.click(doneButton);
@@ -297,7 +301,7 @@ describe('item details', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Pause' }));
     expect(await screen.findByText('Paused')).toBeVisible();
     const resume = screen.getByRole('button', { name: 'Resume' });
-    expect(resume).toHaveAttribute('data-variant', 'secondary');
+    expect(resume).toHaveAttribute('data-variant', 'quiet');
     await userEvent.click(resume);
     await userEvent.click(await screen.findByRole('button', { name: 'Waiting' }));
     await waitFor(() => expect(requestsOf(fake.requests, 'PATCH', path)).toHaveLength(3));
@@ -535,7 +539,7 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     expect(await screen.findByRole('heading', { name: 'That item is gone' })).toBeVisible();
     await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
-    expect(await screen.findByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /^(Overview|Přehled)$/ })).toBeVisible();
     cleanup(); window.history.replaceState(null, '', '/items/not-an-id');
     const malformed = installFakeServer(baseRoutes); app();
     expect(await screen.findByRole('heading', { name: 'That item is gone' })).toBeVisible();
@@ -634,8 +638,8 @@ describe('item details', () => {
     const form = await screen.findByRole('form', { name: 'Edit item' });
     await userEvent.clear(screen.getByLabelText('What needs doing?')); await userEvent.type(screen.getByLabelText('What needs doing?'), 'Mine');
     await userEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
-    expect(await screen.findByText('Car', { selector: 'p' })).toBeVisible();
-    expect(screen.queryByText('Anna', { selector: 'p' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Car', { selector: 'header span' })).toBeVisible();
+    expect(screen.queryByText('Anna', { selector: 'header span' })).not.toBeInTheDocument();
   });
 
   it('updates the subject name in the detail header after changing subject', async () => {
@@ -660,7 +664,7 @@ describe('item details', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     expect(await screen.findByRole('option', { name: 'Old household member' })).toBeInTheDocument();
     expect(screen.getByLabelText('For')).toHaveValue('s-2');
-    expect(screen.getByText('Old household member', { selector: 'p' })).toBeVisible();
+    expect(screen.getByText('Old household member', { selector: 'header span' })).toBeVisible();
     expect(requestsOf(fake.requests, 'GET', `${base}/subjects/s-2`).length).toBeGreaterThan(0);
   });
 
@@ -1185,8 +1189,8 @@ describe('item details', () => {
     installFakeServer(common({ [`GET ${base}/items`]: json(200, { items: [item()], nextCursor: null }) })); app();
     await userEvent.click(await screen.findByRole('link', { name: 'Otevřít položku Renew passport' }));
     expect(await screen.findByRole('heading', { name: 'Renew passport' })).toBeVisible();
-    expect(screen.getByText('Naposledy hotovo 10. 10. 2025')).toBeVisible();
+    expect(within(screen.getByText('Naposledy dokončeno').closest('dl')!).getByText('10. 10. 2025')).toBeVisible();
     window.history.back(); await waitFor(() => expect(window.location.pathname).toBe('/'));
-    expect(await screen.findByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /^(Overview|Přehled)$/ })).toBeVisible();
   });
 });

@@ -7,7 +7,7 @@ import type { DetailLoadState } from './useItemDetail';
 
 /** Eyebrow + bold message + white surface, the same rhythm as the full-page secondary states. */
 function StatePanel({ eyebrow, children, tone = 'neutral' }: { eyebrow?: string; children: ReactNode; tone?: 'neutral' | 'danger' }) {
-  return <div className="mt-4 w-full rounded-2xl border border-line bg-raised p-6 sm:p-8">
+  return <div className="mt-4 w-full rounded-xl border border-line bg-raised p-6 sm:p-8">
     {eyebrow ? <Eyebrow tone={tone === 'danger' ? 'danger' : 'muted'}>{eyebrow}</Eyebrow> : null}
     {children}
   </div>;

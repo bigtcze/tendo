@@ -14,7 +14,7 @@ type FieldProps = {
 export function Field({ id, label, hint, error, children }: FieldProps) {
   const describedBy = [hint ? `${id}-hint` : '', error ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined;
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
       {children({ id, 'aria-invalid': Boolean(error), 'aria-describedby': describedBy })}
       {hint ? <p id={`${id}-hint`} className="text-meta text-muted">{hint}</p> : null}

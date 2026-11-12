@@ -22,7 +22,7 @@ const titleLink = 'relative z-10 flex min-h-11 max-w-full items-center rounded-l
   + '[overflow-wrap:anywhere] text-row-title font-semibold text-ink hover:text-accent '
   + 'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus';
 const addLink = `mt-3 inline-flex min-h-11 items-center rounded-lg text-accent underline underline-offset-4 ${focusRing}`;
-const subjectPill = 'inline-flex max-w-full items-center rounded-full bg-upcoming-bg px-2.5 py-0.5 text-meta font-semibold text-ink [overflow-wrap:anywhere]';
+const subjectPill = 'inline-flex max-w-full items-center gap-1 text-meta text-muted [overflow-wrap:anywhere]';
 
 export type ResultsView = 'hidden' | 'none' | 'noMatch' | 'rows';
 
@@ -69,27 +69,31 @@ function ItemRow({ item, subjectName, subjectType, members, onOpenItem }: {
   const status = attention && item.workflowState === 'open' && !item.done && !item.archived
     ? attention
     : [t(itemStateLabel(item)), attention].filter(Boolean).join(' · ');
-  return <li data-item-id={item.id} className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-x-3 px-4 pb-2 pt-[11px] xl:pb-0 xl:pt-2">
-    <span aria-hidden="true" data-subject-icon={subjectType ?? 'custom'}
-      className={`grid size-9 place-items-center rounded-xl ${tone.tile}`}>
-      <SubjectTypeIcon type={subjectType ?? 'custom'} />
-    </span>
-    <div className="min-w-0">
-      <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
-        className={titleLink}>{item.title}</NavLink>
-      <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta leading-snug">
-        <span data-subject-pill className={subjectPill}>{subjectName ?? t('items.subject.unknown')}</span>
-        <span data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1.5 font-semibold ${tone.text}`}>
-          <ItemStateIcon state={state} className="size-4 shrink-0" />
-          <span className="[overflow-wrap:anywhere]">{status}</span>
+  return <li data-item-id={item.id} className="border-b border-line/80 px-1 py-3 last:border-b-0">
+    <NavLink href={`/items/${encodeURIComponent(item.id)}`} onNavigate={() => onOpenItem(item.id, `/items${window.location.search}`)}
+      className={titleLink}>{item.title}</NavLink>
+    <div data-item-meta className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-meta leading-snug text-muted">
+      <span data-subject-pill className={subjectPill}>
+        <span data-subject-icon={subjectType ?? 'custom'} className="inline-flex">
+          <SubjectTypeIcon type={subjectType ?? 'custom'} className="size-3.5 shrink-0 text-muted" />
         </span>
-        {item.responsibleUserId
-          ? <span data-item-responsible className="text-muted [overflow-wrap:anywhere]">{t('items.responsible.read', { name: responsible })}</span>
-          : null}
-      </div>
+        {subjectName ?? t('items.subject.unknown')}
+      </span>
+      <span aria-hidden="true" className="text-muted select-none">·</span>
+      <span data-item-state data-item-state-kind={state} className={`inline-flex items-center gap-1 font-medium ${tone.text}`}>
+        <ItemStateIcon state={state} className="size-3.5 shrink-0" />
+        <span className="[overflow-wrap:anywhere]">{status}</span>
+      </span>
+      {item.responsibleUserId
+        ? <>
+          <span aria-hidden="true" className="text-muted select-none">·</span>
+          <span data-item-responsible className="[overflow-wrap:anywhere]">{t('items.responsible.read', { name: responsible })}</span>
+        </> : null}
       {item.recurrence
-        ? <p data-item-recurrence className="mt-0.5 text-meta text-muted">{repeatSummary(t, item.recurrence, locale)}</p>
-        : null}
+        ? <>
+          <span aria-hidden="true" className="text-muted select-none">·</span>
+          <span data-item-recurrence className="[overflow-wrap:anywhere]">{repeatSummary(t, item.recurrence, locale)}</span>
+        </> : null}
     </div>
   </li>;
 }
@@ -123,15 +127,17 @@ export function AllItemsResults({ view, context, page, subjectNames, subjectType
   if (view === 'none') return <EmptyState title={t('allItems.none')}>
     <NavLink href="/" onNavigate={onBack} className={addLink}>{t('items.add')}</NavLink>
   </EmptyState>;
-  if (view === 'noMatch') return <EmptyState title={t('allItems.noMatch')}>
-    {(hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
+  // The Archive view is a filter, not a failed search: say what is true and offer no misleading reset.
+  const archiveEmpty = context.status === 'archived' && !hasFilters(context);
+  if (view === 'noMatch') return <EmptyState title={archiveEmpty ? t('allItems.archiveEmpty') : t('allItems.noMatch')}>
+    {archiveEmpty ? null : (hasFilters(context) || context.status !== 'active') ? <Button data-all-items-clear type="button" variant="quiet" className="mt-2"
       onClick={actions.clearFilters}>{t('allItems.clear')}</Button> : null}
   </EmptyState>;
   if (view !== 'rows') return null;
   const range = rangeLabel(context, page, t, locale);
   return <section ref={resultRef} tabIndex={-1} aria-label={t('allItems.results')} className="min-w-0 space-y-3 outline-none">
-    <h2 className="text-row-title font-semibold text-ink">{range}</h2>
-    <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">
+    <h2 className="text-meta font-semibold uppercase tracking-[0.08em] text-muted">{range}</h2>
+    <ul className="border-t border-line">
       {page.items.map((item) =>
         <ItemRow key={item.id} item={item} subjectName={subjectNames.get(item.subjectId)} members={members} onOpenItem={onOpenItem}
           subjectType={subjectTypes.get(item.subjectId)} />)}

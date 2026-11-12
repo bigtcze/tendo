@@ -162,10 +162,10 @@ test('switch track endpoints are covered by a full-size native input', async ({ 
 test('switch track hover comes from the input and is suppressed while disabled', async ({ page }) => {
   await openHarness(page, '?closed');
   const trackColor = (name: string) => page.getByRole('switch', { name, exact: true }).evaluate((input) => getComputedStyle(input.nextElementSibling!).backgroundColor);
-  const field = 'rgb(107, 124, 144)';
-  const muted = 'rgb(82, 100, 123)';
-  const accent = 'rgb(0, 109, 130)';
-  const accentStrong = 'rgb(0, 85, 102)';
+  const field = 'rgb(133, 127, 114)';
+  const muted = 'rgb(95, 92, 83)';
+  const accent = 'rgb(26, 106, 85)';
+  const accentStrong = 'rgb(18, 81, 63)';
 
   const unchecked = page.getByRole('switch', { name: 'Primitive switch', exact: true });
   await expect.poll(() => trackColor('Primitive switch')).toBe(field);

@@ -36,10 +36,9 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
     {editing && editing.subject.id === subject.id ? <SubjectEditDialog subject={editing.subject} etag={editing.etag}
       conflict={editing.conflict} transfer={transfer} members={members} membersLoaded={membersLoaded} yourEntry={yourEntry}
       triggerRef={editRef} t={t} onSave={onSave} onArchive={() => onArchive(subject, true, false)}
-      onCancel={() => onCancelEditing(subject.id)} /> : <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-      <span aria-hidden="true" data-subject-icon={subject.type}
-        className="grid size-9 shrink-0 place-items-center rounded-xl bg-sand text-muted">
-        <SubjectTypeIcon type={subject.type} />
+      onCancel={() => onCancelEditing(subject.id)} /> : <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-3">
+      <span aria-hidden="true" data-subject-icon={subject.type} className="grid size-7 shrink-0 place-items-center rounded-full text-muted">
+        <SubjectTypeIcon type={subject.type} className="size-[1.125rem]" />
       </span>
       <div className="min-w-0 grow basis-40">
         <p data-subject-name
@@ -55,12 +54,12 @@ export function SubjectRow({ subject, editing, transfer, members, membersLoaded,
         {!showArchived && navigation ? <NavLink href={`/items?subject=${encodeURIComponent(subject.id)}`}
           onNavigate={() => navigation.actions.allItems(subject.id)}
           aria-label={t('subjects.seeItems.label', { name: subject.name })}
-          className="inline-flex min-h-11 items-center rounded-xl px-3 text-small font-semibold text-accent transition-colors hover:bg-sand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
+          className="inline-flex min-h-11 items-center rounded-lg px-3 text-small font-medium text-muted underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-field focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
           {t('subjects.seeItems')}
         </NavLink> : null}
         {showArchived ? <Button type="button" variant="quiet" size="small" data-focus={`row:${subject.id}`}
           aria-label={t('subjects.restore.label', { name: subject.name })} disabled={interactionLocked}
-          onClick={() => onRestore(subject, false, false)}>{t('subjects.restore')}</Button> : <Button ref={editRef} type="button" variant="secondary" size="small" data-focus={`row:${subject.id}`}
+          onClick={() => onRestore(subject, false, false)}>{t('subjects.restore')}</Button> : <Button ref={editRef} type="button" variant="quiet" size="small" data-focus={`row:${subject.id}`}
           aria-label={t('subjects.edit.label', { name: subject.name })} disabled={interactionLocked}
           onClick={() => onStartEditing(subject)}>{t('subjects.edit')}</Button>}
       </div>

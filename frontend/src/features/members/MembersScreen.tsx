@@ -2,7 +2,6 @@ import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
 import { Button } from '../../components/ui/button';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import { Notice } from '../../components/ui/notice';
 import { useI18n, type Translate } from '../../i18n';
 import { nonBreaking } from '../items/formatDate';
@@ -38,10 +37,9 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
     revokeId: actions.revokeId, restoreFocusIdRef: actions.restoreFocusIdRef, revokeButtonsRef: actions.revokeButtonsRef,
   });
   const formatDate = (date: string) => nonBreaking(new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(date)));
-  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle">
-    <Eyebrow>{t('members.eyebrow')}</Eyebrow>
-    <Heading className="mt-2 text-h1 leading-tight text-ink">{t('members.title')}</Heading>
-    <p className="mt-2 max-w-prose text-base text-muted">{t('members.subtitle')}</p>
+  return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}><section className="settle measure">
+    <Heading className="text-h1 font-semibold text-ink">{t('members.title')}</Heading>
+    <p className="mt-1.5 max-w-prose text-body text-muted">{t('members.subtitle')}</p>
     <div ref={noticeRef} tabIndex={-1} role="status" aria-atomic="true" className="mt-5 outline-none empty:mt-0">
       {notice && state !== 'error' ? <Notice tone={noticeTone === 'success' ? 'success' : 'neutral'} role={null}>{notice}</Notice> : null}
     </div>
@@ -51,11 +49,11 @@ export function MembersScreen({ householdId, userId, login, onSignedOut }: { hou
       <MemberListSection members={members.members} userId={userId} headingRef={members.memberHeadingRef} stack={members.memberStack}
         cursor={members.memberCursor} busy={members.memberBusy} onPrevious={members.previousMembers} onNext={members.nextMembers} t={t} />
       {admin === true ? <InvitePanel inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
-        : admin === false ? <section className="rounded-2xl border border-line bg-sand px-5 py-4" aria-labelledby="members-help-heading">
-            <h2 id="members-help-heading" className="text-lg font-bold text-ink">{t('members.help.title')}</h2>
+        : admin === false ? <section className="rounded-xl border border-line bg-sand px-5 py-4" aria-labelledby="members-help-heading">
+            <h2 id="members-help-heading" className="text-h2 font-semibold text-ink">{t('members.help.title')}</h2>
             <p className="mt-1 max-w-prose text-small text-muted">{t('members.help.body')}</p>
           </section>
-          : inv.invitationsError ? <InvitationsError className="rounded-2xl border border-line bg-raised p-5" notice={notice} onRetry={inv.refreshInvitations} t={t} />
+          : inv.invitationsError ? <InvitationsError className="rounded-xl border border-line bg-raised p-5" notice={notice} onRetry={inv.refreshInvitations} t={t} />
             : <p role="status" className="text-small text-muted">{t('members.loading')}</p>}
     </div> : null}
   </section></Layout>;

@@ -1,6 +1,5 @@
 import type { Ref } from 'react';
 import { Heading } from '../../app/Heading';
-import { Eyebrow } from '../../components/ui/eyebrow';
 import type { Translate } from '../../i18n';
 import type { Item } from './itemsApi';
 import { ItemDetailActions } from './ItemDetailActions';
@@ -15,6 +14,12 @@ import type { ItemDetailState } from './useItemDetail';
 import type { WorkflowState } from './useItemDetailActions';
 import type { useItemDetailEdit } from './useItemDetailEdit';
 
+function responsibleLabel(item: Item, member: { userId: string; login: string } | undefined, viewerId: string, t: Translate) {
+  if (!item.responsibleUserId) return null;
+  if (!member) return t('items.responsible.unknown');
+  return member.userId === viewerId ? t('items.assignee.you') : member.login;
+}
+
 /** The item's real state, written out and paired with its icon so colour is never the only signal. */
 function StatePill({ item, t }: { item: Item; t: Translate }) {
   const state = itemState(item);
@@ -25,7 +30,7 @@ function StatePill({ item, t }: { item: Item; t: Translate }) {
   </p>;
 }
 
-export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, t, refs, onReload, actions }: {
+export function ItemDetailReady({ item, subjectOverride, subjectName, detail, busy, edit, history, locale, viewerId, t, refs, onReload, actions }: {
   item: Item;
   subjectOverride: string | null;
   subjectName: string;
@@ -34,6 +39,7 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
   edit: ReturnType<typeof useItemDetailEdit>;
   history: ItemDetailHistoryState;
   locale: string;
+  viewerId: string;
   t: Translate;
   refs: {
     notice: Ref<HTMLParagraphElement>;
@@ -57,27 +63,26 @@ export function ItemDetailReady({ item, subjectOverride, subjectName, detail, bu
   const responsibleMember = item.responsibleUserId
     ? members.find((member) => member.userId === item.responsibleUserId)
     : undefined;
-  const responsible = responsibleMember
-    ? t('items.responsible.read', { name: responsibleMember.login })
-    : item.responsibleUserId ? t('items.responsible.read', { name: t('items.responsible.unknown') }) : null;
+  const responsibleName = responsibleLabel(item, responsibleMember, viewerId, t);
 
   return <>
-    <header className="mt-2 min-w-0">
-      <Eyebrow className="[overflow-wrap:anywhere]">
-        {subjectOverride ?? (subjectName || t('items.subject.unknown'))}
-      </Eyebrow>
-      <div className="mt-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <Heading className="min-w-0 [overflow-wrap:anywhere] text-pretty text-[1.75rem] leading-[1.15] sm:text-4xl sm:leading-tight">{item.title}</Heading>
+    <header className="mt-3 min-w-0">
+      <Heading className="min-w-0 text-pretty text-[1.75rem] font-semibold leading-[1.15] text-ink [overflow-wrap:anywhere] sm:text-[2rem]">{item.title}</Heading>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <StatePill item={item} t={t} />
+        <span className="min-w-0 text-small text-muted [overflow-wrap:anywhere]">
+          {subjectOverride ?? (subjectName || t('items.subject.unknown'))}
+        </span>
       </div>
     </header>
     <ItemDetailNotice notice={notice} undoArchive={undoArchive} busy={busy.busy} t={t} focusRef={refs.notice} onUndo={actions.onRestore} />
-    {item.archived ? <p className="mt-4 rounded-xl border border-line bg-sand px-4 py-3">{t('itemDetail.archived')}</p> : null}
+    {item.archived ? <p className="mt-4 rounded-lg border border-line bg-sand px-4 py-3 text-body">{t('itemDetail.archived')}</p> : null}
+    {item.done ? <p className="mt-4 text-small text-muted">{t('itemDetail.done')}</p> : null}
     {editing
       ? <ItemEditSection editing={editing} subjects={edit.subjects} members={edit.members} busy={busy.busy} locale={locale} t={t}
         onSubmit={edit.saveEdit} onCancel={edit.cancelEdit} />
       : <>
-        <ItemDetailReadView item={item} t={t} locale={locale} responsible={responsible} />
+        <ItemDetailReadView item={item} t={t} locale={locale} responsibleName={responsibleName} />
         <ItemDetailActions
           item={item} busy={busy.busy} editLoading={editLoading} editRef={refs.editButton} t={t}
           stale={detail.stale} onReload={onReload}

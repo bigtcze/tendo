@@ -39,7 +39,7 @@ const signedInRoutes = (extra: Record<string, unknown> = {}) => ({
 
 describe('App route characterization', () => {
   it.each([
-    ['/', 'Veselí'], ['/items', 'All items'], ['/items/a/b', 'We couldn’t find that page.'],
+    ['/', 'Overview'], ['/items', 'All items'], ['/items/a/b', 'We couldn’t find that page.'],
     ['/people', 'People and things'],
     ['/members', 'Household members'], ['/account', 'Your account'], ['/unknown', 'We couldn’t find that page.'],
   ])('routes %s as expected', async (path, heading) => {
@@ -132,7 +132,7 @@ describe('App route characterization', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     installFakeServer(signedInRoutes());
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
   });
@@ -153,7 +153,7 @@ describe('App route characterization', () => {
     window.history.replaceState(null, '', '/');
     installFakeServer(signedInRoutes());
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
 
     act(() => {
       window.history.pushState(null, '', '/unknown');
@@ -207,7 +207,7 @@ describe('App route characterization', () => {
     const pushState = vi.spyOn(window.history, 'pushState');
     await userEvent.click(screen.getByRole('link', { name: 'Home' }));
     expect(pushState).toHaveBeenCalledWith(null, '', '/');
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
   });
 
   it('late 401 cannot navigate away from a later signed-out invite visit', async () => {

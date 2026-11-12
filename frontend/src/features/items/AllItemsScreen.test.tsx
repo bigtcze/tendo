@@ -400,7 +400,7 @@ describe('All items', () => {
     const row = link.closest('li')!;
     const metadata = row.querySelector('[data-item-meta]')!;
     expect(link).toHaveClass('min-h-11');
-    expect(row).toHaveClass('pt-[11px]', 'pb-2');
+    expect(row).toHaveClass('border-b', 'py-3');
     expect(metadata).toHaveClass('mt-0.5');
     // The tile derives from the real subject type, and the state is written next to an icon rather than colour alone.
     expect(row.querySelector('[data-subject-icon]')).toHaveAttribute('data-subject-icon', 'person');
@@ -698,7 +698,7 @@ describe('All items', () => {
     await openAllItems([makeItem(1)]);
     window.history.pushState(null, '', '/');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     expect(window.location.pathname).toBe('/');
     expect(screen.queryByRole('heading', { name: 'All items' })).not.toBeInTheDocument();
   });

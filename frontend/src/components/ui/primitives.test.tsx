@@ -29,7 +29,7 @@ describe('UI primitive behavior', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit item' }) as HTMLDialogElement;
     expect(dialog.getAttribute('aria-labelledby')).not.toBe('dialog-title');
     expect(screen.getByRole('button', { name: 'Close' })).toBeVisible();
-    expect(dialog.className).toContain('max-w-xl');
+    expect(dialog.className).toContain('max-w-lg');
     fireEvent(dialog, new Event('cancel', { cancelable: true }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     rerender(<Dialog open title="Edit item" closeLabel="Close" busy onOpenChange={onOpenChange} triggerRef={{ current: trigger }}>Form</Dialog>);

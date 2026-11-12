@@ -25,7 +25,7 @@ function InvalidLink({ signedIn }: { signedIn: boolean }) {
     <Eyebrow className="text-center">{t('reset.eyebrow')}</Eyebrow>
     <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('reset.invalid.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.invalid.body')}</p>
-    <div className="mt-8 flex w-full justify-center rounded-2xl border border-line bg-raised p-5 sm:p-7">
+    <div className="mt-8 flex w-full justify-center rounded-xl border border-line bg-raised p-5 sm:p-7">
       <ReturnLink
         href={signedIn ? '/' : LOGIN_PATH}
         label={t(signedIn ? 'reset.invalid.home' : 'reset.invalid.signIn')}
@@ -53,7 +53,7 @@ export function ResetPasswordScreen({ token, signedIn, onRedeemed }: {
     <Eyebrow className="text-center">{t('reset.eyebrow')}</Eyebrow>
     <Heading className="mt-2 text-center text-[2.125rem] font-bold leading-[1.08] text-ink sm:text-display">{t('reset.title')}</Heading>
     <p className="mt-3 text-center text-base text-muted">{t('reset.intro')}</p>
-    <div className="mt-8 rounded-2xl border border-line bg-raised p-5 sm:p-7">
+    <div className="mt-8 rounded-xl border border-line bg-raised p-5 sm:p-7">
       <form aria-label={t('reset.form.label')} onSubmit={(event) => void submit(event)} className="grid gap-5" noValidate>
         <div className="space-y-2">
           <Label htmlFor="reset-password">{t('reset.password')}</Label>

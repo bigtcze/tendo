@@ -16,7 +16,7 @@ const toneClass = (tone: Tone) => {
   if (tone === 'error') return 'border-danger bg-danger-bg text-danger';
   return '';
 };
-const noticeClass = 'rounded-xl border border-line bg-sand px-4 py-3 text-body text-ink';
+const noticeClass = 'rounded-lg border border-line bg-sand px-4 py-2.5 text-body text-ink';
 
 export function Notice({ children, tone = 'neutral', role: roleOverride, className, ...props }: NoticeProps) {
   const role = roleOverride === null ? undefined : roleOverride ?? (tone === 'error' ? 'alert' : 'status');

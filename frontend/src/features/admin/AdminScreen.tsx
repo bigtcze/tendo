@@ -36,7 +36,7 @@ export function AdminScreen({ householdId, viewerId, login, onSignedOut }: {
   const reset = usePasswordReset(shared);
 
   return <Layout actions={<AccountActions login={login} onSignedOut={onSignedOut} />}>
-    <section className="settle">
+    <section className="settle measure">
       <AdminIntro notice={notice} t={t} />
       {list.state === 'loading' ? <AdminListSkeleton label={t('admin.loading')} /> : null}
       {list.state === 'error' ? <AdminLoadError notice={t('admin.error.load')} onRetry={list.retry} t={t} /> : null}

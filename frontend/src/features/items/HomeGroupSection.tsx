@@ -1,7 +1,6 @@
 import { Button } from '../../components/ui/button';
 import { NavLink } from '../../app/NavLink';
 import { useI18n } from '../../i18n';
-import { groupTone, groupContextKey } from './homeGroupTone';
 import { HOME_GROUP_ROW_CAP, groups, type GroupData } from './homeGroups';
 
 export function HomeGroupSection({ group, summary, state, countLabel, children, headingRef, moreRef, onShowMore, onOpenAll }: {
@@ -18,37 +17,32 @@ export function HomeGroupSection({ group, summary, state, countLabel, children, 
   const { t } = useI18n();
   if (!state.items.length) return null;
   const showAll = state.items.length >= HOME_GROUP_ROW_CAP && (state.cursor || state.overflow || summary > state.items.length);
-  const contextKey = groupContextKey[group.id];
   return (
     <section id={`group-${group.id}`} className="min-w-0">
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="flex items-baseline justify-between gap-x-4 pb-1">
         <h2
           ref={headingRef}
           data-group-heading={group.id}
           tabIndex={-1}
-          className="flex min-w-0 flex-wrap items-center gap-2 text-lg font-bold leading-snug text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-meta font-semibold uppercase tracking-[0.08em] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
-          <span aria-hidden="true" className={`size-2.5 shrink-0 rounded-full ${groupTone[group.id].dot}`} />
           <span>{t(group.key)}</span>{' '}
-          <span className="rounded-full bg-sand px-2 py-0.5 text-meta font-semibold text-muted">{countLabel}</span>
+          <span className="text-meta font-normal normal-case tracking-normal text-muted">{countLabel}</span>
         </h2>
-        <div className="ml-auto flex items-center gap-3">
-          {contextKey ? <span className="hidden text-meta text-muted lg:inline">{t(contextKey)}</span> : null}
-          {showAll ? (
-            <NavLink
-              href={`/items?status=${group.id}`}
-              data-group-all={group.id}
-              onNavigate={onOpenAll}
-              className="inline-flex min-h-11 items-center text-meta font-medium text-muted underline decoration-line underline-offset-4 hover:text-accent hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-            >
-              {summary > state.items.length ? t('items.group.seeAll', { count: String(summary) }) : t('items.group.seeAllNoCount')}
-            </NavLink>
-          ) : null}
-        </div>
+        {showAll ? (
+          <NavLink
+            href={`/items?status=${group.id}`}
+            data-group-all={group.id}
+            onNavigate={onOpenAll}
+            className="inline-flex min-h-11 shrink-0 items-center text-meta font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink hover:decoration-field focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          >
+            {summary > state.items.length ? t('items.group.seeAll', { count: String(summary) }) : t('items.group.seeAllNoCount')}
+          </NavLink>
+        ) : null}
       </div>
-      <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-raised">{children}</ul>
+      <ul className="border-t border-line">{children}</ul>
       {state.cursor && state.items.length < HOME_GROUP_ROW_CAP ? (
-        <Button ref={moreRef} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" size="small" className="mt-2" onClick={onShowMore}>
+        <Button ref={moreRef} type="button" data-group-more={group.id} aria-disabled={state.loadingMore} variant="quiet" size="small" className="mt-1" onClick={onShowMore}>
           {state.loadingMore
             ? t('items.moreLoading')
             : t('items.showMore', { count: String(Math.max(0, summary - state.items.length)) })}

@@ -36,18 +36,22 @@ function invalidProps(state: ItemFormState, errorId: string, field: FormField, h
 export function ItemFormFields(props: FormFieldsProps) {
   const { state, mode, members } = props;
   const showResponsible = members.length > 1 || state.draft.responsibleUserId !== null;
-  return <div className="divide-y divide-line">
-    <div className="space-y-5 pb-5">
-      <TitleField {...props} onTitleRef={props.onTitleRef} />
+  return <div className="space-y-6">
+    <TitleField {...props} onTitleRef={props.onTitleRef} />
+    <div className="grid gap-4 sm:grid-cols-2 sm:gap-5">
       <SubjectField {...props} />
       <DateField {...props} />
     </div>
-    <div className="py-5">
+    <div>
       <RepeatSwitch {...props} />
-      {state.draft.repeat ? <RecurrencePanel {...props} withHistory={mode === 'add'} /> : null}
+      {state.draft.repeat
+        ? <div className="mt-2.5 rounded-xl border border-line bg-sand/60 px-4 py-3.5">
+          <RecurrencePanel {...props} withHistory={mode === 'add'} />
+        </div>
+        : null}
     </div>
-    {showResponsible ? <div className="py-5"><ResponsibleField {...props} /></div> : null}
-    <div className="pt-5"><NotesField {...props} /></div>
+    {showResponsible ? <ResponsibleField {...props} /> : null}
+    <NotesField {...props} />
   </div>;
 }
 
@@ -58,7 +62,7 @@ function TitleField({ id, state, disabled, titleRef, onTitleRef }: TitleFieldPro
   return <Field id={controlId(id, 'title')} label={t('items.title')}>
     {(field) => <Input
       ref={onTitleRef ?? titleRef}
-      autoFocus className="text-lg" disabled={disabled} value={state.draft.title}
+      autoFocus className="text-[1.0625rem] font-medium" disabled={disabled} value={state.draft.title}
       data-item-title="true" placeholder={t('items.title.placeholder')}
       onChange={(event) => state.update({ title: event.target.value })} {...field} {...invalidProps(state, `${id}-error`, 'title')}
     />}
@@ -92,7 +96,7 @@ type SwitchProps = { checked: boolean; disabled: boolean; onChange: (checked: bo
 function Switch({ checked, disabled, onChange, label, describedBy }: SwitchProps) {
   return <label className="flex min-h-11 items-center gap-3 text-ink">
     <Toggle checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={label} aria-describedby={describedBy} />
-    <span className="font-semibold">{label}</span>
+    <span className="text-body font-medium">{label}</span>
   </label>;
 }
 
@@ -109,7 +113,7 @@ function IntervalFieldset({ id, errorId, state, disabled }: FieldProps) {
   const labelId = `${controlId(id, 'recurrence')}-label`;
   const intervalId = controlId(id, 'recurrence');
   return <fieldset className="space-y-2">
-    <legend id={labelId} className="text-sm font-semibold">{t('items.interval')}</legend>
+    <legend id={labelId} className="text-meta font-medium text-muted">{t('items.interval')}</legend>
     <div className="flex gap-3">
       <Input
         disabled={disabled} id={intervalId} aria-labelledby={labelId} className="w-24"
@@ -140,9 +144,9 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
   const { id, state, disabled, withHistory } = props;
   const { t, locale } = useI18n();
   const exampleId = `${id}-repeat-example`;
-  return <div className="mt-4 space-y-4 rounded-xl border border-line bg-sand p-4">
+  return <div className="space-y-4">
     <IntervalFieldset {...props} />
-    <div className="border-t border-line pt-4">
+    <div>
       <Switch disabled={disabled} checked={state.draft.fluid} onChange={(fluid) => state.update({ fluid })}
         label={t('items.repeat.afterCompletion')} describedBy={exampleId} />
       <p id={exampleId} className="mt-1 text-meta text-muted">
@@ -151,7 +155,7 @@ function RecurrencePanel(props: FieldProps & { withHistory: boolean; historyDisa
         })}
       </p>
     </div>
-    {withHistory ? <HistoricalCompletion {...props} /> : null}
+    {withHistory ? <div className="border-t border-line pt-2"><HistoricalCompletion {...props} /></div> : null}
   </div>;
 }
 

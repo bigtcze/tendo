@@ -102,21 +102,24 @@ export function Dialog({
         // Tailwind preflight zeroes every margin, which also removes the UA `margin: auto` that centres a
         // modal dialog. Non-sheet dialogs therefore centre themselves explicitly; sheet mode below replaces
         // this with `m-0` (and its own md positioning), and twMerge keeps that override.
-        'm-auto max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(7_20_30/0.5)] sm:p-6',
+        'm-auto max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-xl border border-line bg-raised p-4 text-ink shadow-[0_24px_60px_-32px_rgb(20_18_14/0.45)] sm:p-6',
         sheetClasses,
       )}
     >
       <header className="flex min-w-0 items-start justify-between gap-4">
-        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words text-h2 font-bold text-ink">{title}</h2>
+        <h2 id={titleId} ref={fallbackRef} tabIndex={-1} className="min-w-0 break-words text-h2 font-semibold text-ink">{title}</h2>
         <Button
           type="button"
-          variant="quiet"
+          variant="secondary"
           disabled={busy}
           aria-label={closeLabel}
           onClick={() => onOpenChange(false)}
-          className="min-h-11 shrink-0 !px-2"
+          className="size-11 min-h-11 shrink-0 !px-0"
         >
-          {closeLabel}
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+            strokeLinecap="round" strokeLinejoin="round" className="size-5">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
         </Button>
       </header>
       <div data-dialog-content className="mt-4">{children}</div>

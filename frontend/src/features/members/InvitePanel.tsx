@@ -45,7 +45,7 @@ export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: 
   const { busy, recoveryInvitationId, canCheckAgain, link, invite, revoke } = actions;
   const { invitationHeadingRef, invitationStack, invitationCursor, invitationBusy, previousInvitations, nextInvitations } = inv;
   return <section role="region" aria-labelledby="members-invitations-section">
-    <div className="rounded-2xl border border-line bg-raised p-5 sm:p-6">
+    <div className="border-t border-line pt-5">
       <h2 id="members-invitations-section" className="text-h2 text-ink">{t('members.invite.title')}</h2>
       <p className="mt-1 max-w-prose text-small text-muted">{t('members.invite.intro')}</p>
       <Button className="mt-4 w-full whitespace-normal text-center sm:w-auto" disabled={busy || !listReady} onClick={() => void invite()}>
@@ -62,7 +62,7 @@ export function InvitePanel({ inv, actions, listReady, notice, formatDate, t }: 
       {link ? <InviteLink actions={actions} t={t} /> : null}
     </div>
     <div className="mt-6 border-t border-line pt-5">
-      <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="text-lg font-bold text-ink outline-none">{t('members.invitations.title')}</h3>
+      <h3 id="invitations-history-heading" ref={invitationHeadingRef} tabIndex={-1} className="text-h2 font-semibold text-ink outline-none">{t('members.invitations.title')}</h3>
       <InvitationsBody inv={inv} actions={actions} listReady={listReady} notice={notice} formatDate={formatDate} t={t} />
       {listReady && (invitationStack.length > 0 || invitationCursor)
         ? <CursorPager kind="invitation" stack={invitationStack} cursor={invitationCursor} busy={invitationBusy}

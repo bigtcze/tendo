@@ -6,7 +6,7 @@ type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSel
 
 export function Select({ className, ...props }: SelectProps) {
   const classes = [
-    'min-h-11 w-full rounded-xl border border-field bg-raised px-4 text-control text-ink transition-colors',
+    'min-h-11 w-full rounded-lg border border-field bg-raised px-3.5 text-control text-ink transition-colors',
     'hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus',
     'aria-[invalid=true]:border-danger aria-[invalid=true]:hover:border-danger disabled:cursor-not-allowed disabled:opacity-60',
   ].join(' ');
