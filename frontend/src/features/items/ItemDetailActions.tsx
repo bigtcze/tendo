@@ -78,8 +78,8 @@ function CompletionNotice(props: Props) {
 /** Archive stays a quiet text action: it is rare, and it must never compete with Done. */
 function ArchiveControl({ item, busy, stale, t, onArchive, onRestore }: Pick<Props, 'item' | 'busy' | 'stale' | 't' | 'onArchive' | 'onRestore'>) {
   return item.archived
-    ? <Button type="button" variant="quiet" size="small" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
-    : <Button type="button" variant="quiet" size="small" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
+    ? <Button type="button" variant="quiet" size="small" className="self-start sm:self-auto" disabled={busy || stale} onClick={onRestore}>{t('subjects.restore')}</Button>
+    : <Button type="button" variant="quiet" size="small" className="self-start sm:self-auto" disabled={busy || stale} onClick={onArchive}>{t('subjects.archive')}</Button>;
 }
 
 export function ItemDetailActions(props: Props) {
