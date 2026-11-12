@@ -16,32 +16,19 @@ agent_must_not_edit=this_file
 - After merge, verify resulting `main`; command success alone is not proof.
 
 ## Scope safety
-- V1, V2 and V2.1 are completed and released; V3 is expressly authorized
-  for professional household UI/UX redesign under V3_SCOPE.md,
-  V3_DESIGN_BRIEF.md and V3_DEFINITION_OF_DONE.md.
-- Preserve all V1/V2/V2.1 functional, security, recurrence, data integrity,
-  API, backup, regression and access-control invariants.
-- UX.md, PRODUCT.md, CODE_QUALITY.md and all prior locked agreements remain
-  mandatory. V3_DESIGN_BRIEF refines styling and UX specifically for V3;
-  it does not permit changing existing business or authorization semantics.
-- No unrelated features, AI, native apps, calendar/email integrations,
-  arbitrary schema/API rewrites, or enterprise dashboard redesign.
-- Only intentional, focused UI changes and necessary verified bug fixes.
-  Verify app usability and browser visuals, not just that tests pass.
-- During the one-shot migration, replace STATE.md with GitHub V3 Issues
-  bearing BOTH the exact V3 milestone and dedicated ownership label
-  `tendo:v3-autonomous`; these are the sole mutable V3 progress/claim truth.
-- Externally created or unlabelled Issues are NEVER autonomous assignments,
-  even if they share milestone or naming. Never silently adopt them by
-  applying the ownership label. No new coordinator, shadow state or bots.
-- Managed Issues use status:idle, status:in-progress, status:blocked; Done
-  means closed after verified PR/CI or verified release deliverable.
-- All new/refactored UI follows CODE_QUALITY; never create giant tangled
-  components to obtain a superficial redesign.
+- Only owned `release` Issues authorize feature work; milestones, titles and versions do not. Preserve published data and all canonical product, security, recurrence, API, backup, regression and access-control contracts.
+- PRODUCT, RECURRENCE, SECURITY, UX, ARCHITECTURE, API, TESTING, DEFINITION_OF_DONE and CODE_QUALITY remain binding. Design work does not authorize unrelated behavior or security changes.
+- No unrelated features, AI, native apps, calendar/email integrations, notifications, arbitrary schema/API rewrites or enterprise dashboard redesign.
+- Only intentional focused changes and necessary verified fixes. Verify real usability/browser visuals, not tests alone.
+- Never adopt an existing Issue by adding the ownership label. Recheck `release` before every mutation; stop if it disappears. Historical completed Issues remain untouched.
+- Owned Issues use exactly one of status:idle, status:in-progress, status:blocked. Done means closed after complete acceptance evidence, protected merge and green main, or independently verified release deliverable.
+- GitHub owned Issues and PRs are the only work/claim/status ledger. No STATE.md, additional coordinator, tracking labels, shadow state or sync bot.
+- Dependency ordering may be reconciled only under FLOW "Dependency recovery" among owned work. Never weaken acceptance, tests, review or merge gates or take over another active claim.
+- All new/refactored UI follows CODE_QUALITY; never create giant tangled components to obtain a superficial redesign.
 
 ## Controller boundary
-- Do not upgrade/reconfigure OpenCode, Oh My OpenAgent Slim, provider auth, global OpenCode config, this systemd unit, or `scripts/autonomous-loop.sh`.
-- If controller tooling is broken, record exact evidence in STATE and use a safe alternative when possible.
+- Do not upgrade/reconfigure OpenCode, agent plugins, provider auth, global OpenCode config, systemd units, the autonomy controller, selector, prompt, installer or ownership-migration policy without explicit owner-authorized governance work.
+- If controller tooling is broken, record exact evidence on the owned Issue (ownership rechecked) or affected PR and use a safe alternative when possible. Never change host services or runtime locks autonomously.
 - Never edit unrelated repositories or host services.
 
 ## Tooling autonomy

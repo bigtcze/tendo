@@ -1,5 +1,7 @@
 # V3-14 themes — System, Light and Dark
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 ## Decisions
 
 - **Default:** System. With no `data-theme` attribute, `@media (prefers-color-scheme: dark)` selects the dark color scheme, and `light-dark(light, dark)` resolves every semantic token. No JavaScript is required for a System user's initial theme or for a live OS appearance change.

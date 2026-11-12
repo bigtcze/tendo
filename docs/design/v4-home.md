@@ -1,8 +1,10 @@
 # V4-03 shell and Home
 
+> Historical record. It describes the V4 stage (released as `v4.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 status=V4-03_implemented
 issue=#411 (V4-03)
-direction=`.autonomous/V4_DESIGN_BRIEF.md` (desktop/mobile references are visual targets only)
+direction=[`.autonomous/V4_DESIGN_BRIEF.md`](https://github.com/bigtcze/tendo/blob/v4.0.0/.autonomous/V4_DESIGN_BRIEF.md) (desktop/mobile references are visual targets only)
 tokens=`v4-design-system.md` (V4-02)
 
 ## What changed

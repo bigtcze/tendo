@@ -1410,12 +1410,86 @@ rollback_units() {
   done
 }
 
+# Read-only readiness of the historical runtime that a rollback would restore.
+# Runs before any service stop, label or unit mutation: a backup whose restored
+# command cannot run must refuse here, not after the controller is stopped.
+readiness_refuse() { # reason
+  local root_head
+  root_head=$(state_value "$BACKUP/state.json" root_head 2>/dev/null || true)
+  logerr "root_head at backup (recovery revision): ${root_head:-<unknown>}"
+  logerr "recovery (owner only): the owner restores the historical compatible checkout at that revision"
+  logerr "  Recover a compatible historical checkout at ${root_head:-<root_head>} only after owner-led quiescence and work preservation."
+  logerr "  Do not checkout over active or dirty work; this installer never checks out, copies or fetches code."
+  refuse "$1; no service, label or unit was changed"
+}
+
+rollback_readiness() {
+  local tool missing=() unit file exec_line argv0 resolved root_real root_head required
+
+  for tool in python3 systemctl flock sha256sum realpath; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  [[ ${#missing[@]} -eq 0 ]] || readiness_refuse "missing required tool(s): ${missing[*]}"
+
+  root_real=$(realpath -e -- "$TENDO_ROOT" 2>/dev/null) || readiness_refuse "TENDO_ROOT ${TENDO_ROOT} does not resolve"
+
+  # Maintenance units are copied only when they existed at backup time, so only
+  # the controller unit is mandatory here.
+  [[ -f "${BACKUP}/units/${AUTONOMOUS_UNIT}" ]] || \
+    readiness_refuse "backup has no unit copy ${AUTONOMOUS_UNIT}"
+  for file in "$MAINT_SCRIPT" "$MAINT_PROMPT"; do
+    [[ -f "${BACKUP}/files/$(basename "$file")" ]] || \
+      readiness_refuse "backup has no copy of $(basename "$file")"
+  done
+
+  # Parse ExecStart with the existing unit parser (never eval).
+  exec_line=$(unit_text_tool first-line "${BACKUP}/units/${AUTONOMOUS_UNIT}" '^ExecStart=') || \
+    readiness_refuse "backup unit has no ExecStart="
+  exec_line=${exec_line#ExecStart=}
+  while [[ $exec_line == [[:space:]]* ]]; do exec_line=${exec_line#?}; done
+  while [[ $exec_line == [-@+!:]* ]]; do exec_line=${exec_line#?}; done
+  read -r argv0 _ <<<"$exec_line" || true
+  [[ -n $argv0 ]] || readiness_refuse "backup ExecStart names no command"
+  [[ $argv0 == /* ]] || readiness_refuse "backup ExecStart command is not absolute"
+  resolved=$(realpath -e -- "$argv0" 2>/dev/null) || \
+    readiness_refuse "restored command ${argv0} does not exist"
+
+  # Every required file is checked against the resolved TENDO_ROOT path.
+  required=("$MIGRATION")
+  case $resolved in
+    "$root_real"/scripts/autonomous-loop.sh)
+      [[ -x $resolved ]] || readiness_refuse "legacy loop ${resolved} is not executable"
+      required+=("$root_real/.autonomous/V5_CYCLE_PROMPT.md" \
+                 "$root_real/.autonomous/V5_ISSUES_WORKFLOW.md" \
+                 "$root_real/scripts/v5_work_selection.py")
+      log "P0 readiness: restored runtime is the legacy V5 loop"
+      ;;
+    "$root_real"/scripts/autonomy-controller.sh)
+      [[ -x $resolved ]] || readiness_refuse "controller ${resolved} is not executable"
+      required+=("$root_real/.autonomous/AUTONOMY_PROMPT.md" \
+                 "$root_real/scripts/autonomy-work-selection.py")
+      log "P0 readiness: restored runtime is the autonomy controller"
+      ;;
+    *)
+      readiness_refuse "restored ExecStart ${argv0} is not a known command under ${TENDO_ROOT} (expected autonomous-loop.sh or autonomy-controller.sh)"
+      ;;
+  esac
+  for file in "${required[@]}"; do
+    [[ -f $file && -r $file ]] || readiness_refuse "required file is missing or unreadable: ${file}"
+  done
+
+  root_head=$(state_value "${BACKUP}/state.json" root_head)
+  log "P0 readiness: OK; recovery revision (root_head at backup): ${root_head:-<unknown>}"
+  log "P0 recovery: if the checkout must change, the owner restores revision ${root_head:-<unknown>} manually; the installer never checks out, copies or fetches code"
+}
+
 run_rollback() {
   acquire_install_lock exclusive
   BACKUP=$(resolve_backup)
   log "rollback: using backup ${BACKUP} (phase $(manifest_phase "$BACKUP"))"
 
   rollback_refuse_running
+  rollback_readiness
 
   log "rollback: stopping ${AUTONOMOUS_UNIT}"
   systemctl --user stop "$AUTONOMOUS_UNIT"

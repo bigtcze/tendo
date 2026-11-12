@@ -1,5 +1,7 @@
 # V3 accessibility review
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 ## Automated evidence
 
 The production-browser E2E suite runs axe scans (WCAG 2.2 A/AA tags), measured text and control-boundary contrast, keyboard focus sweeps, target-size checks, responsive widths and zoom coverage. The route and measured-state scans run with both the real stored Light/System preference and the persisted Dark preference; tests assert `html[data-theme="dark"]` before accepting dark-mode results. Firefox and WebKit run a bounded owner journey across the primary household routes and widths.

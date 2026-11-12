@@ -1,5 +1,7 @@
 # V3 application shell (V3-07, #328)
 
+> Historical record. It describes the V3 stage (released as `v3.0.0`) and is not the current UX or security contract. Current contracts: [UX](../../.autonomous/UX.md), [SECURITY](../../.autonomous/SECURITY.md).
+
 Responsive household shell built on the [design system](v3-design-system.md). Screen composition inside `main` (Home columns, rows, detail) stays with V3-08 onward.
 
 ## Decisions

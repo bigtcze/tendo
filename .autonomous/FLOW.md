@@ -51,12 +51,8 @@ tags (`.autonomous/FLOW.md` at `v3.0.0`, `v4.0.0`).
   backup. It refuses (fails closed) on any active work, pending wrapper
   marker, dirty or unsynced checkout, red required CI or unknown unit
   configuration. Agents never run `--apply` or `--rollback`.
-- The retained legacy V5 loop (`scripts/autonomous-loop.sh`,
-  `scripts/v5_work_selection.py`, `V5_CYCLE_PROMPT.md`) is not run; it stays
-  only so `--rollback` can restore it.
-- Behavior tests: `bash scripts/autonomy-test.sh` (first stage of the local
-  gate and of required CI) runs the selector, controller, label-migration and
-  installer suites offline, plus the retained legacy loop tests.
+- Obsolete per-stage loops, selectors and prompts are removed from the current tree. Their original revisions remain in Git. Owner-only rollback refuses BEFORE service/label/unit mutation if the backed-up runtime is unavailable. Recover a compatible historical checkout at the backup's `root_head` as an explicit owner action; merely restoring an old unit cannot restore deleted executable files. The installer never changes repository history or silently installs a legacy launcher.
+- Behavior tests: `bash scripts/autonomy-test.sh` (first stage of the local gate and required CI) runs selector, permanent controller, label-migration, governance-contract and installer suites offline.
 - The controller, selector, installer, prompt and systemd units are
   controller configuration (AGENTS `must_not_self_change`); change them only
   through a human-authorized governance PR.
@@ -99,7 +95,7 @@ The first matching rule wins:
 6. the highest-value dependency-ready `status:idle` owned Issue (every
    "Blocked by" Issue closed); recurrence Issues rank first (P0), then an
    explicit `Priority: P<n>` body line, then the Issue code; a release
-   coordinator Issue ranks last; claimed per "Release Issue execution";
+   coordinator Issue ranks last; claimed per "Release Issue execution". If none is ready, an eligible owned dependency cycle or atomic-delivery blocker gets read-only `review-owned-dependencies` advice under "Dependency recovery", never automatic claim authority;
 7. remaining actionable dependency PRs;
 8. an eligible release: a merged security fix with runtime-meaningful changes
    since the latest release, or the 14-day patch window with
@@ -238,6 +234,20 @@ docs_ADR=durable_decisions_only
   dependency version or Tendo code relevant to it has changed.
 - Never claim unverified success.
 
+## Dependency recovery
+Execution order is not acceptance. Agents may repair self-imposed ordering and deliver tightly coupled owned work atomically without an owner decision, but may never reduce scope, weaken assertions, bypass review/CI or claim someone else's work.
+
+1. Re-read complete live Issue/PR comments, claim ownership, current heads, failed tests and dependency edges. The selector is read-only advice, never permission to mutate or bypass a dependency. Unknown evidence fails closed.
+2. Diagnose declared cycles (including self-dependency), a test-first prerequisite whose red tests need the dependent implementation to merge green, stale/self-imposed ordering or another recoverable engineering blocker. A cycle alone is not proof combining work is safe. Verify all participating Issues are owned, have valid lifecycle labels and no unresolved outside prerequisite.
+3. Claims remain binding until explicit RELEASE/HANDOFF by the claimant. Only the existing claimant may continue its branch; another agent must obtain explicit handoff and re-run the collision protocol. Claim age, `status:blocked`, a draft PR, an idle controller or an advisory review are never abandonment evidence. Do not comment or adjust ordering on an active claimant's Issues to take them over.
+4. Record a narrow evidence-backed resolution on each affected owned Issue (ownership rechecked): exact dependency edges, why they obstruct delivery, unchanged acceptance, combined PR or safe reordered entry, red commit/run and intended green checks. Prefer existing PR/branch after claim reconciliation; preserve red evidence and all intervening commits. Independent review must challenge the resolution before merge. No premature closure just to satisfy `Blocked by:`.
+5. For new blocker records use ordinary comments, not another state store: `BLOCKED agent=<identity> time=<UTC> kind=owned-dependency needs=#N recovery=combined` followed by evidence; genuine external/owner waits use `kind=external recovery=none` with exact reason and relevant change required. An advisory legacy prose review may identify an ordering proposal, but only the claimant can verify it and record the explicit resolution; prose never authorizes bypass. Issue-body acceptance stays stable; an ordering-line adjustment is allowed only after evidence and claim reconciliation, preserving the old edge and rationale in the comment.
+6. For test-first atomic delivery, demonstrate the regression fails before changing implementation, then keep the same contract assertions and merge tests plus fix in one coherent green PR referencing every participating owned Issue. Close each only after its own acceptance and verified green main. Never invert assertions, expected-failure-lock a known bug or merge deliberately red tests.
+7. Genuine external blockers (upstream outage, unavailable credentials/infrastructure, legal or scope decision, security exception, destructive/irreversible authority or protection gate) are not engineering-ordering recovery. Record the exact blocking fact, required relevant change and safe next action, then skip unchanged blockers. Time, unrelated comments, arbitrary main commits and restarts are not changed evidence. Recheck read-only facts when appropriate; never repeat the unchanged failing work.
+8. Concurrent Git changes: fetch and inspect before every push; a changed remote head or dirty/foreign work means stop and reconcile. No force push, reset, clean, rebase of published work or silent overwrites. Preserve all work; use a fresh isolated integration branch only after ownership reconciliation. A rejected normal push is a safety stop, not a reason to force it.
+
+Escalate only matters outside agent authority: scope expansion, security exception, destructive/irreversible action without an authorized safe path, credentials/infrastructure, legal decisions or branch-protection gates. Ordinary technical diagnosis, dependency adjustment among owned work and green atomic delivery do not require owner approval.
+
 ## Release Issue execution
 Owner-authorized ownership model (replaces the V5 milestone + label selector;
 see AGENTS "Ownership"):
@@ -265,16 +275,11 @@ see AGENTS "Ownership"):
   `release` + `status:idle`, one of them a release coordinator (body line
   `Release: vX.Y.Z` or a `vX.Y.Z` token in the title). No milestone, version
   label, cycle prompt or controller change is needed. Its scope and
-  definition-of-done documents are named in the Issues; locked files follow
-  the AGENTS precedence rules.
-- The open V5 Issues migrated from `tendo:v5-autonomous` to `release` at
-  cutover. Their acceptance content is still governed by the locked V5 files
-  (V5_SCOPE, V5_RECURRENCE_CONTRACT, V5_SECURITY_AND_MCP, V5_DESIGN_BRIEF,
-  V5_DEFINITION_OF_DONE). `.autonomous/V5_COMPLETE`, if its Issue still asks
-  for it, is completion evidence only and never stops the controller.
+  definition-of-done references resolve through the AGENTS compatibility table. Do not create new versioned governance files or copy acceptance into another database.
+- Existing open Issues retain all their acceptance through the canonical contracts and AGENTS compatibility table, without editing in-progress Issue bodies. Legacy instructions to exit a stage loop or resume a separate timer are replaced by proof that the permanent controller continues serialized maintenance after release. A requested final completion marker is evidence only, still delivered through a separately reviewed protected PR after release verification; never a stop condition.
 
 ## Recurrence priority
-Recurrence is product-critical (V5_RECURRENCE_CONTRACT, P0): owned recurrence
+Recurrence is product-critical (RECURRENCE, P0): owned recurrence
 Issues rank first among ready Issues. Reproduce a recurrence defect with a
 failing regression test before changing implementation; one canonical
 application service for UI/API/MCP; required-CI coverage at pure, real
@@ -282,7 +287,7 @@ PostgreSQL, browser and MCP layers.
 
 ## Design and visual validation
 - Before UI, token, rendering or visual-baseline work, read
-  `.autonomous/V5_DESIGN_BRIEF.md` (the current visual direction). The V4
+  `.autonomous/UX.md` (the current visual direction). The V4
   reference PNGs and earlier briefs are historical, never targets or evidence.
 - Evidence is real production-build browser captures (widths, CZ/EN, themes
   per the brief); never claim human approval without a recorded human action.
@@ -296,6 +301,7 @@ coordinator names (the matching SemVer bump, published two-service Compose,
 populated upgrade from the previous published release) and the applicable
 definition of done. While a coordinator Issue or a `release/v*` PR is open,
 automatic patch releases are suspended. Preserve all earlier markers and tags.
+Before release, explicitly review ALL outstanding PRs, including dependency PRs, on the release coordinator Issue (or release-notes PR for maintenance). No unexplained untriaged dependency PR or unverified queue may be published around. A genuinely blocked PR may remain open only with exact evidence and a justified recorded decision; unchanged external blockers need not be retried.
 
 ## Maintenance release
 Scheduler priority 8 (`security-release` / `patch-release`); never while a
