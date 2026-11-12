@@ -64,7 +64,7 @@ export async function measureDesign(page: Page): Promise<DesignMetrics> {
       h1: heading
         ? { fontSize: Number.parseFloat(getComputedStyle(heading).fontSize), top: Math.round(heading.getBoundingClientRect().top), left: Math.round(heading.getBoundingClientRect().left) }
         : null,
-      firstRowY: rowRects.length > 0 ? Math.round(rowRects[0]!.top) : null,
+      firstRowY: rowRects[0] ? Math.round(rowRects[0].top) : null,
       rowsFullyAboveFold: rowRects.filter((rect) => rect.bottom <= viewportHeight + 0.5).length,
       primaryAction: primaryRect
         ? { ...toBox(primaryRect), containerRightGap: primaryContainerRect ? Math.round(primaryContainerRect.right - primaryRect.right) : null }
@@ -76,7 +76,7 @@ export async function measureDesign(page: Page): Promise<DesignMetrics> {
     horizontalOverflow: base.horizontalOverflow,
     overflowOffenders: layout.overflowOffenders,
     smallestVisibleTextPx: base.smallestVisibleFontPx,
-    smallTargets: { count: base.interactiveTargetsUnder44, offenders: base.targetOffenders.slice(0, 5) },
+    smallTargets: { count: base.interactiveTargetsUnder44, offenders: base.targetOffenders },
     banner: layout.banner,
     mainInset: layout.mainInset,
     h1: layout.h1,

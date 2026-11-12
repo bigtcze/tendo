@@ -13,6 +13,12 @@ function required(name: string): string {
   return value;
 }
 
+/** Fixture lookups fail with a named message instead of a non-null assertion. */
+function present<T>(value: T | undefined | null, what: string): T {
+  if (value === undefined || value === null) throw new Error(`design fixture is missing ${what}`);
+  return value;
+}
+
 const dir = resolve(required('E2E_DESIGN_CAPTURE_DIR'));
 const BASE_URL = process.env.E2E_BASE_URL;
 const CONTEXT: BrowserContextOptions = {
@@ -25,6 +31,7 @@ const CONTEXT: BrowserContextOptions = {
 };
 // Item business dates are fixed by the runner; the browser clock is pinned to the same instant for relative copy.
 const FIXED_NOW = new Date('2026-05-14T08:00:00Z');
+const EXPECTED_CAPTURES = 20 * 6 * 2 * 2 + 2 * 2 * 2 + 2 * 2 * 2 * 2;
 
 /**
  * First run through the real onboarding form. Unlike the visual fixture it does not expect the v4 household-name
@@ -37,7 +44,7 @@ async function onboard(page: Page) {
   await page.getByLabel(en['onboarding.setupCode'], { exact: true }).fill(required('E2E_SETUP_TOKEN'));
   await page.getByLabel(en['onboarding.householdName']).fill(HOUSEHOLD);
   await page.locator('#onboarding-login').fill(REFERENCE_OWNER_LOGIN);
-  await page.locator('#onboarding-password').fill(ownerPassword!);
+  await page.locator('#onboarding-password').fill(present(ownerPassword, 'E2E_OWNER_PASSWORD'));
   await page.getByRole('button', { name: en['onboarding.submit'] }).click();
   await expect(page.getByRole('heading', { level: 1, name: en['onboarding.title'] })).toHaveCount(0);
   await expect(page.getByRole('button', { name: en['items.add'], exact: true }).first()).toBeVisible();
@@ -54,10 +61,11 @@ test.setTimeout(3_600_000);
 
 test('capture every route and state across widths, languages and themes', async ({ page, browser }) => {
   mkdirSync(dir, { recursive: true });
+  // The output directory is cleared below, so it must be a capture directory, never an arbitrary non-empty folder.
+  const foreign = readdirSync(dir).filter((name) => !name.endsWith('.png') && name !== 'metrics.json');
+  expect(foreign, `${dir} holds files that are not design captures; use an empty or capture-only directory`).toEqual([]);
   // A design baseline is a complete set: stale images from an earlier run must not look like current evidence.
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith('.png') || name === 'metrics.json') rmSync(join(dir, name));
-  }
+  for (const name of readdirSync(dir)) rmSync(join(dir, name));
   const shots = new DesignCapture(dir);
   await page.clock.install({ time: FIXED_NOW });
 
@@ -133,7 +141,7 @@ test('capture every route and state across widths, languages and themes', async 
     await expect(target.getByRole('heading', { name: catalog['allItems.noMatch'] })).toBeVisible();
   });
 
-  const detailItem = reference.items[0]!;
+  const detailItem = present(reference.items[0], 'reference item 1');
   await shots.state(page, 'item-detail', async (target) => {
     await open(target, `/items/${detailItem.id}`);
     await expect(target.getByRole('heading', { level: 1, name: detailItem.title, exact: true })).toBeVisible();
@@ -168,7 +176,7 @@ test('capture every route and state across widths, languages and themes', async 
     await expect(form.getByRole('spinbutton')).toBeVisible();
   });
 
-  const editItem = reference.items[1]!;
+  const editItem = present(reference.items[1], 'reference item 2');
   await shots.state(page, 'edit-item', async (target, catalog) => {
     await open(target, `/items/${editItem.id}`);
     await expect(target.getByRole('heading', { level: 1, name: editItem.title, exact: true })).toBeVisible();
@@ -223,7 +231,7 @@ test('capture every route and state across widths, languages and themes', async 
   await page.unroute(summaryPattern);
 
   // The 1000+ item Home is only worth the seeding cost at the two widths where list scale is a design question.
-  await seedLargeDataset(page, identity.apiRoot, reference.subjects.get('Home')!);
+  await seedLargeDataset(page, identity.apiRoot, present(reference.subjects.get('Home'), "subject 'Home'"));
   await shots.state(page, 'home-large', async (target) => {
     await open(target, '/');
     await expect(target.locator('main li[data-item-id]').first()).toBeVisible();
@@ -236,11 +244,14 @@ test('capture every route and state across widths, languages and themes', async 
     captures: shots.metrics,
   };
   const serialized = JSON.stringify(report, null, 2);
-  for (const secret of [process.env.E2E_SETUP_TOKEN, process.env.E2E_OWNER_PASSWORD]) {
-    expect(secret, 'runner credential fixture is present').toBeTruthy();
-    expect(serialized, 'metrics.json must not contain runner credentials').not.toContain(secret!);
+  for (const name of ['E2E_SETUP_TOKEN', 'E2E_OWNER_PASSWORD']) {
+    expect(serialized, 'metrics.json must not contain runner credentials').not.toContain(required(name));
   }
   writeFileSync(join(dir, 'metrics.json'), serialized);
-  expect(Object.keys(shots.metrics).length, 'metrics entry per capture').toBeGreaterThan(0);
+  // 20 states x 6 widths x 2 languages x 2 themes, the 1000+ item Home at 2 widths x 2 x 2, and full-page Home and
+  // detail at 2 widths x 2 x 2: a partial matrix must fail rather than look like a complete baseline.
+  expect(Object.keys(shots.metrics).length, 'metrics entry per capture').toBe(EXPECTED_CAPTURES);
+  const pngs = readdirSync(dir).filter((name) => name.endsWith('.png')).map((name) => name.slice(0, -'.png'.length)).sort();
+  expect(pngs, 'one screenshot per metrics entry').toEqual(Object.keys(shots.metrics).sort());
   console.info(`design-capture-complete captures=${Object.keys(shots.metrics).length} dir=${dir}`);
 });

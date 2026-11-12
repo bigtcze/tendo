@@ -4,8 +4,8 @@ status=V5-05_evidence (Issue #449)
 source_commit=5bd7647 (main, application code identical to published v4.0.0 UI)
 approval=none. No human has reviewed, approved or user-tested anything in this document. The chosen direction is an
 agent decision based on the evidence below and stays open to the owner's override.
-governing=`.autonomous/V5_DESIGN_BRIEF.md`, `.autonomous/V5_SCOPE.md` (UI bullets). Historical V4 reference PNGs are not
-evidence here.
+governing=`.autonomous/UX.md` ("Production screenshot workflow", "Visual direction"; it carries the former V5 design
+brief). Historical V4 reference PNGs are not evidence here.
 
 ## 1. Method
 
@@ -43,15 +43,55 @@ Runs (scratch evidence, not committed in full; about 31 MiB each). All three wer
 | Direction B | `proto/v5-direction-b` 3174c0d | exit 0, 504 entries | `f55f2c75c158ecba7c5f5f14d7fc578a7fd9c5fadb892cbc789d5bac9c0eab58` |
 | Direction A | `proto/v5-direction-a` 0b138d2 | exit 0, 504 entries | `a37a88418de6eb5bc282393b95eac54c161e2814a96c7653666b763ab4aa3b5a` |
 
-Measurement caveat: the small-target check runs right after the viewport is resized. A single capture per run can
-catch the phone bottom bar mid-reflow (links measured 4 x 56 px while the screenshot shows a normal bar). In this run
-that hit v4 `item-detail-cs-dark-320` (5 bottom-bar links); an earlier run hit B `admin-cs-dark-320` instead. Such
-one-off 4 px-wide readings are treated as harness noise, not as findings, and are called out where they appear.
+Harness on the prototypes: the prototype branches do not contain the harness. Each prototype worktree was captured
+with uncommitted copies of the seven harness files that are byte-identical to the versions committed with this
+document (checked with `cmp`), so all three runs used the same capture code.
+
+Measurement caveats:
+
+- The small-target check runs right after the viewport is resized. It is not deterministic: occasionally one capture
+  catches the phone bottom bar mid-reflow (links measured 4 x 56 px while the screenshot shows a normal bar), and which
+  capture is hit differs between runs. In the runs above it hit v4 `item-detail-cs-dark-320` (5 bottom-bar links)
+  and nothing else. Such one-off 4 px-wide readings are treated as harness noise, not as findings.
+- The per-capture count of small targets is complete, but the runs above recorded at most 5 named offenders per
+  capture (the harness now keeps all of them). The offender tables below therefore list the controls that were named;
+  a capture with more offenders than names may hide further controls of the same kind.
+
+### 1.1 Coverage and exclusions
+
+The matrix above covers the 20 states listed; it is not every reachable state of the app. These states were not
+captured in the 6-width x 2-language x 2-theme matrix. The right column names the evidence that does exist for them;
+all of it is v4 production-build evidence only, at fewer widths, and none of it exists for Directions A or B:
+
+| State not in the matrix | Existing evidence (v4 production build) |
+| --- | --- |
+| Item with an invalid or foreign id | journey `n10` (indistinguishable from missing data); `not-found` in the matrix is the same screen |
+| Signed in without a household ("Join your household by invitation") | journey `n9` asserts the screen; no screenshot |
+| Member (non-admin) view of Members and Admin center | visual snapshots `members-non-owner-{390,1440}`, `admin-member-{390,1440}` |
+| Valid reset-password form | visual snapshots `reset-password-{light,dark,cs}-*` |
+| Admin one-time reset link dialog | visual snapshots `admin-reset-link-*` |
+| Account appearance focus states (Account has no password-change form; passwords change through the admin reset link) | `account` in the matrix shows the page; focus states in UX audit `auth-account-appearance-focus-*` |
+| OIDC sign-in available, conflict, provider error, outcome | UX audit `auth-login-oidc-*` at 390 (one at 1440) |
+| Session ended, rate limited, boot loading, boot unavailable | UX audit `auth-login-session-ended`, `auth-login-rate-limited`, `auth-boot-*` at 390 |
+| Onboarding validation and server error | visual `onboarding-error-*`; UX audit `auth-onboarding-*` |
+| Loading states (Home, People, Members) | journey `n18`; UX audit `audit-people-loading`, `audit-members-loading` |
+| Confirm, revoke and invite dialogs; invitation link shown once | UX audit `audit-members-revoke-confirm`, `audit-members-link-*`; journey `n7`, `n25` |
+| Archived item detail, All items with Show: Archived, archived people | visual `detail-archived-*`, `people-archived-*`; journey `n4`, `n12` (status filter), `l`; UX audit `audit-people-archived-view-*` |
+| Edit conflict (stale save) | visual `edit-conflict-*`; UX audit `audit-item-edit-conflict-en-390` |
+| Home with exactly 1 item, or with about 100 items | not captured; the matrix has 0, 10 and 1000+ items |
+| System theme (no stored preference) | `theme.spec.ts` asserts first-paint background for system/light/dark on signed-out routes; not photographed |
+| Signed-out 404, connection error | visual `not-found-signed-out-*`; `auth-boot-unavailable` |
+
+Visual snapshots live in `frontend/e2e/visual/visual.spec.ts-snapshots/`; UX-audit images are produced by
+`frontend/e2e/ux-audit.spec.ts` (with `frontend/e2e/audit/`) and are not committed. The findings in section 2 are
+therefore findings about the 20 captured states; the excluded states are expected to inherit the shell-level findings
+(header, insets, eyebrows, cards) because they use the same layout components, but that is an inference, not a
+measurement. The later V5 design Issues must extend the matrix to these states before their screen families ship.
 
 Curated v4 screenshots are in [`v4/`](v4/); curated direction screenshots are in [`a/`](a/) and [`b/`](b/). All three
 folders contain the same file names (`<state>-<lang>-<theme>-<width>.png`, plus `admin-cs-dark-320` and
 `item-detail-en-light-1440` for the directions), so any state can be compared side by side by opening the same name
-in each folder. All curated PNGs come from the three runs listed below.
+in each folder. All curated PNGs come from the three runs listed above.
 
 ## 2. v4 audit (production build)
 
@@ -124,7 +164,7 @@ short settings and leaves 400 px empty at 1440 ([account](v4/account-cs-light-14
 | All items | Filter panel is a large card above results; on phones search and filters push the first result to y≈455; rows repeat the full status sentence with the year | [1440](v4/all-items-en-light-1440.png), [390](v4/all-items-cs-dark-390.png) |
 | Detail | Facts card plus actions card plus history card; history is unpaginated | [1920](v4/item-detail-en-light-1920.png) |
 | Large data | 1000+ items: 519 "needs attention" rows render in groups; phone shows 5 rows above the fold | [390](v4/home-large-en-dark-390.png) |
-| Phone navigation | Bottom bar has Home, Items, People, Members, Account; Archive and Admin center are not on it | [390](v4/home-populated-cs-light-390.png) |
+| Phone navigation | Bottom bar has Home, Items, People, Members, Account; Admin center has no phone tab, and archived items have no navigation entry of their own (they are reached through Items → Show: Archived) | [390](v4/home-populated-cs-light-390.png) |
 | Signed-out | Language switch floats bottom-right, far from the form | [login 1920](v4/login-cs-light-1920.png) |
 | Dark theme | Light-cyan primary buttons with dark text are the brightest element on screen and outweigh the content | [768 dark](v4/home-populated-cs-dark-768.png) |
 
@@ -166,7 +206,7 @@ the header; subject pills became plain text; groups use small uppercase headings
 ([1440](b/item-detail-en-light-1440.png), [cs 390](b/item-detail-cs-dark-390.png)), add/edit forms
 ([edit](b/edit-item-en-light-1440.png), [add](b/add-item-cs-dark-390.png)), admin ([1440](b/admin-en-dark-1440.png)),
 people, members and account, all of which still carry eyebrows and subtitles. The header search sits left-centre with
-account actions next to it rather than at the right edge, leaving the right two thirds of the 1920 bar empty. At 320 px
+account actions next to it rather than at the right edge, leaving about half of the 1920 bar empty. At 320 px
 Czech the switcher truncates to "N…" ([admin 320](b/admin-cs-dark-320.png)). Sign-in remains framed
 ([login 1920](b/login-cs-light-1920.png)). The pill row at the top of Home is kept, so status is still stated three
 times. Rows keep v4's card frame, a coloured icon tile per row and an outlined Done button per row; at 1920 the subject,
@@ -203,8 +243,8 @@ Small-target offenders in A (each repeats on every signed-in capture where it is
 | Control | Measured box | Where |
 | --- | --- | --- |
 | Household menu button in the header | 126 x 36 px | every signed-in capture, all widths |
-| Sidebar links (Home … Admin center) | 207 x 40 px | every signed-in capture at 1024+ |
-| Home "Add item" | 121 x 40 px | Home at every width |
+| Sidebar links (Home … Admin center) | 207 x 40 px (216 x 40 px in 12 captures at 1024) | every signed-in capture at 1024+ |
+| Home "Add item" | 121 x 40 px (Czech "Přidat položku" 164 x 40 px) | Home at every width |
 | Home "Add an item…" entry row | full column x 40 px | Home at every width |
 | Row Done circle | 28 x 28 px | every Home row. A's README (W11) says a pseudo-element extends the hit area to about 44 px; the harness measures the element box, so the larger hit area is unverified |
 | Row title link | column x 24 px | every Home row (the whole row is not the link) |
@@ -238,7 +278,8 @@ Observed in screenshots:
 - **Duplicate entry points:** Home shows both an "Add item" button and an "Add an item…" row directly below it, and
   both open the same sheet. Two controls for one action, introduced by the unfinished inline create.
 - **Phone navigation:** 4 tabs (Home, Items, People, More); Archive, Members, Account and Admin are in the More sheet,
-  so Archive is reachable on phones (v4 and B have no phone Archive).
+  so archived items get their own phone entry. In v4 and B archived items are reachable on phones only through
+  Items → Show: Archived.
 
 ### 3.3 Required E2E smoke on each prototype
 
@@ -258,7 +299,7 @@ above, not taste.
 | --- | --- | --- | --- |
 | Usefulness: rows visible on a phone | 3 | 5 | 6 |
 | Usefulness: steps to finish an item from Home | 1 tap (row Done) | 1 tap | 1 tap |
-| Usefulness: Archive on phone | no | no | yes (More) |
+| Usefulness: dedicated Archive entry on phone | no (Items → Show: Archived) | no (same) | yes (More → Archive) |
 | Usefulness: global search | All items only | header search at 640+ | All items only |
 | Usefulness: household in header | no | yes, truncates to "N…" at 320 cs | yes |
 | Accessible density: targets ≥ 44 px | yes | yes | **no** (368 captures) |
@@ -271,6 +312,14 @@ above, not taste.
 | Polish: icon tiles and pills on every row | yes | tiles kept, pills removed | both removed |
 | Scope covered by the prototype | — | shell + Home | shell, Home, detail, lists, people, members, account, admin, phone nav |
 
+**Maturity benchmark (brief step 2).** The former brief asked to benchmark the information-architecture discipline
+of mature task apps (Things 3) and dense but clear tools (Linear), principles only. No such app was opened or measured
+for this audit, so no claim is made about how either direction compares to them. The principles used as the yardstick
+in this section are the ones `.autonomous/UX.md` states directly: one obvious primary action per context; compact
+title with the primary action on the same line and no promotional heading or tagline; no repeated status words or
+pills on every row; no decorative cards or generic AI dashboard visuals; 44 px touch targets; no phone-width column
+in a wide empty canvas. Each row of the table above applies one of these to a measured or visible difference.
+
 **B's strengths:** it keeps every v4 accessibility guarantee intact (no target regressions), its header search is a
 real usability gain on desktop, and it is the smaller, safer diff. **B's weakness:** it is a shell-and-Home pass. The
 generic dashboard grammar the brief rejects (cards, icon tiles, per-row outlined Done buttons, pill row, eyebrows,
@@ -279,7 +328,7 @@ than v4's.
 
 **A's strengths:** it answers every composition finding in section 2 on the signed-in app, not only on Home; it shows
 the most rows above the fold on phones, the lowest DOM per item, the clearest detail hierarchy and the only phone path
-to Archive. **A's weaknesses:** it regresses the one thing v4 measured perfectly, target size (36–40 px controls and a
+to a dedicated Archive view. **A's weaknesses:** it regresses the one thing v4 measured perfectly, target size (36–40 px controls and a
 28 px Done circle across 368 captures); its required E2E smoke fails `n23` at 200 % zoom; inline create is missing and leaves two add
 controls on Home; signed-out screens, subtitles and the Czech date placeholder are untouched; the 760 px column
 under-uses 1920 px displays.
