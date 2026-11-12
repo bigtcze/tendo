@@ -22,6 +22,14 @@ set -u -o pipefail
 # ignored: the process exits only after the cycle's process group is gone, so
 # the locks are never released while a child could still be running.
 #
+# Fail-closed cleanup: zombies do not count as live group members, so a group
+# whose remaining members are already dead is treated as gone. If live members
+# survive SIGKILL past CYCLE_DRAIN_TIMEOUT the controller never resumes polling
+# (or waits on them forever): it logs an error and exits 70. Under systemd the
+# released locks are safe to hand over, because TimeoutStopSec/KillMode=
+# control-group stops the whole cgroup on unit stop or restart (killing the
+# remnants) while Restart=on-failure starts one clean controller.
+#
 # Locks: both locks are held for the whole process lifetime and are never
 # inherited by children (8>&- 9>&-). The singleton lock prevents a second
 # controller; the legacy maintenance lock keeps the host maintenance
@@ -57,9 +65,19 @@ SELECTION_SCRIPT="${SELECTION_SCRIPT:-${ROOT}/scripts/autonomy-work-selection.py
 RECOVERY_DECISION='DECISION priority=3 kind=wrapper-recovery target=- (pending cycle marker present; the safe wrapper resumes the recorded session)'
 
 BUSY_EXIT=75
+# A live cycle process survived SIGKILL: never resume work next to it.
+FAIL_CLOSED_EXIT=70
 
 log() { printf '[autonomy] %s\n' "$*"; }
 err() { printf '[autonomy] %s\n' "$*" >&2; }
+
+# Fail closed: a live cycle process could still touch the repository. Stay
+# down and let the process manager stop the unit's whole cgroup and start a
+# fresh instance (Restart=on-failure) instead of polling/starting new work.
+fail_closed() {
+  err "fail-closed: ${1}; exiting ${FAIL_CLOSED_EXIT} so the service manager cleans up the whole cgroup"
+  exit "${FAIL_CLOSED_EXIT}"
+}
 
 require_int() {
   local name="$1" value="$2" minimum="$3"
@@ -187,7 +205,43 @@ loops=0
 failure_sleep="${FAIL_SLEEP_BASE}"
 selection_sleep="${FAIL_SLEEP_BASE}"
 
-group_alive() { kill -0 -- "-$1" 2>/dev/null; }
+# group_alive <pgid>: true while the process group has a member that can still
+# run. Zombies (and dead entries) are ignored on purpose: they hold no
+# resources and cannot touch the repository, so a group of only zombies counts
+# as gone. Without this, a normally reaped leader's group could look alive for
+# a moment and every drain would see a phantom leftover.
+#
+# AUTONOMY_TEST_GROUP_ALIVE_FILE is a test-only knob (never set in service): as
+# long as that file exists every group is reported alive, which lets the
+# behavior tests simulate a member that never disappears.
+group_alive() {
+  local pgid="$1" stat line state rest pgrp
+  if [[ -n "${AUTONOMY_TEST_GROUP_ALIVE_FILE:-}" ]]; then
+    # Explicit statuses: a bare `return` inside a trap handler inherits the
+    # interrupted wait status in bash and would report the wrong answer.
+    if [[ -e "${AUTONOMY_TEST_GROUP_ALIVE_FILE}" ]]; then
+      return 0
+    fi
+    return 1
+  fi
+  for stat in /proc/[0-9]*/stat; do
+    [[ -r "${stat}" ]] || continue
+    # stderr first: the process may vanish between the glob and the read.
+    read -r line 2>/dev/null <"${stat}" || continue
+    # /proc/<pid>/stat: "pid (comm) state ppid pgrp ..."; comm may contain
+    # spaces and parentheses, so cut through the last ") ".
+    line="${line##*) }"
+    state="${line%% *}"
+    case "${state}" in
+      Z | X) continue ;;
+    esac
+    rest="${line#* }" # ppid pgrp ...
+    rest="${rest#* }" # pgrp ...
+    pgrp="${rest%% *}"
+    [[ "${pgrp}" == "${pgid}" ]] && return 0
+  done
+  return 1
+}
 
 # wait_group_empty <pgid> <grace-seconds>: 0 when the group disappeared.
 # Poll ticks are tagged so behavior tests can tell internal polling apart from
@@ -202,9 +256,11 @@ wait_group_empty() {
 }
 
 # Terminate the current child (and its process group when it leads one) and
-# wait until nothing is left. Safe to call when no child is running.
+# wait until nothing is left. Safe to call when no child is running. Returns 1
+# when live group members survived SIGKILL past the bound: the caller must then
+# fail closed and must not wait on the direct child again.
 stop_child() {
-  local pid="${child_pid}" was_group="${child_group}"
+  local pid="${child_pid}" was_group="${child_group}" leftover=0
   [[ -n "${pid}" ]] || return 0
   child_pid=""
   kill -TERM "${pid}" 2>/dev/null || true
@@ -213,15 +269,19 @@ stop_child() {
     if ! wait_group_empty "${pid}" "${CYCLE_STOP_GRACE}"; then
       err "child processes ignored SIGTERM for ${CYCLE_STOP_GRACE}s; sending SIGKILL"
       kill -KILL -- "-${pid}" 2>/dev/null || true
-      # A process stuck in uninterruptible state cannot be reaped; never let
-      # the shutdown hang forever waiting for the group to disappear.
       if ! wait_group_empty "${pid}" "${CYCLE_DRAIN_TIMEOUT}"; then
-        err "child process group ${pid} survived SIGKILL for ${CYCLE_DRAIN_TIMEOUT}s; not waiting any longer"
+        err "child process group ${pid} still has live members after SIGKILL and ${CYCLE_DRAIN_TIMEOUT}s"
+        leftover=1
       fi
     fi
   fi
-  wait "${pid}" 2>/dev/null || true
+  # Never block on `wait` once the deadline expired: a process in
+  # uninterruptible state would hang the shutdown forever.
+  if [[ "${leftover}" -eq 0 ]]; then
+    wait "${pid}" 2>/dev/null || true
+  fi
   child_group=0
+  [[ "${leftover}" -eq 0 ]]
 }
 
 on_signal() {
@@ -239,7 +299,12 @@ on_signal() {
   # affects the controller itself.
   trap '' HUP INT TERM
   err "received SIG${name}; stopping the running cycle before releasing locks"
-  stop_child
+  if ! stop_child; then
+    # No unbounded wait and no fail-closed exit 70 here: this is a requested
+    # stop, so exit with the signal status and let the unit's cgroup kill reap
+    # the remnant (KillMode=control-group) before any restart.
+    err "shutdown: live cycle group members survived SIGKILL; leaving them to the service manager's cgroup cleanup"
+  fi
   exit $((${number} + 128))
 }
 trap 'on_signal HUP 1' HUP
@@ -309,7 +374,7 @@ drain_group() {
         err "cycle ${cycle} background processes ignored SIGTERM; sending SIGKILL"
         kill -KILL -- "-${pgid}" 2>/dev/null || true
         if ! wait_group_empty "${pgid}" "${CYCLE_DRAIN_TIMEOUT}"; then
-          err "cycle ${cycle} process group ${pgid} survived SIGKILL for ${CYCLE_DRAIN_TIMEOUT}s; not waiting any longer"
+          fail_closed "cycle ${cycle} process group ${pgid} still has live members after SIGKILL and ${CYCLE_DRAIN_TIMEOUT}s"
         fi
       fi
       break

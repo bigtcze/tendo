@@ -884,6 +884,46 @@ else
   fail "${name}" "the controller never entered the drain"
 fi
 
+# A shutdown must stay bounded when the group never disappears: no `wait` on a
+# child that survived SIGKILL, and no fail-closed hang.
+new_case fail-closed-shutdown
+printf 'DECISION priority=6 kind=claim-issue target=issue #913 Stuck work\nREASON stuck\n' \
+  >"${STATE}/selout.1"
+hook 'touch "${FAKE_STATE}/cycle-started"
+while :; do /bin/sleep 0.1; done'
+touch "${STATE}/group-never-gone"
+start_controller_bg CYCLE_STOP_GRACE=1 CYCLE_DRAIN_TIMEOUT=1 \
+  AUTONOMY_TEST_GROUP_ALIVE_FILE="${STATE}/group-never-gone"
+name="fail-closed-shutdown: shutdown stays bounded when the group never disappears"
+if wait_for "${STATE}/cycle-started"; then
+  started=$(date +%s)
+  kill -TERM "${CTRL_PID}"
+  RC=0
+  wait "${CTRL_PID}" || RC=$?
+  elapsed=$(( $(date +%s) - started ))
+  expect_eq "${name}" 143 "${RC}"
+  if ((elapsed <= 6)); then
+    pass "fail-closed-shutdown: no unbounded wait after the expired deadline"
+  else
+    fail "fail-closed-shutdown: no unbounded wait after the expired deadline" "took ${elapsed}s"
+  fi
+  expect_grep "fail-closed-shutdown: the surviving group is named" \
+    'still has live members after SIGKILL' "${OUT_FILE}"
+  expect_grep "fail-closed-shutdown: the shutdown leftovers are logged" \
+    'live cycle group members survived SIGKILL' "${OUT_FILE}"
+  expect_grep "fail-closed-shutdown: the stubborn group is killed" 'sending SIGKILL' "${OUT_FILE}"
+  if lock_free "${RUNTIME}/tendo-autonomous-${UID}.lock" &&
+    lock_free "${RUNTIME}/tendo-maintenance-${UID}.lock"; then
+    pass "fail-closed-shutdown: both locks are free after exit"
+  else
+    fail "fail-closed-shutdown: both locks are free after exit" "a lock is still held"
+  fi
+else
+  kill -KILL "${CTRL_PID}" 2>/dev/null || true
+  wait "${CTRL_PID}" 2>/dev/null || true
+  fail "${name}" "the session never started"
+fi
+
 # --- 13. cycle timeout ------------------------------------------------------
 
 new_case cycle-timeout
@@ -951,6 +991,107 @@ if grep -qx '1' "${STATE}/poll-sleeps" 2>/dev/null &&
 else
   fail "drain-timeout: drain polls are recorded separately" "poll ticks: $(poll_log)"
 fi
+
+# A live member that survives SIGKILL past the drain deadline must never be
+# followed by another poll or a new cycle: the controller fails closed.
+new_case fail-closed-drain
+printf 'DECISION priority=6 kind=claim-issue target=issue #911 Stuck work\nREASON stuck\n' \
+  >"${STATE}/selout.1"
+printf 'DECISION priority=idle kind=none target=-\nREASON nothing left\n' >"${STATE}/selout.2"
+hook 'touch "${FAKE_STATE}/job-started"'
+touch "${STATE}/group-never-gone"
+run_controller AUTONOMY_MAX_LOOPS=2 CYCLE_DRAIN_TIMEOUT=1 CYCLE_STOP_GRACE=1 \
+  AUTONOMY_TEST_GROUP_ALIVE_FILE="${STATE}/group-never-gone"
+expect_eq "fail-closed-drain: a live leftover after SIGKILL exits 70" 70 "${RC}"
+expect_eq "fail-closed-drain: no second selection after the failure" 1 "$(sel_calls)"
+expect_eq "fail-closed-drain: only the one cycle ran" 1 "$(run_calls)"
+expect_grep "fail-closed-drain: the drain bound is logged" \
+  'drain timeout; terminating the remaining process group' "${OUT_FILE}"
+expect_grep "fail-closed-drain: the surviving group is named" \
+  'still has live members after SIGKILL' "${OUT_FILE}"
+expect_grep "fail-closed-drain: the fail-closed exit is logged" 'fail-closed:' "${OUT_FILE}"
+if lock_free "${RUNTIME}/tendo-autonomous-${UID}.lock" &&
+  lock_free "${RUNTIME}/tendo-maintenance-${UID}.lock"; then
+  pass "fail-closed-drain: both locks are free after the fail-closed exit"
+else
+  fail "fail-closed-drain: both locks are free after the fail-closed exit" "a lock is still held"
+fi
+
+# Zombies are not live members: a group whose only remaining member is a zombie
+# must not look like a leftover (otherwise fail-closed would fire on ordinary
+# cycles). The zombie is created by a helper outside the cycle group: its
+# exited child moved itself into the cycle's group and stays unreaped while the
+# helper sleeps.
+new_case zombie-only
+printf 'DECISION priority=6 kind=claim-issue target=issue #912 Zombie work\nREASON zombie\n' \
+  >"${STATE}/selout.1"
+printf 'DECISION priority=idle kind=none target=-\nREASON nothing left\n' >"${STATE}/selout.2"
+hook 'ps -o pgid= -p $$ | tr -d " " >"${FAKE_STATE}/cycle-pgid.tmp" &&
+mv "${FAKE_STATE}/cycle-pgid.tmp" "${FAKE_STATE}/cycle-pgid"
+for _ in $(seq 200); do
+  [[ -e "${FAKE_STATE}/zombie-ready" ]] && break
+  /bin/sleep 0.05
+done'
+cat >"${CASE}/zombie-helper.py" <<'EOF'
+import os
+import sys
+import time
+
+pgid_file, ready_file, pid_file = sys.argv[1:4]
+pgid = 0
+for _ in range(1000):
+    text = ""
+    try:
+        text = open(pgid_file).read().strip()
+    except OSError:
+        text = ""
+    if text:
+        pgid = int(text)
+        break
+    time.sleep(0.02)
+if pgid == 0:
+    open(pid_file, "w").write("FAIL no cycle pgid")
+    open(ready_file, "w").close()
+    sys.exit(1)
+pid = os.fork()
+if pid == 0:
+    try:
+        os.setpgid(0, pgid)
+        with open(pid_file, "w") as fh:
+            fh.write("%d %d" % (os.getpid(), os.getpgid(0)))
+    except OSError as exc:
+        with open(pid_file, "w") as fh:
+            fh.write("FAIL %s" % exc)
+    os._exit(0)
+for _ in range(500):
+    state = ""
+    try:
+        with open("/proc/%d/stat" % pid) as fh:
+            state = fh.read().split(") ", 1)[1][:1]
+    except OSError:
+        state = ""
+    if state == "Z":
+        break
+    time.sleep(0.01)
+open(ready_file, "w").close()
+time.sleep(30)
+EOF
+python3 "${CASE}/zombie-helper.py" "${STATE}/cycle-pgid" "${STATE}/zombie-ready" \
+  "${STATE}/zombie-pid" &
+ZOMBIE_HELPER=$!
+holders+=("${ZOMBIE_HELPER}")
+run_controller AUTONOMY_MAX_LOOPS=2
+zombie_pid=$(cut -d' ' -f1 "${STATE}/zombie-pid" 2>/dev/null)
+zombie_pgid=$(cut -d' ' -f2 "${STATE}/zombie-pid" 2>/dev/null)
+zombie_state=$(ps -o stat= -p "${zombie_pid:-0}" 2>/dev/null | tr -d ' ')
+kill "${ZOMBIE_HELPER}" 2>/dev/null || true
+wait "${ZOMBIE_HELPER}" 2>/dev/null || true
+expect_eq "zombie-only: the zombie really was in the cycle's process group" \
+  "$(cat "${STATE}/cycle-pgid" 2>/dev/null)" "${zombie_pgid}"
+expect_eq "zombie-only: the remaining member really was a zombie" Z "${zombie_state:0:1}"
+expect_eq "zombie-only: a zombie-only group never trips fail-closed" 0 "${RC}"
+expect_absent_grep "zombie-only: no drain wait is logged" 'left background processes' "${OUT_FILE}"
+expect_eq "zombie-only: both loops still select" 2 "$(sel_calls)"
 
 # --- 15. crash recovery and restart -----------------------------------------
 

@@ -81,6 +81,7 @@ unit_text_tool() {
   python3 - "$@" <<'PY'
 import os
 import re
+import shlex
 import sys
 
 SENSITIVE = re.compile(r"TOKEN|KEY|SECRET|PASSWORD|AUTH", re.IGNORECASE)
@@ -96,11 +97,28 @@ def read_lines(path):
 
 
 def join_continuations(lines):
+    """Join systemd line continuations; comment lines never break a pending one.
+
+    systemd skips lines whose first non-space character is '#' or ';' and keeps
+    a pending continuation pending. Dropping the comment but keeping the buffer
+    means a secret on the line after the comment is still part of the same
+    logical line and is therefore redacted/validated with it.
+    """
     logical = []
     buffer = None
     for raw in lines:
-        line = raw if buffer is None else buffer + " " + raw.lstrip()
-        buffer = None
+        stripped = raw.lstrip()
+        is_comment = stripped.startswith("#") or stripped.startswith(";")
+        if buffer is not None:
+            if is_comment:
+                continue
+            line = buffer + " " + stripped
+            buffer = None
+        else:
+            if is_comment:
+                logical.append(raw)
+                continue
+            line = raw
         trailing = len(line) - len(line.rstrip("\\"))
         if trailing % 2 == 1:
             buffer = line[:-1]
@@ -151,22 +169,42 @@ def parse_assignments(value):
     return spans
 
 
+def decode_c(text):
+    """Decode the C-style escapes systemd uses in show output / unit files."""
+    mapping = {"n": "\n", "t": "\t", "r": "\r", "s": " ",
+               "\\": "\\", '"': '"', "'": "'"}
+    out = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and index + 1 < len(text):
+            nxt = text[index + 1]
+            if nxt == "x" and index + 3 < len(text):
+                try:
+                    out.append(chr(int(text[index + 2:index + 4], 16)))
+                    index += 4
+                    continue
+                except ValueError:
+                    pass
+            if nxt in mapping:
+                out.append(mapping[nxt])
+                index += 2
+                continue
+            out.append(nxt)
+            index += 2
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def unquote(raw):
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
         inner = raw[1:-1]
         if raw[0] == "'":
             return inner
-        out = []
-        index = 0
-        while index < len(inner):
-            if inner[index] == "\\" and index + 1 < len(inner):
-                out.append(inner[index + 1])
-                index += 2
-                continue
-            out.append(inner[index])
-            index += 1
-        return "".join(out)
-    return raw
+        return decode_c(inner)
+    return decode_c(raw)
 
 
 def env_pairs(value):
@@ -220,7 +258,7 @@ def dropin_bad_keys(path):
     bad = []
     for line in join_continuations(read_lines(path)):
         stripped = line.strip()
-        if not stripped or stripped.startswith("#") or (
+        if not stripped or stripped.startswith("#") or stripped.startswith(";") or (
             stripped.startswith("[") and stripped.endswith("]")
         ):
             continue
@@ -283,7 +321,10 @@ def check_effective(args):
     argv = []
     match = re.search(r"argv\[\]=([^;]*)", exec_start)
     if match:
-        argv = match.group(1).strip().split()
+        try:
+            argv = shlex.split(match.group(1).strip())
+        except ValueError:
+            argv = match.group(1).strip().split()
     if not argv:
         match = re.search(r"path=([^ ;]+)", exec_start)
         if match:
@@ -791,7 +832,7 @@ expected_config_problems() {
   local show_file problems status=0
   show_file=$(mktemp)
   if ! systemctl --user show "$AUTONOMOUS_UNIT" \
-      -p ExecStart -p Restart -p KillMode -p TimeoutStopSec \
+      -p ExecStart -p Restart -p KillMode -p TimeoutStopUSec \
       -p DropInPaths -p Environment >"$show_file" 2>&1; then
     printf 'systemctl show failed for %s\n' "$AUTONOMOUS_UNIT"
     rm -f "$show_file"

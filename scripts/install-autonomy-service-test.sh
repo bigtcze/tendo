@@ -157,10 +157,17 @@ start_unit() {
   fi
 }
 
+# Emulates the REAL `systemctl --user show` formats captured on the host:
+#   Restart=no
+#   TimeoutStopUSec=1min 30s            (there is no TimeoutStopSec property)
+#   ExecStart={ path=... ; argv[]=... ; ... start_time=[Thu ...] ; ... }
+#   Environment=K=V K2=V2               (space separated, continuations joined)
+#   DropInPaths=/a.conf /b.conf
 show_unit() {
   local unit=$1
   shift
-  local dir="${AUTONOMY_UNIT_DIR}" files=() prop line exec_start restart killmode timeout environment dropins
+  local dir="${AUTONOMY_UNIT_DIR}" files=() prop line exec_start restart killmode timeout_sec timeout_span
+  local started stopped pid code status active_state environment dropins
   files=("${dir}/${unit}")
   if [[ -d "${dir}/${unit}.d" ]]; then
     for line in "${dir}/${unit}.d"/*.conf; do
@@ -170,15 +177,79 @@ show_unit() {
   exec_start=$(grep -h '^ExecStart=' "${files[@]}" 2>/dev/null | tail -1 | cut -d= -f2-)
   restart=$(grep -h '^Restart=' "${files[@]}" 2>/dev/null | tail -1 | cut -d= -f2-)
   killmode=$(grep -h '^KillMode=' "${files[@]}" 2>/dev/null | tail -1 | cut -d= -f2-)
-  timeout=$(grep -h '^TimeoutStopSec=' "${files[@]}" 2>/dev/null | tail -1 | cut -d= -f2-)
-  environment=$(grep -h '^Environment=' "${files[@]}" 2>/dev/null | sed 's/^Environment=//' | paste -sd' ' -)
+  timeout_sec=$(grep -h '^TimeoutStopSec=' "${files[@]}" 2>/dev/null | tail -1 | cut -d= -f2-)
+  if [[ $timeout_sec =~ ^[0-9]+$ ]]; then
+    if ((timeout_sec % 60 == 0)); then
+      timeout_span="$((timeout_sec / 60))min"
+    elif ((timeout_sec > 60)); then
+      timeout_span="$((timeout_sec / 60))min $((timeout_sec % 60))s"
+    else
+      timeout_span="${timeout_sec}s"
+    fi
+  else
+    timeout_span="${timeout_sec:-1min 30s}"
+  fi
+  environment=$(python3 - "${dir}" "${unit}" <<'PY'
+import os
+import sys
+
+directory, unit = sys.argv[1], sys.argv[2]
+files = [os.path.join(directory, unit)]
+dropin_dir = os.path.join(directory, unit + ".d")
+if os.path.isdir(dropin_dir):
+    files += [os.path.join(dropin_dir, name) for name in sorted(os.listdir(dropin_dir))
+              if os.path.isfile(os.path.join(dropin_dir, name))]
+values = []
+for path in files:
+    logical = []
+    buffer = None
+    for raw in open(path, encoding="utf-8", errors="replace").read().splitlines():
+        stripped = raw.lstrip()
+        is_comment = stripped.startswith("#") or stripped.startswith(";")
+        if buffer is not None:
+            if is_comment:
+                continue
+            line = buffer + " " + stripped
+            buffer = None
+        else:
+            if is_comment:
+                continue
+            line = raw
+        trailing = len(line) - len(line.rstrip("\\"))
+        if trailing % 2 == 1:
+            buffer = line[:-1]
+            continue
+        logical.append(line)
+    if buffer is not None:
+        logical.append(buffer)
+    for line in logical:
+        stripped = line.strip()
+        if stripped.startswith("Environment="):
+            values.append(stripped.split("=", 1)[1])
+print(" ".join(values))
+PY
+)
   dropins=$(ls "${dir}/${unit}.d" 2>/dev/null | sed "s#^#${dir}/${unit}.d/#" | paste -sd' ' -)
+  active_state=$(cat "${state}/${unit}.active" 2>/dev/null || printf 'inactive\n')
+  if [[ $active_state == active ]]; then
+    started='[Thu 2026-11-12 07:16:06 CET]'
+    stopped='[Thu 2026-11-12 08:34:25 CET]'
+    pid=137660
+    code=exited
+    status=143
+  else
+    started='[n/a]'
+    stopped='[n/a]'
+    pid=0
+    code='(null)'
+    status='0/0'
+  fi
   for prop in "$@"; do
     case $prop in
-      ExecStart) printf 'ExecStart={ path=%s ; argv[]=%s ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n' "$exec_start" "$exec_start" ;;
+      ExecStart) printf 'ExecStart={ path=%s ; argv[]=%s ; ignore_errors=no ; start_time=%s ; stop_time=%s ; pid=%s ; code=%s ; status=%s }\n' "$exec_start" "$exec_start" "$started" "$stopped" "$pid" "$code" "$status" ;;
       Restart) printf 'Restart=%s\n' "${restart:-no}" ;;
       KillMode) printf 'KillMode=%s\n' "${killmode:-control-group}" ;;
-      TimeoutStopSec) printf 'TimeoutStopSec=%s\n' "${timeout:-90}" ;;
+      TimeoutStopUSec) printf 'TimeoutStopUSec=%s\n' "$timeout_span" ;;
       Environment) printf 'Environment=%s\n' "$environment" ;;
       DropInPaths) printf 'DropInPaths=%s\n' "$dropins" ;;
       *) : ;;
@@ -1387,6 +1458,26 @@ EOF
   assert_output_contains "case16 multi-assignment redaction keeps PATH" 'PATH=/bin'
   assert_output_contains "case16 multi-assignment variable redacted" 'GITHUB_TOKEN=<redacted>'
 
+  # Comments inside a continuation are dropped by systemd; the continuation
+  # stays pending, so the secret on the following line must still be redacted.
+  build_case multiline-comment
+  cd=$CD
+  sb="${cd}/sandbox"
+  unit="${sb}/home/.config/systemd/user/tendo-autonomous.service"
+  cat >>"$unit" <<'EOF'
+Environment="GITHUB_TOKEN=hash-first\
+# hash comment inside the continuation
+  hash-continuation-secret"
+Environment="GITHUB_TOKEN=semicolon-first\
+; semicolon comment inside the continuation
+  semicolon-continuation-secret"
+EOF
+  run_as "$cd" --check
+  assert_rc "case16 comment continuation check exits 0" 0
+  assert_output_lacks "case16 hash-comment continuation secret never printed" "hash-continuation-secret"
+  assert_output_lacks "case16 semicolon-comment continuation secret never printed" "semicolon-continuation-secret"
+  assert_output_contains "case16 comment continuation variable redacted" 'GITHUB_TOKEN=<redacted>'
+
   # Accepted path: a continued drop-in with only allowed keys passes.
   build_case multiline-dropin-ok
   cd=$CD
@@ -1408,6 +1499,37 @@ EOF
   assert_output_lacks "case16 rejected continuation secret never printed" "dropin-continuation-secret"
   assert_output_lacks "case16 rejected continuation value never printed" "/x"
   assert_output_contains "case16 rejection names the key" "GITHUB_TOKEN"
+
+  # Comments inside a continuation of a rejected drop-in must not expose the
+  # values on either side of the comment.
+  build_case multiline-dropin-comment-ok
+  cd=$CD
+  sb="${cd}/sandbox"
+  printf '[Service]\nEnvironment=OPENCODE_BIN=/x \\\n# note\n  SUCCESS_SLEEP=300\n' \
+    >"${sb}/home/.config/systemd/user/tendo-autonomous.service.d/10-attach.conf"
+  run_as "$cd" --check
+  assert_rc "case16 accepted drop-in with comment passes" 0
+  assert_output_lacks "case16 accepted drop-in comment values not printed" "/x"
+
+  build_case multiline-dropin-comment-bad
+  cd=$CD
+  sb="${cd}/sandbox"
+  printf '[Service]\nEnvironment=OPENCODE_BIN=/x \\\n; note\n  GITHUB_TOKEN=comment-dropin-secret\n' \
+    >"${sb}/home/.config/systemd/user/tendo-autonomous.service.d/10-attach.conf"
+  run_as "$cd" --check
+  assert_rc "case16 rejected drop-in with comment exits 3" 3
+  assert_output_lacks "case16 comment drop-in secret never printed" "comment-dropin-secret"
+  assert_output_lacks "case16 comment drop-in value never printed" "/x"
+  assert_output_contains "case16 comment drop-in names the key" "GITHUB_TOKEN"
+
+  # A standalone ';' comment in a legacy drop-in is a comment, not a key.
+  build_case dropin-semicolon-comment
+  cd=$CD
+  sb="${cd}/sandbox"
+  printf '[Service]\n; standalone comment\nEnvironment=SUCCESS_SLEEP=300\n' \
+    >"${sb}/home/.config/systemd/user/tendo-autonomous.service.d/30-cycle-spacing.conf"
+  run_as "$cd" --check
+  assert_rc "case16 standalone semicolon comment is ignored" 0
 }
 
 # ---------------------------------------------------------------------------
