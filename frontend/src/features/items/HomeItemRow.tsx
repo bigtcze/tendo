@@ -69,7 +69,7 @@ export function HomeItemRow(props: Props) {
           </span>
           {facts.map((fact) => (
             <Fragment key={fact.kind}>
-              {' '}<span aria-hidden="true" className={SEPARATOR}>·</span>{' '}
+              <span aria-hidden="true" className={SEPARATOR}>·</span>
               <Fact fact={fact} />
             </Fragment>
           ))}

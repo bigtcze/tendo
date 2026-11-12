@@ -952,18 +952,22 @@ describe('Home items', () => {
     expect(needs.querySelectorAll('[data-item-meta]')).toHaveLength(1);
   });
 
-  it('keeps a real space between the subject pill and each fact in the row metadata', async () => {
+  it('keeps the subject and each fact readable as separate units in the row metadata', async () => {
     const entry = item({ id: 'space-needs', title: 'Space needs', attentionOn: '2026-01-02', lastCompletedOn: '2025-12-02', responsibleUserId: 'u-2' });
     installFakeServer({ ...routes, ...itemRoutes(base, [entry]), [subjectList]: subjectPages, [memberList]: memberPage() });
     app();
     const row = (await screen.findByText('Space needs')).closest('li')!;
     await waitFor(() => expect(row).toHaveTextContent('Looked after by petr'));
-    // The flowing line separates units by margins only, so the text itself needs ordinary spaces:
-    // without them a copied row reads "AnnaSince Jan 2Looked after by petr…".
-    const text = row.querySelector('[data-item-meta]')!.textContent!;
-    expect(text, 'space after the subject pill').toMatch(/^Anna\s/);
-    expect(text, 'space between the attention fact and the responsible fact').toMatch(/2\s+·\s+Looked after by petr/);
-    expect(text, 'space between the responsible fact and the details fact').toMatch(/Looked after by petr\s+·\s+Last done Dec/);
+    // Each fact is its own flex item and the middle dots are aria-hidden separators, so a wrapped line never
+    // starts or ends with a dangling dot. Copied text still keeps the facts apart: the separator dot is
+    // never fused to the word on either side, and the facts never run together ("AnnaSince").
+    const meta = row.querySelector('[data-item-meta]')!;
+    // Dates use no-break spaces so they never split across lines; normalise them as the other row tests do.
+    const facts = [...meta.querySelectorAll('[data-item-fact], [data-subject-pill]')].map((node) => node.textContent!.replaceAll('\u00a0', ' ').trim());
+    expect(facts).toEqual(['Anna', 'Since Jan 2', 'Looked after by petr', 'Last done Dec 2, 2025']);
+    // Icons are aria-hidden too, so count only the middle-dot separators.
+    const separators = [...meta.querySelectorAll('[aria-hidden="true"]')].filter((node) => node.textContent === '·');
+    expect(separators, 'one separator between each pair of units').toHaveLength(facts.length - 1);
   });
 
   it('retries only failed label IDs while retaining names from the successful partition', async () => {
