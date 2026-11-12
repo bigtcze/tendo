@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { I18nProvider } from '../../i18n';
 import { HOUSEHOLD_ID, household, installFakeServer, json, session, type RecordedRequest } from '../../test/fakeServer';
 import type { Completion, Item, Subject } from './itemsApi';
+import { clearPendingCompletions } from './pendingCompletions';
 import { itemRoutes } from '../../test/fakeItems';
 import { LocaleProbe, type LocaleSetterRef } from '../../test/localeProbe';
 
@@ -222,6 +223,41 @@ describe('item details', () => {
     const posted = requestsOf(fake.requests, 'POST', historyPath);
     expect(posted).toHaveLength(2);
     expect(posted[1]!.headers.get('Idempotency-Key')).toBe(posted[0]!.headers.get('Idempotency-Key'));
+  });
+
+  it('uses a new idempotency key for a later Done after the first completion committed while detail was unmounted (#446 same-date reproducer)', async () => {
+    // A completion that commits while detail is unmounted keeps its key in sessionStorage; a later Done
+    // that reuses that key makes the server replay the old receipt, so the item keeps its same due date.
+    clearPendingCompletions();
+    const monthly = { intervalUnit: 'month' as const, intervalValue: 1, mode: 'fixed' as const };
+    let currentItem = item({ attentionOn: '2026-12-31', recurrence: monthly });
+    let version = 1;
+    let posts = 0;
+    let releaseFirst!: (response: Response) => void;
+    const firstPending = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    const fake = installFakeServer(common({
+      ...itemRoutes(base, () => [currentItem]),
+      [`GET ${path}`]: () => json(200, currentItem, { ETag: `"${version}"` }),
+      [`POST ${historyPath}`]: () => {
+        posts++;
+        if (posts === 1) return firstPending;
+        return json(201, completion('second', '2027-01-31', { cycleAttentionOn: '2027-01-31', nextAttentionOn: '2027-02-28' }));
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));
+    const nav = screen.getByRole('navigation', { name: 'Household navigation' });
+    await userEvent.click(within(nav).getByRole('link', { name: 'All items' }));
+    await waitFor(() => expect(screen.queryByRole('heading', { level: 1, name: 'Renew passport' })).not.toBeInTheDocument());
+    currentItem = item({ attentionOn: '2027-01-31', recurrence: monthly, lastCompletedOn: '2026-12-31' });
+    version++;
+    await act(async () => releaseFirst(json(201, completion('first', '2026-12-31', { cycleAttentionOn: '2026-12-31', nextAttentionOn: '2027-01-31' }))));
+    await userEvent.click(await screen.findByRole('link', { name: 'Renew passport' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(2));
+    const posted = requestsOf(fake.requests, 'POST', historyPath);
+    expect(posted[1]!.headers.get('Idempotency-Key')).not.toBe(posted[0]!.headers.get('Idempotency-Key'));
   });
 
   it('does not move focus to a retry outcome after the user moved focus elsewhere', async () => {
