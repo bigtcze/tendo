@@ -5657,6 +5657,10 @@ test.describe('Tendo production journey', () => {
       expect(householdList.items.find(item => item.id === householdId)).toMatchObject({ name: householdName, viewerRole: 'member' });
       // Membership is the only authorization input: the joined household's records are readable now.
       expect((await joining.actor.request.get(`/api/v1/households/${householdId}/items`)).status()).toBe(200);
+      // The original membership still authorizes on its own: switching the default is a hint, not a revocation.
+      const originalHousehold = await joining.actor.request.get(`/api/v1/households/${conflictHouseholdId}`);
+      expect(originalHousehold.status()).toBe(200);
+      expect(await originalHousehold.json()).toMatchObject({ id: conflictHouseholdId, viewerRole: 'admin' });
       await expectInvitationStatus(joinInvite.id, 'accepted');
       const listedJoinMembers = await listOwnerMembers();
       expect(listedJoinMembers.filter(member => member.login === 'existing_conflict_e2e' && member.role === 'member')).toHaveLength(1);
