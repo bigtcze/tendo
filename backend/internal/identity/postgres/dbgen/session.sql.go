@@ -160,6 +160,23 @@ func (q *Queries) MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]M
 	return items, nil
 }
 
+const setAccountDefaultHousehold = `-- name: SetAccountDefaultHousehold :execrows
+UPDATE user_accounts SET default_household_id=$2 WHERE id=$1
+`
+
+type SetAccountDefaultHouseholdParams struct {
+	ID                 pgtype.UUID
+	DefaultHouseholdID pgtype.UUID
+}
+
+func (q *Queries) SetAccountDefaultHousehold(ctx context.Context, arg SetAccountDefaultHouseholdParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setAccountDefaultHousehold, arg.ID, arg.DefaultHouseholdID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const signInMethodsByUserIDs = `-- name: SignInMethodsByUserIDs :many
 SELECT u.id::text AS user_id,
   EXISTS(SELECT 1 FROM local_credentials c WHERE c.user_id=u.id) AS password,

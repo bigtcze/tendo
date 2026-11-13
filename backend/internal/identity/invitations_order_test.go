@@ -23,7 +23,7 @@ type invitationRecordingRepo struct {
 	lockedForUpdate                                 bool
 	lockedFindHook                                  func()
 	lockedInvitation                                Invitation
-	membershipRole, defaultHousehold                string
+	membershipRole                                  string
 	writeErr                                        map[string]error
 	listRows                                        []Invitation
 	listActiveAt                                    *time.Time
@@ -118,12 +118,12 @@ func (t *invitationRecordingTx) FindLogin(context.Context, string) error {
 	}
 	return ErrNotFound
 }
-func (t *invitationRecordingTx) LockUser(context.Context, string) (string, string, error) {
+func (t *invitationRecordingTx) LockUser(context.Context, string) (string, error) {
 	t.repo.record("user.lock")
 	if t.repo.lockUserErr != nil {
-		return "", "", t.repo.lockUserErr
+		return "", t.repo.lockUserErr
 	}
-	return t.repo.defaultHousehold, "existing_login", nil
+	return "existing_login", nil
 }
 func (t *invitationRecordingTx) EnsureMemberPerson(_ context.Context, householdID, userID, name string) error {
 	t.repo.record("member.person:" + householdID + ":" + userID + ":" + name)
@@ -296,7 +296,7 @@ func TestAcceptInvitationExistingAccountOrderedEffects(t *testing.T) {
 func TestAlreadyMemberPrecedesWrites(t *testing.T) {
 	repo := &invitationRecordingRepo{
 		invitationFake: invitationFake{inv: recordedInvitation()},
-		membershipRole: household.RoleAdmin, defaultHousehold: "another-house", writeErr: map[string]error{},
+		membershipRole: household.RoleAdmin, writeErr: map[string]error{},
 	}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
 	_, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
@@ -403,8 +403,8 @@ func TestExistingAccountLockUserErrorsStopAtLock(t *testing.T) {
 // default to the accepted household rather than refusing the account.
 func TestExistingAccountWithAnotherDefaultHouseholdJoinsAndSwitchesDefault(t *testing.T) {
 	repo := &invitationRecordingRepo{
-		invitationFake:   invitationFake{inv: recordedInvitation()},
-		defaultHousehold: "another-house", writeErr: map[string]error{},
+		invitationFake: invitationFake{inv: recordedInvitation()},
+		writeErr:       map[string]error{},
 	}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
 	result, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)

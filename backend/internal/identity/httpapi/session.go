@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	"github.com/bigtcze/tendo/backend/internal/platform/httpx"
-	"github.com/bigtcze/tendo/backend/internal/platform/httpx/apimodel"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 	"github.com/go-chi/chi/v5"
 )
@@ -127,32 +125,19 @@ func (h *SessionHandler) update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	householdID := stringField(values, "defaultHouseholdId")
+	householdID := strings.ToLower(stringField(values, "defaultHouseholdId"))
 	switch err := h.service.SetDefaultHousehold(r.Context(), info.Principal.UserID, householdID); {
 	case errors.Is(err, identity.ErrUnauthenticated):
 		h.clear(w)
 		problem(w, 401, "unauthenticated")
 	case errors.Is(err, identity.ErrInvalidReference):
-		writeSessionReferenceProblem(w)
+		httpx.ValidationProblemResponse(w, "defaultHouseholdId", "invalid_reference")
 	case err != nil:
 		problem(w, 503, "unavailable")
 	default:
 		info.Principal.DefaultHouseholdID = householdID
 		writeJSON(w, 200, sessionResponse(info.Principal, info.ExpiresAt))
 	}
-}
-
-// writeSessionReferenceProblem is the single uniform 422 for a malformed,
-// unknown, or non-member default household.
-func writeSessionReferenceProblem(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(422)
-	_ = json.NewEncoder(w).Encode(apimodel.SessionValidationProblem{
-		Type: "about:blank", Title: "Validation Failed", Status: 422,
-		Field: apimodel.DefaultHouseholdId,
-		Code:  apimodel.SessionValidationProblemCodeInvalidReference,
-	})
 }
 
 // authenticate resolves the session cookie. Only a definite 401 clears the

@@ -225,7 +225,9 @@ func TestListHouseholdsReturnsMemberItemsWithoutValidators(t *testing.T) {
 	if !jsonEqual(t, strings.TrimSpace(w.Body.String()), want) {
 		t.Fatalf("body=%s want=%s", w.Body, want)
 	}
-	if f.svc.gotLimit != 50 || f.svc.gotCursor != "" {
+	// The handler forwards the raw page size; the service owns the documented
+	// default of 50 (proved in the household service tests).
+	if f.svc.gotLimit != 0 || f.svc.gotCursor != "" {
 		t.Fatalf("limit=%d cursor=%q", f.svc.gotLimit, f.svc.gotCursor)
 	}
 }
@@ -307,17 +309,14 @@ func TestListHouseholdsMapsParserCursorError(t *testing.T) {
 	}
 }
 
-func TestListHouseholdsUnavailableAndUnknownRole(t *testing.T) {
+// Any service failure other than a cursor validation problem is an unavailable
+// response that hides internals; the service, not the handler, fails closed on
+// an unknown stored role.
+func TestListHouseholdsPersistenceFailureIs503AndHidesInternals(t *testing.T) {
 	f := newFixture(true)
 	f.svc.listErr = errors.New(secretErr)
 	w := f.get("/api/v1/households")
 	if w.Code != 503 || strings.Contains(w.Body.String(), "10.1.2.3") {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body)
-	}
-	f = newFixture(true)
-	f.svc.listRows = []household.ListedHousehold{{ID: memberID, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: "owner"}}
-	w = f.get("/api/v1/households")
-	if w.Code != 503 || strings.Contains(w.Body.String(), "owner") {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
 }

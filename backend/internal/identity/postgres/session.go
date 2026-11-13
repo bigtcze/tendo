@@ -9,6 +9,7 @@ import (
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -136,9 +137,12 @@ func (r *Repository) DeleteByTokenHash(ctx context.Context, tokenHash []byte) er
 	return identitydb.New(r.pool).DeleteSession(ctx, tokenHash)
 }
 
-// SetDefaultHousehold selects an existing membership as the account-wide default
-// in one UPDATE whose EXISTS clause is the only authorization. A zero-row update
-// then distinguishes a vanished user (401) from a missing membership (422).
+// SetDefaultHousehold selects an existing membership as the account-wide default.
+// The value is validated by the composite foreign key
+// user_default_membership_fk, which is DEFERRABLE INITIALLY DEFERRED; the
+// transaction forces it to IMMEDIATE so a non-member household fails this
+// statement deterministically instead of at commit. A zero-row update means the
+// account row is gone.
 func (r *Repository) SetDefaultHousehold(ctx context.Context, userID, householdID string) error {
 	var user, house pgtype.UUID
 	if err := user.Scan(userID); err != nil {
@@ -156,20 +160,29 @@ func (r *Repository) SetDefaultHousehold(ctx context.Context, userID, householdI
 		defer cancel()
 		_ = tx.Rollback(rollbackCtx)
 	}()
-	tag, err := tx.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2
-		WHERE id=$1 AND EXISTS (SELECT 1 FROM household_memberships m WHERE m.user_id=$1 AND m.household_id=$2)`, user, house)
+	if _, err := tx.Exec(ctx, `SET CONSTRAINTS user_default_membership_fk IMMEDIATE`); err != nil {
+		return err
+	}
+	rows, err := identitydb.New(tx).SetAccountDefaultHousehold(ctx, identitydb.SetAccountDefaultHouseholdParams{ID: user, DefaultHouseholdID: house})
 	if err != nil {
-		return err
+		return defaultHouseholdError(err)
 	}
-	if tag.RowsAffected() == 1 {
-		return tx.Commit(ctx)
-	}
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_accounts WHERE id=$1)`, user).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
+	if rows == 0 {
 		return identity.ErrUnauthenticated
 	}
-	return identity.ErrInvalidReference
+	if err := tx.Commit(ctx); err != nil {
+		return defaultHouseholdError(err)
+	}
+	return nil
+}
+
+// defaultHouseholdError maps the deferred composite membership foreign key to
+// the uniform invalid-reference sentinel. Every other error stays
+// infrastructure.
+func defaultHouseholdError(err error) error {
+	var pgError *pgconn.PgError
+	if errors.As(err, &pgError) && pgError.Code == "23503" && pgError.ConstraintName == "user_default_membership_fk" {
+		return identity.ErrInvalidReference
+	}
+	return err
 }

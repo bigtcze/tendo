@@ -48,14 +48,17 @@ every protected operation re-authorizes against membership rows.
   is ever needed, must be a separate admin resource with its own authorization
   and contract, never a widening of this list. The list has no per-item `ETag`.
 - **Default selection is last-write-wins.** `PATCH /api/v1/session` writes one
-  value with a single `UPDATE ... WHERE EXISTS (membership)` statement inside a
-  transaction. The `EXISTS` clause is the only authorization. There is no
-  `If-Match` and no version: two devices selecting different households leave
-  the last committed value, which is acceptable for a navigation hint.
-  Malformed, unknown, and non-member household IDs produce the identical `422
-  invalid_reference` with `field: defaultHouseholdId`; a vanished user produces
-  `401`. Re-selecting the current value is a successful no-op. The response is
-  `200` with `Cache-Control: no-store` and no `ETag`.
+  value with a single `UPDATE` of `user_accounts.default_household_id` inside a
+  transaction. Membership is proven by the composite foreign key
+  `user_default_membership_fk`, not by application SQL: the transaction sets it
+  `IMMEDIATE`, so a non-member household fails the statement with `23503`
+  instead of at commit and is reported as the uniform `422 invalid_reference`.
+  There is no `If-Match` and no version: two devices selecting different
+  households leave the last committed value, which is acceptable for a
+  navigation hint. Malformed, unknown, and non-member household IDs produce the
+  identical `422 invalid_reference` with `field: defaultHouseholdId`; a vanished
+  user produces `401`. Re-selecting the current value is a successful no-op. The
+  response is `200` with `Cache-Control: no-store` and no `ETag`.
 - **`ETag` on `GET /api/v1/session` identifies the session row, not the body.**
   It remains a session-lifetime validator for clients that want to know whether
   the same session is still active. A default-household change from another
@@ -75,7 +78,10 @@ every protected operation re-authorizes against membership rows.
   navigate to it, but every household-scoped route still authorizes against
   membership. An attacker who convinces a user to "make my household the
   default" gains nothing beyond changing the landing screen; conversely, the
-  default must never be accepted in place of a membership check.
+  default must never be accepted in place of a membership check. The signed-in
+  Join confirmation does not yet name the target household, so a user cannot
+  fully verify which household they are joining from that screen; the UX
+  follow-up (#450/#451) will name it.
 
 ## Consequences
 

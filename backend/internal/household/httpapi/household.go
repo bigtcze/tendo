@@ -49,11 +49,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limit := p.Limit
-	if limit == 0 {
-		limit = 50
-	}
-	items, next, err := h.service.ListForMember(r.Context(), userID, p.Cursor, limit)
+	items, next, err := h.service.ListForMember(r.Context(), userID, p.Cursor, p.Limit)
 	if err != nil {
 		var validation *household.ValidationError
 		if errors.As(err, &validation) && validation.Field == "cursor" {
@@ -65,10 +61,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	out := apimodel.HouseholdList{Items: make([]apimodel.Household, 0, len(items)), NextCursor: nil}
 	for _, item := range items {
-		if item.ViewerRole != household.RoleAdmin && item.ViewerRole != household.RoleMember {
-			problem(w, http.StatusServiceUnavailable, "unavailable")
-			return
-		}
 		out.Items = append(out.Items, apimodel.Household{Id: item.ID, Name: item.Name, Timezone: item.Timezone, CreatedAt: item.CreatedAt.UTC(), ViewerRole: apimodel.MemberRole(item.ViewerRole)})
 	}
 	if next != "" {

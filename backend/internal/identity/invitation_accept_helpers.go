@@ -14,7 +14,7 @@ import (
 type InvitationAcceptTx interface {
 	FindInvitation(context.Context, []byte, bool) (Invitation, error)
 	GetMembership(context.Context, string, string) (string, error)
-	LockUser(context.Context, string) (string, string, error)
+	LockUser(context.Context, string) (string, error)
 	EnsureMemberPerson(context.Context, string, string, string) error
 	AddInvitedMember(context.Context, string, string) error
 	SetDefaultHousehold(context.Context, string, string) error
@@ -53,14 +53,10 @@ func joinInvitedHousehold(ctx context.Context, tx InvitationAcceptTx, userID, lo
 	return tx.AcceptInvitation(ctx, invitationID, now)
 }
 
-// LockPendingInvitation and JoinInvitedHousehold expose the shared acceptance
-// rule to adapters outside this package (the OIDC first-login transaction).
+// LockPendingInvitation exposes the shared acceptance rule to adapters outside
+// this package (the OIDC first-login transaction).
 func LockPendingInvitation(ctx context.Context, tx InvitationAcceptTx, digest []byte, clock func() time.Time) (Invitation, time.Time, error) {
 	return lockPendingInvitation(ctx, tx, digest, clock)
-}
-
-func JoinInvitedHousehold(ctx context.Context, tx InvitationAcceptTx, userID, login, householdID, invitationID string, now time.Time) error {
-	return joinInvitedHousehold(ctx, tx, userID, login, householdID, invitationID, now)
 }
 
 // JoinAsExistingMember is the one existing-account acceptance rule shared by the
@@ -73,7 +69,7 @@ func JoinInvitedHousehold(ctx context.Context, tx InvitationAcceptTx, userID, lo
 // A vanished user returns ErrNotFound, an existing membership returns
 // ErrAlreadyMember, and every other error is an infrastructure failure.
 func JoinAsExistingMember(ctx context.Context, tx InvitationAcceptTx, userID, householdID, invitationID string, now time.Time) (InvitationUser, error) {
-	_, login, err := tx.LockUser(ctx, userID)
+	login, err := tx.LockUser(ctx, userID)
 	if errors.Is(err, ErrNotFound) {
 		return InvitationUser{}, ErrNotFound
 	}

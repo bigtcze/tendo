@@ -59,17 +59,17 @@ func (o *oidcInvitationTx) GetMembership(ctx context.Context, userID, householdI
 	return o.household.GetMembership(ctx, userID, householdID)
 }
 
-func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (string, string, error) {
+func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (string, error) {
 	id, err := uuidOrNull(userValue)
 	if err != nil {
-		return "", "", identity.ErrNotFound
+		return "", identity.ErrNotFound
 	}
-	var login, defaultHousehold string
-	err = o.tx.QueryRow(ctx, `SELECT login, COALESCE(default_household_id::text,'') FROM user_accounts WHERE id=$1 FOR UPDATE`, id).Scan(&login, &defaultHousehold)
+	var login string
+	err = o.tx.QueryRow(ctx, `SELECT login FROM user_accounts WHERE id=$1 FOR UPDATE`, id).Scan(&login)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", identity.ErrNotFound
+		return "", identity.ErrNotFound
 	}
-	return defaultHousehold, login, err
+	return login, err
 }
 
 func (o *oidcInvitationTx) EnsureMemberPerson(ctx context.Context, householdID, userID, name string) error {

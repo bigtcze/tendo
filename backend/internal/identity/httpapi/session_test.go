@@ -560,6 +560,23 @@ func TestUpdateSessionSwitchesDefaultWithoutValidator(t *testing.T) {
 	}
 }
 
+// A syntactically valid identifier may be spelled in uppercase; the response
+// repeats the canonical lowercase value that persistence stores.
+func TestUpdateSessionEchoesCanonicalHouseholdID(t *testing.T) {
+	svc, _, mux := sessionFixture("http://localhost")
+	w := serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+strings.ToUpper(newHouseholdID)+`"}`))
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	if svc.setHouseholdID != newHouseholdID {
+		t.Fatalf("service saw %q", svc.setHouseholdID)
+	}
+	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z"}`
+	if !sameJSONObject(t, strings.TrimSpace(w.Body.String()), want) {
+		t.Fatalf("body=%s want=%s", w.Body, want)
+	}
+}
+
 func TestUpdateSessionRequiresOneSessionCookie(t *testing.T) {
 	for name, r := range map[string]*http.Request{
 		"no cookie": patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`, func(r *http.Request) { r.Header.Del("Cookie") }),
