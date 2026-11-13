@@ -310,6 +310,9 @@ jobs:
           - smoke: upgrade-smoke
             from: v3.0.0
             timeout: 900
+          - smoke: upgrade-smoke
+            from: v4.0.0
+            timeout: 900
           - smoke: quickstart-smoke
     steps:
       - uses: actions/checkout@v7.0.1
