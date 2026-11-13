@@ -6,7 +6,7 @@ Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../.
 
 | Component | Pinned | Newest checked | Status |
 | --- | --- | --- | --- |
-| Go toolchain (CI, Docker build, OIDC test provider) | 1.27.3 | 1.27.3 | Current |
+| Go toolchain (CI, Docker build, OIDC test provider) | 1.27.4 | 1.27.4 | Current |
 | `go` directive (`backend/go.mod`) | 1.26.0 | — | Minimum language version; builds use the pinned toolchain |
 | Node.js (CI, Docker web build) | 26.13.0 | 26.13.0 (LTS "Lithium") | Current; see Node.js 26 migration notes below; package engines still allow `^22.22.2` for local work |
 | PostgreSQL (Compose, CI services) | 18.6 | 18.6 (19 in beta) | Current |
@@ -35,7 +35,7 @@ Snapshot date: 2026-10-09. Developer and CI tool pins live in [`mise.toml`](../.
 
 All direct and required indirect modules are at their latest releases. `go list -m -u all` lists only newer versions for module-graph entries that do not enter the build.
 
-`govulncheck` (x/vuln v1.8.0, Go 1.27.3): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
+`govulncheck` (x/vuln v1.8.0, Go 1.27.4): no reachable vulnerabilities. It reports GO-2026-5932 in `golang.org/x/crypto/openpgp`, which Tendo does not import or call, and for which no fixed version exists.
 
 ## Node packages
 
