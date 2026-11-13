@@ -21,23 +21,26 @@ import (
 )
 
 // startupSteps is the boot sequence: configuration, the privileged database
-// phase, the restricted pool, its isolation check, then the HTTP listener.
-// Each step is replaceable so tests can pin that ordering without a database.
+// phase, the restricted pool, its isolation check, the instance-administrator
+// warning, then the HTTP listener. Each step is replaceable so tests can pin
+// that ordering without a database.
 type startupSteps struct {
-	loadConfig func() (config.Config, error)
-	prepare    func(context.Context, config.Config) error
-	openPool   func(context.Context, config.Config) (*pgxpool.Pool, error)
-	verify     func(context.Context, *pgxpool.Pool) error
-	listen     func(string) (net.Listener, error)
+	loadConfig        func() (config.Config, error)
+	prepare           func(context.Context, config.Config) error
+	openPool          func(context.Context, config.Config) (*pgxpool.Pool, error)
+	verify            func(context.Context, *pgxpool.Pool) error
+	warnInstanceAdmin func(context.Context, *pgxpool.Pool)
+	listen            func(string) (net.Listener, error)
 }
 
 func defaultStartupSteps() startupSteps {
 	return startupSteps{
-		loadConfig: config.Load,
-		prepare:    prepareDatabase,
-		openPool:   openRuntimePool,
-		verify:     verifyRuntimePool,
-		listen:     func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) },
+		loadConfig:        config.Load,
+		prepare:           prepareDatabase,
+		openPool:          openRuntimePool,
+		verify:            verifyRuntimePool,
+		warnInstanceAdmin: warnMissingInstanceAdmin,
+		listen:            func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) },
 	}
 }
 
@@ -64,6 +67,9 @@ func (s startupSteps) run() error {
 	if err := s.verify(ctx, pool); err != nil {
 		pool.Close()
 		return err
+	}
+	if s.warnInstanceAdmin != nil {
+		s.warnInstanceAdmin(ctx, pool)
 	}
 	return s.serve(ctx, cfg, pool)
 }

@@ -21,6 +21,7 @@ type SetupTransaction interface {
 	LockRequired(context.Context) (bool, error)
 	CreateUser(context.Context, string) (string, error)
 	CreateCredential(context.Context, string, string) error
+	GrantInstanceAdmin(context.Context, string) error
 	SetDefaultHousehold(context.Context, string, string) error
 	EnsureMemberPerson(context.Context, string, string, string) error
 	CompleteSetup(context.Context) error
@@ -130,7 +131,8 @@ func (s *SetupService) hashSetupPassword(ctx context.Context, password string) (
 
 // persistSetupOwner writes the whole first-run graph in the caller's
 // transaction: setup lock, account, credential, household, admin membership,
-// canonical member person, default household and completion.
+// canonical member person, default household, installation administrator grant
+// and completion.
 func persistSetupOwner(ctx context.Context, tx SetupTransaction, households OwnerHouseholdService, persistence SetupPersistenceInput, bootstrap household.Bootstrap) error {
 	required, err := tx.LockRequired(ctx)
 	if err != nil {
@@ -154,6 +156,12 @@ func persistSetupOwner(ctx context.Context, tx SetupTransaction, households Owne
 		return errors.New("setup persistence failed")
 	}
 	if err = tx.SetDefaultHousehold(ctx, userID, householdID); err != nil {
+		return errors.New("setup persistence failed")
+	}
+	// The first-run account is the installation bootstrap administrator. The
+	// grant is part of the same transaction, so a failure rolls back the whole
+	// first-run graph instead of leaving an installation without an admin.
+	if err = tx.GrantInstanceAdmin(ctx, userID); err != nil {
 		return errors.New("setup persistence failed")
 	}
 	if err = tx.CompleteSetup(ctx); err != nil {

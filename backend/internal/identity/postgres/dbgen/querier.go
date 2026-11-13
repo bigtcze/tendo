@@ -34,6 +34,7 @@ type Querier interface {
 	FindPasswordResetByToken(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenRow, error)
 	FindPasswordResetByTokenForUpdate(ctx context.Context, tokenHash []byte) (FindPasswordResetByTokenForUpdateRow, error)
 	FindUserLogin(ctx context.Context, id pgtype.UUID) (string, error)
+	GrantInstanceAdmin(ctx context.Context, userID pgtype.UUID) error
 	HasLocalCredential(ctx context.Context, userID pgtype.UUID) (bool, error)
 	InsertOIDCFlow(ctx context.Context, arg InsertOIDCFlowParams) error
 	InvitationExistsInHousehold(ctx context.Context, arg InvitationExistsInHouseholdParams) (bool, error)

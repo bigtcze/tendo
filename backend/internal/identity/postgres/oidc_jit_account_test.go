@@ -492,6 +492,32 @@ func TestOIDCJITDiscardAccount(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_accounts WHERE id=$1`, fkAccount.UserID).Scan(&survived); err != nil || survived != 1 {
 		t.Fatalf("account survived=%d err=%v", survived, err)
 	}
+
+	// Case (b): an installation administrator keeps the capability even without
+	// a household membership or a local credential, because the grant is an
+	// FK-referenced row. Discarding must refuse instead of deleting the account
+	// and silently dropping the last administrator.
+	_, instanceAdminHandle := jitHandle(137)
+	jitResolve(t, repo, identity.OIDCVerifiedIdentity{Issuer: jitIssuer, Subject: "subject-instance-admin"}, instanceAdminHandle, now, nil)
+	_, instanceAdminSession := jitSession(142, now)
+	instanceAdmin, err := repo.CreatePendingAccount(ctx, identity.OIDCPendingAccountParams{
+		HandleHash: instanceAdminHandle, Issuer: jitIssuer, ClientID: jitClient, Login: "member-admin01", Session: instanceAdminSession, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO instance_admins(user_id, granted_at, grant_source) VALUES ($1, $2, 'cli')`, instanceAdmin.UserID, now); err != nil {
+		t.Fatal(err)
+	}
+	_, instanceAdminRefused := jitHandle(138)
+	if _, err := repo.DiscardOIDCAccount(ctx, identity.OIDCDiscardParams{
+		HandleHash: instanceAdminRefused, UserID: instanceAdmin.UserID, Issuer: jitIssuer, ClientID: jitClient, Now: now, ExpiresAt: now.Add(identity.OIDCPendingLifetime),
+	}); !errors.Is(err, identity.ErrOIDCAccountNotDiscardable) {
+		t.Fatalf("instance administrator discard err=%v", err)
+	}
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM user_accounts WHERE id=$1`, instanceAdmin.UserID).Scan(&survived); err != nil || survived != 1 {
+		t.Fatalf("instance administrator survived=%d err=%v", survived, err)
+	}
 }
 
 func TestOIDCJITMigrationFromVersion18(t *testing.T) {
@@ -536,7 +562,7 @@ func TestOIDCJITMigrationFromVersion18(t *testing.T) {
 		t.Fatalf("existing account gained email data: %v/%v/%v/%v", email, emailVerified, emailSource, emailIssuer)
 	}
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	// Constraint and grant coverage for the new schema.
@@ -722,5 +748,34 @@ func TestOIDCJITExistingAccountCarryOverJoinsSecondHousehold(t *testing.T) {
 	}
 	if memberships != 1 || defaults != 1 || acceptedA {
 		t.Fatalf("memberships=%d defaults=%d accepted=%v", memberships, defaults, acceptedA)
+	}
+}
+
+// TestOIDCJITLinkPendingReportsInstanceAdmin proves the pending-link outcome
+// carries the target account's installation-administrator grant, so the
+// sign-in response never silently drops the capability.
+func TestOIDCJITLinkPendingReportsInstanceAdmin(t *testing.T) {
+	ctx, admin, app, _ := invitationPools(t)
+	if _, err := admin.Exec(ctx, `TRUNCATE user_accounts, household_memberships, households CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+	repo := jitRepo(app)
+	now := time.Now().UTC().Truncate(time.Second)
+	user, hash := jitLocalAccount(t, ctx, admin, "admin_pending_link")
+	if _, err := admin.Exec(ctx, `INSERT INTO instance_admins(user_id, granted_at, grant_source) VALUES ($1, $2, 'cli')`, user, now); err != nil {
+		t.Fatal(err)
+	}
+	_, handleHash := jitHandle(190)
+	jitResolve(t, repo, identity.OIDCVerifiedIdentity{Issuer: jitIssuer, Subject: "subject-admin-link", Email: "admin@example.test", EmailVerified: true}, handleHash, now, nil)
+	_, session := jitSession(191, now)
+	outcome, err := repo.LinkPendingAccount(ctx, identity.OIDCPendingLinkParams{
+		HandleHash: handleHash, Issuer: jitIssuer, ClientID: jitClient, UserID: user,
+		VerifiedPasswordHash: hash, Session: session, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.InstanceAdmin || outcome.Conflict || outcome.UserID != user {
+		t.Fatalf("outcome=%+v want instance administrator for %s", outcome, user)
 	}
 }

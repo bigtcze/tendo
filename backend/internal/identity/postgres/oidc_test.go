@@ -404,7 +404,7 @@ func TestOIDCPostgresMigrationUpgrade(t *testing.T) {
 	}
 	var version int
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	for _, table := range []string{"oidc_identities", "oidc_flows"} {

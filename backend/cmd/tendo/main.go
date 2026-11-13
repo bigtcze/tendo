@@ -43,6 +43,9 @@ type runtimeResources struct {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "instance-admin" {
+		os.Exit(runInstanceAdmin(os.Args[2:], os.Getenv))
+	}
 	if len(os.Args) == 2 {
 		switch os.Args[1] {
 		case "migrate":

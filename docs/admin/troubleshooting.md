@@ -76,6 +76,22 @@ The app logs `database schema validation failed` when it cannot use the database
 
 For problems with **Sign in with …**, see the [OIDC troubleshooting table](oidc.md#troubleshooting).
 
+## No instance administrator
+
+The instance administrator manages the whole installation, separately from the administrator role inside a household. First-time setup makes the account it creates the instance administrator. When you update from 4.x or earlier, Tendo makes the account that ran first-time setup the instance administrator, but only when it can prove which account that was: one household, one account created together with it during setup, and that account's password was never reset and it is still an administrator of the household. Otherwise the update grants nobody, keeps everything else working, and the app logs this warning at every start:
+
+```text
+no instance administrator is configured; run `tendo instance-admin grant --login <login>` inside the app container
+```
+
+Choose the person who should administer the installation and grant it from the directory that holds `compose.yaml`:
+
+```sh
+docker compose exec app /tendo instance-admin grant --login <login>
+```
+
+Use the account's sign-in name. Running it again for the same account changes nothing. The command only works after first-time setup. Granting it does not give access to any household's data.
+
 ## Getting help
 
 When you report a problem, include the Tendo version (`TENDO_VERSION` from `.env`; a value of `v2` means the 2.x line), the output of `docker compose images app`, `docker compose ps -a`, and the relevant `docker compose logs` lines. Remove your domain name if you prefer; logs contain no secrets, but do not attach your `.env`.

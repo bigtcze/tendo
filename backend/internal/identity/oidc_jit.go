@@ -72,7 +72,10 @@ type OIDCPendingAccountParams struct {
 
 type OIDCPendingAccountOutcome struct {
 	UserID, Login, DefaultHouseholdID string
-	Invitation                        OIDCInvitationOutcome
+	// InstanceAdmin mirrors the persisted grant of a pre-existing account; a
+	// freshly created JIT account never has one.
+	InstanceAdmin bool
+	Invitation    OIDCInvitationOutcome
 }
 
 type OIDCPendingLinkParams struct {
@@ -89,8 +92,10 @@ type OIDCPendingLinkOutcome struct {
 	// bound because the subject or the target account changed concurrently.
 	Conflict                          bool
 	UserID, Login, DefaultHouseholdID string
-	Invitation                        OIDCInvitationOutcome
-	EmailSaved                        bool
+	// InstanceAdmin mirrors the target account's persisted grant.
+	InstanceAdmin bool
+	Invitation    OIDCInvitationOutcome
+	EmailSaved    bool
 }
 
 type OIDCDiscardParams struct {
@@ -164,6 +169,7 @@ func (s *OIDCService) CreatePendingAccount(ctx context.Context, token string) (O
 				Token: sessionToken,
 				Principal: Principal{
 					UserID: outcome.UserID, Login: outcome.Login, DefaultHouseholdID: outcome.DefaultHouseholdID,
+					InstanceAdmin: outcome.InstanceAdmin,
 				},
 				ExpiresAt: session.ExpiresAt,
 			},
@@ -215,6 +221,7 @@ func (s *OIDCService) LinkPendingAccount(ctx context.Context, token, login, pass
 			Token: sessionToken,
 			Principal: Principal{
 				UserID: outcome.UserID, Login: outcome.Login, DefaultHouseholdID: outcome.DefaultHouseholdID,
+				InstanceAdmin: outcome.InstanceAdmin,
 			},
 			ExpiresAt: session.ExpiresAt,
 		},

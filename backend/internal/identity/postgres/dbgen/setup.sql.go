@@ -45,6 +45,15 @@ func (q *Queries) CreateUser(ctx context.Context, login string) (string, error) 
 	return id, err
 }
 
+const grantInstanceAdmin = `-- name: GrantInstanceAdmin :exec
+INSERT INTO instance_admins (user_id, granted_at, grant_source) VALUES ($1, now(), 'setup')
+`
+
+func (q *Queries) GrantInstanceAdmin(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, grantInstanceAdmin, userID)
+	return err
+}
+
 const lockSetupState = `-- name: LockSetupState :one
 SELECT setup_required FROM installation_state WHERE singleton = true FOR UPDATE
 `

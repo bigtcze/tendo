@@ -89,7 +89,7 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 
 	var version int64
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 
@@ -237,7 +237,7 @@ func TestMigrationEighteenCanonicalizesMemberPeople(t *testing.T) {
 	if got := linkedCount(homeA, duplicateMember); got != 1 {
 		t.Fatalf("up after Down linked people=%d", got)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
 		t.Fatalf("round trip version=%d dirty=%v err=%v", version, dirty, err)
 	}
 }

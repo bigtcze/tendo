@@ -277,7 +277,7 @@ paths:
             Set-Cookie: { description: One session-cookie field plus one clearing pending-cookie field., schema: { type: array, items: { type: string } }, example: ['tendo_oidc_pending=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax', 'tendo_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax'] }
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
-          content: { application/json: { schema: { $ref: '#/components/schemas/OIDCPendingResult' }, example: { session: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: member-4f2a9c1b, expiresAt: '2026-12-10T12:30:00Z' }, invitation: none } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/OIDCPendingResult' }, example: { session: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: member-4f2a9c1b, expiresAt: '2026-12-10T12:30:00Z', instanceAdmin: false }, invitation: none } } }
         '400': { description: Malformed trusted forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '403': { description: 'Missing, foreign, malformed, or duplicated Origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: origin_not_allowed } } } }
         '404': { description: 'No usable continuation, or OIDC disabled.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, examples: { pending: { value: { type: 'about:blank', title: Not Found, status: 404, code: pending_not_found } }, disabled: { value: { type: 'about:blank', title: Not Found, status: 404, code: oidc_disabled } } } } } }
@@ -307,7 +307,7 @@ paths:
             Set-Cookie: { description: One session-cookie field plus one clearing pending-cookie field., schema: { type: array, items: { type: string } } }
             X-Request-ID: { $ref: '#/components/headers/RequestId' }
             Cache-Control: { $ref: '#/components/headers/NoStore' }
-          content: { application/json: { schema: { $ref: '#/components/schemas/OIDCPendingLinkResult' }, example: { session: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: anna, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, expiresAt: '2026-12-10T12:30:00Z' }, invitation: none, emailSaved: true } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/OIDCPendingLinkResult' }, example: { session: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: anna, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, expiresAt: '2026-12-10T12:30:00Z', instanceAdmin: false }, invitation: none, emailSaved: true } } }
         '400': { description: Malformed request body or forwarded metadata., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '401': { description: 'Unknown login, wrong password, or a credential changed after verification. Indistinguishable failure; a failed attempt is counted.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: invalid_credentials } } } }
         '403': { description: 'Missing, foreign, malformed, or duplicated Origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: origin_not_allowed } } } }
@@ -380,7 +380,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
-              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, expiresAt: '2026-11-05T10:00:00Z' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, expiresAt: '2026-11-05T10:00:00Z', instanceAdmin: true }
         '400': { description: 'Malformed JSON, duplicate or unknown keys, null values, or trusted forwarded request metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '401': { description: 'Login or password is incorrect.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: invalid_credentials } } } }
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
@@ -408,7 +408,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
-              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, expiresAt: '2026-11-05T10:00:00Z' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, expiresAt: '2026-11-05T10:00:00Z', instanceAdmin: true }
         '400': { description: 'Trusted forwarded request metadata is malformed or inconsistent.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_forwarded_request } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
@@ -441,7 +441,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
-              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, expiresAt: '2026-11-05T10:00:00Z' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, expiresAt: '2026-11-05T10:00:00Z', instanceAdmin: true }
         '400': { description: 'Malformed JSON/body, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie; a vanished account is reported the same way.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
         '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
@@ -2305,12 +2305,13 @@ components:
     Session:
       type: object
       additionalProperties: false
-      required: [userId, login, expiresAt]
+      required: [userId, login, expiresAt, instanceAdmin]
       properties:
         userId: { type: string, format: uuid, x-go-type: string }
         login: { type: string }
         defaultHouseholdId: { type: string, format: uuid, x-go-type: string, description: Omitted when the account has no default household. }
         expiresAt: { type: string, format: date-time }
+        instanceAdmin: { type: boolean, description: 'Whether the account currently holds the installation-wide administrator capability. Resolved on every request; a display hint only, never an authorization input for clients. The GET /api/v1/session ETag identifies the session row and does not change when this value changes.' }
     SessionValidationProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'

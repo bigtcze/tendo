@@ -786,6 +786,8 @@ export interface components {
             defaultHouseholdId?: string;
             /** Format: date-time */
             expiresAt: string;
+            /** @description Whether the account currently holds the installation-wide administrator capability. Resolved on every request; a display hint only, never an authorization input for clients. The GET /api/v1/session ETag identifies the session row and does not change when this value changes. */
+            instanceAdmin: boolean;
         };
         SessionValidationProblem: components["schemas"]["Problem"] & {
             /** @enum {string} */
@@ -2468,7 +2470,8 @@ export interface operations {
                      *       "session": {
                      *         "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *         "login": "member-4f2a9c1b",
-                     *         "expiresAt": "2026-12-10T12:30:00Z"
+                     *         "expiresAt": "2026-12-10T12:30:00Z",
+                     *         "instanceAdmin": false
                      *       },
                      *       "invitation": "none"
                      *     }
@@ -2643,7 +2646,8 @@ export interface operations {
                      *         "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *         "login": "anna",
                      *         "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
-                     *         "expiresAt": "2026-12-10T12:30:00Z"
+                     *         "expiresAt": "2026-12-10T12:30:00Z",
+                     *         "instanceAdmin": false
                      *       },
                      *       "invitation": "none",
                      *       "emailSaved": true
@@ -3058,7 +3062,8 @@ export interface operations {
                      *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *       "login": "owner",
                      *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
-                     *       "expiresAt": "2026-11-05T10:00:00Z"
+                     *       "expiresAt": "2026-11-05T10:00:00Z",
+                     *       "instanceAdmin": true
                      *     }
                      */
                     "application/json": components["schemas"]["Session"];
@@ -3206,7 +3211,8 @@ export interface operations {
                      *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *       "login": "owner",
                      *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61",
-                     *       "expiresAt": "2026-11-05T10:00:00Z"
+                     *       "expiresAt": "2026-11-05T10:00:00Z",
+                     *       "instanceAdmin": true
                      *     }
                      */
                     "application/json": components["schemas"]["Session"];
@@ -3510,7 +3516,8 @@ export interface operations {
                      *       "userId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60",
                      *       "login": "owner",
                      *       "defaultHouseholdId": "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62",
-                     *       "expiresAt": "2026-11-05T10:00:00Z"
+                     *       "expiresAt": "2026-11-05T10:00:00Z",
+                     *       "instanceAdmin": true
                      *     }
                      */
                     "application/json": components["schemas"]["Session"];

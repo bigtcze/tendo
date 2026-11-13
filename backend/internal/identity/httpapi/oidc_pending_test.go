@@ -161,22 +161,39 @@ func TestOIDCPendingLinkFailureIsUniform(t *testing.T) {
 
 func TestOIDCPendingLinkContract(t *testing.T) {
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	fake := &oidcHTTPFake{pendingLink: identity.OIDCPendingLinkResult{
-		Session:    identity.Session{Token: fakeToken, Principal: identity.Principal{UserID: "user-1", Login: "owner"}, ExpiresAt: expires},
-		Invitation: identity.OIDCInvitationNone,
-		EmailSaved: true,
-	}}
-	mux := oidcRouter(fake, oidcTestPublicURL, &fakeSessionService{})
-	w := pendingRequest(t, mux, http.MethodPost, "/api/v1/auth/oidc/pending/link", `{"login":"owner","password":"passphrase"}`, map[string]string{"Origin": oidcTestPublicURL}, &http.Cookie{Name: "tendo_oidc_pending", Value: fakeToken})
-	if w.Code != 201 {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body["emailSaved"] != true || body["invitation"] != "none" {
-		t.Fatalf("body=%v", body)
+	for _, tc := range []struct {
+		name  string
+		admin bool
+	}{
+		{name: "instance administrator", admin: true},
+		{name: "plain account", admin: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &oidcHTTPFake{pendingLink: identity.OIDCPendingLinkResult{
+				Session:    identity.Session{Token: fakeToken, Principal: identity.Principal{UserID: "user-1", Login: "owner", InstanceAdmin: tc.admin}, ExpiresAt: expires},
+				Invitation: identity.OIDCInvitationNone,
+				EmailSaved: true,
+			}}
+			mux := oidcRouter(fake, oidcTestPublicURL, &fakeSessionService{})
+			w := pendingRequest(t, mux, http.MethodPost, "/api/v1/auth/oidc/pending/link", `{"login":"owner","password":"passphrase"}`, map[string]string{"Origin": oidcTestPublicURL}, &http.Cookie{Name: "tendo_oidc_pending", Value: fakeToken})
+			if w.Code != 201 {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body["emailSaved"] != true || body["invitation"] != "none" {
+				t.Fatalf("body=%v", body)
+			}
+			session, ok := body["session"].(map[string]any)
+			if !ok || session["instanceAdmin"] != tc.admin {
+				t.Fatalf("session=%v want instanceAdmin=%v body=%s", session, tc.admin, w.Body)
+			}
+			if want := `"instanceAdmin":` + map[bool]string{true: "true", false: "false"}[tc.admin]; !strings.Contains(w.Body.String(), want) {
+				t.Fatalf("body=%s want %s", w.Body, want)
+			}
+		})
 	}
 }
 

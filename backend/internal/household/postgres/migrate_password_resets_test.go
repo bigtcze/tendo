@@ -95,7 +95,7 @@ func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM password_reset_tokens`).Scan(&rows); err != nil || rows != 0 {
 		t.Fatalf("recreated table rows=%d err=%v", rows, err)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 21 {
+	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 22 {
 		t.Fatalf("ledger after re-migrate=%d err=%v", version, err)
 	}
 }

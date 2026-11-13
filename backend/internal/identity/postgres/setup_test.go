@@ -49,11 +49,11 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 		set   string
 		reset string
 	}{
-		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false),(19,false),(20,false),(21,false)`},
-		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=21`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (21,false)`},
-		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false),(19,false),(20,false),(21,false)`},
+		{name: "empty metadata", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false),(19,false),(20,false),(21,false),(22,false)`},
+		{name: "old version", set: `DELETE FROM tendo_schema_migrations WHERE version=22`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (22,false)`},
+		{name: "version zero", set: `DELETE FROM tendo_schema_migrations`, reset: `INSERT INTO tendo_schema_migrations(version,dirty) VALUES (1,false),(2,false),(3,false),(4,false),(5,false),(6,false),(7,false),(8,false),(9,false),(10,false),(11,false),(12,false),(13,false),(14,false),(15,false),(16,false),(17,false),(18,false),(19,false),(20,false),(21,false),(22,false)`},
 		{name: "dirty", set: `UPDATE tendo_schema_migrations SET dirty=true`, reset: `UPDATE tendo_schema_migrations SET dirty=false`},
-		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=21`, reset: `UPDATE tendo_schema_migrations SET version=21 WHERE version=99`},
+		{name: "newer version", set: `UPDATE tendo_schema_migrations SET version=99 WHERE version=22`, reset: `UPDATE tendo_schema_migrations SET version=22 WHERE version=99`},
 	} {
 		t.Run("schema "+tc.name, func(t *testing.T) {
 			if _, err := admin.Exec(ctx, tc.set); err != nil {
@@ -147,6 +147,13 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 	if err = admin.QueryRow(ctx, `SELECT count(*) FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id JOIN household_memberships m ON m.user_id=u.id JOIN households h ON h.id=m.household_id`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("setup graph count=%d err=%v", count, err)
 	}
+	// Case (a)/(c): the first-run account is the installation administrator and
+	// the grant is recorded in the same transaction with the setup source.
+	var grantCount int
+	var grantSource, grantLogin string
+	if err = admin.QueryRow(ctx, `SELECT count(*), COALESCE(min(a.grant_source),''), COALESCE(min(u.login),'') FROM instance_admins a JOIN user_accounts u ON u.id=a.user_id`).Scan(&grantCount, &grantSource, &grantLogin); err != nil || grantCount != 1 || grantSource != "setup" || grantLogin != "owner_test" {
+		t.Fatalf("setup grants=%d source=%q login=%q err=%v", grantCount, grantSource, grantLogin, err)
+	}
 	var personName string
 	var personCount int
 	if err = admin.QueryRow(ctx, `SELECT count(*), min(s.name) FROM subjects s JOIN household_memberships m ON m.user_id=s.linked_user_id AND m.household_id=s.household_id JOIN user_accounts u ON u.id=m.user_id WHERE s.type='person' AND u.login='owner_test'`).Scan(&personCount, &personName); err != nil || personCount != 1 || personName != "owner_test" {
@@ -204,6 +211,10 @@ func TestSetupPostgresAtomicAndSingleWinner(t *testing.T) {
 	}
 	if count != 0 || !required {
 		t.Fatalf("rollback left rows=%d required=%v", count, required)
+	}
+	var grants int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM instance_admins`).Scan(&grants); err != nil || grants != 0 {
+		t.Fatalf("failed setup left instance administrator grants=%d err=%v", grants, err)
 	}
 	fixtures()
 }

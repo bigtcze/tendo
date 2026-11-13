@@ -100,14 +100,14 @@ func (r *Repository) CreatePendingAccount(ctx context.Context, params identity.O
 	if err = createSessionTx(ctx, tx, params.Session, userID); err != nil {
 		return identity.OIDCPendingAccountOutcome{}, err
 	}
-	login, defaultHousehold, err := readLoginPrincipal(ctx, tx, userID)
+	login, defaultHousehold, instanceAdmin, err := readLoginPrincipal(ctx, tx, userID)
 	if err != nil {
 		return identity.OIDCPendingAccountOutcome{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return identity.OIDCPendingAccountOutcome{}, err
 	}
-	return identity.OIDCPendingAccountOutcome{UserID: userID, Login: login, DefaultHouseholdID: defaultHousehold, Invitation: invitation}, nil
+	return identity.OIDCPendingAccountOutcome{UserID: userID, Login: login, DefaultHouseholdID: defaultHousehold, InstanceAdmin: instanceAdmin, Invitation: invitation}, nil
 }
 
 // createJITAccount creates the account and its identity under a savepoint. A
@@ -167,13 +167,15 @@ func (r *Repository) recordPendingEmail(ctx context.Context, tx pgx.Tx, userID s
 	return err
 }
 
-func readLoginPrincipal(ctx context.Context, tx pgx.Tx, userID string) (login, defaultHousehold string, err error) {
+func readLoginPrincipal(ctx context.Context, tx pgx.Tx, userID string) (login, defaultHousehold string, instanceAdmin bool, err error) {
 	id, err := uuidOrNull(userID)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
-	err = tx.QueryRow(ctx, `SELECT login, COALESCE(default_household_id::text,'') FROM user_accounts WHERE id=$1`, id).Scan(&login, &defaultHousehold)
-	return login, defaultHousehold, err
+	err = tx.QueryRow(ctx, `SELECT login, COALESCE(default_household_id::text,''),
+		EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=user_accounts.id)
+		FROM user_accounts WHERE id=$1`, id).Scan(&login, &defaultHousehold, &instanceAdmin)
+	return login, defaultHousehold, instanceAdmin, err
 }
 
 func (r *Repository) LinkPendingAccount(ctx context.Context, params identity.OIDCPendingLinkParams) (identity.OIDCPendingLinkOutcome, error) {
@@ -261,7 +263,7 @@ func (r *Repository) bindPendingAccount(ctx context.Context, tx pgx.Tx, params i
 	if err = createSessionTx(ctx, tx, params.Session, params.UserID); err != nil {
 		return identity.OIDCPendingLinkOutcome{}, err
 	}
-	login, defaultHousehold, err := readLoginPrincipal(ctx, tx, params.UserID)
+	login, defaultHousehold, instanceAdmin, err := readLoginPrincipal(ctx, tx, params.UserID)
 	if err != nil {
 		return identity.OIDCPendingLinkOutcome{}, err
 	}
@@ -269,7 +271,7 @@ func (r *Repository) bindPendingAccount(ctx context.Context, tx pgx.Tx, params i
 		return identity.OIDCPendingLinkOutcome{}, err
 	}
 	return identity.OIDCPendingLinkOutcome{
-		UserID: params.UserID, Login: login, DefaultHouseholdID: defaultHousehold,
+		UserID: params.UserID, Login: login, DefaultHouseholdID: defaultHousehold, InstanceAdmin: instanceAdmin,
 		Invitation: invitation, EmailSaved: emailSaved,
 	}, nil
 }
@@ -363,7 +365,7 @@ func (r *Repository) DiscardOIDCAccount(ctx context.Context, params identity.OID
 	}
 	tag, err := tx.Exec(ctx, `DELETE FROM user_accounts WHERE id=$1`, id)
 	if err != nil {
-		if isForeignKeyViolation(err) {
+		if isStillReferenced(err) {
 			return identity.OIDCPendingStatus{}, identity.ErrOIDCAccountNotDiscardable
 		}
 		return identity.OIDCPendingStatus{}, err
@@ -431,7 +433,10 @@ func lockDiscardableAccount(ctx context.Context, tx pgx.Tx, userValue, issuer, w
 	return email.String, true, nil
 }
 
-func isForeignKeyViolation(err error) bool {
+// isStillReferenced covers both the deleting-side FK failure (23503) and
+// PostgreSQL 18's ON DELETE RESTRICT restrict_violation (23001). Both mean the
+// account row is still referenced and must not be discarded.
+func isStillReferenced(err error) bool {
 	var pg *pgconn.PgError
-	return errors.As(err, &pg) && pg.Code == "23503"
+	return errors.As(err, &pg) && (pg.Code == "23503" || pg.Code == "23001")
 }

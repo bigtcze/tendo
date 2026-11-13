@@ -1,7 +1,7 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql", "internal/platform/database/009_invitations.sql", "internal/platform/database/010_item_responsible_member.sql", "internal/platform/database/011_oidc.sql", "internal/platform/database/019_oidc_jit_email.sql", "internal/platform/database/020_password_resets.sql"]
+    schema: ["internal/platform/database/001_setup.sql", "internal/platform/database/002_sessions.sql", "internal/platform/database/003_household_version.sql", "internal/platform/database/004_subjects.sql", "internal/platform/database/005_items.sql", "internal/platform/database/009_invitations.sql", "internal/platform/database/010_item_responsible_member.sql", "internal/platform/database/011_oidc.sql", "internal/platform/database/019_oidc_jit_email.sql", "internal/platform/database/020_password_resets.sql", "internal/platform/database/022_instance_admins.sql"]
     queries: "internal/identity/postgres/queries"
     gen:
       go:

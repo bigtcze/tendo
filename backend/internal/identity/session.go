@@ -39,7 +39,16 @@ const (
 // Principal identifies the authenticated user. DefaultHouseholdID is a UI
 // convenience only and may be empty; it is never an authorization grant.
 // Household access must always be validated against memberships.
-type Principal struct{ UserID, Login, DefaultHouseholdID string }
+//
+// InstanceAdmin reports whether the account currently holds the
+// installation-wide administrator capability. It is resolved from
+// instance_admins on every request and is never cached in the session row. In
+// responses it is a UI hint only; backend authorization must inspect this field
+// instead of re-implementing the grant lookup.
+type Principal struct {
+	UserID, Login, DefaultHouseholdID string
+	InstanceAdmin                     bool
+}
 
 // Session is the result of a successful login. Token is the only copy of the
 // secret and is carried to the client in the cookie.
