@@ -10,14 +10,17 @@ brief). Historical V4 reference PNGs are not evidence here.
 
 ## 1. Method
 
-Capture harness: `frontend/e2e/design-capture.spec.ts` with `frontend/e2e/design/{capture,metrics,seed}.ts`, opt-in via
-`TENDO_DESIGN_CAPTURE_DIR=<dir> bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh` (not part of required CI). It runs
-the real production build against native PostgreSQL with the fixed business date 2026-05-14, Chromium, reduced motion.
+Capture harness: `frontend/e2e/design-capture.spec.ts` with `frontend/e2e/design/{capture,metrics,seed,hold}.ts`, opt-in
+via `TENDO_DESIGN_CAPTURE_DIR=<dir> bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh` (not part of required CI). It
+runs the real production build against native PostgreSQL with the fixed business date 2026-05-14, Chromium, reduced
+motion.
 
-Matrix: 20 states x 6 widths (320, 390, 768, 1024, 1440, 1920) x 2 languages (cs, en) x 2 explicit themes (light,
-dark) = 480 viewport captures, plus the 1000+ item Home at 390/1440 (8 viewport captures) and full-page Home and detail
-at 390/1440 (16 captures): 504 entries per run. Fold height
-is 844 below 768, 1024 at 768 and 900 above. Each capture is paired with measurements in `metrics.json`:
+Matrix: 35 states x 6 widths (320, 390, 768, 1024, 1440, 1920) x 2 languages (cs, en) x 2 explicit themes (light,
+dark) = 840 viewport captures, plus the 1000+ item Home at 390/1440 (8 viewport captures): 848 viewport captures. On
+top of that, 32 full-page images: Home and item detail at 390/1440, and the invitation link and revoke confirmation at
+320/390, whose point is below the fold on phones. 880 entries per run; the harness fails unless it has exactly 880 with
+one PNG each. Fold height is 844 below 768, 1024 at 768 and 900 above. Each capture is paired with measurements in
+`metrics.json`:
 
 | Metric | Meaning |
 | --- | --- |
@@ -28,92 +31,93 @@ is 844 below 768, 1024 at 768 and 900 above. Each capture is paired with measure
 | `mainInset` | `main` landmark left/right offset from the viewport |
 | `h1` | page title size and position |
 | `firstRowY`, `rowsFullyAboveFold` | first item row position and rows visible without scrolling |
-| `primaryAction.containerRightGap` | distance from the primary button to its parent's right edge |
+| `primaryAction` | box of the first visible primary button; the audit reports its gap to the viewport's right edge (the recorded `containerRightGap` to its parent is 0 almost by construction and is not used as evidence) |
 | `domElements` | element count of the document |
 
-States: onboarding, login, login-error, invite-accept, reset-password-invalid, home-empty, home-populated (10-item
-reference household), home-large (1000+ items), all-items, all-items-no-match, item-detail, item-detail-history,
-add-item, add-item-repeat, edit-item, people, members, account, admin, not-found, server-error.
+Full-page entries carry the viewport measurements of the same screen and are marked `fullPage: true`; every number in
+this document comes from the 848 viewport captures.
 
-Runs (scratch evidence, not committed in full; about 31 MiB each). All three were regenerated back to back on
-2026-11-13 with the final harness (which asserts exactly 504 entries and one PNG per entry), under one lock against
-the same native PostgreSQL 18.6 test cluster:
+States (35):
+
+- Signed out: onboarding, login, login-error, login-oidc (OIDC provider offered), invite-accept, reset-password (a real,
+  unredeemed admin reset link), reset-password-invalid, signed-out-unavailable (server unreachable), not-found-signed-out.
+- Signed in as the owner: home-empty, home-loading (items request held open), home-populated (10-item reference
+  household), home-large (1000+ items, 390/1440 only), server-error, all-items, all-items-no-match, all-items-archived,
+  item-detail, item-detail-history, item-detail-archived, add-item, add-item-repeat, edit-item, edit-conflict (stale
+  save), people, people-archived, members, members-invite-link (link shown once), members-revoke-confirm, account,
+  admin, admin-reset-link (one-time reset link dialog), not-found.
+- Signed in as a non-admin member: members-member, admin-member.
+- Signed in without a household: no-household.
+
+Runs (scratch evidence, not committed in full; 44–50 MiB each). All three were made back to back on 2026-11-13 with
+the identical harness, under one lock against the same native PostgreSQL 18.6 test cluster:
 
 | Run | Build | Result | `metrics.json` SHA-256 |
 | --- | --- | --- | --- |
-| v4 baseline | `docs/v5-05-design-audit` 7aeab28 (v4 application code) | exit 0, 504 entries (488 viewport + 16 full-page) | `0d3b10cc0e36e3ead22ea42a67f66c7825b9bf4baf4fb7e1dea3c4abda1d3267` |
-| Direction B | `proto/v5-direction-b` c0583c5 | exit 0, 504 entries | `f776b22b1216ddb8808f9710fa3c94687dfee98c84151789507e0c75a49cef98` |
-| Direction A | `proto/v5-direction-a` 0b138d2 | exit 0, 504 entries | `d2449d1be9bacc5c5ddc258ce80cfed7312a58cb0fc6bb8df2c845211653d8cb` |
+| v4 baseline | `docs/v5-05-design-audit` (v4 application code, harness as committed here) | exit 0, 880 entries (848 viewport + 32 full-page) | `af9d71e15cf3d5ba1fe7dfb7910a23427ae6ac98754db4ea3dfd4d93c0666ac3` |
+| Direction B | `proto/v5-direction-b` c0583c5 | exit 0, 880 entries | `f3bad30933d8765e06f7a18c4e33e8c15f779883f5c44ec12daf062b3a3f4ca7` |
+| Direction A | `proto/v5-direction-a` 0b138d2 | exit 0, 880 entries | `365a11d01ac873c11aff901cb3423227db3cd02f75420651c1dc996a7adb01de` |
 
 Harness on the prototypes: the prototype branches do not contain the harness. Each prototype worktree was captured
-with uncommitted copies of the seven harness files that are byte-identical to the versions committed with this
-document (checked with `cmp`), so all three runs used the same capture code.
+with uncommitted copies of the eight harness files (`design-capture.spec.ts`, the four `design/` modules,
+`playwright.config.ts`, `e2e-native-runner.py`, `e2e-smoke.sh`) that are byte-identical to the versions committed with
+this document (checked with `cmp`), so all three runs used the same capture code.
 
-Measurement caveats:
+Measurement notes:
 
-- The small-target check runs right after the viewport is resized. It is not deterministic: occasionally one capture
-  catches the phone bottom bar mid-reflow (links measured 4 x 56 px while the screenshot shows a normal bar), and which
-  capture is hit differs between runs. In the runs above it hit v4 `home-empty-cs-light-320` and B
-  `people-cs-dark-320` (5 bottom-bar links each); in an earlier run it hit v4 `item-detail-cs-dark-320` and B
-  `admin-cs-dark-320` instead. Such one-off 4 px-wide readings are treated as harness noise, not as findings.
+- Measurements are taken after the Inter font check and repeated frame by frame until two consecutive readings are
+  identical (at most 10 frames, otherwise the run fails). Earlier runs measured right after the viewport resize and
+  occasionally caught the phone bottom bar mid-reflow; with settled measurement v4 and B record no small target at all.
 - The per-capture count of small targets is complete; the names are capped at 8 per capture by the shared audit
-  measurement (`frontend/e2e/audit/metrics.ts`). In v4 and B no capture exceeds that cap. In A 100 of 488 captures
-  have more than 8 offenders, so A's offender table below lists the controls that were named and may miss further
-  controls of the same kind.
+  measurement (`frontend/e2e/audit/metrics.ts`). In v4 and B no capture has an offender. In A 92 of 848 viewport
+  captures (home-populated, add-item and add-item-repeat 24 each, home-empty 12, home-large 8) have more than 8, so
+  A's offender table lists named controls only and its capture counts are lower bounds.
+- `no-household` is the one partly simulated state. This runner starts without an OIDC provider, and an account without
+  a household can only be created through SSO, so the capture uses a real signed-in session whose `/api/v1/session`
+  reply is answered without a default household (the shape such an account receives). The screen itself is the app's
+  real no-household screen.
 
-### 1.1 Coverage and exclusions
+### 1.1 Coverage and remaining exclusions
 
-The matrix above covers the 20 states listed; it is not every reachable state of the app. These states were not
-captured in the 6-width x 2-language x 2-theme matrix. The right column names the evidence that does exist for them;
-all of it is v4 production-build evidence only, at fewer widths, and none of it exists for Directions A or B:
+The matrix covers every route and every distinct screen state the app can reach with the runner's setup. These
+variants are not in it; each is either the same screen as a captured state with different text, or an interaction
+state rather than a screen:
 
-| State not in the matrix | Existing evidence (v4 production build) |
-| --- | --- |
-| Item with an invalid or foreign id | journey `n10` (indistinguishable from missing data); `not-found` in the matrix is the same screen |
-| Signed in without a household ("Join your household by invitation") | journey `n9` asserts the screen; no screenshot |
-| Member (non-admin) view of Members and Admin center | visual snapshots `members-non-owner-{390,1440}`, `admin-member-{390,1440}` |
-| Valid reset-password form | visual snapshots `reset-password-{light,dark,cs}-*` |
-| Admin one-time reset link dialog | visual snapshots `admin-reset-link-*` |
-| Account appearance focus states (Account has no password-change form; passwords change through the admin reset link) | `account` in the matrix shows the page; focus states in UX audit `auth-account-appearance-focus-*` |
-| OIDC sign-in available, conflict, provider error, outcome | UX audit `auth-login-oidc-*` at 390 (one at 1440) |
-| Session ended, rate limited, boot loading, boot unavailable | UX audit `auth-login-session-ended`, `auth-login-rate-limited`, `auth-boot-*` at 390 |
-| Onboarding validation and server error | visual `onboarding-error-*`; UX audit `auth-onboarding-*` |
-| Loading states (Home, People, Members) | journey `n18`; UX audit `audit-people-loading`, `audit-members-loading` |
-| Confirm, revoke and invite dialogs; invitation link shown once | UX audit `audit-members-revoke-confirm`, `audit-members-link-*`; journey `n7`, `n25` |
-| Archived item detail, All items with Show: Archived, archived people | visual `detail-archived-*`, `people-archived-*`; journey `n4`, `n12` (status filter), `l`; UX audit `audit-people-archived-view-*` |
-| Edit conflict (stale save) | visual `edit-conflict-*`; UX audit `audit-item-edit-conflict-en-390` |
-| Home with exactly 1 item, or with about 100 items | not captured; the matrix has 0, 10 and 1000+ items |
-| System theme (no stored preference) | `theme.spec.ts` asserts first-paint background for system/light/dark on signed-out routes; not photographed |
-| Signed-out 404, connection error | visual `not-found-signed-out-*`; `auth-boot-unavailable` |
-
-Visual snapshots live in `frontend/e2e/visual/visual.spec.ts-snapshots/`; UX-audit images are produced by
-`frontend/e2e/ux-audit.spec.ts` (with `frontend/e2e/audit/`) and are not committed. The findings in section 2 are
-therefore findings about the 20 captured states; the excluded states are expected to inherit the shell-level findings
-(header, insets, eyebrows, cards) because they use the same layout components, but that is an inference, not a
-measurement. The later V5 design Issues must extend the matrix to these states before their screen families ship.
+| Not in the matrix | Why it is not a separate audit state | Other evidence (v4 only) |
+| --- | --- | --- |
+| Item with an invalid or foreign id | renders the captured `not-found` screen | journey `n10` |
+| OIDC conflict, provider error and sign-in outcome | the captured `login` / `login-error` layout with a different alert | UX audit `auth-login-oidc-*` at 390 |
+| Session ended, rate limited | the captured `login-error` layout with a different alert | UX audit `auth-login-session-ended`, `auth-login-rate-limited` |
+| Boot loading (before the session probe answers) | transient; replaced as soon as the probe answers | UX audit `auth-boot-*` |
+| Onboarding validation and server error | the captured `onboarding` form with an inline alert | visual `onboarding-error-*` |
+| People, Members and Admin loading | short-lived; People and Members show one muted "Loading…" line, Admin a skeleton list. Only Home loading is captured | UX audit `audit-people-loading`, `audit-members-loading` |
+| Admin promote/demote confirmation | same dialog component as the captured `admin-reset-link` | journey `n7` |
+| Account appearance focus states | focus rings, not layout | UX audit `auth-account-appearance-focus-*` |
+| Home with exactly 1 or about 100 items | same list as 10 and 1000+ items, which bound it | — |
+| System theme (no stored preference) | resolves to the captured light or dark theme | `theme.spec.ts` asserts first paint for system/light/dark |
 
 Curated v4 screenshots are in [`v4/`](v4/); curated direction screenshots are in [`a/`](a/) and [`b/`](b/). All three
-folders contain the same file names (`<state>-<lang>-<theme>-<width>.png`, plus `admin-cs-dark-320` and
+folders contain the same 28 file names (`<state>-<lang>-<theme>-<width>.png`, plus `admin-cs-dark-320` and
 `item-detail-en-light-1440` for the directions), so any state can be compared side by side by opening the same name
-in each folder. All curated PNGs come from the three runs listed above.
+in each folder. All curated PNGs are byte copies from the three runs listed above.
 
 ## 2. v4 audit (production build)
 
-### 2.1 Measured, all 488 viewport captures
+### 2.1 Measured, all 848 viewport captures
 
 | Check | Result |
 | --- | --- |
 | Horizontal overflow | 0 captures |
-| Targets under 44 px | 0 real offenders (one mid-reflow reading, see the caveat in section 1) |
+| Targets under 44 px | 0 captures |
 | Smallest visible text | 12 px (meta and helper text) |
-| Top bar full width | no at 1920 on every signed-in route (1440 px frame at x=240); no at 1440 and 1920 on every signed-out route (1152 px frame at x=144/384) |
-| Top bar height | 56 px desktop, 61 px at 320–768 signed in |
+| Top bar full width | no at 1920 on every signed-in route (1440 px frame at x=240); no at 1440 and 1920 on every signed-out route (1152 px frame at x=144/384); no from 1024 on the no-household screen (768 px frame) |
+| Top bar height | signed in: 61 px at 320–768, 56 px from 1024; signed out: 56 px |
 | Home h1 | 34 px phone, 36 px tablet, 40 px desktop, with decorative coloured period |
 | Home first item row | y=409 phone (446 when the 320 px count pill wraps), 396 tablet, 327 desktop |
 | Home rows above the fold | 3 at 320/390, 6–7 at 768, 6 at 1024, 7 at 1440/1920 (10-item household); 5 and 10 with 1000+ items |
 | All items first row | y=456 phone, 480 desktop; 3 rows above the fold at 390 |
-| Home primary action right gap | 0 px to its container at every width (desktop and the full-width phone button) |
-| Home DOM | 398 elements for 10 items, 1298 for 1000+ items (bounded pagination holds) |
+| Home Add button gap to the viewport's right edge | 20 px at 390, 40 px at 1440, 280 px at 1920 (inside the 1440 px frame) |
+| Home DOM | 398 elements for 10 items, 1291 for 1000+ items (bounded pagination holds) |
 
 The measured accessibility basics are sound. The problems are composition, hierarchy and density, which the numbers
 expose only indirectly (the first row starts 48 % of the way down a phone screen and 36 % down a desktop one).
@@ -139,8 +143,8 @@ Signed-out screens frame the header at 1152 px already from 1440 ([login 1920](v
 [onboarding 1440](v4/onboarding-en-light-1440.png)). The header holds a tagline but no household switcher; the household
 name lives only in the Home h1.
 
-**Edge insets.** Insets are mostly consistent (20 px phone, 32 px tablet, 40 px desktop), but primary actions are glued
-to their container's right edge (0 px gap measured everywhere), and the phone Add button is a full-bleed slab. The
+**Edge insets.** Insets are mostly consistent (20 px phone, 32 px tablet, 40 px desktop). In the screenshots the
+primary actions sit flush with the right edge of the content column, and the phone Add button is a full-width slab. The
 1920 layout leaves 240 px of dead page on each side while the item list ends 40 px from the frame. The pill row on
 phones is cut off mid-pill at the right edge rather than wrapping ([cs 390](v4/home-populated-cs-light-390.png)).
 
@@ -172,10 +176,23 @@ short settings and leaves 400 px empty at 1440 ([account](v4/account-cs-light-14
 | Signed-out | Language switch floats bottom-right, far from the form | [login 1920](v4/login-cs-light-1920.png) |
 | Dark theme | Light-cyan primary buttons with dark text are the brightest element on screen and outweigh the content | [768 dark](v4/home-populated-cs-dark-768.png) |
 
-### 2.4 What v4 gets right (keep)
+### 2.4 Findings on the remaining states
+
+| Route/state | Finding | Evidence |
+| --- | --- | --- |
+| No household | The signed-in shell collapses to a 768 px centred frame from 1024 up, header included, with the slogan, an eyebrow, a 30 px h1, a two-line subtitle and two cards; its navigation (Home, Account) is a small pill row at the bottom of the frame rather than the bottom bar or sidebar | [1440](v4/no-household-en-light-1440.png) |
+| Signed-out (login with OIDC, reset password, unavailable, 404) | Same 1152 px frame and floating language switch as login; the OIDC button sits in its own band under an "or" divider inside the card | [OIDC 1440](v4/login-oidc-en-dark-1440.png) |
+| Home loading | The full hero (eyebrow, household h1, tagline) renders before three grey skeleton bars, so the slowest moment shows the most decoration | [390](v4/home-loading-en-light-390.png) |
+| Edit conflict | The conflict notice is a clear amber box at the top of the dialog that names the saved title; the dialog otherwise repeats the edit-form findings (Cancel twice, `mm/dd/yyyy`) | [1440](v4/edit-conflict-en-light-1440.png) |
+| Archived item detail | State badge and a sentence restate "archived" twice; Restore is an outlined button, history card below | [cs 390](v4/item-detail-archived-cs-dark-390.png) |
+| Archived people | The archive is a second heading with its own subtitle under the page eyebrow, h1 and subtitle: four lines of framing above one row | [cs 1024](v4/people-archived-cs-light-1024.png) |
+| Member view of Members | Card list with role pills and avatar circles; the "Need to invite someone?" panel is a tinted card that only says to ask an admin | [cs 390](v4/members-member-cs-light-390.png) |
+| Member view of Admin center | A full page with eyebrow, h1 and subtitle whose only content is "only administrators" | [1440](v4/admin-member-en-dark-1440.png) |
+
+### 2.5 What v4 gets right (keep)
 
 Zero overflow and zero sub-44 px targets across the full matrix; Inter is loaded and consistent (the harness asserts it
-before every capture); light/dark theming boots before first paint; bounded fetching keeps 1000+ items at 1298 DOM elements; Czech strings fit without clipping; the
+before every capture); light/dark theming boots before first paint; bounded fetching keeps 1000+ items at 1291 DOM elements; Czech strings fit without clipping; the
 phone bottom bar works; row Done is one tap.
 
 ## 3. Directions
@@ -191,21 +208,21 @@ built in two passes: shell and Home (3174c0d), then item detail, create/edit and
 review found that the first pass did not cover the screen families the brief requires. Validation on c0583c5: lint,
 typecheck, vitest 1033/1033 and build pass; the required E2E smoke result is in section 3.3.
 
-Measured against v4 (488 viewport captures each):
+Measured against v4 (848 viewport captures each):
 
 | Check | v4 | B |
 | --- | --- | --- |
 | Overflow | 0 | 0 |
-| Targets under 44 px | 0 real | 1 capture: `people-cs-dark-320` reads the household switcher at 20 x 44 px (plus mid-reflow bottom-bar noise). The switcher truncates to "N…" at 320 px Czech on every signed-in screen ([admin 320](b/admin-cs-dark-320.png)), so it stays a finding |
-| Header full width | no at 1920 signed in, no at 1440+ signed out | yes signed in at every width (57 px); still no at 1440+ signed out |
+| Targets under 44 px | 0 | 0. The household switcher truncates to "N…" at 320 px Czech on every signed-in screen ([admin 320](b/admin-cs-dark-320.png)): a visual finding, not a target-size one |
+| Header full width | no at 1920 signed in, no at 1440+ signed out | yes signed in at every width (57 px); still no at 1440+ signed out and from 1024 on no-household |
 | Home h1 | 34/36/40 px with period | 24 px "Overview" / "Přehled" |
 | Detail, edit and admin h1 | 28–36 px detail and edit, 30 px admin | 24 px |
 | Home first row y (390 / 1440) | 409 / 327 | 254 / 262 |
 | Rows above fold (390 / 768 / 1440) | 3 / 6–7 / 7 | 5 / 8 / 8 |
 | All items first row y (390 / 1440) | 456 / 480 | 444 / 473 |
 | Main left inset at 1920 | 464 (frame) | 224 (sidebar only) |
-| Primary action right gap | 0 | 0 |
-| Home DOM, 10 / 1000+ items | 398 / 1298 | 401 / 1301 |
+| Home Add gap to viewport right edge (390 / 1440 / 1920) | 20 / 40 / 280 | 16 / 40 / 40 |
+| Home DOM, 10 / 1000+ items | 398 / 1291 | 401 / 1294 |
 | Detail / edit / admin DOM | 121 / 143 / 132 | 133 / 152 / 141 |
 
 Observed in screenshots:
@@ -231,6 +248,12 @@ Observed in screenshots:
   buttons stack under each account, two per member ([1440](b/admin-en-dark-1440.png), [cs 320](b/admin-cs-dark-320.png)).
 - **Untouched:** People, Members and Account keep v4's eyebrows, subtitles and card-in-card layout
   ([members](b/members-cs-light-1440.png), [account](b/account-cs-light-1440.png), [people 390](b/people-en-light-390.png)).
+- **Remaining states:** Home loading drops the hero and shows "Overview" over the skeleton
+  ([390](b/home-loading-en-light-390.png)). No-household keeps v4's 768 px framed shell, eyebrow, subtitle and two cards
+  ([1440](b/no-household-en-light-1440.png)); signed-out OIDC, reset-password and error screens are v4. Archived detail,
+  edit conflict and the member views follow B's detail, form and v4 members styling respectively
+  ([archived cs 390](b/item-detail-archived-cs-dark-390.png), [conflict](b/edit-conflict-en-light-1440.png),
+  [member cs 390](b/members-member-cs-light-390.png)).
 
 ### 3.2 Direction A: calm list
 
@@ -238,34 +261,36 @@ Intent and full self-critique (deviations D1–D4, weaknesses W1–W12): `docs/d
 `proto/v5-direction-a` (0b138d2). Validation on that commit: lint, typecheck, vitest 1029/1029 and build pass; the
 required E2E smoke result is in section 3.3.
 
-Measured against v4 and B (488 viewport captures each):
+Measured against v4 and B (848 viewport captures each):
 
 | Check | v4 | B | A |
 | --- | --- | --- | --- |
 | Overflow | 0 | 0 | 0 |
-| Captures with targets under 44 px | 0 real | 1 (switcher at 320 cs) | **368 of 488** (every signed-in state; 0 on signed-out states) |
+| Captures with targets under 44 px | 0 | 0 | **608 of 848** (every state with the household switcher; 0 on signed-out states and no-household) |
 | Header full width, signed in | no at 1920 | yes (57 px) | yes (56 px phone/tablet, 64 px desktop) |
 | Header full width, signed out | no at 1440+ | no at 1440+ | no at 1440+ (1152 px frame) |
+| Header full width, no household | no from 1024 (768 px frame) | same | same |
 | Home h1 | 34/36/40 px | 24 px | 26 px |
 | Home first row y (390 / 1440) | 409 / 327 | 254 / 262 | 241 / 265 |
 | Rows above fold (390 / 768 / 1440) | 3 / 6–7 / 7 | 5 / 8 / 8 | 6 / 8 / 7 |
 | Rows above fold, 1000+ items (390 / 1440) | 5 / 10 | 8 / 11 | 8 / 9 |
 | All items first row y (390 / 1440) | 456 / 480 | 444 / 473 | 410 / 419 |
 | Main left inset at 1920 | 464 | 224 | 232 |
+| Home Add gap to viewport right edge (390 / 1440 / 1920) | 20 / 40 / 280 | 16 / 40 / 40 | 16 / 408 / 888 |
 | Content measure | frame | full width | 760 px column |
-| Home DOM, 10 / 1000+ items | 398 / 1298 | 401 / 1301 | 377 / 1216 |
+| Home DOM, 10 / 1000+ items | 398 / 1291 | 401 / 1294 | 377 / 1209 |
 | Detail DOM | 121 | 133 | 159 |
 
 Small-target offenders in A (each repeats on every signed-in capture where it is shown):
 
 | Control | Measured box | Where |
 | --- | --- | --- |
-| Household menu button in the header | 126 x 36 px | all 368 signed-in captures, all widths |
-| Sidebar links (Home … Admin center) | 207 x 40 px (216 or 232 x 40 px in some captures) | signed-in captures at 1024+ |
-| Row Done circle | 28 x 28 px | 288 captures (Home and All items rows) at every width. A's README (W11) says a pseudo-element extends the hit area to about 44 px; the harness measures the element box, so the larger hit area is unverified |
-| Row title link | 252–724 x 24 px | 208 captures; the whole row is not the link |
-| Home "Add item" | 121 x 40 px (Czech "Přidat položku" 164 x 40 px) | 56 captures, Home at every width |
-| Home "Add an item…" entry row | 288–760 x 40 px | 32 captures, Home at every width |
+| Household menu button in the header | 126 x 36 px | all 608 captures that show it, all widths |
+| Sidebar links (Home … Admin center) | 207 x 40 px | 264 named captures at 1024+ (the other signed-in captures at those widths hit the 8-name cap first) |
+| Row Done circle | 28 x 28 px | 80 captures (home-populated, add-item and add-item-repeat 24 each with Home behind the sheet, home-large 8; 288 named instances), every width. A's README (W11) says a pseudo-element extends the hit area to about 44 px; the harness measures the element box, so the larger hit area is unverified |
+| Row title link | 252–724 x 24 px | 80 captures (208 named instances), same states as Done; the whole row is not the link |
+| Home "Add item" | 121 x 40 px (Czech "Přidat položku" 164 x 40 px) | 56 captures (home-empty, home-populated, home-large) |
+| Home "Add an item…" entry row | 288–760 x 40 px | 32 captures (home-populated, home-large) |
 
 Observed in screenshots:
 
@@ -293,6 +318,14 @@ Observed in screenshots:
 - **Forms:** the add/edit sheet is restyled but structurally v4 (D1, no inline create); the Czech date field still
   shows the browser's `mm/dd/yyyy` placeholder; "Add notes (optional)" is still a bare text link
   ([edit 1440](a/edit-item-en-light-1440.png), [add 390](a/add-item-cs-dark-390.png)).
+- **Remaining states:** Home loading is "Overview" over the skeleton ([390](a/home-loading-en-light-390.png)). Archived
+  detail keeps the back link, an "Archived" label, one notice and a quiet Restore at the end of the band
+  ([cs 390](a/item-detail-archived-cs-dark-390.png)). The member view of Members is a flat list with role as plain text
+  ([cs 390](a/members-member-cs-light-390.png)); the member view of Admin center drops the eyebrow but keeps the
+  subtitle above a single notice ([1440](a/admin-member-en-dark-1440.png)). No-household is still v4's 768 px framed
+  shell with eyebrow, subtitle and cards ([1440](a/no-household-en-light-1440.png)); OIDC sign-in and the other
+  signed-out screens keep v4's frame, eyebrow and tagline, with A's palette and without the top-bar slogan
+  ([OIDC 1440](a/login-oidc-en-dark-1440.png)).
 - **Duplicate entry points:** Home shows both an "Add item" button and an "Add an item…" row directly below it, and
   both open the same sheet. Two controls for one action, introduced by the unfinished inline create.
 - **Phone navigation:** 4 tabs (Home, Items, People, More); Archive, Members, Account and Admin are in the More sheet,
@@ -321,8 +354,8 @@ above, not taste.
 | Usefulness: dedicated Archive entry on phone | no (Items → Show: Archived) | no (same) | yes (More → Archive) |
 | Usefulness: global search | All items only | header search at 640+ | All items only |
 | Usefulness: household in header | no | yes, truncates to "N…" at 320 cs | yes |
-| Accessible density: targets ≥ 44 px | yes | yes except the 320 px Czech switcher | **no** (368 captures) |
-| Accessible density: 200 % zoom (n23) | pass | pass | **fail** (0.5 px) |
+| Accessible density: targets ≥ 44 px | yes | yes | **no** (608 captures) |
+| Accessible density: 200 % zoom (n23) | pass (`required` run 43324802110 on main f182b88) | pass | **fail** (0.5 px) |
 | Accessible density: smallest text | 12 px | 12 px | 12 px |
 | Polish: hero/tagline/slogan removed | no | Home and shell; eyebrows and subtitles remain elsewhere | Home and shell; subtitles remain |
 | Polish: framed header | signed in and out | signed out only | signed out only |
@@ -350,7 +383,7 @@ wide 1920 rows are harder to scan than v4's, and the Czech switcher truncates to
 **A's strengths:** it answers every composition finding in section 2 on the signed-in app, not only on Home; it shows
 the most rows above the fold on phones, the lowest DOM per item, the clearest detail hierarchy and the only phone path
 to a dedicated Archive view. **A's weaknesses:** it regresses the one thing v4 measured perfectly, target size (36–40 px controls and a
-28 px Done circle across 368 captures); its required E2E smoke fails `n23` at 200 % zoom; inline create is missing and leaves two add
+28 px Done circle; 608 captures); its required E2E smoke fails `n23` at 200 % zoom; inline create is missing and leaves two add
 controls on Home; signed-out screens, subtitles and the Czech date placeholder are untouched; the 760 px column
 under-uses 1920 px displays.
 
@@ -363,12 +396,13 @@ V5 design Issues before any screen family ships:**
    Done hit area as the measured box, row link covering the row). Zero small-target captures is an exit criterion.
 2. The 200 % zoom journey (`n23`) passes with its assertion unchanged; the required E2E smoke is green.
 3. One add entry point: either real inline create at the top of the list or only the "Add item" button, never both.
-4. Full-width header on signed-out screens too; eyebrows and decorative subtitles removed there and under every h1.
+4. Full-width header on signed-out screens and on the no-household screen too; eyebrows and decorative subtitles
+   removed there and under every h1.
 5. Sidebar highlight follows the route of origin; localized date entry in Czech.
 6. Take B's header search into the A shell (desktop/tablet), and B's evidence that the switcher must not truncate
    to one letter at 320 px Czech.
-7. Reconsider the 760 px measure at 1440+ (for example aligning the primary action to the workspace edge) with a
-   captured comparison, not by assertion.
+7. Reconsider the 760 px measure at 1440+ (A's Add button is 408 px from the right edge at 1440 and 888 px at 1920),
+   for example by aligning the primary action to the workspace edge, with a captured comparison, not by assertion.
 
 Why A over B: the brief's core complaint is generic, dashboard-like composition across the app. Both directions now
 cover Home, create/edit, detail, admin and phone, but B keeps the composition the complaint is about (panels, tiles,

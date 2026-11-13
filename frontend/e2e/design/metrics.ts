@@ -23,6 +23,11 @@ export interface DesignMetrics {
   rowsFullyAboveFold: number;
   primaryAction: (DesignBox & { containerRightGap: number | null }) | null;
   domElements: number;
+  /**
+   * Set on a `-full` entry only: the numbers are the viewport measurements the stitched image was taken from,
+   * because a full-page image has no single viewport geometry.
+   */
+  fullPage?: true;
 }
 
 export async function measureDesign(page: Page): Promise<DesignMetrics> {

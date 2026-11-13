@@ -29,6 +29,14 @@ export async function open(page: Page, path: string) {
 
 export type Prepare = (page: Page, catalog: Catalog) => Promise<void>;
 
+/** Media queries, fonts and the settle transition all land on frame boundaries; measurements follow one. */
+async function nextFrame(page: Page) {
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
+}
+
+/** How many frames a reading may need before two consecutive measurements agree. */
+const SETTLE_FRAMES = 10;
+
 /**
  * Opt-in design baseline: every prepared state is photographed at each width in both languages and both explicit
  * themes, and every image is paired with measured layout numbers.
@@ -72,20 +80,40 @@ export class DesignCapture {
   private async capture(page: Page, state: string, locale: Locale, theme: Theme, width: number, fullPage: boolean) {
     await page.setViewportSize({ width, height: heightFor(width) });
     // Media queries re-evaluate on the next rendering step, not on forced layout: two frames keep 1440 -> 390 honest.
-    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+    await nextFrame(page);
+    await nextFrame(page);
     expect(await page.evaluate(() => window.innerWidth), `${state} ${locale} ${theme} viewport width`).toBe(width);
     const name = captureName(state, locale, theme, width);
-    const metrics = await measureDesign(page);
     await page.evaluate(() => {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       window.scrollTo(0, 0);
     });
     await page.mouse.move(0, 0);
     await assertInterReady(page, name);
+    // Measure only after the faces are ready, and never from a mid-reflow frame: a phone bottom bar or a wrapping
+    // toolbar can be photographed one frame before its final row is laid out, which used to record 4x56 targets.
+    const metrics = await this.settledMetrics(page, name);
     await page.screenshot({ path: join(this.dir, `${name}.png`), animations: 'disabled', caret: 'hide' });
     this.metrics[name] = metrics;
     if (!fullPage) return;
+    // Fixed chrome is painted where it sat when the shot starts, so at the top of the document the shell's bottom bar
+    // covers mid-page content in the stitched image. At the document end it lands in its own place instead.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.screenshot({ path: join(this.dir, `${name}-full.png`), fullPage: true, animations: 'disabled', caret: 'hide' });
-    this.metrics[`${name}-full`] = metrics;
+    // The stitched image has no single viewport geometry, so this entry keeps the numbers it was measured from and
+    // says so, instead of implying they describe the full document.
+    this.metrics[`${name}-full`] = { ...metrics, fullPage: true };
+  }
+
+  /** Reads the layout until two consecutive frames agree, so an intermediate reflow never becomes the baseline. */
+  private async settledMetrics(page: Page, name: string): Promise<DesignMetrics> {
+    let measured = await measureDesign(page);
+    for (let frame = 0; frame < SETTLE_FRAMES; frame += 1) {
+      await nextFrame(page);
+      const next = await measureDesign(page);
+      if (JSON.stringify(next) === JSON.stringify(measured)) return next;
+      measured = next;
+    }
+    throw new Error(`${name} layout did not settle within ${SETTLE_FRAMES} frames`);
   }
 }
