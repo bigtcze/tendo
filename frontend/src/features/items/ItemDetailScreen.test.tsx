@@ -632,6 +632,40 @@ describe('item details', () => {
     expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
   });
 
+  it('keeps announcing the page while returning from the last page to the first one', async () => {
+    let release: ((response: Response) => void) | undefined;
+    let firstPageReads = 0;
+    installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
+      if (request.query.has('cursor')) return json(200, { items: [completion('older', '2024-03-01')], nextCursor: null });
+      firstPageReads += 1;
+      return firstPageReads === 1
+        ? json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' })
+        : new Promise<Response>((resolve) => { release = resolve; });
+    } }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await screen.findByRole('heading', { name: 'Renew passport' });
+    const main = within(screen.getByRole('main'));
+    await userEvent.click(await main.findByRole('button', { name: 'Older' }));
+    expect(await main.findByText('Done Mar 1, 2024')).toBeVisible();
+    const pages = () => within(main.getByRole('navigation', { name: 'History pages' }));
+    expect(pages().getByRole('status')).toHaveTextContent('Page 2');
+
+    // The last page has no next cursor and going back empties the stack: the navigation must still stay mounted,
+    // so the existing status node changes to "Page 1" and is announced.
+    await userEvent.click(main.getByRole('button', { name: 'Newer' }));
+    expect(release).toBeDefined();
+    expect(main.getByRole('navigation', { name: 'History pages' })).toBeVisible();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 1');
+    for (const button of pages().queryAllByRole('button')) expect(button).toBeDisabled();
+
+    await act(async () => release!(json(200, { items: [completion('latest', '2025-04-02')], nextCursor: 'older-cursor' })));
+    expect(await main.findByText('Done Apr 2, 2025')).toBeVisible();
+    expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(pages().getByRole('status')).toHaveTextContent('Page 1');
+    expect(main.getByRole('button', { name: 'Older' })).toBeEnabled();
+    expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+  });
+
   it('renders Czech history navigation labels', async () => {
     localStorage.setItem('tendo.locale', 'cs');
     installFakeServer(common({ [`GET ${historyPath}`]: (request) => request.query.has('cursor') ? json(200, { items: [completion('c-old', '2024-03-01')], nextCursor: null }) : json(200, { items: [completion('c-new', '2025-04-02')], nextCursor: 'older' }) }));

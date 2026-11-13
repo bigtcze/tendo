@@ -20,7 +20,8 @@ function HistoryRow({ completion, t, locale }: { completion: Completion; t: Tran
  * Paged history controls. The list is newest first, so Newer/Older are the Previous/Next of this list, and the
  * current page is stated as text inside the navigation.
  *
- * The navigation stays mounted while a page loads: moving the cursor stack happens on click, before the request,
+ * The navigation stays mounted while a page loads, including the load back to a lone first page from the last
+ * one: moving the cursor stack happens on click, before the request,
  * so the page number changes inside an existing live region and assistive tech announces it. The buttons only go
  * disabled for that load, which also keeps a second page change out of the in-flight one.
  * A failed page keeps just the error and its Retry action, so recovery stays the only thing to do next.
@@ -28,7 +29,7 @@ function HistoryRow({ completion, t, locale }: { completion: Completion; t: Tran
 function HistoryPaging({ history, t }: { history: ItemDetailHistoryState; t: Translate }) {
   if (history.state === 'error') return null;
   const hasNewer = history.cursors.length > 1;
-  if (!history.nextCursor && !hasNewer) return null;
+  if (!history.nextCursor && !hasNewer && !history.paging) return null;
   const loading = history.state === 'loading';
   return <nav aria-label={t('itemDetail.historyPages')} className="mt-3 flex flex-wrap items-center gap-2">
     {hasNewer ? <Button type="button" variant="quiet" disabled={loading} onClick={history.newer}>{t('itemDetail.historyNewer')}</Button> : null}

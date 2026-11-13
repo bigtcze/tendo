@@ -18,14 +18,17 @@ export function useItemDetailHistory({ headingRef, sectionRef, householdId, item
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  /** A user page change is loading: the paging navigation stays mounted for it even when the stack is back at page 1. */
+  const [paging, setPaging] = useState(false);
   const generation = useRef(0);
-    const focusAfterPage = useRef(false);
+  const focusAfterPage = useRef(false);
 
   const load = useCallback(async (token: number, cursor: string | null = null) => {
     const historyToken = ++generation.current;
     setState('loading');
     const result = await listCompletions(householdId, itemId, cursor ?? undefined, { order: 'newest', limit: HISTORY_PAGE_SIZE });
     if (!current(token) || generation.current !== historyToken) return;
+    setPaging(false);
     if (result.kind === 'unauthenticated') { onSignedOut(); return; }
     const moveFocus = focusAfterPage.current; focusAfterPage.current = false;
     if (result.kind !== 'ok') { setState('error'); return; }
@@ -40,35 +43,39 @@ export function useItemDetailHistory({ headingRef, sectionRef, householdId, item
   const reset = useCallback(() => {
     generation.current += 1;
     focusAfterPage.current = false;
-    setHistory([]); setState('loading'); setCursors([null]); setNextCursor(null);
+    setHistory([]); setState('loading'); setCursors([null]); setNextCursor(null); setPaging(false);
   }, []);
 
   function showPage(cursor: string | null) {
     focusAfterPage.current = true;
     void load(liveToken(), cursor);
   }
+  function changePage(cursor: string | null) {
+    setPaging(true);
+    showPage(cursor);
+  }
   function older() {
     if (!nextCursor || state === 'loading') return;
     const cursor = nextCursor;
     setCursors((stack) => [...stack, cursor]);
-    showPage(cursor);
+    changePage(cursor);
   }
   function newer() {
     if (cursors.length <= 1 || state === 'loading') return;
     const next = cursors.slice(0, -1);
     setCursors(next);
-    showPage(next[next.length - 1] ?? null);
+    changePage(next[next.length - 1] ?? null);
   }
   function latest() {
     if (cursors.length <= 1 || state === 'loading') return;
     setCursors([null]);
-    showPage(null);
+    changePage(null);
   }
   function retry() {
     showPage(cursors.at(-1) ?? null);
   }
 
-  return { history, state, cursors, nextCursor, load, reset, older, newer, latest, retry };
+  return { history, state, cursors, nextCursor, paging, load, reset, older, newer, latest, retry };
 }
 
 export type ItemDetailHistoryState = ReturnType<typeof useItemDetailHistory>;
