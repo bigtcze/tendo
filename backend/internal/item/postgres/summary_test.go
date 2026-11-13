@@ -649,9 +649,9 @@ func TestSummaryIsolatesDualMemberHouseholds(t *testing.T) {
 	insert(h2, s2, "h2 done", false, true)
 
 	repo := NewRepository(app)
-	houses := func(_ context.Context, userID, householdID string) (string, error) {
+	houses := func(lookupCtx context.Context, userID, householdID string) (string, error) {
 		var exists bool
-		if err := admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid)`, userID, householdID).Scan(&exists); err != nil {
+		if err := admin.QueryRow(lookupCtx, `SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid)`, userID, householdID).Scan(&exists); err != nil {
 			return "", err
 		}
 		if !exists {

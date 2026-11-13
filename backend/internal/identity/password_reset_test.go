@@ -127,6 +127,7 @@ type passwordResetTxStub struct {
 	updateRows      int64
 	sessionsDeleted bool
 	notPermitted    bool
+	completed       bool
 }
 
 func (s *passwordResetTxStub) RequireAdmin(context.Context, string, string) error { return nil }
@@ -161,6 +162,7 @@ func (s *passwordResetTxStub) FindPasswordReset(context.Context, []byte, bool) (
 	return s.record, nil
 }
 func (s *passwordResetTxStub) CompletePasswordReset(context.Context, string, time.Time) (int64, error) {
+	s.completed = true
 	return 1, nil
 }
 func (s *passwordResetTxStub) LockLocalCredential(context.Context, string) (int64, error) {
@@ -225,8 +227,8 @@ func TestPasswordResetRedeemWithoutAccountAuthorityIsInvalid(t *testing.T) {
 	if _, err = service.RedeemPasswordReset(context.Background(), repeat("A", 43), "a long enough new password"); !errors.Is(err, ErrInvalidPasswordReset) {
 		t.Fatalf("redeem without account authority error=%v", err)
 	}
-	if tx.sessionsDeleted {
-		t.Fatal("sessions were deleted without reset authority")
+	if tx.sessionsDeleted || tx.completed {
+		t.Fatalf("link consumed without reset authority: sessionsDeleted=%v completed=%v", tx.sessionsDeleted, tx.completed)
 	}
 	if _, err = service.IssuePasswordReset(context.Background(), "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"); !errors.Is(err, ErrPasswordResetNotPermitted) {
 		t.Fatalf("issue without account authority error=%v", err)

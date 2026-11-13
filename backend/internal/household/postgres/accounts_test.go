@@ -422,14 +422,14 @@ func TestAccountsAgainstPostgres(t *testing.T) {
 			switch {
 			case promote == nil && demote == nil:
 				// Promotion serialized first, so the self-demotion was allowed.
-				if admins != 1 || promotedRole != household.RoleAdmin || adminRole != household.RoleMember {
-					t.Fatalf("round %d promote-then-demote admins=%d promoted=%s actor=%s", round, admins, promotedRole, adminRole)
+				if admins != 1 || promotedRole != household.RoleAdmin || adminRole != household.RoleMember || auditCount(house) != 2 {
+					t.Fatalf("round %d promote-then-demote admins=%d promoted=%s actor=%s audits=%d", round, admins, promotedRole, adminRole, auditCount(house))
 				}
 			case promote == nil && errors.Is(demote, household.ErrLastAdmin):
 				// Self-demotion serialized first and was refused, then the
 				// still-admin actor promoted the member.
-				if admins != 2 || promotedRole != household.RoleAdmin || adminRole != household.RoleAdmin {
-					t.Fatalf("round %d refused-demotion admins=%d promoted=%s actor=%s", round, admins, promotedRole, adminRole)
+				if admins != 2 || promotedRole != household.RoleAdmin || adminRole != household.RoleAdmin || auditCount(house) != 1 {
+					t.Fatalf("round %d refused-demotion admins=%d promoted=%s actor=%s audits=%d", round, admins, promotedRole, adminRole, auditCount(house))
 				}
 			default:
 				t.Fatalf("round %d non-serializable outcome promote=%v demote=%v admins=%d", round, promote, demote, admins)

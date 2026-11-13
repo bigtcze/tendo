@@ -163,6 +163,17 @@ func TestPasswordResetPostgresIssueRefusesInstanceAdminTargetForHouseholdAdmin(t
 	if _, err := service.IssuePasswordReset(ctx, owner, house, target); err != nil {
 		t.Fatalf("instance admin resetting an instance admin: %v", err)
 	}
+
+	// Instance administration is no override for household membership: the
+	// actor still needs admin in every household of the target.
+	member := createLocalMember(t, ctx, admin, house, "reset_instance_override_member")
+	addMembership(t, ctx, admin, member, addHousehold(t, ctx, admin, "reset instance override other"), household.RoleMember)
+	if _, err := service.IssuePasswordReset(ctx, owner, house, member); !errors.Is(err, identity.ErrPasswordResetNotPermitted) {
+		t.Fatalf("instance admin without admin in every target household: %v", err)
+	}
+	if rows := resetRowCount(t, ctx, admin, member); rows != 0 {
+		t.Fatalf("refused instance-admin issue stored rows=%d", rows)
+	}
 }
 
 // Facts can change between issue and redeem. The redeem re-applies the same
@@ -196,6 +207,19 @@ func TestPasswordResetPostgresRedeemRechecksAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The issuer loses admin in the target's other household after issue.
+	if _, err = admin.Exec(ctx, `UPDATE household_memberships SET role='member' WHERE user_id=$1::uuid AND household_id=$2::uuid`, owner, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.RedeemPasswordReset(ctx, issued.Token, "another brand new password"); !errors.Is(err, identity.ErrInvalidPasswordReset) {
+		t.Fatalf("redeem after the issuer lost admin in the other household: %v", err)
+	}
+	assertLinkUsable(t, ctx, admin, issued.Token)
+	assertCredential(t, ctx, admin, target, "hash:a brand new long password", 2)
+	if _, err = admin.Exec(ctx, `UPDATE household_memberships SET role='admin' WHERE user_id=$1::uuid AND household_id=$2::uuid`, owner, other); err != nil {
+		t.Fatal(err)
+	}
+
 	grantInstanceAdmin(t, ctx, admin, target)
 	if _, err = service.RedeemPasswordReset(ctx, issued.Token, "another brand new password"); !errors.Is(err, identity.ErrInvalidPasswordReset) {
 		t.Fatalf("redeem after the target became an instance admin: %v", err)

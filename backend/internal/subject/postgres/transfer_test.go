@@ -516,6 +516,13 @@ func TestDualAdminMemberPersonHouseholdIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	defer func() {
+		c, cc := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cc()
+		if _, err := admin.Exec(c, `TRUNCATE user_accounts, household_memberships, households CASCADE`); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	}()
 	allow := func(context.Context, string, string) error { return nil }
 	newService := func() *subject.Service { return subject.NewService(NewRepository(app), allow, allow) }
 	unchanged := func(house, id, linked string, version int64) {

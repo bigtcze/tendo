@@ -66,5 +66,10 @@ in one household must not grant authority over data in another.
   grants instance administrator or changes memberships.
 - Follow-ups not decided here: the per-target issuance throttle is consumed
   before authorization, so an admin of another household can exhaust a target's
-  hourly budget; and household-scoped account views show and cancel a link
-  issued in another household.
+  hourly budget; the Admin center of one household neither shows nor cancels a
+  link that a co-admin issued for the same person through another household,
+  although that link replaces the shared password; and two co-admins resetting
+  each other through different households at the same instant can deadlock
+  (issue locks the target user row and the token insert takes a key-share lock
+  on the issuer's user row), answered as `503` and safe to retry. The last
+  predates this ADR.
