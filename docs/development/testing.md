@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-The complete local gate targets Go 1.27.3, a C compiler (`gcc`) for race-enabled tests, Python 3, Node.js 26.13.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium, Firefox and WebKit browsers. Repository-pinned generators and test tools include oapi-codegen v2.8.2 (run by `api/Makefile` with `go run`), openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 26.13.0. See [dependency and toolchain inventory](dependencies.md).
+The complete local gate targets Go 1.27.4, a C compiler (`gcc`) for race-enabled tests, Python 3, Node.js 26.13.0 with npm, native PostgreSQL `psql` 18, native `sqlc` 1.31.1, and Playwright 1.64.1 with its matching Chromium, Firefox and WebKit browsers. Repository-pinned generators and test tools include oapi-codegen v2.8.2 (run by `api/Makefile` with `go run`), openapi-typescript 7.13.0 and `@playwright/test` 1.64.1. Node 22.22.2+ remains compatible with package engines; CI and the Docker web build use Node 26.13.0. See [dependency and toolchain inventory](dependencies.md).
 
 ## Pinned toolchain
 
@@ -98,8 +98,8 @@ The required workflow retains one stable branch-protection aggregate check named
 
 | Job | Commands and prerequisites |
 |---|---|
-| `backend` | Go 1.27.3 from `mise.lock`; gofmt, `golangci-lint run ./...` (go vet, staticcheck, structure), unit race tests excluding four PostgreSQL adapters, and `go build ./...` |
-| `api` | Go 1.27.3, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
+| `backend` | Go 1.27.4 from `mise.lock`; gofmt, `golangci-lint run ./...` (go vet, staticcheck, structure), unit race tests excluding four PostgreSQL adapters, and `go build ./...` |
+| `api` | Go 1.27.4, Node 26.13.0, API npm cache; `npm ci`, moderate audit, `npm run check` |
 | `frontend` | Node 26.13.0/frontend npm cache; `npm ci`, moderate audit, full `npm run check` |
 | `postgres` | PostgreSQL 18.6 service, native psql 18 and sqlc 1.31.1; `tendo` NOLOGIN role bootstrap, race-enabled integration suite and sqlc drift check |
 | `e2e` | Separate PostgreSQL 18.6 service, native psql18 and `tendo` bootstrap; Go setup, Node 26.13.0, frontend `npm ci`, Playwright 1.64.1 Chromium/Firefox/WebKit install, full native production-build E2E (Chromium journey plus Firefox/WebKit smoke) |
