@@ -28,7 +28,8 @@ function announceIssueFailure(kind: IssueFailure, login: string, out: Announceme
   else if (kind === 'noLocalPassword') {
     out.onNotice({ key: 'admin.error.resetNoPassword', params: { login }, tone: 'neutral' });
     out.onReload();
-  } else if (kind === 'notFound') {
+  } else if (kind === 'notPermitted') out.onNotice({ key: 'admin.error.resetNotPermitted', params: { login }, tone: 'neutral' });
+  else if (kind === 'notFound') {
     out.onNotice({ key: 'admin.error.noLongerMember', tone: 'neutral' });
     out.onReload();
   } else if (kind === 'forbidden') out.onForbidden();

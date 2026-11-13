@@ -137,6 +137,21 @@ func (t *passwordResetTx) LockPasswordResetTarget(ctx context.Context, userValue
 	return row.Login, err
 }
 
+func (t *passwordResetTx) PasswordResetPermitted(ctx context.Context, actorValue, targetValue string) (bool, error) {
+	var actor, target pgtype.UUID
+	if err := actor.Scan(actorValue); err != nil {
+		return false, identity.ErrNotFound
+	}
+	if err := target.Scan(targetValue); err != nil {
+		return false, identity.ErrNotFound
+	}
+	permitted, err := t.q.PasswordResetPermitted(ctx, identitydb.PasswordResetPermittedParams{TargetUserID: target, ActorUserID: actor})
+	if err != nil {
+		return false, err
+	}
+	return permitted.Valid && permitted.Bool, nil
+}
+
 func (t *passwordResetTx) HasLocalCredential(ctx context.Context, userValue string) (bool, error) {
 	var user pgtype.UUID
 	if err := user.Scan(userValue); err != nil {

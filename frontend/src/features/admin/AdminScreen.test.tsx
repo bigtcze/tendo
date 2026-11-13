@@ -559,6 +559,7 @@ describe('Admin center', () => {
 
   it.each([
     [409, 'cannot_reset_self', 'You can’t reset your own password here. Use Account to change it.'],
+    [409, 'password_reset_not_permitted', 'You can’t reset jana’s password. They also belong to a household you don’t administer, or they administer this installation.'],
     [404, 'not_found', 'That person is no longer a member of this household. The list has been refreshed.'],
     [429, 'rate_limited', 'Too many reset links were created just now. Wait a little, then try again.'],
     [503, 'unavailable', 'The reset link couldn’t be created. Check your connection and try again.'],

@@ -47,6 +47,10 @@ type Querier interface {
 	LockUserForInvitation(ctx context.Context, id pgtype.UUID) (string, error)
 	MemberLogins(ctx context.Context, dollar_1 []pgtype.UUID) ([]MemberLoginsRow, error)
 	OutstandingPasswordResetsByUserIDs(ctx context.Context, arg OutstandingPasswordResetsByUserIDsParams) ([]OutstandingPasswordResetsByUserIDsRow, error)
+	// A reset replaces the target's global credential, so the actor must
+	// administer every household the target belongs to, and only an instance
+	// administrator may reset another instance administrator (ADR 0017).
+	PasswordResetPermitted(ctx context.Context, arg PasswordResetPermittedParams) (pgtype.Bool, error)
 	PruneOIDCFlows(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	PruneOIDCPendingLogins(ctx context.Context, expiresAt pgtype.Timestamptz) error
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)

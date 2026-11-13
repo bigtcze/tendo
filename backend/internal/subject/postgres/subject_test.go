@@ -1121,3 +1121,97 @@ func TestMigrationUpgradeFromVersionThreePreservesData(t *testing.T) {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }
+
+// TestSubjectDualAdminHouseholdIsolation covers an actor who administers both
+// households. Being an admin of the path household does not grant access to a
+// subject owned by the other household: read and patch are not found and the
+// stored row keeps its name and version.
+func TestSubjectDualAdminHouseholdIsolation(t *testing.T) {
+	appURL, adminURL := urls(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, app := connect(t, ctx, adminURL), connect(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	reset := func() {
+		t.Helper()
+		c, cc := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cc()
+		if _, err := admin.Exec(c, `TRUNCATE user_accounts, household_memberships, households CASCADE; UPDATE installation_state SET setup_required=true`); err != nil {
+			t.Fatalf("reset fixtures: %v", err)
+		}
+	}
+	reset()
+	defer reset()
+
+	household := func(name string) string {
+		t.Helper()
+		var id string
+		if err := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES($1,'UTC') RETURNING id::text`, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	homeA, homeB := household("dual subject A"), household("dual subject B")
+	var actorID string
+	if err := admin.QueryRow(ctx, `INSERT INTO user_accounts(login) VALUES('subject_dual_admin') RETURNING id::text`).Scan(&actorID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin'),($1::uuid,$3::uuid,'admin')`, actorID, homeA, homeB); err != nil {
+		t.Fatal(err)
+	}
+	var subjectA, subjectB string
+	if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person','Alice of A') RETURNING id::text`, homeA).Scan(&subjectA); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'vehicle','Boat of B') RETURNING id::text`, homeB).Scan(&subjectB); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(app)
+	membershipRepo := householdpg.NewMembershipRepository(app)
+	members := func(ctx context.Context, userID, householdID string) error {
+		_, err := membershipRepo.GetMembership(ctx, userID, householdID)
+		if errors.Is(err, householddomain.ErrNotFound) {
+			return subject.ErrNotFound
+		}
+		if err != nil {
+			return subject.ErrUnavailable
+		}
+		return nil
+	}
+	svc := subject.NewService(repo, members, members)
+
+	t.Run("read of the other household subject is not found", func(t *testing.T) {
+		own, err := svc.Get(ctx, actorID, homeA, subjectA)
+		if err != nil || own.ID != subjectA || own.HouseholdID != homeA {
+			t.Fatalf("A read of the A subject=%+v err=%v", own, err)
+		}
+		if _, err := svc.Get(ctx, actorID, homeB, subjectA); !errors.Is(err, subject.ErrNotFound) {
+			t.Fatalf("B read of the A subject err=%v, want %v", err, subject.ErrNotFound)
+		}
+		if _, err := svc.Get(ctx, actorID, homeA, subjectB); !errors.Is(err, subject.ErrNotFound) {
+			t.Fatalf("A read of the B subject err=%v, want %v", err, subject.ErrNotFound)
+		}
+	})
+
+	t.Run("patch through the other household is not found and unchanged", func(t *testing.T) {
+		before, err := repo.Get(ctx, homeA, subjectA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rename := "Stolen rename"
+		_, err = svc.Update(ctx, actorID, homeB, subjectA, before.Version, subject.Patch{Name: &rename})
+		if !errors.Is(err, subject.ErrNotFound) {
+			t.Fatalf("B patch of the A subject err=%v, want %v", err, subject.ErrNotFound)
+		}
+		after, err := repo.Get(ctx, homeA, subjectA)
+		if err != nil || after.Name != before.Name || after.Version != before.Version || after.HouseholdID != homeA {
+			t.Fatalf("rejected patch changed the A subject before=%+v after=%+v err=%v", before, after, err)
+		}
+		var moved int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM subjects WHERE household_id=$1::uuid`, homeB).Scan(&moved); err != nil || moved != 1 {
+			t.Fatalf("B subject rows=%d err=%v", moved, err)
+		}
+	})
+}

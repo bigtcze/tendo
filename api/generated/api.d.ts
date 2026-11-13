@@ -422,7 +422,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a local-password reset link for a household member
-         * @description Household admin only. The body is an empty object. The token is returned once and only its SHA-256 digest is stored. Issuing again revokes the previous outstanding link. The link shape is /reset-password#<token>: the fragment never reaches the server, a proxy, or the Referer. OIDC-only accounts return 409 no_local_password; an admin cannot reset their own password.
+         * @description Household admin only. The body is an empty object. The token is returned once and only its SHA-256 digest is stored. Issuing again revokes the previous outstanding link. The link shape is /reset-password#<token>: the fragment never reaches the server, a proxy, or the Referer. A reset replaces the account-wide credential, so the caller must administer every household the target belongs to, and only an instance administrator may reset another instance administrator; otherwise 409 password_reset_not_permitted (ADR 0017). OIDC-only accounts return 409 no_local_password; an admin cannot reset their own password.
          */
         post: operations["issueHouseholdAccountPasswordReset"];
         /**
@@ -3762,7 +3762,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The link is unusable: malformed, unknown, already used, revoked, expired, or its target or issuer is no longer authorized. All cases are indistinguishable. */
+            /** @description The link is unusable: malformed, unknown, already used, revoked, expired, or its target or issuer is no longer authorized, including an issuer who no longer administers every household of the target or a target who became an instance administrator. All cases are indistinguishable. */
             404: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -6202,7 +6202,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The target has no local password, or the caller targeted themselves. */
+            /** @description The caller targeted themselves, the caller lacks reset authority over the whole account (the target also belongs to a household the caller does not administer, or is an instance administrator while the caller is not), or the target has no local password. */
             409: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];

@@ -73,7 +73,7 @@ export async function changeAccountRole(householdId: string, userId: string, rol
 
 export type PasswordResetIssue =
   | { kind: 'issued'; reset: PasswordResetCreated }
-  | { kind: 'self' | 'noLocalPassword' }
+  | { kind: 'self' | 'noLocalPassword' | 'notPermitted' }
   | { kind: 'unauthenticated' | 'forbidden' | 'notFound' | 'rateLimited' | 'unavailable' | 'rejected' };
 
 /** Issues a single-use link; the raw token appears only in this 201 response and is never stored by the client. */
@@ -91,6 +91,7 @@ export async function issuePasswordReset(householdId: string, userId: string): P
       const code = problemCode(error);
       if (code === 'cannot_reset_self') return { kind: 'self' };
       if (code === 'no_local_password') return { kind: 'noLocalPassword' };
+      if (code === 'password_reset_not_permitted') return { kind: 'notPermitted' };
       return { kind: 'rejected' };
     }
     if (response.status === 429) return { kind: 'rateLimited' };

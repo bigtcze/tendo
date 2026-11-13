@@ -3113,3 +3113,165 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }
+
+// TestItemServiceHouseholdIsolationForDualMembers covers an actor who is a
+// member of both households. Authorizing the path household is not enough: an
+// item ID owned by the other household must be not found, a subject of the
+// other household is an invalid reference, and no rejected write changes state.
+func TestItemServiceHouseholdIsolationForDualMembers(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, app := pool(t, ctx, adminURL), pool(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	reset := func() {
+		t.Helper()
+		c, cc := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cc()
+		if _, err := admin.Exec(c, `TRUNCATE user_accounts, household_memberships, households CASCADE; UPDATE installation_state SET setup_required=true`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reset()
+	defer reset()
+
+	var h1, h2, actor string
+	for _, q := range []struct {
+		sql string
+		dst *string
+	}{
+		{`INSERT INTO households(name,timezone) VALUES('item dual home one','Europe/Prague') RETURNING id::text`, &h1},
+		{`INSERT INTO households(name,timezone) VALUES('item dual home two','UTC') RETURNING id::text`, &h2},
+		{`INSERT INTO user_accounts(login) VALUES('item_dual_actor') RETURNING id::text`, &actor},
+	} {
+		if err := admin.QueryRow(ctx, q.sql).Scan(q.dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member'),($1::uuid,$3::uuid,'member')`, actor, h1, h2); err != nil {
+		t.Fatal(err)
+	}
+	subjectFor := func(house, name string) string {
+		t.Helper()
+		var id string
+		if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person',$2) RETURNING id::text`, house, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	s1, s2 := subjectFor(h1, "item dual subject one"), subjectFor(h2, "item dual subject two")
+
+	repo := NewRepository(app)
+	subjectRepo := subjectpg.NewRepository(app)
+	houses := func(ctx context.Context, userID, householdID string) (string, error) {
+		var zone string
+		err := admin.QueryRow(ctx, `SELECT households.timezone FROM households JOIN household_memberships ON household_memberships.household_id = households.id WHERE households.id=$1::uuid AND household_memberships.user_id=$2::uuid`, householdID, userID).Scan(&zone)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", item.ErrNotFound
+		}
+		return zone, err
+	}
+	subjects := func(ctx context.Context, userID, householdID, subjectID string) (bool, error) {
+		found, err := subjectRepo.Get(ctx, householdID, subjectID)
+		if errors.Is(err, subject.ErrNotFound) {
+			return false, item.ErrNotFound
+		}
+		if err != nil {
+			return false, item.ErrUnavailable
+		}
+		return found.Archived, nil
+	}
+	members := func(ctx context.Context, candidate, householdID string) error {
+		var role string
+		err := admin.QueryRow(ctx, `SELECT role FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid`, candidate, householdID).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return item.ErrNotFound
+		}
+		if err == nil && role != "admin" && role != "member" {
+			return item.ErrNotFound
+		}
+		return err
+	}
+	svc := item.NewService(repo, houses, subjects, members, func() time.Time {
+		return time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC)
+	})
+	h1Item, err := svc.Create(ctx, actor, h1, "dual-isolation-h1-item", item.NewItem{SubjectID: s1, Title: "H1 item"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2Item, err := svc.Create(ctx, actor, h2, "dual-isolation-h2-item", item.NewItem{SubjectID: s2, Title: "H2 item"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertUnchanged := func(itemID, householdID, subjectID string, version int64, receipts int) {
+		t.Helper()
+		assertItemAndReceiptUnchanged(t, ctx, admin, itemID, householdID, subjectID, version, receipts)
+	}
+
+	t.Run("read of the other household item is not found", func(t *testing.T) {
+		own, err := svc.Get(ctx, actor, h1, h1Item.ID)
+		if err != nil || own.ID != h1Item.ID || own.HouseholdID != h1 {
+			t.Fatalf("H1 read of the H1 item=%+v err=%v", own, err)
+		}
+		if _, err := svc.Get(ctx, actor, h2, h1Item.ID); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("H2 read of the H1 item err=%v, want %v", err, item.ErrNotFound)
+		}
+		if _, err := svc.Get(ctx, actor, h1, h2Item.ID); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("H1 read of the H2 item err=%v, want %v", err, item.ErrNotFound)
+		}
+		assertUnchanged(h1Item.ID, h1, s1, h1Item.Version, 0)
+		assertUnchanged(h2Item.ID, h2, s2, h2Item.Version, 0)
+	})
+
+	t.Run("create with the other household subject is an invalid reference", func(t *testing.T) {
+		before := func(house string) int {
+			var n int
+			if err := admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid`, house).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			return n
+		}
+		beforeH1, beforeH2 := before(h1), before(h2)
+		_, err := svc.Create(ctx, actor, h2, "dual-isolation-foreign-subject", item.NewItem{SubjectID: s1, Title: "stolen subject"})
+		var validation *item.ValidationError
+		if !errors.As(err, &validation) || validation.Field != "subjectId" || validation.Code != "invalid_reference" {
+			t.Fatalf("foreign subject create err=%v, want subjectId invalid_reference", err)
+		}
+		if afterH1, afterH2 := before(h1), before(h2); afterH1 != beforeH1 || afterH2 != beforeH2 {
+			t.Fatalf("rejected create changed rows H1 %d->%d H2 %d->%d", beforeH1, afterH1, beforeH2, afterH2)
+		}
+		var leaked int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM items WHERE household_id=$1::uuid AND title='stolen subject'`, h2).Scan(&leaked); err != nil || leaked != 0 {
+			t.Fatalf("rejected create persisted %d rows err=%v", leaked, err)
+		}
+		assertUnchanged(h1Item.ID, h1, s1, h1Item.Version, 0)
+	})
+
+	t.Run("completion through the other household is not found", func(t *testing.T) {
+		if _, _, err := svc.Complete(ctx, actor, h2, h1Item.ID, h1Item.Version, "dual-isolation-foreign-completion", item.CompletionRequest{}); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("H2 completion of the H1 item err=%v, want %v", err, item.ErrNotFound)
+		}
+		assertUnchanged(h1Item.ID, h1, s1, h1Item.Version, 0)
+		stored, err := repo.Get(ctx, h1, h1Item.ID)
+		if err != nil || stored.Version != h1Item.Version || stored.Done {
+			t.Fatalf("rejected completion changed the item=%+v err=%v", stored, err)
+		}
+	})
+
+	t.Run("completion list through the other household is not found", func(t *testing.T) {
+		page, err := svc.ListCompletions(ctx, actor, h1, h1Item.ID, 10, "", "")
+		if err != nil || len(page.Items) != 0 {
+			t.Fatalf("H1 completion list=%+v err=%v", page, err)
+		}
+		if _, err := svc.ListCompletions(ctx, actor, h2, h1Item.ID, 10, "", ""); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("H2 completion list of the H1 item err=%v, want %v", err, item.ErrNotFound)
+		}
+		if _, err := svc.ListCompletions(ctx, actor, h1, h2Item.ID, 10, "", ""); !errors.Is(err, item.ErrNotFound) {
+			t.Fatalf("H1 completion list of the H2 item err=%v, want %v", err, item.ErrNotFound)
+		}
+		assertUnchanged(h1Item.ID, h1, s1, h1Item.Version, 0)
+		assertUnchanged(h2Item.ID, h2, s2, h2Item.Version, 0)
+	})
+}

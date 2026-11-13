@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -296,6 +297,143 @@ func TestAccountsAgainstPostgres(t *testing.T) {
 		var admins int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE household_id=$1::uuid AND role='admin'`, concurrentHouse).Scan(&admins); err != nil || admins != 1 {
 			t.Fatalf("admins=%d err=%v", admins, err)
+		}
+	})
+
+	// raceRoleChanges starts every change at once and returns their errors in
+	// input order. Each change is {actor, target, role, expectedVersion}.
+	type roleChange struct {
+		actor, target, role string
+		version             int64
+	}
+	raceRoleChanges := func(house string, changes ...roleChange) []error {
+		t.Helper()
+		start := make(chan struct{})
+		var ready, done sync.WaitGroup
+		results := make([]error, len(changes))
+		ready.Add(len(changes))
+		done.Add(len(changes))
+		for i, change := range changes {
+			go func() {
+				defer done.Done()
+				ready.Done()
+				<-start
+				_, results[i] = service.ChangeRole(ctx, change.actor, house, change.target, change.role, change.version)
+			}()
+		}
+		ready.Wait()
+		close(start)
+		done.Wait()
+		return results
+	}
+	adminCount := func(house string) int {
+		t.Helper()
+		var admins int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM household_memberships WHERE household_id=$1::uuid AND role='admin'`, house).Scan(&admins); err != nil {
+			t.Fatal(err)
+		}
+		return admins
+	}
+
+	t.Run("concurrent self-demotions of the only two admins leave exactly one admin", func(t *testing.T) {
+		for round := 0; round < 10; round++ {
+			house := newHousehold("concurrent self demotion house")
+			join(admin1, house, household.RoleAdmin)
+			join(admin2, house, household.RoleAdmin)
+			results := raceRoleChanges(house,
+				roleChange{admin1, admin1, household.RoleMember, 1},
+				roleChange{admin2, admin2, household.RoleMember, 1},
+			)
+			successes, refused := 0, 0
+			for _, err := range results {
+				switch {
+				case err == nil:
+					successes++
+				case errors.Is(err, household.ErrLastAdmin):
+					refused++
+				default:
+					t.Fatalf("round %d unexpected error: %v", round, err)
+				}
+			}
+			if successes != 1 || refused != 1 {
+				t.Fatalf("round %d successes=%d last-admin refusals=%d", round, successes, refused)
+			}
+			if admins := adminCount(house); admins != 1 {
+				t.Fatalf("round %d admins=%d", round, admins)
+			}
+			if audits := auditCount(house); audits != 1 {
+				t.Fatalf("round %d audit rows=%d, want only the committed demotion", round, audits)
+			}
+		}
+	})
+
+	t.Run("demoting a co-admin while they self-demote never removes the last admin", func(t *testing.T) {
+		for round := 0; round < 10; round++ {
+			house := newHousehold("demote while self demoting house")
+			join(admin1, house, household.RoleAdmin)
+			join(admin2, house, household.RoleAdmin)
+			results := raceRoleChanges(house,
+				roleChange{admin1, admin2, household.RoleMember, 1},
+				roleChange{admin2, admin2, household.RoleMember, 1},
+			)
+			// Whichever commits first demotes admin2 to version 2. The other
+			// request then sees either a stale version (admin1) or a member
+			// actor (admin2); neither may change state or remove admin1.
+			successes := 0
+			for i, err := range results {
+				switch {
+				case err == nil:
+					successes++
+				case i == 0 && errors.Is(err, household.ErrPreconditionFailed):
+				case i == 1 && errors.Is(err, household.ErrAdminRequired):
+				default:
+					t.Fatalf("round %d change %d unexpected error: %v", round, i, err)
+				}
+			}
+			if successes != 1 {
+				t.Fatalf("round %d successes=%d", round, successes)
+			}
+			if role, version := roleOf(house, admin2); role != household.RoleMember || version != 2 {
+				t.Fatalf("round %d admin2 role=%s version=%d", round, role, version)
+			}
+			if role, version := roleOf(house, admin1); role != household.RoleAdmin || version != 1 {
+				t.Fatalf("round %d admin1 role=%s version=%d", round, role, version)
+			}
+			if audits := auditCount(house); audits != 1 {
+				t.Fatalf("round %d audit rows=%d", round, audits)
+			}
+		}
+	})
+
+	t.Run("promotion racing the last admin's self-demotion never leaves zero admins", func(t *testing.T) {
+		for round := 0; round < 10; round++ {
+			house := newHousehold("promotion race house")
+			promoted := newUser(fmt.Sprintf("promotion_race_member_%d", round))
+			join(admin1, house, household.RoleAdmin)
+			join(promoted, house, household.RoleMember)
+			results := raceRoleChanges(house,
+				roleChange{admin1, promoted, household.RoleAdmin, 1},
+				roleChange{admin1, admin1, household.RoleMember, 1},
+			)
+			promote, demote := results[0], results[1]
+			admins := adminCount(house)
+			promotedRole, _ := roleOf(house, promoted)
+			adminRole, _ := roleOf(house, admin1)
+			switch {
+			case promote == nil && demote == nil:
+				// Promotion serialized first, so the self-demotion was allowed.
+				if admins != 1 || promotedRole != household.RoleAdmin || adminRole != household.RoleMember || auditCount(house) != 2 {
+					t.Fatalf("round %d promote-then-demote admins=%d promoted=%s actor=%s audits=%d", round, admins, promotedRole, adminRole, auditCount(house))
+				}
+			case promote == nil && errors.Is(demote, household.ErrLastAdmin):
+				// Self-demotion serialized first and was refused, then the
+				// still-admin actor promoted the member.
+				if admins != 2 || promotedRole != household.RoleAdmin || adminRole != household.RoleAdmin || auditCount(house) != 1 {
+					t.Fatalf("round %d refused-demotion admins=%d promoted=%s actor=%s audits=%d", round, admins, promotedRole, adminRole, auditCount(house))
+				}
+			default:
+				t.Fatalf("round %d non-serializable outcome promote=%v demote=%v admins=%d", round, promote, demote, admins)
+			}
 		}
 	})
 
