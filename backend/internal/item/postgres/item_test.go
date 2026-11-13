@@ -335,7 +335,7 @@ func TestMigrationUpgradeFromVersionTwelvePreservesNullItemMetadata(t *testing.T
 	if creator.Valid || key.Valid || fingerprint != nil {
 		t.Fatalf("legacy metadata=%+v %+v %x", creator, key, fingerprint)
 	}
-	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 21 || dirty {
+	if err = upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 	got, err := NewRepository(upAdmin).Get(ctx, hid, iid)
@@ -1035,7 +1035,7 @@ func TestMigrationUpgradeFromV14ToV15PreservesData(t *testing.T) {
 	var version int
 	var dirty bool
 	must(upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty))
-	if version != 21 || dirty {
+	if version != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v", version, dirty)
 	}
 	var def string
@@ -1149,7 +1149,7 @@ func TestMigrationUpgradeFromV15ToV16BackfillsSearch(t *testing.T) {
 	}
 	var maxVersion int
 	must(admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&maxVersion))
-	if maxVersion != 21 {
+	if maxVersion != 22 {
 		t.Fatalf("max migration version=%d", maxVersion)
 	}
 }
@@ -3042,7 +3042,7 @@ func TestMigrationUpgradeFromVersionFivePreservesData(t *testing.T) {
 		t.Fatalf("legacy item=%+v err=%v", got, err)
 	}
 	var max int64
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 21 {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&max); err != nil || max != 22 {
 		t.Fatalf("version=%d err=%v", max, err)
 	}
 }
@@ -3109,7 +3109,7 @@ func TestMigrationUpgradeFromVersionFourPreservesData(t *testing.T) {
 	}
 	var max int64
 	var dirty bool
-	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 21 || dirty {
+	if err := upAdmin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&max, &dirty); err != nil || max != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", max, dirty, err)
 	}
 }

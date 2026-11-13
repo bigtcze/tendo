@@ -58,7 +58,9 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 const findActiveSession = `-- name: FindActiveSession :one
-SELECT s.id::text AS id, u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, s.expires_at
+SELECT s.id::text AS id, u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
+  EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
+  s.expires_at
 FROM user_sessions s JOIN user_accounts u ON u.id=s.user_id
 WHERE s.token_hash=$1 AND s.expires_at>$2
 `
@@ -73,6 +75,7 @@ type FindActiveSessionRow struct {
 	UserID             string
 	Login              string
 	DefaultHouseholdID string
+	InstanceAdmin      bool
 	ExpiresAt          pgtype.Timestamptz
 }
 
@@ -84,13 +87,16 @@ func (q *Queries) FindActiveSession(ctx context.Context, arg FindActiveSessionPa
 		&i.UserID,
 		&i.Login,
 		&i.DefaultHouseholdID,
+		&i.InstanceAdmin,
 		&i.ExpiresAt,
 	)
 	return i, err
 }
 
 const findLogin = `-- name: FindLogin :one
-SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id, c.password_hash, c.credential_version
+SELECT u.id::text AS user_id, u.login, COALESCE(u.default_household_id::text, '')::text AS default_household_id,
+  EXISTS(SELECT 1 FROM instance_admins a WHERE a.user_id=u.id) AS instance_admin,
+  c.password_hash, c.credential_version
 FROM user_accounts u JOIN local_credentials c ON c.user_id=u.id WHERE u.login=$1
 `
 
@@ -98,6 +104,7 @@ type FindLoginRow struct {
 	UserID             string
 	Login              string
 	DefaultHouseholdID string
+	InstanceAdmin      bool
 	PasswordHash       string
 	CredentialVersion  int64
 }
@@ -109,6 +116,7 @@ func (q *Queries) FindLogin(ctx context.Context, login string) (FindLoginRow, er
 		&i.UserID,
 		&i.Login,
 		&i.DefaultHouseholdID,
+		&i.InstanceAdmin,
 		&i.PasswordHash,
 		&i.CredentialVersion,
 	)

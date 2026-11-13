@@ -126,6 +126,16 @@ func (t *setupTransaction) SetDefaultHousehold(ctx context.Context, userID, hous
 func (t *setupTransaction) EnsureMemberPerson(ctx context.Context, householdID, userID, name string) error {
 	return t.memberPersons.EnsureMemberPerson(ctx, householdID, userID, name)
 }
+
+// GrantInstanceAdmin records the setup account as the installation
+// administrator. The runtime role may only INSERT the grant.
+func (t *setupTransaction) GrantInstanceAdmin(ctx context.Context, userID string) error {
+	var id pgtype.UUID
+	if err := id.Scan(userID); err != nil {
+		return err
+	}
+	return t.queries.GrantInstanceAdmin(ctx, id)
+}
 func (t *setupTransaction) CompleteSetup(ctx context.Context) error {
 	return t.queries.CompleteSetup(ctx)
 }

@@ -67,7 +67,7 @@ func (r *Repository) FindLogin(ctx context.Context, login string) (identity.Logi
 	if err != nil {
 		return identity.LoginRecord{}, err
 	}
-	return identity.LoginRecord{Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID}, PasswordHash: row.PasswordHash, CredentialVersion: row.CredentialVersion}, nil
+	return identity.LoginRecord{Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID, InstanceAdmin: row.InstanceAdmin}, PasswordHash: row.PasswordHash, CredentialVersion: row.CredentialVersion}, nil
 }
 
 func (r *Repository) PruneExpired(ctx context.Context, userID string, now time.Time) error {
@@ -130,7 +130,7 @@ func (r *Repository) FindActive(ctx context.Context, tokenHash []byte, now time.
 	if err != nil {
 		return identity.SessionInfo{}, err
 	}
-	return identity.SessionInfo{ID: row.ID, ExpiresAt: row.ExpiresAt.Time.UTC(), Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID}}, nil
+	return identity.SessionInfo{ID: row.ID, ExpiresAt: row.ExpiresAt.Time.UTC(), Principal: identity.Principal{UserID: row.UserID, Login: row.Login, DefaultHouseholdID: row.DefaultHouseholdID, InstanceAdmin: row.InstanceAdmin}}, nil
 }
 
 func (r *Repository) DeleteByTokenHash(ctx context.Context, tokenHash []byte) error {

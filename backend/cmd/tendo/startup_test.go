@@ -64,6 +64,49 @@ func TestStartupDoesNotListenWhenPrivilegedPhaseFails(t *testing.T) {
 	}
 }
 
+// TestStartupWarnsInstanceAdminAfterVerifyBeforeServe pins the boot ordering:
+// the warning runs after the restricted pool is verified and before the server
+// starts listening.
+func TestStartupWarnsInstanceAdminAfterVerifyBeforeServe(t *testing.T) {
+	var order []string
+	steps := startupSteps{
+		loadConfig: func() (config.Config, error) {
+			return config.Config{
+				DatabaseURL: "postgres://tendo:runtime-secret@127.0.0.1:1/tendo?sslmode=disable",
+				ListenAddr:  "127.0.0.1:0",
+				PublicURL:   "http://127.0.0.1",
+			}, nil
+		},
+		openPool: func(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
+			return pgxpool.New(ctx, cfg.DatabaseURL)
+		},
+		verify: func(context.Context, *pgxpool.Pool) error {
+			order = append(order, "verify")
+			return nil
+		},
+		warnInstanceAdmin: func(context.Context, *pgxpool.Pool) {
+			order = append(order, "warn")
+		},
+		listen: func(string) (net.Listener, error) {
+			order = append(order, "serve")
+			return nil, errors.New("listener opened")
+		},
+	}
+	err := steps.run()
+	if err == nil || err.Error() != "listener opened" {
+		t.Fatalf("err=%v want listener refusal after warning", err)
+	}
+	if got := strings.Join(order, ","); got != "verify,warn,serve" {
+		t.Fatalf("startup order=%q want verify,warn,serve", got)
+	}
+}
+
+func TestDefaultStartupStepsWarnInstanceAdmin(t *testing.T) {
+	if defaultStartupSteps().warnInstanceAdmin == nil {
+		t.Fatal("production startup must run the instance-administrator warning")
+	}
+}
+
 func TestStartupDoesNotListenWhenRuntimeRoleViolatesRestriction(t *testing.T) {
 	prepared := false
 	listened := false

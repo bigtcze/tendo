@@ -208,6 +208,14 @@ func TestSessionsPostgresLifecycle(t *testing.T) {
 		if _, err := admin.Exec(ctx, `UPDATE subjects SET linked_user_id=NULL WHERE linked_user_id=$1::uuid`, userID); err != nil {
 			t.Fatal(err)
 		}
+		// The setup account holds the installation administrator grant, and
+		// instance_admins uses ON DELETE RESTRICT as its last-administrator
+		// safeguard. This fixture exercises session cascade, so the capability
+		// is removed first; the restriction itself is covered by
+		// TestInstanceAdminAccountDeleteRestricted.
+		if _, err := admin.Exec(ctx, `DELETE FROM instance_admins WHERE user_id=$1::uuid`, userID); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := admin.Exec(ctx, `DELETE FROM user_accounts WHERE id=$1::uuid`, userID); err != nil {
 			t.Fatal(err)
 		}
@@ -268,7 +276,7 @@ func TestMigrationUpgradeFromVersionOnePreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
+	if err := upgradeAdmin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 22 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var login, name, tz, role string

@@ -308,7 +308,7 @@ test('session cookie fixtures enforce cookie attributes, ETag pattern, and Locat
   const directory = await mkdtemp(join(tmpdir(), 'tendo-api-session-'))
   const fixturePath = join(directory, 'responses.json')
   const token = 'A'.repeat(43)
-  const session = { userId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60', login: 'owner', defaultHouseholdId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', expiresAt: '2026-11-05T10:00:00Z' }
+  const session = { userId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60', login: 'owner', defaultHouseholdId: '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61', expiresAt: '2026-11-05T10:00:00Z', instanceAdmin: true }
   const base = { 'content-type': 'application/json', 'x-request-id': 'contract-check', 'cache-control': 'no-store' }
   const created = { path: '/api/v1/session', method: 'post', status: 201, headers: { ...base, location: '/api/v1/session', 'set-cookie': `tendo_session=${token}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax` }, body: session }
   const current = { path: '/api/v1/session', method: 'get', status: 200, headers: { ...base, etag: '"session-0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"' }, body: session }

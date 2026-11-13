@@ -12,3 +12,6 @@ UPDATE installation_state SET setup_required = false WHERE singleton = true;
 
 -- name: CreateLocalCredential :exec
 INSERT INTO local_credentials (user_id, password_hash) VALUES ($1, $2);
+
+-- name: GrantInstanceAdmin :exec
+INSERT INTO instance_admins (user_id, granted_at, grant_source) VALUES ($1, now(), 'setup');

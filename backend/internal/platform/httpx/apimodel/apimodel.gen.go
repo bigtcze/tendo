@@ -1422,8 +1422,11 @@ type Session struct {
 	// DefaultHouseholdId Omitted when the account has no default household.
 	DefaultHouseholdId *string   `json:"defaultHouseholdId,omitempty"`
 	ExpiresAt          time.Time `json:"expiresAt"`
-	Login              string    `json:"login"`
-	UserId             string    `json:"userId"`
+
+	// InstanceAdmin Whether the account currently holds the installation-wide administrator capability. Resolved on every request; a display hint only, never an authorization input for clients. The GET /api/v1/session ETag identifies the session row and does not change when this value changes.
+	InstanceAdmin bool   `json:"instanceAdmin"`
+	Login         string `json:"login"`
+	UserId        string `json:"userId"`
 }
 
 // SessionValidationProblem defines model for SessionValidationProblem.

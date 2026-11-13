@@ -175,7 +175,7 @@ func TestLoginCookiePolicyFollowsPublicURL(t *testing.T) {
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			want := map[string]any{"userId": "u-1", "login": "owner_1", "defaultHouseholdId": "h-1", "expiresAt": "2026-02-01T00:00:00Z"}
+			want := map[string]any{"userId": "u-1", "login": "owner_1", "defaultHouseholdId": "h-1", "expiresAt": "2026-02-01T00:00:00Z", "instanceAdmin": false}
 			if len(body) != len(want) {
 				t.Fatalf("body=%v", body)
 			}
@@ -197,6 +197,36 @@ func TestSessionBodyOmitsEmptyDefaultHousehold(t *testing.T) {
 	w := serve(mux, loginRequest(validLogin))
 	if w.Code != 201 || strings.Contains(w.Body.String(), "defaultHouseholdId") {
 		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+// TestSessionBodiesReportInstanceAdmin pins that POST, GET and PATCH always
+// emit the installation capability, in both states, because clients treat it
+// as a display hint.
+func TestSessionBodiesReportInstanceAdmin(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		admin bool
+		want  string
+	}{{"administrator", true, `"instanceAdmin":true`}, {"plain member", false, `"instanceAdmin":false`}} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, mux := sessionFixture("http://localhost")
+			svc.principal.InstanceAdmin = tc.admin
+			post := serve(mux, loginRequest(validLogin))
+			get := serve(mux, getRequest(&http.Cookie{Name: "tendo_session", Value: fakeToken}))
+			patch := serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`))
+			for name, w := range map[string]*httptest.ResponseRecorder{"post": post, "get": get, "patch": patch} {
+				if w.Code != 200 && w.Code != 201 {
+					t.Fatalf("%s status=%d body=%s", name, w.Code, w.Body)
+				}
+				if !strings.Contains(w.Body.String(), tc.want) {
+					t.Fatalf("%s body=%s want %s", name, w.Body, tc.want)
+				}
+				if svc.principal.InstanceAdmin != tc.admin {
+					t.Fatal("handler changed the principal capability")
+				}
+			}
+		})
 	}
 }
 
@@ -372,8 +402,8 @@ func TestGetSession(t *testing.T) {
 	if w.Code != 200 || w.Header().Get("ETag") != `"session-sid-1"` || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body)
 	}
-	var body map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body["login"] != "owner_1" || body["defaultHouseholdId"] != "h-1" || body["userId"] != "u-1" || body["expiresAt"] != "2026-02-01T00:00:00Z" {
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body["login"] != "owner_1" || body["defaultHouseholdId"] != "h-1" || body["userId"] != "u-1" || body["expiresAt"] != "2026-02-01T00:00:00Z" || body["instanceAdmin"] != false {
 		t.Fatalf("body=%s", w.Body)
 	}
 	if strings.Contains(w.Body.String(), fakeToken) {
@@ -498,8 +528,8 @@ func TestPostAndGetReportIdenticalSubsecondFreeExpiry(t *testing.T) {
 	svc.expires = time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	post := serve(mux, loginRequest(validLogin))
 	get := serve(mux, getRequest(&http.Cookie{Name: "tendo_session", Value: fakeToken}))
-	var a, b map[string]string
-	if json.Unmarshal(post.Body.Bytes(), &a) != nil || json.Unmarshal(get.Body.Bytes(), &b) != nil || a["expiresAt"] != b["expiresAt"] || a["expiresAt"] != "2026-02-01T00:00:00Z" {
+	var a, b map[string]any
+	if json.Unmarshal(post.Body.Bytes(), &a) != nil || json.Unmarshal(get.Body.Bytes(), &b) != nil || a["expiresAt"] != b["expiresAt"] || a["expiresAt"] != "2026-02-01T00:00:00Z" || a["instanceAdmin"] != b["instanceAdmin"] {
 		t.Fatalf("post=%s get=%s", post.Body, get.Body)
 	}
 }
@@ -545,7 +575,7 @@ func TestUpdateSessionSwitchesDefaultWithoutValidator(t *testing.T) {
 	if w.Header().Get("Set-Cookie") != "" {
 		t.Fatalf("switch rewrote the cookie: %s", w.Header().Get("Set-Cookie"))
 	}
-	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z"}`
+	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z","instanceAdmin":false}`
 	if !sameJSONObject(t, strings.TrimSpace(w.Body.String()), want) {
 		t.Fatalf("body=%s want=%s", w.Body, want)
 	}
@@ -571,7 +601,7 @@ func TestUpdateSessionEchoesCanonicalHouseholdID(t *testing.T) {
 	if svc.setHouseholdID != newHouseholdID {
 		t.Fatalf("service saw %q", svc.setHouseholdID)
 	}
-	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z"}`
+	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z","instanceAdmin":false}`
 	if !sameJSONObject(t, strings.TrimSpace(w.Body.String()), want) {
 		t.Fatalf("body=%s want=%s", w.Body, want)
 	}

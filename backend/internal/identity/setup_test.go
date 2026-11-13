@@ -18,6 +18,10 @@ type setupRepo struct {
 	bootstrapHousehold string
 	called             bool
 	writes             int
+	grantFails         bool
+	granted            bool
+	completed          bool
+	order              []string
 }
 type setupTx struct{ repo *setupRepo }
 
@@ -41,7 +45,21 @@ func (tx setupTx) EnsureMemberPerson(context.Context, string, string, string) er
 	tx.repo.writes++
 	return nil
 }
-func (tx setupTx) CompleteSetup(context.Context) error { tx.repo.writes++; return nil }
+func (tx setupTx) GrantInstanceAdmin(context.Context, string) error {
+	tx.repo.writes++
+	tx.repo.order = append(tx.repo.order, "grant")
+	if tx.repo.grantFails {
+		return errors.New("grant failed")
+	}
+	tx.repo.granted = true
+	return nil
+}
+func (tx setupTx) CompleteSetup(context.Context) error {
+	tx.repo.writes++
+	tx.repo.order = append(tx.repo.order, "complete")
+	tx.repo.completed = true
+	return nil
+}
 
 type setupHousehold struct{ repo *setupRepo }
 
@@ -181,6 +199,33 @@ func TestSetupValidation(t *testing.T) {
 				t.Fatal("invalid input persisted")
 			}
 		})
+	}
+}
+
+func TestCreateOwnerGrantsInstanceAdminBeforeCompletion(t *testing.T) {
+	r := &setupRepo{}
+	if err := NewSetupService(r).CreateOwner(context.Background(), SetupInput{Login: "owner_1", Password: "correct horse battery", HouseholdName: "Home", Timezone: "UTC"}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.granted || !r.completed {
+		t.Fatalf("granted=%v completed=%v", r.granted, r.completed)
+	}
+	if len(r.order) != 2 || r.order[0] != "grant" || r.order[1] != "complete" {
+		t.Fatalf("call order=%v want [grant complete]", r.order)
+	}
+}
+
+// TestSetupAbortsWhenInstanceAdminGrantFails proves the grant is part of the
+// setup transaction: a failing grant reports the generic persistence error and
+// never completes setup.
+func TestSetupAbortsWhenInstanceAdminGrantFails(t *testing.T) {
+	r := &setupRepo{grantFails: true}
+	err := NewSetupService(r).CreateOwner(context.Background(), SetupInput{Login: "owner_1", Password: "correct horse battery", HouseholdName: "Home", Timezone: "UTC"})
+	if err == nil || err.Error() != "setup persistence failed" {
+		t.Fatalf("err=%v want setup persistence failed", err)
+	}
+	if r.completed {
+		t.Fatal("setup completed without an instance administrator")
 	}
 }
 

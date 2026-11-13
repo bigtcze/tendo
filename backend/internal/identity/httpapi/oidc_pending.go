@@ -77,7 +77,7 @@ func (h *OIDCHandler) pendingGuard(w http.ResponseWriter, r *http.Request, limit
 }
 
 func pendingSession(p identity.Principal, expires time.Time) apimodel.Session {
-	session := apimodel.Session{UserId: p.UserID, Login: p.Login, ExpiresAt: expires.UTC()}
+	session := apimodel.Session{UserId: p.UserID, Login: p.Login, ExpiresAt: expires.UTC(), InstanceAdmin: p.InstanceAdmin}
 	if p.DefaultHouseholdID != "" {
 		household := p.DefaultHouseholdID
 		session.DefaultHouseholdId = &household

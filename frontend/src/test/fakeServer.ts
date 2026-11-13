@@ -62,6 +62,7 @@ export const session = (withHousehold = true): components['schemas']['Session'] 
   login: 'anna',
   ...(withHousehold ? { defaultHouseholdId: HOUSEHOLD_ID } : {}),
   expiresAt: '2030-01-01T00:00:00Z',
+  instanceAdmin: false,
 });
 
 export const household: components['schemas']['Household'] = {

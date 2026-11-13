@@ -198,10 +198,13 @@ type sessionJSON struct {
 	Login              string `json:"login"`
 	DefaultHouseholdID string `json:"defaultHouseholdId,omitempty"`
 	ExpiresAt          string `json:"expiresAt"`
+	// InstanceAdmin is always emitted, including false, so clients never infer
+	// the capability from a missing field.
+	InstanceAdmin bool `json:"instanceAdmin"`
 }
 
 func sessionResponse(p identity.Principal, expires time.Time) sessionJSON {
-	return sessionJSON{UserID: p.UserID, Login: p.Login, DefaultHouseholdID: p.DefaultHouseholdID, ExpiresAt: expires.UTC().Format(time.RFC3339)}
+	return sessionJSON{UserID: p.UserID, Login: p.Login, DefaultHouseholdID: p.DefaultHouseholdID, ExpiresAt: expires.UTC().Format(time.RFC3339), InstanceAdmin: p.InstanceAdmin}
 }
 
 // recordCredentialFault marks a corrupt stored password hash on the request's

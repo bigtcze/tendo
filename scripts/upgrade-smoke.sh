@@ -248,8 +248,14 @@ def exercise():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
     owner=s['v1Session']; base=f'/api/v1/households/{s["householdId"]}'
     ok(200,'GET',base,cookie=owner)
-    member,_=login('member_upgrade',s['memberPassword']); assert member
-    owner,_=login('owner_upgrade',s['ownerPassword'])
+    member,member_session=login('member_upgrade',s['memberPassword']); assert member
+    owner,owner_session=login('owner_upgrade',s['ownerPassword'])
+    # Migration 022 converts only the provable setup account into an instance
+    # administrator; an invited household member never becomes one.
+    assert owner_session.get('instanceAdmin') is True,('setup account instanceAdmin after upgrade',owner_session)
+    assert member_session.get('instanceAdmin') is False,('invited member instanceAdmin after upgrade',member_session)
+    _,carried=ok(200,'GET','/api/v1/session',cookie=s['v1Session'])
+    assert carried.get('instanceAdmin') is True,('source-release session instanceAdmin after upgrade',carried)
     partitions={}
     for done in ('false','true'):
       for archived in ('false','true'):
@@ -393,6 +399,9 @@ receipt_anchors=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STO
 anchor_invariant=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM items WHERE (attention_on IS NULL) <> (attention_anchor_day IS NULL) OR attention_anchor_day < extract(day FROM attention_on)")
 [[ "$anchor_invariant" == 0 ]] || { printf 'Migration 021 left %s items with an inconsistent anchor\n' "$anchor_invariant" >&2; exit 1; }
 printf 'Migration 021 recovered anchor 31 and 29 from continuous receipt chains, kept 28 for the ambiguous item, and rewrote no attention date, receipt or version.\n'
+instance_admins=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT string_agg(u.login || ':' || a.grant_source, ',' ORDER BY u.login) FROM instance_admins a JOIN user_accounts u ON u.id = a.user_id")
+[[ "$instance_admins" == "owner_upgrade:v4_bootstrap_migration" ]] || { printf 'Migration 022 instance administrators unexpected: %s\n' "$instance_admins" >&2; exit 1; }
+printf 'Migration 022 granted instance administrator to the setup account only.\n'
 subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM subjects")
 unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")
 memberships_without_single=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE (SELECT count(*) FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id AND s.type='person') <> 1")
@@ -418,7 +427,7 @@ for name, count in before.items():
     if name == 'subjects':
         continue
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
-unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
+unexpected = set(after) - set(before) - {'household_role_changes', 'instance_admins', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
 # Migration tables must exist afterwards. A source release that already shipped the
 # migration keeps its rows (the generic preservation check above); a source that
@@ -430,6 +439,11 @@ for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins
     if name not in before:
         assert after[name] == '0', (f'migration {migration} must create {name} empty', name, after[name])
 assert 'member_person_migration_unlinks' in after, ('migration 018 table missing after upgrade', sorted(after))
+# Every published source created its single household, the setup account and its
+# local credential in one setup transaction, so migration 022 must grant exactly one
+# instance administrator (identity asserted by SQL and the session API below).
+assert 'instance_admins' not in before, ('source release already had instance_admins', sorted(before))
+assert after.get('instance_admins') == '1', ('migration 022 bootstrap instance administrator count', after.get('instance_admins'))
 assert os.environ['ACCOUNTS_WITH_EMAIL'] == '0', ('migration 019 must never infer an email for pre-existing accounts', os.environ['ACCOUNTS_WITH_EMAIL'])
 assert int(os.environ['UNLINKS_AFTER']) == expected_unlinks, ('member person unlink log count', expected_unlinks, os.environ['UNLINKS_AFTER'])
 assert os.environ['MEMBERSHIPS_WITHOUT_SINGLE'] == '0', ('membership without exactly one linked person', os.environ['MEMBERSHIPS_WITHOUT_SINGLE'])

@@ -49,6 +49,10 @@ Run every command from the directory that holds Tendo's `compose.yaml` and `.env
 
 5. Compare the release's [`example.env`](https://github.com/bigtcze/tendo/releases/latest/download/example.env) with your `.env` and add any new settings you want. The [configuration reference](configuration.md) describes each one and its default.
 
+## Updating from 4.x to 5.0
+
+Tendo 5.0 adds the instance administrator, who manages the whole installation separately from the administrator role inside a household. The update makes the account that ran first-time setup the instance administrator when it can prove which account that was. If it cannot, it grants nobody, everything else keeps working, and the app logs a warning at every start; see [No instance administrator](troubleshooting.md#no-instance-administrator) for the one command that fixes it.
+
 ## Updating from 3.x to 4.0
 
 Read the [4.0 release notes](https://github.com/bigtcze/tendo/releases/tag/v4.0.0) first: household owners become administrators, and identity-provider sign-in and the API change. Tendo 4.0 simplifies the deployment to exactly two services, PostgreSQL and the app. The app now creates or validates its restricted database role and applies migrations itself before serving; the separate one-shot `migrate` container is gone. Your PostgreSQL data volume, accounts, households, people and things, items, history, sessions and invitations are kept.

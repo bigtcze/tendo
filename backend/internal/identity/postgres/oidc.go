@@ -113,6 +113,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash []byte, now time
 		info.Principal.UserID = row.UserID
 		info.Principal.Login = row.Login
 		info.Principal.DefaultHouseholdID = row.DefaultHouseholdID
+		info.Principal.InstanceAdmin = row.InstanceAdmin
 		expires = row.ExpiresAt
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

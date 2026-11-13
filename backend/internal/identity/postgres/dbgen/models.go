@@ -39,6 +39,12 @@ type InstallationState struct {
 	SetupRequired bool
 }
 
+type InstanceAdmin struct {
+	UserID      pgtype.UUID
+	GrantedAt   pgtype.Timestamptz
+	GrantSource string
+}
+
 type Item struct {
 	ID                pgtype.UUID
 	HouseholdID       pgtype.UUID
