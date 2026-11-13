@@ -27,10 +27,13 @@ contract):
   4 triage-aged-renovate   Renovate PR untriaged for more than 48 h, oldest first
   5 dependency-slot        >= 2 feature PRs merged since the last dependency
                            PR, and an actionable dependency PR exists
-  6 claim-issue            dependency-ready `status:idle` owned Issue, best
-                           first (recurrence, explicit Priority: P<n>, then
-                           numeric code, then Issue number; release
-                           coordinator Issues last)
+  6 claim-issue            dependency-ready `status:idle` owned Issue, or
+    review-owned-dependencies  an eligible recoverable dependency group
+                           (advisory only); both ranked together by the same
+                           Issue rank (recurrence, explicit Priority: P<n>,
+                           then numeric code, then Issue number; release
+                           coordinator Issues last), a group at the rank of
+                           its most urgent member
   7 dependency-pr          remaining actionable dependency PR
   8 security-release       a `security`-labelled PR merged since the latest
                            published release, plus runtime-meaningful changes
@@ -316,10 +319,10 @@ def dependency_states_for(issue: dict, owned: dict, dependency_states: dict) -> 
     return True, notes
 
 
-def recovery_candidate(snapshot: dict, owned: dict, selectable: list[dict],
-                       status_by_number: dict, notes: list[str],
-                       open_prs: list[dict] | None = None) -> dict | None:
-    """Priority-6 dependency recovery input, fail closed.
+def recovery_candidates(snapshot: dict, owned: dict, selectable: list[dict],
+                        status_by_number: dict, notes: list[str],
+                        open_prs: list[dict] | None = None) -> tuple[list[dict], set[int]]:
+    """Eligible advisory recovery groups (priority 6) and protected members, fail closed.
 
     An Issue takes part only when its comment history is present in the
     snapshot (`comments`, paginated by the collector). A malformed trusted
@@ -361,7 +364,8 @@ def recovery_candidate(snapshot: dict, owned: dict, selectable: list[dict],
         for number in refs(pr):
             if number in owned_open:
                 linked.setdefault(number, []).append(pr["number"])
-    return deps.plan_recovery(owned_open, status, lifecycle, declared, closed, linked)
+    heads = {pr["number"]: pr.get("headRefOid") for pr in open_prs or []}
+    return deps.recovery_groups(owned_open, status, lifecycle, declared, closed, linked, notes, heads)
 
 
 def coordinator_in_flight(open_owned: list[dict], latest_tag: str | None) -> tuple[str, int] | None:
@@ -620,31 +624,39 @@ def select(snapshot: dict, now: datetime) -> dict:
         return decide(5, "dependency-slot", pr_ref(actionable[0]),
                       f"{features} feature PR(s) merged since the last dependency PR")
 
-    # 6 claim-issue
-    ready = []
+    # 6 claim-issue / review-owned-dependencies, ranked together by issue_rank.
+    # An eligible recovery group competes with ordinary ready Issues at the rank
+    # of its most urgent member, so a recoverable high-priority blocker is not
+    # starved by lower-priority ready work and never outranks higher-priority
+    # work. Advice only: the agent reconciles live state under FLOW first and
+    # the selector grants no claim.
+    groups, protected = recovery_candidates(snapshot, owned, selectable, status_by_number, notes,
+                                            open_prs)
+    # Members of any recorded recovery group (advised, deferred or ineligible)
+    # are never offered as ordinary claims.
+    in_group = protected | {n for group in groups for n in group["group"]}
+    candidates = []
     for issue in selectable:
-        if status_by_number[issue["number"]][0] != "status:idle":
+        if status_by_number[issue["number"]][0] != "status:idle" or issue["number"] in in_group:
             continue
         ok, dep_notes = dependency_states_for(issue, owned, dependency_states)
         notes.extend(dep_notes)
         if ok:
-            ready.append(issue)
-    if ready:
-        best = min(ready, key=issue_rank)
-        return decide(6, "claim-issue", issue_ref(best),
-                      "highest-value dependency-ready idle owned Issue")
-
-    # 6b advisory dependency review (only when no ordinary ready Issue exists).
-    # Never executable: the controller forwards it; an agent must reconcile live
-    # state under FLOW before any action, and the selector grants no claim.
-    recovery = recovery_candidate(snapshot, owned, selectable, status_by_number, notes, open_prs)
-    if recovery is not None:
+            candidates.append((issue_rank(issue), "claim", issue))
+    for group in groups:
+        candidates.append((min(issue_rank(owned[n]) for n in group["group"]), "review", group))
+    if candidates:
+        _rank, what, best = min(candidates, key=lambda c: c[0])
+        if what == "claim":
+            return decide(6, "claim-issue", issue_ref(best),
+                          "highest-value dependency-ready idle owned Issue")
         return decide(6, "review-owned-dependencies",
-                      {"type": "issue", "number": recovery["issue"], "group": recovery["group"],
-                       "evidence": recovery["evidence"], "blocker": recovery["blocker"],
-                       "pr": recovery["pr"], "claim": recovery["claim"],
-                       "conflicts": recovery["conflicts"]},
-                      recovery["reason"])
+                      {"type": "issue", "number": best["issue"], "group": best["group"],
+                       "evidence": best["evidence"], "fingerprint": best["fingerprint"],
+                       "recovery": best["recovery"],
+                       "blocker": best["blocker"], "pr": best["pr"], "claim": best["claim"],
+                       "conflicts": best["conflicts"]},
+                      best["reason"])
 
     # 7 dependency-pr
     if actionable:
@@ -949,7 +961,7 @@ def collect(repo: str, run_gh=default_run_gh, now: datetime | None = None) -> di
     alerts = _flatten_pages(_load_json(alerts_raw, "dependabot alerts"), "dependabot alerts")
 
     open_prs = gh_list(run_gh, "pr", "--repo", repo, "--state", "open", "--json",
-                       "number,title,author,headRefName,labels,createdAt,isDraft,body")
+                       "number,title,author,headRefName,headRefOid,labels,createdAt,isDraft,body")
     for pr in open_prs:
         # Full comment history (REST, paginated) so the latest triage marker is never cut off.
         pr["comments"] = [{"author": {"login": (c.get("user") or {}).get("login", "")},

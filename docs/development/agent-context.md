@@ -15,6 +15,7 @@
 | Verification and release quality | `.autonomous/TESTING.md`, `.autonomous/CODE_QUALITY.md`, `.autonomous/DEFINITION_OF_DONE.md` |
 | Human documentation and future seams | `.autonomous/DOCUMENTATION.md`, `.autonomous/ROADMAP.md` |
 | Execution, scheduling, claims, recovery, releases | `.autonomous/FLOW.md` |
+| Runtime-specific session start, guard and recovery (current backend) | `.autonomous/FLOW.md` "Runtime integration" only |
 | Permanent cycle prompt | `.autonomous/AUTONOMY_PROMPT.md` |
 | Durable reusable experience | `.autonomous/LEARNINGS.md` |
 
@@ -32,9 +33,11 @@ Claims, blockers, review and test evidence live only in owned Issues and PRs. De
 
 ## Permanent controller and recovery
 
+Governance has three layers (FLOW "Layers"): canonical rules (AGENTS and `.autonomous/`), agent-independent scheduling (selector and dependency module, which read only GitHub state) and runtime integration (the controller's session command and guard). Only the last layer knows the current coding-agent backend; replacing it changes that layer and its tests, never the rules or selection. Rules name capabilities such as an independent reviewer, never a model, provider or agent profile.
+
 `tendo-autonomous.service` runs `scripts/autonomy-controller.sh`; one serialized process starts one fresh session per actionable selection. `.autonomous/AUTONOMY_PROMPT.md` plus live read-only selection advice is the prompt. No completion marker stops the controller. A future release number requires no code or host reconfiguration.
 
-`scripts/autonomy-work-selection.py` derives fairness from merged PR history and readiness from live owned Issues, dependencies and complete comments. `scripts/autonomy_dependencies.py` parses claims/blockers and diagnoses narrowly eligible owned dependency recovery. Advice is not mutation or authority: the claimant must reconcile live evidence and follow FLOW before any ordering adjustment. Genuine external blockers remain skipped until relevant facts change.
+`scripts/autonomy-work-selection.py` derives fairness from merged PR history and readiness from live owned Issues, dependencies and complete comments. `scripts/autonomy_dependencies.py` parses claims and structured blocker/deferral records and derives recovery groups from any owned Issue graph (cycles, self-dependencies, structured coupling); eligible groups rank with ready Issues by their most urgent member, and a `RECOVERY ... decision=deferred` record suppresses only byte-identical advice. Advice is not mutation or authority: the claimant must reconcile live evidence and follow FLOW before any ordering adjustment. Genuine external blockers remain skipped until relevant facts change.
 
 `bash scripts/autonomy-test.sh` runs offline tests with fakes and disposable repositories. It is part of local and required CI gates; it never calls the real host installer or systemd. Tests cover normal selection, fairness, ownership, claims, recovery, restart, markers and rollback readiness. Protected PR review and green required CI still gate delivery.
 

@@ -55,6 +55,10 @@ These documents consolidate the human-authorized contracts without reopening com
 - Ownership is `release`, not legacy milestone/label text. The permanent controller replaces all per-stage loop/timer handoffs. Existing acceptance asking to stop a loop or enable maintenance after completion is satisfied by proving continued serialized dependency/security/patch maintenance after release; never stop the controller or re-enable a competing scheduler. A requested final `*_COMPLETE` PR is evidence only, still protected and only after its release gates.
 - New releases use ordinary owned Issues and `docs/releases/` notes. Do not create another versioned governance packet, cycle prompt, controller or precedence chain.
 
+## Runner independence
+- These rules bind every model, coding agent, CLI, provider and host identically. They name capabilities (independent reviewer, delegated worker, architecture review; FLOW "Layers"), never products or agent profile names.
+- How a concrete runtime is started, guarded and recovered lives only in FLOW "Runtime integration". Never add per-agent, per-provider or per-release governance copies, schedulers, status stores or queues. A runtime that does not load this file itself is given it explicitly; it gets no rule copy.
+
 ## Tooling and verification
 - Use `bash scripts/dev-exec.sh -- <command>` for exact checksum-verified `mise.toml`/`mise.lock` pins; user-level mise must meet `min_version`. Never rely on host Go/Node/sqlc.
 - Full gate: `bash scripts/dev-exec.sh -- bash scripts/verify-local.sh` (`TENDO_TEST_POSTGRES_ADMIN_URL`; see `docs/development/testing.md`). Tests use isolated resources; never share cleanup with another active run.
@@ -64,7 +68,7 @@ These documents consolidate the human-authorized contracts without reopening com
 ## Change boundaries
 may=plan,code,test,review,document,create_branch,push_branch,open_PR,update_Renovate_PR_branch,merge_after_protection_and_green_checks,create_new_annotated_release_tag_after_green_main
 may_self_improve=AGENTS,FLOW,LEARNINGS,dev_tooling,tests,CI,docs_ADRs_within_authorized_scope
-must_not_self_change=GUARDRAILS,CHARTER,PRODUCT,ROADMAP,UX,ARCHITECTURE,API,TESTING,DOCUMENTATION,DEFINITION_OF_DONE,RECURRENCE,SECURITY,CODE_QUALITY,AUTONOMY_PROMPT,autonomy_controller_script,autonomy_work_selection_policy,autonomy_installer,autonomy_migration_policy,systemd_runner,auth_credentials,global_opencode_config
+must_not_self_change=GUARDRAILS,CHARTER,PRODUCT,ROADMAP,UX,ARCHITECTURE,API,TESTING,DOCUMENTATION,DEFINITION_OF_DONE,RECURRENCE,SECURITY,CODE_QUALITY,AUTONOMY_PROMPT,autonomy_controller_script,autonomy_work_selection_policy,autonomy_installer,autonomy_migration_policy,systemd_runner,auth_credentials,global_runtime_config
 must_not=direct_commit_main,direct_push_main,force_push,history_rewrite,bypass_required_checks,merge_known_broken,out_of_scope_feature_work,notification_settings_or_delivery,work_on_unowned_Issues,add_release_to_existing_Issues,relabel_closed_historical_Issues,run_autonomy_installer_apply_or_rollback,change_host_services_or_runtime_locks,speculative_refactoring,casual_Renovate_policy_change,move_or_reuse_tags,empty_or_documentation_only_release,edit_historical_COMPLETE_markers
 
 Changing locked contracts or controller configuration requires explicit owner authorization through a reviewed protected governance PR, not autonomous self-amendment.

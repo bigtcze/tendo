@@ -7,6 +7,7 @@ mandatory because string assertions cannot prove all prose equivalence.
 """
 from pathlib import Path
 import hashlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -78,6 +79,65 @@ class CanonicalContracts(unittest.TestCase):
             for unsafe in ('git push', 'git reset', 'git clean', '--force-with-lease',
                            'git checkout', 'V5_CYCLE_PROMPT.md', 'V5_ISSUES_WORKFLOW.md'):
                 self.assertNotIn(unsafe, text)
+
+
+class RunnerIndependence(unittest.TestCase):
+    """Governance binds every model, agent and provider; only FLOW
+    "Runtime integration" (and the controller it describes) knows the backend."""
+
+    RUNTIME_TERMS = re.compile(
+        r'\b(opencode|orchestrator|oracle|subagents?|fixer|claude|anthropic|openai|'
+        r'gpt-?\d|gemini|codex|copilot|ollama)\b', re.IGNORECASE)
+    # Product-scope mentions that are not about the coding agent runtime.
+    ALLOWED = {('ROADMAP.md', 'OpenAI API plus OpenAI-compatible custom base URL')}
+
+    def policy_files(self):
+        yield ROOT / 'AGENTS.md'
+        yield from sorted(CONTRACTS.glob('*.md'))
+
+    @staticmethod
+    def without_runtime_section(text):
+        return re.sub(r'(?ms)^## Runtime integration\n.*?(?=^## )', '', text)
+
+    def test_canonical_policy_names_no_runtime_product_or_agent_profile(self):
+        for path in self.policy_files():
+            text = path.read_text()
+            if path.name == 'FLOW.md':
+                text = self.without_runtime_section(text)
+            for line in text.splitlines():
+                if any(path.name == f and marker in line for f, marker in self.ALLOWED):
+                    continue
+                with self.subTest(file=path.name, line=line[:80]):
+                    self.assertIsNone(self.RUNTIME_TERMS.search(line))
+
+    def test_runtime_specifics_live_in_one_flow_section(self):
+        flow = (CONTRACTS / 'FLOW.md').read_text()
+        self.assertEqual(flow.count('\n## Runtime integration\n'), 1)
+        self.assertEqual(flow.count('\n## Layers\n'), 1)
+        section = re.search(r'(?ms)^## Runtime integration\n(.*?)(?=^## )', flow).group(1)
+        self.assertIn('--agent orchestrator', section)
+        self.assertIn('Replacing the backend', section)
+        agents = (ROOT / 'AGENTS.md').read_text()
+        self.assertIn('FLOW "Runtime integration"', agents)
+        self.assertIn('when_controller_or_work_selection=', agents)
+
+    def test_no_per_agent_governance_copies(self):
+        for name in ('CLAUDE.md', 'GEMINI.md', 'CODEX.md', '.cursorrules', '.windsurfrules',
+                     'OPENCODE.md', '.github/copilot-instructions.md', '.cursor', '.claude'):
+            self.assertFalse((ROOT / name).exists(), name)
+        prompts = sorted(p.name for p in CONTRACTS.glob('*PROMPT*'))
+        self.assertEqual(prompts, ['AUTONOMY_PROMPT.md'])
+
+    def test_scheduling_layer_is_runner_neutral(self):
+        for name in ('autonomy-work-selection.py', 'autonomy_dependencies.py'):
+            text = (ROOT / 'scripts' / name).read_text()
+            with self.subTest(file=name):
+                self.assertIsNone(self.RUNTIME_TERMS.search(text))
+
+    def test_controller_integration_keeps_the_working_runtime_contract(self):
+        controller = (ROOT / 'scripts/autonomy-controller.sh').read_text()
+        self.assertIn('run --auto --agent orchestrator', controller)
+        self.assertIn('.autonomous/AUTONOMY_PROMPT.md', controller)
 
 
 class ConcurrentGitSafety(unittest.TestCase):
