@@ -16,23 +16,22 @@ import (
 // operations so acceptance ordering remains explicit during extraction.
 type invitationRecordingRepo struct {
 	invitationFake
-	calls                                                     []string
-	loginErr, lockedErr, lockUserErr, membershipErr, otherErr error
-	loginExists                                               bool
-	lockedDigest                                              []byte
-	lockedForUpdate                                           bool
-	lockedFindHook                                            func()
-	lockedInvitation                                          Invitation
-	membershipRole, defaultHousehold                          string
-	other                                                     bool
-	writeErr                                                  map[string]error
-	listRows                                                  []Invitation
-	listActiveAt                                              *time.Time
-	listLimit                                                 int
-	now                                                       time.Time
-	listHousehold, listCursor                                 string
-	createCreated                                             *bool
-	createInput                                               CreateInvitationInput
+	calls                                           []string
+	loginErr, lockedErr, lockUserErr, membershipErr error
+	loginExists                                     bool
+	lockedDigest                                    []byte
+	lockedForUpdate                                 bool
+	lockedFindHook                                  func()
+	lockedInvitation                                Invitation
+	membershipRole, defaultHousehold                string
+	writeErr                                        map[string]error
+	listRows                                        []Invitation
+	listActiveAt                                    *time.Time
+	listLimit                                       int
+	now                                             time.Time
+	listHousehold, listCursor                       string
+	createCreated                                   *bool
+	createInput                                     CreateInvitationInput
 }
 
 type invitationRecordingTx struct{ repo *invitationRecordingRepo }
@@ -129,10 +128,6 @@ func (t *invitationRecordingTx) LockUser(context.Context, string) (string, strin
 func (t *invitationRecordingTx) EnsureMemberPerson(_ context.Context, householdID, userID, name string) error {
 	t.repo.record("member.person:" + householdID + ":" + userID + ":" + name)
 	return t.fail("member.person")
-}
-func (t *invitationRecordingTx) HasOtherMembership(context.Context, string, string) (bool, error) {
-	t.repo.record("other.membership")
-	return t.repo.other, t.repo.otherErr
 }
 func (t *invitationRecordingTx) CreateUser(context.Context, string) (string, error) {
 	t.repo.record("user.create")
@@ -291,17 +286,17 @@ func TestAcceptInvitationExistingAccountOrderedEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership", "other.membership", "member.add:" + testActor + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + testActor + ":existing_login", "default.set:" + testActor + ":" + inviteHouseID, "invitation.accept:" + inviteID})
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership", "member.add:" + testActor + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + testActor + ":existing_login", "default.set:" + testActor + ":" + inviteHouseID, "invitation.accept:" + inviteID})
 	assertLockedInvitationLookup(t, repo)
 	if result.UserID != testActor || result.Login != "" || result.HouseholdID != inviteHouseID || result.Role != household.RoleMember {
 		t.Fatalf("result=%+v", result)
 	}
 }
 
-func TestAlreadyMemberPrecedesDefaultAndOtherHouseholdConflict(t *testing.T) {
+func TestAlreadyMemberPrecedesWrites(t *testing.T) {
 	repo := &invitationRecordingRepo{
 		invitationFake: invitationFake{inv: recordedInvitation()},
-		membershipRole: household.RoleAdmin, defaultHousehold: "another-house", other: true, writeErr: map[string]error{},
+		membershipRole: household.RoleAdmin, defaultHousehold: "another-house", writeErr: map[string]error{},
 	}
 	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
 	_, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
@@ -403,25 +398,23 @@ func TestExistingAccountLockUserErrorsStopAtLock(t *testing.T) {
 	}
 }
 
-func TestExistingAccountHouseholdConflicts(t *testing.T) {
-	for _, tc := range []struct {
-		name             string
-		defaultHousehold string
-		other            bool
-	}{{"default household", "another-house", false}, {"other membership", "", true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			repo := &invitationRecordingRepo{
-				invitationFake:   invitationFake{inv: Invitation{ID: testHouse, HouseholdID: testHouse, ExpiresAt: invitationInstant.Add(time.Hour)}},
-				defaultHousehold: tc.defaultHousehold, other: tc.other,
-			}
-			service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
-			_, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
-			if !errors.Is(err, ErrHouseholdConflict) {
-				t.Fatalf("error=%v", err)
-			}
-			assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership", "other.membership"})
-		})
+// An existing account that already has a default household (and may belong to
+// other households) now joins the invited household; acceptance switches the
+// default to the accepted household rather than refusing the account.
+func TestExistingAccountWithAnotherDefaultHouseholdJoinsAndSwitchesDefault(t *testing.T) {
+	repo := &invitationRecordingRepo{
+		invitationFake:   invitationFake{inv: recordedInvitation()},
+		defaultHousehold: "another-house", writeErr: map[string]error{},
 	}
+	service, _ := NewInvitationService(repo, func() time.Time { return invitationInstant })
+	result, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
+	if err != nil {
+		t.Fatalf("error=%v", err)
+	}
+	if result.HouseholdID != inviteHouseID || result.Role != household.RoleMember {
+		t.Fatalf("result=%+v", result)
+	}
+	assertInvitationCalls(t, repo.calls, []string{"tx.begin", "locked.find", "user.lock", "membership", "member.add:" + testActor + ":" + inviteHouseID, "member.person:" + inviteHouseID + ":" + testActor + ":existing_login", "default.set:" + testActor + ":" + inviteHouseID, "invitation.accept:" + inviteID})
 }
 
 func TestExistingAccountMembershipLookupErrorsPropagate(t *testing.T) {
@@ -432,16 +425,12 @@ func TestExistingAccountMembershipLookupErrorsPropagate(t *testing.T) {
 		calls []string
 	}{
 		{"membership", &invitationRecordingRepo{membershipErr: errors.New("membership failed")}, nil, []string{"tx.begin", "locked.find", "user.lock", "membership"}},
-		{"other membership", &invitationRecordingRepo{otherErr: errors.New("other membership failed")}, nil, []string{"tx.begin", "locked.find", "user.lock", "membership", "other.membership"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.repo.invitationFake = invitationFake{inv: recordedInvitation()}
 			service, _ := NewInvitationService(tc.repo, func() time.Time { return invitationInstant })
 			_, err := service.AcceptInvitationExistingAccount(context.Background(), testActor, invitationToken)
 			tc.cause = tc.repo.membershipErr
-			if tc.cause == nil {
-				tc.cause = tc.repo.otherErr
-			}
 			if !errors.Is(err, tc.cause) {
 				t.Fatalf("error=%v cause=%v", err, tc.cause)
 			}
@@ -475,7 +464,7 @@ func TestExistingAccountWriteFailuresStopAtFailingStep(t *testing.T) {
 			if !errors.Is(err, cause) {
 				t.Fatalf("error=%v", err)
 			}
-			calls := append([]string{"tx.begin", "locked.find", "user.lock", "membership", "other.membership"}, tc.writes...)
+			calls := append([]string{"tx.begin", "locked.find", "user.lock", "membership"}, tc.writes...)
 			assertInvitationCalls(t, repo.calls, calls)
 			if tc.step == "invitation.accept" && !repo.now.Equal(invitationInstant.UTC().Truncate(time.Second)) {
 				t.Fatalf("now=%v", repo.now)

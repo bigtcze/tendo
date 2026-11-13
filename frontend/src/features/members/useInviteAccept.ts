@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import { fetchSession, login, logout, type Session } from '../auth/sessionApi';
+import { fetchSession, login, type Session } from '../auth/sessionApi';
 import { acceptInvitationAsCurrentUser, acceptNewAccount } from './membersApi';
 import {
   mapNewAccountResult, mapSignedInResult, type InviteCallbacks,
@@ -61,10 +61,7 @@ export function useInviteAccept({ token, session, focusLogin, ...callbacks }: Pr
       return;
     }
     if (outcome.kind === 'error') {
-      if (outcome.error === 'householdConflict') {
-        setError(outcome.error);
-        setPending(false);
-      } else fail(outcome.error);
+      fail(outcome.error);
       return;
     }
     const refreshed = await refreshSession();
@@ -84,22 +81,9 @@ export function useInviteAccept({ token, session, focusLogin, ...callbacks }: Pr
     else await submitNewAccount(token);
   }
 
-  async function signOutAndContinue() {
-    if (pending) return;
-    setPending(true);
-    const result = await logout();
-    if (!mounted.current) return;
-    if (result === 'ok') {
-      setSignedOutMode(true);
-      setError(null);
-      setPending(false);
-      callbacks.onSignedOut();
-    } else fail('unavailable');
-  }
-
   return {
     loginName, setLoginName, password, setPassword, error,
     pending, currentSession, valid, invalidLink, accepted,
-    loginRef, passwordRef, noticeRef, submit, retrySession, signOutAndContinue,
+    loginRef, passwordRef, noticeRef, submit, retrySession,
   };
 }

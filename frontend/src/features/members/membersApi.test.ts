@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { api } from '../../lib/api';
-import { createInvitation, listInvitations, listMembers, revokeInvitation } from './membersApi';
+import { acceptInvitationAsCurrentUser, createInvitation, listInvitations, listMembers, revokeInvitation } from './membersApi';
 
 vi.mock('../../lib/api', () => ({ api: { GET: vi.fn(), POST: vi.fn(), DELETE: vi.fn() } }));
 
@@ -63,6 +63,40 @@ describe('403 without a recognised admin code', () => {
   it('revokeInvitation maps to rejected', async () => {
     del.mockResolvedValue(forbidden());
     expect(await revokeInvitation('household', 'invitation')).toBe('rejected');
+  });
+});
+
+describe('acceptInvitationAsCurrentUser', () => {
+  const problem = (status: number, code: string) => ({
+    data: undefined,
+    error: { type: 'about:blank', title: 'Problem', status, code },
+    response: { status },
+  });
+
+  it.each([
+    [201, 'ok'],
+    [404, 'invalid'],
+    [401, 'unauthenticated'],
+    [429, 'rateLimited'],
+  ] as const)('maps status %i to %s', async (status, expected) => {
+    post.mockResolvedValue({ data: status === 201 ? {} : undefined, error: undefined, response: { status } });
+    expect(await acceptInvitationAsCurrentUser('token')).toBe(expected);
+  });
+
+  it('keeps already_member as the only invitation conflict', async () => {
+    post.mockResolvedValue(problem(409, 'already_member'));
+    expect(await acceptInvitationAsCurrentUser('token')).toBe('alreadyMember');
+  });
+
+  // The server no longer emits the retired conflict code; a stray one must not revive the removed "sign out" path.
+  it('treats a stray household_conflict as the generic error', async () => {
+    post.mockResolvedValue(problem(409, 'household_conflict'));
+    expect(await acceptInvitationAsCurrentUser('token')).toBe('error');
+  });
+
+  it('treats an unrecognised 409 as the generic error', async () => {
+    post.mockResolvedValue(problem(409, 'cannot_reset_self'));
+    expect(await acceptInvitationAsCurrentUser('token')).toBe('error');
   });
 });
 

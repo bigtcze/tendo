@@ -17,7 +17,6 @@ import (
 type InvitationHouseholdService interface {
 	RequireAdmin(context.Context, string, string) error
 	GetMembership(context.Context, string, string) (string, error)
-	HasMembershipElsewhere(context.Context, string, string) (bool, error)
 	AddInvitedMember(context.Context, string, string) error
 }
 type InvitationHouseholdServiceFactory func(householddb.DBTX) InvitationHouseholdService
@@ -84,9 +83,6 @@ func (t *invitationTx) RequireAdmin(ctx context.Context, userID, householdID str
 }
 func (t *invitationTx) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
 	return t.h.GetMembership(ctx, userID, householdID)
-}
-func (t *invitationTx) HasOtherMembership(ctx context.Context, userID, householdID string) (bool, error) {
-	return t.h.HasMembershipElsewhere(ctx, userID, householdID)
 }
 func (t *invitationTx) CreateInvitation(ctx context.Context, input identity.CreateInvitationInput) (identity.Invitation, bool, error) {
 	var householdID, actorID pgtype.UUID

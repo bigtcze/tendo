@@ -264,6 +264,11 @@ def large_paging_household_cleanup(
 def assert_existing_invitation_accounts(
     inherited: dict[str, str], conflict_household_id: str
 ) -> None:
+    """Assert both seeded existing accounts kept exactly the memberships n25 gives them.
+
+    The free account only ever joins the owner household. The formerly conflicting account keeps its original
+    admin membership in its own household and gains a plain member membership in the owner household it joined,
+    with the joined household as its default; multi-household membership is ordinary, not a conflict."""
     if not UUID_PATTERN.fullmatch(conflict_household_id):
         raise RuntimeError("existing-account seed identifiers must be UUIDs")
     actual = psql_admin(inherited, f"""SELECT concat_ws('|',
@@ -284,6 +289,11 @@ def assert_existing_invitation_accounts(
         JOIN user_accounts u ON u.id=m.user_id
         WHERE u.login='existing_conflict_e2e'
           AND m.household_id='{conflict_household_id}' AND m.role='admin'),
+      (SELECT count(*) FROM household_memberships m
+        JOIN user_accounts u ON u.id=m.user_id
+        JOIN user_accounts o ON o.login='owner_e2e'
+        WHERE u.login='existing_conflict_e2e'
+          AND m.household_id=o.default_household_id AND m.role='member'),
       (SELECT default_household_id::text FROM user_accounts
         WHERE login='existing_conflict_e2e'),
       (SELECT count(*) FROM household_memberships
@@ -292,7 +302,7 @@ def assert_existing_invitation_accounts(
         inherited,
         "SELECT default_household_id FROM user_accounts WHERE login='owner_e2e'",
     )
-    expected = f"1|1|{owner_household_id}|{owner_household_id}|1|1|{conflict_household_id}|1"
+    expected = f"1|1|{owner_household_id}|{owner_household_id}|2|1|1|{owner_household_id}|1"
     if actual != expected:
         raise RuntimeError(
             "existing-account invitation state mismatch "

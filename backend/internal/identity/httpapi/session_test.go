@@ -23,17 +23,21 @@ import (
 const fakeToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 type fakeSessionService struct {
-	loginCalls  int
-	lookupCalls int
-	logoutToken string
-	logouts     int
-	loginErr    error
-	lookupErr   error
-	logoutErr   error
-	expires     time.Time
-	principal   identity.Principal
-	gotLogin    string
-	gotPassword string
+	loginCalls     int
+	lookupCalls    int
+	setCalls       int
+	logoutToken    string
+	logouts        int
+	loginErr       error
+	lookupErr      error
+	logoutErr      error
+	setErr         error
+	expires        time.Time
+	principal      identity.Principal
+	gotLogin       string
+	gotPassword    string
+	setUserID      string
+	setHouseholdID string
 }
 
 func (f *fakeSessionService) Login(_ context.Context, login, password string) (identity.Session, error) {
@@ -62,6 +66,15 @@ func (f *fakeSessionService) Logout(_ context.Context, token string) error {
 	f.logoutToken = token
 	return f.logoutErr
 }
+func (f *fakeSessionService) SetDefaultHousehold(_ context.Context, userID, householdID string) error {
+	f.setCalls++
+	f.setUserID, f.setHouseholdID = userID, householdID
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.principal.DefaultHouseholdID = householdID
+	return nil
+}
 
 type loginServiceFake struct {
 	calls     int
@@ -87,7 +100,8 @@ func (f *loginServiceFake) Login(_ context.Context, _ string, password string) (
 func (*loginServiceFake) Lookup(context.Context, string) (identity.SessionInfo, error) {
 	return identity.SessionInfo{}, nil
 }
-func (*loginServiceFake) Logout(context.Context, string) error { return nil }
+func (*loginServiceFake) Logout(context.Context, string) error                      { return nil }
+func (*loginServiceFake) SetDefaultHousehold(context.Context, string, string) error { return nil }
 
 func sessionFixture(publicURL string) (*fakeSessionService, *SessionHandler, http.Handler) {
 	svc := &fakeSessionService{expires: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), principal: identity.Principal{UserID: "u-1", Login: "owner_1", DefaultHouseholdID: "h-1"}}
@@ -505,4 +519,200 @@ func TestSessionLimiterIsBounded(t *testing.T) {
 	if !l.admitAttempt("one-too-many") || len(l.attempts) > limiterMaxClients {
 		t.Fatal("stale entries were not evicted")
 	}
+}
+
+func patchSessionRequest(body string, mutate ...func(*http.Request)) *http.Request {
+	r := httptest.NewRequest(http.MethodPatch, "/api/v1/session", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.AddCookie(&http.Cookie{Name: "tendo_session", Value: fakeToken})
+	for _, m := range mutate {
+		m(r)
+	}
+	return r
+}
+
+const newHouseholdID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61"
+
+func TestUpdateSessionSwitchesDefaultWithoutValidator(t *testing.T) {
+	svc, _, mux := sessionFixture("http://localhost")
+	w := serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`))
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	if w.Header().Get("ETag") != "" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("headers=%v", w.Header())
+	}
+	if w.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("switch rewrote the cookie: %s", w.Header().Get("Set-Cookie"))
+	}
+	want := `{"userId":"u-1","login":"owner_1","defaultHouseholdId":"` + newHouseholdID + `","expiresAt":"2026-02-01T00:00:00Z"}`
+	if !sameJSONObject(t, strings.TrimSpace(w.Body.String()), want) {
+		t.Fatalf("body=%s want=%s", w.Body, want)
+	}
+	if svc.setCalls != 1 || svc.setUserID != "u-1" || svc.setHouseholdID != newHouseholdID {
+		t.Fatalf("calls=%d user=%q household=%q", svc.setCalls, svc.setUserID, svc.setHouseholdID)
+	}
+	// Re-selecting the same household is a successful no-op, not a conflict.
+	svc.principal.DefaultHouseholdID = newHouseholdID
+	w = serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`))
+	if w.Code != 200 || svc.setCalls != 2 || w.Header().Get("ETag") != "" {
+		t.Fatalf("repeat status=%d calls=%d headers=%v", w.Code, svc.setCalls, w.Header())
+	}
+}
+
+func TestUpdateSessionRequiresOneSessionCookie(t *testing.T) {
+	for name, r := range map[string]*http.Request{
+		"no cookie": patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`, func(r *http.Request) { r.Header.Del("Cookie") }),
+		"wrong cookie name": patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`, func(r *http.Request) {
+			r.Header.Del("Cookie")
+			r.AddCookie(&http.Cookie{Name: "__Host-tendo_session", Value: fakeToken})
+		}),
+		"duplicate cookie": patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`, func(r *http.Request) { r.AddCookie(&http.Cookie{Name: "tendo_session", Value: fakeToken}) }),
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, _, mux := sessionFixture("http://localhost")
+			w := serve(mux, r)
+			assertProblem(t, w, 401, "unauthenticated")
+			if svc.setCalls != 0 {
+				t.Fatalf("unauthenticated request reached service: %d", svc.setCalls)
+			}
+		})
+	}
+	svc, _, mux := sessionFixture("http://localhost")
+	w := serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`, func(r *http.Request) {
+		r.Header.Del("Cookie")
+		r.AddCookie(&http.Cookie{Name: "tendo_session", Value: "unknown"})
+	}))
+	assertProblem(t, w, 401, "unauthenticated")
+	if svc.setCalls != 0 || !strings.Contains(w.Header().Get("Set-Cookie"), "Max-Age=0") {
+		t.Fatalf("calls=%d set-cookie=%q", svc.setCalls, w.Header().Get("Set-Cookie"))
+	}
+}
+
+func TestUpdateSessionStrictRequestHandling(t *testing.T) {
+	valid := `{"defaultHouseholdId":"` + newHouseholdID + `"}`
+	for _, tc := range []struct {
+		name   string
+		body   string
+		mutate func(*http.Request)
+		status int
+		code   string
+	}{
+		{"wrong media type", valid, func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }, 415, "unsupported_media_type"},
+		{"missing media type", valid, func(r *http.Request) { r.Header.Del("Content-Type") }, 415, "unsupported_media_type"},
+		{"oversized", `{"defaultHouseholdId":"` + strings.Repeat("a", 4100) + `"}`, nil, 413, "content_too_large"},
+		{"unknown key", `{"defaultHouseholdId":"` + newHouseholdID + `","extra":true}`, nil, 400, "invalid_request"},
+		{"duplicate key", `{"defaultHouseholdId":"a","defaultHouseholdId":"b"}`, nil, 400, "invalid_request"},
+		{"null value", `{"defaultHouseholdId":null}`, nil, 400, "invalid_request"},
+		{"empty object", `{}`, nil, 400, "invalid_request"},
+		{"number value", `{"defaultHouseholdId":7}`, nil, 400, "invalid_request"},
+		{"array", `[]`, nil, 400, "invalid_request"},
+		{"trailing data", valid + ` {}`, nil, 400, "invalid_request"},
+		{"empty body", ``, nil, 400, "invalid_request"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, mux := sessionFixture("http://localhost")
+			r := patchSessionRequest(tc.body)
+			if tc.mutate != nil {
+				tc.mutate(r)
+			}
+			w := serve(mux, r)
+			assertProblem(t, w, tc.status, tc.code)
+			if svc.setCalls != 0 {
+				t.Fatal("rejected request reached the service")
+			}
+		})
+	}
+}
+
+func TestUpdateSessionUniformInvalidReferenceProblem(t *testing.T) {
+	bodies := []string{
+		`{"defaultHouseholdId":"not-a-uuid"}`,
+		`{"defaultHouseholdId":"0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b99"}`,
+		`{"defaultHouseholdId":""}`,
+	}
+	var first string
+	for _, body := range bodies {
+		svc, _, mux := sessionFixture("http://localhost")
+		svc.setErr = identity.ErrInvalidReference
+		w := serve(mux, patchSessionRequest(body))
+		if w.Code != 422 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/problem+json" || w.Header().Get("ETag") != "" {
+			t.Fatalf("body=%s status=%d headers=%v", body, w.Code, w.Header())
+		}
+		if first == "" {
+			first = w.Body.String()
+		} else if w.Body.String() != first {
+			t.Fatalf("422 bodies differ: %s vs %s", w.Body, first)
+		}
+		if !sameJSONObject(t, w.Body.String(), `{"code":"invalid_reference","field":"defaultHouseholdId","status":422,"title":"Validation Failed","type":"about:blank"}`) {
+			t.Fatalf("body=%s", w.Body)
+		}
+	}
+}
+
+func TestUpdateSessionMapsVanishedUserAndOutage(t *testing.T) {
+	svc, _, mux := sessionFixture("http://localhost")
+	svc.setErr = identity.ErrUnauthenticated
+	w := serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`))
+	assertProblem(t, w, 401, "unauthenticated")
+	if !strings.Contains(w.Header().Get("Set-Cookie"), "Max-Age=0") {
+		t.Fatalf("vanished user did not clear the cookie: %q", w.Header().Get("Set-Cookie"))
+	}
+	svc.setErr = errors.New("db down at 10.1.2.3")
+	w = serve(mux, patchSessionRequest(`{"defaultHouseholdId":"`+newHouseholdID+`"}`))
+	assertProblem(t, w, 503, "unavailable")
+	if strings.Contains(w.Body.String(), "10.1.2.3") {
+		t.Fatal("internal error leaked")
+	}
+}
+
+func TestUpdateSessionEnforcesBrowserOrigin(t *testing.T) {
+	app := func() (*fakeSessionService, http.Handler) {
+		svc, _, mux := sessionFixture("http://localhost")
+		wrapped := httpx.NewAppWithRoutes(nil, time.Second, nil, httpx.OriginPolicy{PublicURL: "http://localhost"}, func(r chi.Router) {
+			r.Mount("/", mux)
+		})
+		return svc, wrapped
+	}
+	cases := []struct {
+		name   string
+		mutate func(*http.Request)
+		want   int
+	}{
+		{"missing origin", func(r *http.Request) { r.Host = "localhost" }, 403},
+		{"foreign origin", func(r *http.Request) { r.Host = "localhost"; r.Header.Set("Origin", "http://evil.example") }, 403},
+		{"same origin", func(r *http.Request) { r.Host = "localhost"; r.Header.Set("Origin", "http://localhost") }, 200},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, appHandler := app()
+			r := patchSessionRequest(`{"defaultHouseholdId":"` + newHouseholdID + `"}`)
+			tc.mutate(r)
+			w := serve(appHandler, r)
+			if w.Code != tc.want {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body)
+			}
+			called := svc.setCalls
+			if tc.want != 200 && called != 0 {
+				t.Fatalf("cross-origin request reached the service: %d", called)
+			}
+			if tc.want == 200 && called != 1 {
+				t.Fatalf("same-origin request did not reach the service: %d", called)
+			}
+		})
+	}
+}
+
+func sameJSONObject(t *testing.T, got, want string) bool {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal([]byte(got), &g); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatal(err)
+	}
+	gb, _ := json.Marshal(g)
+	wb, _ := json.Marshal(w)
+	return string(gb) == string(wb)
 }

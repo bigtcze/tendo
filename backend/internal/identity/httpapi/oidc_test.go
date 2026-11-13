@@ -177,6 +177,9 @@ func (oidcPasswordVerifierRepo) FindActive(context.Context, []byte, time.Time) (
 	return identity.SessionInfo{}, identity.ErrNotFound
 }
 func (oidcPasswordVerifierRepo) DeleteByTokenHash(context.Context, []byte) error { return nil }
+func (oidcPasswordVerifierRepo) SetDefaultHousehold(context.Context, string, string) error {
+	return nil
+}
 
 func newOIDCPasswordVerifier(t *testing.T) *identity.SessionService {
 	t.Helper()

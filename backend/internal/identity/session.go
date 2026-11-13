@@ -10,12 +10,17 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bigtcze/tendo/backend/internal/platform/ids"
 	"github.com/bigtcze/tendo/backend/internal/platform/security"
 )
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUnauthenticated    = errors.New("unauthenticated")
+	// ErrInvalidReference means a referenced resource is malformed, unknown, or
+	// outside the caller's membership. It maps to the uniform invalid_reference
+	// validation response.
+	ErrInvalidReference = errors.New("invalid reference")
 	// ErrNotFound is returned by a SessionRepository when no matching row exists.
 	// Every other repository error is an infrastructure failure.
 	ErrNotFound = errors.New("not found")
@@ -85,6 +90,10 @@ type SessionRepository interface {
 	CreateVerifiedSession(ctx context.Context, s VerifiedSession) (string, error)
 	FindActive(ctx context.Context, tokenHash []byte, now time.Time) (SessionInfo, error)
 	DeleteByTokenHash(ctx context.Context, tokenHash []byte) error
+	// SetDefaultHousehold selects a household the user already belongs to. It
+	// returns ErrInvalidReference for a malformed, unknown, or non-member
+	// household and ErrUnauthenticated when the user row no longer exists.
+	SetDefaultHousehold(ctx context.Context, userID, householdID string) error
 }
 
 type SessionService struct {
@@ -221,6 +230,31 @@ func (s *SessionService) Lookup(ctx context.Context, token string) (SessionInfo,
 func (s *SessionService) Authenticate(ctx context.Context, token string) (Principal, error) {
 	info, err := s.Lookup(ctx, token)
 	return info.Principal, err
+}
+
+// SetDefaultHousehold records the caller's account-wide default household. The
+// value is a navigation hint, never an authorization grant: only an existing
+// membership in the referenced household is accepted, and every protected
+// operation re-authorizes against memberships. The last write wins; there is no
+// precondition or If-Match.
+func (s *SessionService) SetDefaultHousehold(ctx context.Context, userID, householdID string) error {
+	if !ids.IsCanonicalUUID(userID) {
+		return ErrUnauthenticated
+	}
+	if !ids.IsCanonicalUUID(householdID) {
+		return ErrInvalidReference
+	}
+	ctx, cancel := context.WithTimeout(ctx, repositoryBudget)
+	defer cancel()
+	switch err := s.repository.SetDefaultHousehold(ctx, userID, householdID); {
+	case errors.Is(err, ErrUnauthenticated):
+		return ErrUnauthenticated
+	case errors.Is(err, ErrInvalidReference):
+		return ErrInvalidReference
+	case err != nil:
+		return errors.New("session persistence failed")
+	}
+	return nil
 }
 
 // Logout deletes the session; it is idempotent and ignores malformed tokens.

@@ -5462,7 +5462,7 @@ test.describe('Tendo production journey', () => {
     if (cleanupFailure) throw cleanupFailure;
   });
 
-  test('n25. existing accounts accept invitations, conflicts stay calm, and invite tokens are shown once', async ({ browser }) => {
+  test('n25. existing accounts accept invitations, join a second household, and invite tokens are shown once', async ({ browser }) => {
     test.setTimeout(120_000);
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1, name: homeHeadings })).toBeVisible();
@@ -5623,51 +5623,46 @@ test.describe('Tendo production journey', () => {
       member.assertClean(['POST /api/v1/invitations/accept 409']);
     } finally { await member.context.close(); }
 
-    const conflictInvite = await createInvite();
-    const conflict = await makeActor();
+    // An existing account joins a second household: the invitation is a membership, not a conflict.
+    const joinInvite = await createInvite();
+    const joining = await makeActor();
     try {
-      await signIntoExisting(conflict.actor, 'existing_conflict_e2e');
-      await waitForSettledHome(conflict.actor, 'Conflict household');
-      await expect(conflict.actor.getByRole('banner')).toContainText('existing_conflict_e2e');
-      const conflictSession = await conflict.actor.request.get('/api/v1/session');
-      expect(conflictSession.status()).toBe(200);
-      expect((await conflictSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
-      await conflict.actor.goto(conflictInvite.link);
-      await expect(conflict.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_conflict_e2e') })).toBeVisible();
-      await waitForSettledHouseholdRequests(conflict.actor);
-      const conflictAcceptResponse = conflict.actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/invitations/accept');
-      await conflict.actor.getByRole('button', { name: en['invite.join'] }).click();
-      const conflictAccept = await conflictAcceptResponse;
-      expect(conflictAccept.status()).toBe(409);
-      expect(await conflictAccept.json()).toMatchObject({ code: 'household_conflict' });
-      await expect(conflict.actor.getByText(en['invite.error.householdConflict'], { exact: true })).toBeVisible();
-      const conflictedSession = await conflict.actor.request.get('/api/v1/session');
-      expect(conflictedSession.status()).toBe(200);
-      expect((await conflictedSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
-      expect((await conflict.actor.request.get(`/api/v1/households/${householdId}/items`)).status()).toBe(404);
-      await expectInvitationStatus(conflictInvite.id, 'pending');
-      const listedConflictMembers = await listOwnerMembers();
-      expect(listedConflictMembers.some(member => member.login === 'existing_conflict_e2e')).toBe(false);
-      const oldCookie = (await conflict.context.cookies()).find(cookie => cookie.name === 'tendo_session')?.value;
-      expect(oldCookie).toBeTruthy();
-      await conflict.actor.getByRole('button', { name: en['invite.signOutContinue'] }).click();
-      await expect(conflict.actor.locator('#invite-login')).toBeVisible();
-      await expect(conflict.actor.getByRole('button', { name: en['invite.create'] })).toBeVisible();
-      expect((await conflict.context.cookies()).some(cookie => cookie.name === 'tendo_session')).toBe(false);
-      expect(new URL(conflict.actor.url()).pathname).toBe('/invite');
-      expect(new URL(conflict.actor.url()).hash).toBe(''); // The app strips the fragment from location and retains the token in invite state.
-      const stale = await request.newContext({ baseURL });
-      try { expect((await stale.get('/api/v1/session', { headers: { Cookie: `tendo_session=${oldCookie}` } })).status()).toBe(401); }
-      finally { await stale.dispose(); }
-      await conflict.actor.locator('#invite-login').fill('conflict_new_e2e');
-      await conflict.actor.locator('#invite-password').fill(`${ownerPassword}-conflict-new`);
-      await conflict.actor.getByRole('button', { name: en['invite.create'] }).click();
-      await expect(conflict.actor.getByRole('heading', { level: 1, name: homeHeadings })).toBeVisible();
-      expect((await (await conflict.actor.request.get('/api/v1/session')).json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
-      await expectInvitationStatus(conflictInvite.id, 'accepted');
-      await waitForSettledHouseholdRequests(conflict.actor);
-      conflict.assertClean(['POST /api/v1/invitations/accept 409']);
-    } finally { await conflict.context.close(); }
+      await signIntoExisting(joining.actor, 'existing_conflict_e2e');
+      await waitForSettledHome(joining.actor, 'Conflict household');
+      await expect(joining.actor.getByRole('banner')).toContainText('existing_conflict_e2e');
+      const beforeJoinSession = await joining.actor.request.get('/api/v1/session');
+      expect(beforeJoinSession.status()).toBe(200);
+      expect((await beforeJoinSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
+      // Before joining, the invited household is not reachable through this account's own browser context.
+      expect((await joining.actor.request.get(`/api/v1/households/${householdId}/items`)).status()).toBe(404);
+      await joining.actor.goto(joinInvite.link);
+      await expect(joining.actor.getByRole('heading', { level: 1, name: en['invite.signedIn.title'].replace('{login}', 'existing_conflict_e2e') })).toBeVisible();
+      await waitForSettledHouseholdRequests(joining.actor);
+      const joinAcceptResponse = joining.actor.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/invitations/accept');
+      await joining.actor.getByRole('button', { name: en['invite.join'] }).click();
+      const joinAccept = await joinAcceptResponse;
+      expect(joinAccept.status()).toBe(201);
+      // The rebuilt session names the joined household, so Home and the shell header land there.
+      await waitForSettledHome(joining.actor, householdName);
+      const joinedSessionResponse = await joining.actor.request.get('/api/v1/session');
+      expect(joinedSessionResponse.status()).toBe(200);
+      expect((await joinedSessionResponse.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
+      const householdsResponse = await joining.actor.request.get('/api/v1/households');
+      expect(householdsResponse.status()).toBe(200);
+      const householdList = await householdsResponse.json() as { items: Array<{ id: string; name: string; viewerRole: string }>; nextCursor: string | null };
+      expect(householdList.items).toHaveLength(2);
+      expect(householdList.nextCursor).toBeNull();
+      // Each membership keeps its own independent role: admin in the original, member in the invited household.
+      expect(householdList.items.find(item => item.id === conflictHouseholdId)).toMatchObject({ name: 'Conflict household', viewerRole: 'admin' });
+      expect(householdList.items.find(item => item.id === householdId)).toMatchObject({ name: householdName, viewerRole: 'member' });
+      // Membership is the only authorization input: the joined household's records are readable now.
+      expect((await joining.actor.request.get(`/api/v1/households/${householdId}/items`)).status()).toBe(200);
+      await expectInvitationStatus(joinInvite.id, 'accepted');
+      const listedJoinMembers = await listOwnerMembers();
+      expect(listedJoinMembers.filter(member => member.login === 'existing_conflict_e2e' && member.role === 'member')).toHaveLength(1);
+      await waitForSettledHouseholdRequests(joining.actor);
+      joining.assertClean([]);
+    } finally { await joining.context.close(); }
 
     const freeInvite = await createInvite();
     const free = await makeActor();

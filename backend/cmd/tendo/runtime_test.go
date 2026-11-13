@@ -160,6 +160,9 @@ func (*startupOIDCSessionRepo) FindActive(context.Context, []byte, time.Time) (i
 	return identityapp.SessionInfo{}, identityapp.ErrNotFound
 }
 func (*startupOIDCSessionRepo) DeleteByTokenHash(context.Context, []byte) error { return nil }
+func (*startupOIDCSessionRepo) SetDefaultHousehold(context.Context, string, string) error {
+	return nil
+}
 
 type startupOIDCRepo struct{}
 
@@ -187,6 +190,9 @@ func (*fakeOIDCSessionService) Lookup(context.Context, string) (identityapp.Sess
 	return identityapp.SessionInfo{}, nil
 }
 func (*fakeOIDCSessionService) Logout(context.Context, string) error { return nil }
+func (*fakeOIDCSessionService) SetDefaultHousehold(context.Context, string, string) error {
+	return nil
+}
 
 func TestRuntimeServerWriteBudgetCoversReadAndServiceBudgets(t *testing.T) {
 	server := newRuntimeServer(":0", http.NotFoundHandler(), 5*time.Second)

@@ -12,6 +12,7 @@ COVERAGE_SCOPE = ','.join((
     'deleteSession', 'createInvitation', 'listInvitations', 'revokeInvitation',
     'acceptInvitationWithNewAccount', 'acceptInvitation', 'listMembers',
     'getHousehold', 'createSubject', 'listSubjects', 'getSubject', 'getMemberPerson',
+    'listHouseholds', 'updateSession',
     'updateSubject', 'transferMemberPerson', 'createItem', 'listItems', 'createItemCompletion',
     'listItemCompletions', 'undoItemCompletion', 'getItemsSummary', 'getItem',
     'updateItem', 'listHouseholdAccounts', 'getHouseholdAccount',

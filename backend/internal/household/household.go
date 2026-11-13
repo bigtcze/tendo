@@ -34,6 +34,7 @@ type Household struct {
 // any other error is an infrastructure failure.
 type Repository interface {
 	FindForMember(ctx context.Context, userID, householdID string) (Household, error)
+	ListForMember(ctx context.Context, userID, afterID string, limit int) ([]ListedHousehold, string, error)
 }
 
 type Service struct{ repository Repository }

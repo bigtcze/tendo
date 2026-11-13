@@ -14,6 +14,12 @@ type fakeRepository struct {
 	result     Household
 	err        error
 	hasTimeout bool
+	listCalls  int
+	gotAfter   string
+	gotLimit   int
+	listResult []ListedHousehold
+	listNext   string
+	listErr    error
 }
 
 func (f *fakeRepository) FindForMember(ctx context.Context, userID, householdID string) (Household, error) {
@@ -21,6 +27,13 @@ func (f *fakeRepository) FindForMember(ctx context.Context, userID, householdID 
 	f.gotHouse, f.gotUser = householdID, userID
 	_, f.hasTimeout = ctx.Deadline()
 	return f.result, f.err
+}
+
+func (f *fakeRepository) ListForMember(ctx context.Context, userID, afterID string, limit int) ([]ListedHousehold, string, error) {
+	f.listCalls++
+	f.gotUser, f.gotAfter, f.gotLimit = userID, afterID, limit
+	_, f.hasTimeout = ctx.Deadline()
+	return f.listResult, f.listNext, f.listErr
 }
 
 const (
@@ -114,5 +127,83 @@ func TestGetFailsClosedOnUnknownViewerRole(t *testing.T) {
 		if err == nil || errors.Is(err, ErrNotFound) || got != (Household{}) {
 			t.Fatalf("role %q: got=%+v err=%v, want unavailable", role, got, err)
 		}
+	}
+}
+
+func TestListForMemberValidatesCallerAndCursorBeforeRepository(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo)
+	if _, _, err := service.ListForMember(context.Background(), "not-a-uuid", "", 50); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("malformed caller err=%v", err)
+	}
+	for name, cursor := range map[string]string{
+		"wrong prefix":       "m1MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtNWQzZjJjMWE0YjYx",
+		"invalid base64":     "h1!!!",
+		"non canonical id":   "h1" + "bm90LWEtdXVpZA",
+		"short payload":      "h1" + "MDE5OA",
+		"empty after prefix": "h1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := service.ListForMember(context.Background(), validUser, cursor, 50)
+			var validation *ValidationError
+			if !errors.As(err, &validation) || validation.Field != "cursor" {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+	if repo.listCalls != 0 {
+		t.Fatalf("repository called %d times", repo.listCalls)
+	}
+}
+
+func TestListForMemberLimitDefaultsToFiftyAndClampsToOneHundred(t *testing.T) {
+	for name, tc := range map[string]struct {
+		limit int
+		want  int
+	}{"absent": {0, 50}, "negative": {-3, 50}, "over max": {500, 100}, "max": {100, 100}, "one": {1, 1}} {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepository{}
+			got, next, err := NewService(repo).ListForMember(context.Background(), validUser, "", tc.limit)
+			if err != nil || got != nil || next != "" || repo.gotLimit != tc.want {
+				t.Fatalf("limit=%d rows=%+v next=%q err=%v", repo.gotLimit, got, next, err)
+			}
+		})
+	}
+}
+
+func TestListForMemberDecodesCursorAndBoundsContext(t *testing.T) {
+	repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: RoleMember}}}
+	cursor := EncodeHouseholdCursor(validHousehold)
+	got, next, err := NewService(repo).ListForMember(context.Background(), validUser, cursor, 10)
+	if err != nil || len(got) != 1 || next != "" {
+		t.Fatalf("got=%+v next=%q err=%v", got, next, err)
+	}
+	if repo.gotAfter != validHousehold || repo.gotUser != validUser {
+		t.Fatalf("after=%q user=%q", repo.gotAfter, repo.gotUser)
+	}
+	if !repo.hasTimeout {
+		t.Fatal("repository context has no deadline")
+	}
+}
+
+func TestListForMemberFailsClosedOnUnknownRole(t *testing.T) {
+	for _, role := range []string{"", "owner", "superuser"} {
+		repo := &fakeRepository{listResult: []ListedHousehold{{ID: validHousehold, ViewerRole: role}}}
+		got, _, err := NewService(repo).ListForMember(context.Background(), validUser, "", 50)
+		if err == nil || errors.Is(err, ErrNotFound) || got != nil {
+			t.Fatalf("role %q: got=%+v err=%v, want unavailable", role, got, err)
+		}
+	}
+}
+
+func TestListForMemberMapsRepositoryFailures(t *testing.T) {
+	repo := &fakeRepository{listErr: errors.New("pool exhausted at 10.1.2.3")}
+	got, _, err := NewService(repo).ListForMember(context.Background(), validUser, "", 50)
+	if err == nil || errors.Is(err, ErrNotFound) || got != nil || err.Error() == "pool exhausted at 10.1.2.3" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	repo = &fakeRepository{listErr: ErrNotFound}
+	if _, _, err := NewService(repo).ListForMember(context.Background(), validUser, "", 50); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err=%v", err)
 	}
 }

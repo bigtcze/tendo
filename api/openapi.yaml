@@ -414,6 +414,42 @@ paths:
         '403': { description: 'Request Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
         '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
         '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
+    patch:
+      operationId: updateSession
+      summary: Select the default household
+      description: |
+        Sets the account-wide default household. The identifier must name a household the account already belongs to; a malformed, unknown, or non-member identifier returns the same 422 invalid_reference with field defaultHouseholdId.
+        The value is a navigation hint, never an authorization grant: every protected operation re-authorizes against memberships, and the persisting statement itself proves membership.
+        The update is last-write-wins with no precondition and no ETag; the response repeats the current session. The ETag of GET /api/v1/session identifies the session, not this body.
+        Requires the canonical Origin header.
+      tags: [Auth]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSessionRequest' }
+            example: { defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62 }
+      responses:
+        '200':
+          description: Default household recorded. No ETag is returned.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+              example: { userId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60, login: owner, defaultHouseholdId: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62, expiresAt: '2026-11-05T10:00:00Z' }
+        '400': { description: 'Malformed JSON/body, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie; a vanished account is reported the same way.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is missing or does not match the configured canonical public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '413': { description: Request body exceeds 4 KiB., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
+        '415': { description: Unsupported request media type., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '422': { description: 'The default household is malformed, unknown, or not one of the caller''s memberships. All three cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/SessionValidationProblem' }, example: { type: 'about:blank', title: Validation Failed, status: 422, code: invalid_reference, field: defaultHouseholdId } } } }
+        '503': { description: 'Persistence unavailable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
     delete:
       operationId: deleteSession
       summary: Log out
@@ -773,7 +809,7 @@ paths:
     post:
       operationId: acceptInvitation
       summary: Accept invitation with current account
-      description: Adds the signed-in account as a member only if it has no conflicting household membership/default. Acceptance does not create a session.
+      description: Adds the signed-in account as a member of the invited household and makes that household the account's default. Having a default household or other memberships is expected and is not a conflict. Acceptance does not create a session.
       tags: [Auth]
       security: [{ SessionCookie: [] }]
       parameters: [{ $ref: '#/components/parameters/RequestId' }]
@@ -810,14 +846,14 @@ paths:
           content:
             application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: invalid_invitation } }
         '409':
-          description: Household conflict if the account has another default household/membership; already_member if it belongs to this household.
+          description: 'already_member if the account already belongs to this household. household_conflict is a legacy code that is documented for old clients but never emitted.'
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
-                householdConflict: { value: { type: 'about:blank', title: Conflict, status: 409, code: household_conflict } }
                 alreadyMember: { value: { type: 'about:blank', title: Conflict, status: 409, code: already_member } }
+                legacyHouseholdConflict: { summary: Legacy, description: 'Retained only so old clients keep a documented code; the server never returns it.', value: { type: 'about:blank', title: Conflict, status: 409, code: household_conflict } }
         '413':
           description: Request body exceeds 4 KiB.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
@@ -1376,6 +1412,35 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable }
+  /api/v1/households:
+    get:
+      operationId: listHouseholds
+      summary: List my households
+      description: |
+        Returns the households the authenticated account belongs to, in household identifier order. Membership is the only filter; the account identifier comes from the session and never from the request.
+        Each item uses the Household representation but list responses carry no per-item ETag and no resource version. Cursors are opaque; a malformed limit or cursor returns 400 invalid_query naming the parameter.
+        An administrator who needs every household in the installation uses a separate administrative resource, not this list.
+      tags: [Households]
+      security: [{ SessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RequestId' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: One page of the caller's households.
+          headers:
+            X-Request-ID: { $ref: '#/components/headers/RequestId' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HouseholdList' }
+              example: { items: [{ id: 0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61, name: Veselí, timezone: Europe/Prague, createdAt: '2026-10-06T10:00:00Z', viewerRole: member }], nextCursor: null }
+        '400': { description: 'Malformed trusted forwarded metadata, or an invalid limit or cursor.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/QueryProblem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_query, parameter: cursor } } } }
+        '401': { description: 'No valid session cookie. When a single session cookie names an unknown, expired, or revoked session, the response also clears that cookie.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' }, Set-Cookie: { $ref: '#/components/headers/ClearStaleSessionCookie' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unauthorized, status: 401, code: unauthenticated } } } }
+        '403': { description: 'Request Origin is foreign, malformed, or duplicated.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
+        '421': { description: 'Request authority does not match the configured public origin.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
+        '503': { description: 'Persistence unavailable, including an unknown stored membership role (fails closed).', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Service Unavailable, status: 503, code: unavailable } } } }
   /api/v1/households/{householdId}:
     get:
       operationId: getHousehold
@@ -2231,6 +2296,12 @@ components:
       properties:
         login: { type: string, maxLength: 64 }
         password: { type: string, maxLength: 512, description: Maximum 512 UTF-8 bytes. }
+    UpdateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [defaultHouseholdId]
+      properties:
+        defaultHouseholdId: { type: string, format: uuid, x-go-type: string, description: 'Household the account belongs to. A navigation hint only; malformed, unknown, and non-member identifiers all return 422 invalid_reference.' }
     Session:
       type: object
       additionalProperties: false
@@ -2240,6 +2311,14 @@ components:
         login: { type: string }
         defaultHouseholdId: { type: string, format: uuid, x-go-type: string, description: Omitted when the account has no default household. }
         expiresAt: { type: string, format: date-time }
+    SessionValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [field, code]
+          properties:
+            field: { type: string, enum: [defaultHouseholdId] }
+            code: { type: string, enum: [invalid_reference] }
     Household:
       type: object
       additionalProperties: false
@@ -2250,6 +2329,13 @@ components:
         timezone: { type: string, description: Named IANA timezone. }
         createdAt: { type: string, format: date-time }
         viewerRole: { $ref: '#/components/schemas/MemberRole', description: 'The caller''s membership role in this household. A navigation hint only; admin operations always re-authorize.' }
+    HouseholdList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Household' } }
+        nextCursor: { type: [string, 'null'], description: 'Opaque cursor for the next page; null on the last page.' }
     EmptyObject:
       type: object
       additionalProperties: false

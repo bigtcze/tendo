@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/bigtcze/tendo/backend/internal/household"
 	"github.com/bigtcze/tendo/backend/internal/identity"
 	identitydb "github.com/bigtcze/tendo/backend/internal/identity/postgres/dbgen"
 	"github.com/jackc/pgx/v5"
@@ -34,26 +33,10 @@ func acceptInvitationFor(ctx context.Context, tx pgx.Tx, r *Repository, userID s
 	if err != nil {
 		return "", err
 	}
-	defaultHouseholdID, login, err := adapter.LockUser(ctx, userID)
-	if errors.Is(err, identity.ErrNotFound) {
-		return identity.OIDCInvitationInvalid, nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err := adapter.GetMembership(ctx, userID, invitation.HouseholdID); err == nil {
-		return identity.OIDCInvitationInvalid, nil
-	} else if !errors.Is(err, household.ErrNotFound) {
-		return "", err
-	}
-	other, err := adapter.HasOtherMembership(ctx, userID, invitation.HouseholdID)
-	if err != nil {
-		return "", err
-	}
-	if defaultHouseholdID != "" || other {
-		return identity.OIDCInvitationInvalid, nil
-	}
-	if err := identity.JoinInvitedHousehold(ctx, adapter, userID, login, invitation.HouseholdID, invitation.ID, now); err != nil {
+	if _, err := identity.JoinAsExistingMember(ctx, adapter, userID, invitation.HouseholdID, invitation.ID, now); err != nil {
+		if errors.Is(err, identity.ErrAlreadyMember) || errors.Is(err, identity.ErrNotFound) {
+			return identity.OIDCInvitationInvalid, nil
+		}
 		return "", err
 	}
 	return identity.OIDCInvitationAccepted, nil
@@ -74,10 +57,6 @@ func (o *oidcInvitationTx) FindInvitation(ctx context.Context, digest []byte, lo
 
 func (o *oidcInvitationTx) GetMembership(ctx context.Context, userID, householdID string) (string, error) {
 	return o.household.GetMembership(ctx, userID, householdID)
-}
-
-func (o *oidcInvitationTx) HasOtherMembership(ctx context.Context, userID, householdID string) (bool, error) {
-	return o.household.HasMembershipElsewhere(ctx, userID, householdID)
 }
 
 func (o *oidcInvitationTx) LockUser(ctx context.Context, userValue string) (string, string, error) {

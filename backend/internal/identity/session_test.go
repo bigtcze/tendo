@@ -13,15 +13,19 @@ import (
 )
 
 type fakeSessionRepo struct {
-	logins     map[string]LoginRecord
-	sessions   map[string]SessionInfo // keyed by string(digest)
-	created    []NewSession
-	pruned     []string
-	prunedAt   []time.Time
-	findCalls  int
-	deleteCall int
-	writes     int
-	findErr    error
+	logins       map[string]LoginRecord
+	sessions     map[string]SessionInfo // keyed by string(digest)
+	created      []NewSession
+	pruned       []string
+	prunedAt     []time.Time
+	findCalls    int
+	deleteCall   int
+	writes       int
+	findErr      error
+	defaultCalls int
+	defaultUser  string
+	defaultHouse string
+	defaultErr   error
 }
 
 func newFakeSessionRepo() *fakeSessionRepo {
@@ -73,6 +77,12 @@ func (f *fakeSessionRepo) DeleteByTokenHash(_ context.Context, hash []byte) erro
 	f.deleteCall++
 	delete(f.sessions, string(hash))
 	return nil
+}
+
+func (f *fakeSessionRepo) SetDefaultHousehold(_ context.Context, userID, householdID string) error {
+	f.defaultCalls++
+	f.defaultUser, f.defaultHouse = userID, householdID
+	return f.defaultErr
 }
 
 const testPassword = "correct horse battery"

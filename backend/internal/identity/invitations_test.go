@@ -81,9 +81,6 @@ func (t *invitationFakeTx) EnsureMemberPerson(context.Context, string, string, s
 	t.f.writes++
 	return nil
 }
-func (t *invitationFakeTx) HasOtherMembership(context.Context, string, string) (bool, error) {
-	return false, nil
-}
 func (t *invitationFakeTx) CreateUser(context.Context, string) (string, error) {
 	t.f.writes++
 	if t.f.userErr != nil {

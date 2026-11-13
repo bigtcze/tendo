@@ -1,5 +1,5 @@
 import { act, StrictMode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
@@ -220,24 +220,32 @@ describe('invitation acceptance', () => {
     const notice = await screen.findByRole('status'); expect(notice).toHaveTextContent('You’re already in this household.'); expect(notice).toHaveFocus(); expect(screen.getAllByText('You’re already in this household.')).toHaveLength(1); expect(screen.queryByRole('button', { name: 'Join household' })).toBeVisible();
   });
 
-  it('failed signout for household conflict remains signed in and shows unavailable', async () => {
-    window.history.replaceState(null, '', `/invite#${token}`); installFakeServer(signedInRoutes({ 'POST /api/v1/invitations/accept': problem(409, { code: 'household_conflict' }), 'DELETE /api/v1/session': problem(503) })); renderApp();
+  it('a stray household_conflict falls into the generic error path with no sign-out offer', async () => {
+    window.history.replaceState(null, '', `/invite#${token}`); const fake = installFakeServer(signedInRoutes({ 'POST /api/v1/invitations/accept': problem(409, { code: 'household_conflict' }), 'DELETE /api/v1/session': json(204) })); renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Join household' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out and continue' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Tendo can’t be reached right now. Try again.');
     expect(screen.getByRole('button', { name: 'Join household' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Sign out and continue' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Login')).not.toBeInTheDocument();
+    expect(fake.requests.some((request) => request.method === 'DELETE' && request.path === '/api/v1/session')).toBe(false);
+    expect(location.pathname).toBe('/invite');
   });
 
-  it('household conflict signout returns to create form and keeps original token', async () => {
-    window.history.replaceState(null, '', `/invite#${token}`); const fake = installFakeServer(signedInRoutes({ 'POST /api/v1/invitations/accept': problem(409, { code: 'household_conflict' }), 'DELETE /api/v1/session': json(204) })); renderApp();
-    await userEvent.click(await screen.findByRole('button', { name: 'Join household' })); expect(await screen.findByRole('status')).toHaveTextContent('This account already belongs to another household.');
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out and continue' })); expect(await screen.findByRole('button', { name: 'Create account and join' })).toBeVisible(); expect(screen.getByLabelText('Login')).toHaveFocus();
-    await userEvent.type(screen.getByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'long enough password');
-    await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
-    const accept = fake.requests.find((r) => r.method === 'POST' && r.path === '/api/v1/auth/invitations/accept'); expect(JSON.parse(accept!.body)).toEqual({ token, login: 'newuser', password: 'long enough password' });
-    expect(fake.requests.some((r) => r.method === 'DELETE' && r.path === '/api/v1/session')).toBe(true);
-    expect(location.pathname).toBe('/invite');
+  it('joining lands in the invited household named by the shell header', async () => {
+    const formerHouseholdId = '0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62';
+    window.history.replaceState(null, '', `/invite#${token}`);
+    let sessionReads = 0;
+    const fake = installFakeServer(signedInRoutes({
+      'POST /api/v1/invitations/accept': json(201, {}),
+      'GET /api/v1/session': () => json(200, ++sessionReads === 1 ? { ...session(), defaultHouseholdId: formerHouseholdId } : session()),
+    }));
+    renderApp();
+    expect(await screen.findByRole('button', { name: 'Join household' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Join household' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Household: Veselí' })).toBeVisible();
+    // The refreshed session names the joined household, so the former default is never fetched or shown.
+    expect(fake.requests.some((request) => request.path === `/api/v1/households/${formerHouseholdId}`)).toBe(false);
   });
 
   it('401 on signed-in accept switches to create-account form retaining the token', async () => {

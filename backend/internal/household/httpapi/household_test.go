@@ -27,6 +27,11 @@ type fakeService struct {
 	calls      int
 	err        error
 	viewerRole string
+	gotCursor  string
+	gotLimit   int
+	listRows   []household.ListedHousehold
+	listNext   string
+	listErr    error
 }
 
 func (f *fakeService) role() string {
@@ -45,6 +50,18 @@ func (f *fakeService) Get(_ context.Context, userID, householdID string) (househ
 		return household.Household{}, household.ErrNotFound
 	}
 	return household.Household{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC), Version: 42, ViewerRole: f.role()}, nil
+}
+
+func (f *fakeService) ListForMember(_ context.Context, userID, cursor string, limit int) ([]household.ListedHousehold, string, error) {
+	f.calls++
+	f.gotCursor, f.gotLimit = cursor, limit
+	if f.listErr != nil {
+		return nil, "", f.listErr
+	}
+	if userID != callerID {
+		return nil, "", household.ErrNotFound
+	}
+	return f.listRows, f.listNext, nil
 }
 
 type fixture struct {
@@ -186,5 +203,121 @@ func TestPersistenceFailureIs503WithoutInternals(t *testing.T) {
 	}
 	if want := `{"code":"unavailable","status":503,"title":"Service Unavailable","type":"about:blank"}`; !jsonEqual(t, w.Body.String(), want) {
 		t.Fatalf("body=%s", w.Body)
+	}
+}
+
+func TestListHouseholdsReturnsMemberItemsWithoutValidators(t *testing.T) {
+	f := newFixture(true)
+	created := time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC)
+	f.svc.listRows = []household.ListedHousehold{
+		{ID: memberID, Name: "Veselí 家族", Timezone: "Europe/Prague", CreatedAt: created, ViewerRole: household.RoleAdmin},
+		{ID: otherID, Name: "Second", Timezone: "UTC", CreatedAt: created, ViewerRole: household.RoleMember},
+	}
+	f.svc.listNext = "h1bmV4dA"
+	w := f.get("/api/v1/households")
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	if w.Header().Get("ETag") != "" || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("headers=%v", w.Header())
+	}
+	want := `{"items":[{"createdAt":"2026-10-06T10:00:00Z","id":"` + memberID + `","name":"Veselí 家族","timezone":"Europe/Prague","viewerRole":"admin"},{"createdAt":"2026-10-06T10:00:00Z","id":"` + otherID + `","name":"Second","timezone":"UTC","viewerRole":"member"}],"nextCursor":"h1bmV4dA"}`
+	if !jsonEqual(t, strings.TrimSpace(w.Body.String()), want) {
+		t.Fatalf("body=%s want=%s", w.Body, want)
+	}
+	if f.svc.gotLimit != 50 || f.svc.gotCursor != "" {
+		t.Fatalf("limit=%d cursor=%q", f.svc.gotLimit, f.svc.gotCursor)
+	}
+}
+
+func TestListHouseholdsLastPageHasNullCursor(t *testing.T) {
+	f := newFixture(true)
+	f.svc.listRows = nil
+	w := f.get("/api/v1/households?limit=100")
+	if w.Code != 200 || !jsonEqual(t, strings.TrimSpace(w.Body.String()), `{"items":[],"nextCursor":null}`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	if f.svc.gotLimit != 100 {
+		t.Fatalf("limit=%d", f.svc.gotLimit)
+	}
+}
+
+func TestListHouseholdsForwardsOpaqueCursor(t *testing.T) {
+	f := newFixture(true)
+	f.svc.listRows = []household.ListedHousehold{{ID: memberID, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: household.RoleMember}}
+	w := f.get("/api/v1/households?cursor=h1" + "MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtNWQzZjJjMWE0YjYx")
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	if f.svc.gotCursor != "h1MDE5OGEyZjAtN2MxZS03YTUzLTliMGUtNWQzZjJjMWE0YjYx" {
+		t.Fatalf("cursor=%q", f.svc.gotCursor)
+	}
+}
+
+func TestListHouseholdsRejectsUnauthenticatedBeforeService(t *testing.T) {
+	f := newFixture(false)
+	w := f.get("/api/v1/households")
+	if w.Code != 401 || f.svc.calls != 0 {
+		t.Fatalf("status=%d calls=%d", w.Code, f.svc.calls)
+	}
+}
+
+func TestListHouseholdsValidationProblems(t *testing.T) {
+	for name, path := range map[string]string{
+		"zero limit":       "/api/v1/households?limit=0",
+		"too large":        "/api/v1/households?limit=101",
+		"not a number":     "/api/v1/households?limit=ten",
+		"duplicate":        "/api/v1/households?limit=10&limit=20",
+		"empty cursor":     "/api/v1/households?cursor=",
+		"duplicate cursor": "/api/v1/households?cursor=a&cursor=b",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(true)
+			w := f.get(path)
+			if w.Code != 400 || w.Header().Get("Content-Type") != "application/problem+json" {
+				t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
+			}
+			var body struct {
+				Code      string `json:"code"`
+				Parameter string `json:"parameter"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != "invalid_query" {
+				t.Fatalf("body=%s err=%v", w.Body, err)
+			}
+			if f.svc.calls != 0 {
+				t.Fatalf("invalid query reached service: %d", f.svc.calls)
+			}
+		})
+	}
+}
+
+func TestListHouseholdsMapsParserCursorError(t *testing.T) {
+	f := newFixture(true)
+	f.svc.listErr = &household.ValidationError{Field: "cursor", Code: "invalid_format"}
+	w := f.get("/api/v1/households?cursor=forged")
+	if w.Code != 400 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
+	}
+	var body struct {
+		Code      string `json:"code"`
+		Parameter string `json:"parameter"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Code != "invalid_query" || body.Parameter != "cursor" {
+		t.Fatalf("body=%s err=%v", w.Body, err)
+	}
+}
+
+func TestListHouseholdsUnavailableAndUnknownRole(t *testing.T) {
+	f := newFixture(true)
+	f.svc.listErr = errors.New(secretErr)
+	w := f.get("/api/v1/households")
+	if w.Code != 503 || strings.Contains(w.Body.String(), "10.1.2.3") {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	f = newFixture(true)
+	f.svc.listRows = []household.ListedHousehold{{ID: memberID, Name: "Home", Timezone: "UTC", CreatedAt: time.Now().UTC(), ViewerRole: "owner"}}
+	w = f.get("/api/v1/households")
+	if w.Code != 503 || strings.Contains(w.Body.String(), "owner") {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
 }

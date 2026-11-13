@@ -40,16 +40,6 @@ func (r *MembershipRepository) LockHouseholdForMembership(ctx context.Context, u
 	}
 	return e
 }
-func (r *MembershipRepository) HasMembershipElsewhere(ctx context.Context, userID, householdID string) (bool, error) {
-	var u, h pgtype.UUID
-	if u.Scan(userID) != nil {
-		return false, household.ErrNotFound
-	}
-	if h.Scan(householdID) != nil {
-		return false, household.ErrNotFound
-	}
-	return r.queries.HasMembershipElsewhere(ctx, dbgen.HasMembershipElsewhereParams{UserID: u, HouseholdID: h})
-}
 func (r *MembershipRepository) AddInvitedMember(ctx context.Context, userID, householdID string) error {
 	var u, h pgtype.UUID
 	if e := u.Scan(userID); e != nil {

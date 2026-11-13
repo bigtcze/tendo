@@ -624,3 +624,103 @@ func TestOIDCJITRow7aRollsBackInvitationAcceptance(t *testing.T) {
 			memberships, identities, pendingRows, acceptedAt, defaultHousehold)
 	}
 }
+
+// TestOIDCJITExistingAccountCarryOverJoinsSecondHousehold proves the OIDC
+// existing-account link path uses the same join-on-invite rule as the local
+// path: the invitation carried into the pending login joins the account to a
+// second household while an invitation to a household it already belongs to
+// degrades to invalid without blocking the sign-in.
+func TestOIDCJITExistingAccountCarryOverJoinsSecondHousehold(t *testing.T) {
+	ctx, admin, app, _ := invitationPools(t)
+	owner, houseA := invitationFixture(t, ctx, admin)
+	var houseB string
+	if err := admin.QueryRow(ctx, `INSERT INTO households(name,timezone) VALUES('oidc second home','UTC') RETURNING id::text`).Scan(&houseB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, owner, houseB); err != nil {
+		t.Fatal(err)
+	}
+	user, passwordHash := jitLocalAccount(t, ctx, admin, "local_oidc_second_house")
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin')`, user, houseA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2::uuid WHERE id=$1::uuid`, user, houseA); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	insertInvitation := func(key string, seed byte, householdID string) ([]byte, string) {
+		t.Helper()
+		raw := make([]byte, 32)
+		for i := range raw {
+			raw[i] = seed
+		}
+		hash := sha256.Sum256(raw)
+		var id string
+		if err := admin.QueryRow(ctx, `INSERT INTO household_invitations(household_id,created_by_user_id,creation_key,token_hash,created_at,expires_at)
+			VALUES($1,$2,$3,$4,$5,$6) RETURNING id::text`, householdID, owner, key, hash[:], now, now.Add(time.Hour)).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return hash[:], id
+	}
+	repo := jitRepo(app)
+	link := func(seed byte, subject string, userID, verifiedHash string, inviteHash []byte) (identity.OIDCPendingLinkOutcome, error) {
+		_, handleHash := jitHandle(seed)
+		jitResolve(t, repo, identity.OIDCVerifiedIdentity{Issuer: jitIssuer, Subject: subject}, handleHash, now, inviteHash)
+		_, session := jitSession(seed+1, now)
+		return repo.LinkPendingAccount(ctx, identity.OIDCPendingLinkParams{
+			HandleHash: handleHash, Issuer: jitIssuer, ClientID: jitClient, UserID: userID,
+			VerifiedPasswordHash: verifiedHash, Session: session, Now: now,
+		})
+	}
+
+	inviteB, invitationB := insertInvitation("oidc-join-b", 180, houseB)
+	outcome, err := link(180, "subject-oidc-multi-b", user, passwordHash, inviteB)
+	if err != nil {
+		t.Fatalf("OIDC link with invitation failed: %v", err)
+	}
+	if outcome.Invitation != identity.OIDCInvitationAccepted || outcome.DefaultHouseholdID != houseB {
+		t.Fatalf("outcome=%+v", outcome)
+	}
+	var roleA, roleB, defaultHouse string
+	var acceptedB bool
+	if err := admin.QueryRow(ctx, `SELECT
+		(SELECT role FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid),
+		(SELECT role FROM household_memberships WHERE user_id=$1::uuid AND household_id=$3::uuid),
+		(SELECT default_household_id::text FROM user_accounts WHERE id=$1::uuid),
+		(SELECT accepted_at IS NOT NULL FROM household_invitations WHERE id=$4::uuid)`,
+		user, houseA, houseB, invitationB).Scan(&roleA, &roleB, &defaultHouse, &acceptedB); err != nil {
+		t.Fatal(err)
+	}
+	if roleA != "admin" || roleB != "member" || defaultHouse != houseB || !acceptedB {
+		t.Fatalf("role A=%q role B=%q default=%q accepted=%v", roleA, roleB, defaultHouse, acceptedB)
+	}
+
+	// A second account already belongs to houseA, so that invitation is invalid
+	// but the sign-in still completes and no state changes.
+	alreadyMember, alreadyHash := jitLocalAccount(t, ctx, admin, "local_oidc_already_house")
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'member')`, alreadyMember, houseA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2::uuid WHERE id=$1::uuid`, alreadyMember, houseA); err != nil {
+		t.Fatal(err)
+	}
+	inviteA, invitationA := insertInvitation("oidc-already-member", 182, houseA)
+	outcome, err = link(182, "subject-oidc-multi-a", alreadyMember, alreadyHash, inviteA)
+	if err != nil {
+		t.Fatalf("already-member OIDC link failed the sign-in: %v", err)
+	}
+	if outcome.Invitation != identity.OIDCInvitationInvalid || outcome.DefaultHouseholdID != houseA {
+		t.Fatalf("outcome=%+v", outcome)
+	}
+	var memberships, defaults int
+	var acceptedA bool
+	if err := admin.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM household_memberships WHERE user_id=$1::uuid),
+		(SELECT count(*) FROM user_accounts WHERE id=$1::uuid AND default_household_id=$2::uuid),
+		(SELECT accepted_at IS NOT NULL FROM household_invitations WHERE id=$3::uuid)`, alreadyMember, houseA, invitationA).Scan(&memberships, &defaults, &acceptedA); err != nil {
+		t.Fatal(err)
+	}
+	if memberships != 1 || defaults != 1 || acceptedA {
+		t.Fatalf("memberships=%d defaults=%d accepted=%v", memberships, defaults, acceptedA)
+	}
+}

@@ -22,9 +22,6 @@ func (f *membershipFake) LockHouseholdForMembership(context.Context, string, str
 	return f.err
 }
 func (f *membershipFake) AddInvitedMember(context.Context, string, string) error { return nil }
-func (f *membershipFake) HasMembershipElsewhere(context.Context, string, string) (bool, error) {
-	return false, nil
-}
 func (f *membershipFake) ListMembers(context.Context, string, string, int) ([]MembershipRecord, string, error) {
 	f.listCalls++
 	return []MembershipRecord{{UserID: membershipActor, Role: RoleMember}}, "", nil

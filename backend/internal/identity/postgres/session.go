@@ -135,3 +135,41 @@ func (r *Repository) FindActive(ctx context.Context, tokenHash []byte, now time.
 func (r *Repository) DeleteByTokenHash(ctx context.Context, tokenHash []byte) error {
 	return identitydb.New(r.pool).DeleteSession(ctx, tokenHash)
 }
+
+// SetDefaultHousehold selects an existing membership as the account-wide default
+// in one UPDATE whose EXISTS clause is the only authorization. A zero-row update
+// then distinguishes a vanished user (401) from a missing membership (422).
+func (r *Repository) SetDefaultHousehold(ctx context.Context, userID, householdID string) error {
+	var user, house pgtype.UUID
+	if err := user.Scan(userID); err != nil {
+		return identity.ErrUnauthenticated
+	}
+	if err := house.Scan(householdID); err != nil {
+		return identity.ErrInvalidReference
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+	tag, err := tx.Exec(ctx, `UPDATE user_accounts SET default_household_id=$2
+		WHERE id=$1 AND EXISTS (SELECT 1 FROM household_memberships m WHERE m.user_id=$1 AND m.household_id=$2)`, user, house)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return tx.Commit(ctx)
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_accounts WHERE id=$1)`, user).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return identity.ErrUnauthenticated
+	}
+	return identity.ErrInvalidReference
+}

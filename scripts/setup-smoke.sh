@@ -133,6 +133,10 @@ raw_hex=base64.urlsafe_b64decode(token+'=').hex()
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{digest}','hex')")=='1','session digest not stored'
 assert psql(f"SELECT count(*) FROM user_sessions WHERE token_hash=decode('{raw_hex}','hex') OR token_hash=convert_to('{token}','UTF8')")=='0','raw token stored'
 cookie_header={'Cookie':f'tendo_session={token}'}
+status,h,lh=call('GET','/api/v1/households',template='/api/v1/households',headers=cookie_header,sink=fixtures)
+assert status==200 and lh['items'][0]['id']==household and lh['items'][0]['viewerRole']=='admin' and lh['nextCursor'] is None and 'ETag' not in h,('list households',status,lh,dict(h))
+status,h,patched=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':origin},sink=fixtures)
+assert status==200 and patched['defaultHouseholdId']==household and 'ETag' not in h,('patch session default',status,patched,dict(h))
 def hreq(hid,headers=None,record=True):
  return call('GET','/api/v1/households/'+hid,template='/api/v1/households/{householdId}',headers=headers,sink=fixtures if record else None)[:3]
 status,h,hb=hreq(household,cookie_header)

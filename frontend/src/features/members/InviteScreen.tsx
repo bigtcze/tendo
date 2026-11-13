@@ -71,19 +71,13 @@ function NewAccountForm(props: FormProps & { onSubmit: (event: FormEvent) => voi
   </form>;
 }
 
-function SignedInForm({ pending, error, onSubmit, onSignOut, t }: {
-  pending: boolean; error: ErrorState | null; onSubmit: (event: FormEvent) => void;
-  onSignOut: () => void; t: Translate;
+function SignedInForm({ pending, onSubmit, t }: {
+  pending: boolean; onSubmit: (event: FormEvent) => void; t: Translate;
 }) {
   return <form onSubmit={onSubmit}>
     <Button type="submit" disabled={pending} className="w-full whitespace-normal text-center sm:w-auto">
       {pending ? t('invite.joining') : t('invite.join')}
     </Button>
-    {error === 'householdConflict'
-      ? <Button type="button" variant="quiet" className="mt-2 w-full whitespace-normal sm:ml-2 sm:mt-0 sm:w-auto" disabled={pending} onClick={onSignOut}>
-        {t('invite.signOutContinue')}
-      </Button>
-      : null}
   </form>;
 }
 
@@ -131,9 +125,7 @@ export function InviteScreen({ token, session, onSignedIn, onSignedOut, onAccoun
             : flow.currentSession
               ? <SignedInForm
                 pending={flow.pending}
-                error={flow.error}
                 onSubmit={(event) => void flow.submit(event)}
-                onSignOut={() => void flow.signOutAndContinue()}
                 t={t}
               />
               : <>
