@@ -171,6 +171,14 @@ This opt-in production-build run captures staged Home (empty, 1, 30, 500, and 12
 
 To refresh committed baseline evidence, run the capture above with a dedicated output directory such as `/tmp/opencode/ux-audit`, inspect `metrics.json` for secrets and completeness, then curate the route/state PNGs and metrics into `docs/design/v3-baseline/` and update the screenshot index and metric/journey tables in `docs/design/v3-baseline-audit.md`. Capture filenames and metrics entries use the viewport as a suffix; keep every committed PNG linked in the index. Keep the committed set below 30 MB; do not commit runner logs or reports.
 
+### Design-audit capture
+
+```sh
+TENDO_DESIGN_CAPTURE_DIR=/tmp/opencode/design-capture bash scripts/dev-exec.sh -- bash scripts/e2e-smoke.sh
+```
+
+This opt-in production-build run (`frontend/e2e/design-capture.spec.ts`, Playwright project `design-capture`) captures 39 states (signed out, signed in as owner and as a non-admin member, and without a household; including loading, error, conflict, archived, gone-item, Done/Undo and dialog states) at 320/390/768/1024/1440/1920 px, Czech and English, explicit light and dark, plus a 1000+ item Home and full-page images of Home, detail and the Members invitation-link and revoke states, with shell-geometry measurements in `metrics.json` (banner width, main insets, h1 size, first-row position, rows above the fold, primary-action alignment, overflow, small targets, smallest text, DOM size). It refuses a target directory that holds anything other than earlier PNGs and `metrics.json`, clears those, measures each capture only once two consecutive frame readings agree, marks full-page entries `fullPage: true` (they carry the viewport measurements), asserts exactly 976 entries with one PNG each so a partial matrix fails, and asserts that runner credentials are absent from `metrics.json`. It is mutually exclusive with the other opt-in modes and excluded from the default browser suite and required CI. Its first use and metric definitions are in [the V5 design audit](../design/v5-audit/README.md).
+
 ## Assertion coverage map
 
 | Layer | Assertions retained |
