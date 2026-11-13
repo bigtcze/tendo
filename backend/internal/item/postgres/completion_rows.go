@@ -9,6 +9,7 @@ import (
 type receiptRow struct {
 	id, householdID, itemID, completedBy           string
 	completedOn, cycleAttentionOn, nextAttentionOn pgtype.Date
+	cycleAnchorDay, nextAnchorDay                  pgtype.Int2
 	recurrenceIntervalValue                        pgtype.Int4
 	recurrenceIntervalUnit, recurrenceMode         pgtype.Text
 	priorWorkflowState, idempotencyKey             string
@@ -22,6 +23,7 @@ func (r receiptRow) completion() (item.Completion, error) {
 	c, err := decodeReceipt(
 		r.id, r.householdID, r.itemID, r.completedBy,
 		r.completedOn, r.cycleAttentionOn, r.nextAttentionOn,
+		r.cycleAnchorDay, r.nextAnchorDay,
 		r.recurrenceIntervalValue, r.recurrenceIntervalUnit, r.recurrenceMode,
 		r.priorWorkflowState, r.idempotencyKey, r.fingerprint, r.versionBefore, r.createdAt,
 	)
@@ -31,6 +33,7 @@ func (r receiptRow) completion() (item.Completion, error) {
 func completionFromRowValues(
 	id, householdID, itemID, completedBy string,
 	completedOn, cycleAttentionOn, nextAttentionOn pgtype.Date,
+	cycleAnchorDay, nextAnchorDay pgtype.Int2,
 	recurrenceIntervalValue pgtype.Int4,
 	recurrenceIntervalUnit, recurrenceMode pgtype.Text,
 	priorWorkflowState, idempotencyKey string,
@@ -42,6 +45,7 @@ func completionFromRowValues(
 	return (receiptRow{
 		id: id, householdID: householdID, itemID: itemID, completedBy: completedBy,
 		completedOn: completedOn, cycleAttentionOn: cycleAttentionOn, nextAttentionOn: nextAttentionOn,
+		cycleAnchorDay: cycleAnchorDay, nextAnchorDay: nextAnchorDay,
 		recurrenceIntervalValue: recurrenceIntervalValue, recurrenceIntervalUnit: recurrenceIntervalUnit,
 		recurrenceMode: recurrenceMode, priorWorkflowState: priorWorkflowState, idempotencyKey: idempotencyKey,
 		fingerprint: fingerprint, versionBefore: versionBefore, createdAt: createdAt, undoneAt: undoneAt, undoneBy: undoneBy,
@@ -52,6 +56,7 @@ func completionFromRow(r dbgen.InsertCompletionRow) (item.Completion, error) {
 	return completionFromRowValues(
 		r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID,
 		r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn,
+		r.CycleAnchorDay, r.NextAnchorDay,
 		r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode,
 		r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint,
 		r.ItemVersionBefore, r.CreatedAt, r.UndoneAt, r.UndoneByUserID,
@@ -62,6 +67,7 @@ func completionFromInitializationRow(r dbgen.InsertInitializationCompletionRow) 
 	return completionFromRowValues(
 		r.ID, r.HouseholdID, r.ItemID, r.CompletedByUserID,
 		r.CompletedOn, r.CycleAttentionOn, r.NextAttentionOn,
+		r.CycleAnchorDay, r.NextAnchorDay,
 		r.RecurrenceIntervalValue, r.RecurrenceIntervalUnit, r.RecurrenceMode,
 		r.PriorWorkflowState, r.IdempotencyKey, r.RequestFingerprint,
 		r.ItemVersionBefore, r.CreatedAt, r.UndoneAt, r.UndoneByUserID,
@@ -72,6 +78,7 @@ func completionFromExisting(r dbgen.GetCompletionByKeyRow) (item.Completion, err
 	return (receiptRow{
 		id: r.ID, householdID: r.HouseholdID, itemID: r.ItemID, completedBy: r.CompletedByUserID,
 		completedOn: r.CompletedOn, cycleAttentionOn: r.CycleAttentionOn, nextAttentionOn: r.NextAttentionOn,
+		cycleAnchorDay: r.CycleAnchorDay, nextAnchorDay: r.NextAnchorDay,
 		recurrenceIntervalValue: r.RecurrenceIntervalValue, recurrenceIntervalUnit: r.RecurrenceIntervalUnit,
 		recurrenceMode: r.RecurrenceMode, priorWorkflowState: r.PriorWorkflowState, idempotencyKey: r.IdempotencyKey,
 		fingerprint: r.RequestFingerprint, versionBefore: r.ItemVersionBefore, createdAt: r.CreatedAt,
@@ -83,6 +90,7 @@ func completionFromList(r dbgen.ListCompletionsRow) (item.Completion, error) {
 	return (receiptRow{
 		id: r.ID, householdID: r.HouseholdID, itemID: r.ItemID, completedBy: r.CompletedByUserID,
 		completedOn: r.CompletedOn, cycleAttentionOn: r.CycleAttentionOn, nextAttentionOn: r.NextAttentionOn,
+		cycleAnchorDay: r.CycleAnchorDay, nextAnchorDay: r.NextAnchorDay,
 		recurrenceIntervalValue: r.RecurrenceIntervalValue, recurrenceIntervalUnit: r.RecurrenceIntervalUnit,
 		recurrenceMode: r.RecurrenceMode, priorWorkflowState: r.PriorWorkflowState, idempotencyKey: r.IdempotencyKey,
 		fingerprint: r.RequestFingerprint, versionBefore: r.ItemVersionBefore, createdAt: r.CreatedAt,
@@ -94,6 +102,7 @@ func completionFromUndo(r dbgen.GetCompletionForUndoRow) (item.Completion, error
 	return (receiptRow{
 		id: r.ID, householdID: r.HouseholdID, itemID: r.ItemID, completedBy: r.CompletedByUserID,
 		completedOn: r.CompletedOn, cycleAttentionOn: r.CycleAttentionOn, nextAttentionOn: r.NextAttentionOn,
+		cycleAnchorDay: r.CycleAnchorDay, nextAnchorDay: r.NextAnchorDay,
 		recurrenceIntervalValue: r.RecurrenceIntervalValue, recurrenceIntervalUnit: r.RecurrenceIntervalUnit,
 		recurrenceMode: r.RecurrenceMode, priorWorkflowState: r.PriorWorkflowState, idempotencyKey: r.IdempotencyKey,
 		fingerprint: r.RequestFingerprint, versionBefore: r.ItemVersionBefore, createdAt: r.CreatedAt,

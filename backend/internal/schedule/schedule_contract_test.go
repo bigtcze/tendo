@@ -21,11 +21,16 @@ func runContractCases(t *testing.T, cases []scheduletest.Case) {
 	t.Helper()
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			due := scheduletest.Date(tc.Due)
+			// The harness chains the new Cycle value because a bare Date cannot carry the anchor.
+			due, err := schedule.NewCycle(scheduletest.Date(tc.Due), scheduletest.Date(tc.Due).Day())
+			if err != nil {
+				t.Fatal(err)
+			}
 			p := schedule.Policy{}
 			if tc.Policy != nil {
 				p = *tc.Policy
 			}
+			dueText := tc.Due
 			for index, step := range tc.Steps {
 				got, err := schedule.NextCycle(&due, scheduletest.Date(step.Completion), p)
 				if err != nil {
@@ -33,13 +38,13 @@ func runContractCases(t *testing.T, cases []scheduletest.Case) {
 				}
 				gotText := ""
 				if got != nil {
-					gotText = got.String()
+					gotText = got.On.String()
 				}
-				scheduletest.Check(t, tc.Name, index, due.String(), step, gotText)
+				scheduletest.Check(t, tc.Name, index, dueText, step, gotText)
 				if got == nil {
 					return
 				}
-				due = *got
+				due, dueText = *got, gotText
 			}
 		})
 	}

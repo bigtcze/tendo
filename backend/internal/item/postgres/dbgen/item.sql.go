@@ -12,10 +12,10 @@ import (
 )
 
 const createItem = `-- name: CreateItem :one
-INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, created_by_user_id, creation_key, creation_request_fingerprint)
-VALUES ($1, $2, $3::uuid, $4, $5::text, $6::date, $7::integer, $8::text, $9::text, $10, $11, $12)
+INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES ($1, $2, $3::uuid, $4, $5::text, $6::date, $7::smallint, $8::integer, $9::text, $10::text, $11, $12, $13)
 ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type CreateItemParams struct {
@@ -25,6 +25,7 @@ type CreateItemParams struct {
 	Title                      string
 	Notes                      pgtype.Text
 	AttentionOn                pgtype.Date
+	AttentionAnchorDay         pgtype.Int2
 	RecurrenceIntervalValue    pgtype.Int4
 	RecurrenceIntervalUnit     pgtype.Text
 	RecurrenceMode             pgtype.Text
@@ -41,6 +42,7 @@ type CreateItemRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -61,6 +63,7 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		arg.Title,
 		arg.Notes,
 		arg.AttentionOn,
+		arg.AttentionAnchorDay,
 		arg.RecurrenceIntervalValue,
 		arg.RecurrenceIntervalUnit,
 		arg.RecurrenceMode,
@@ -77,6 +80,7 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.AttentionAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -92,7 +96,7 @@ func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (CreateI
 }
 
 const findItemCreation = `-- name: FindItemCreation :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version, creation_request_fingerprint
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version, creation_request_fingerprint
 FROM items
 WHERE items.household_id = $1 AND items.created_by_user_id = $2 AND items.creation_key = $3
 `
@@ -111,6 +115,7 @@ type FindItemCreationRow struct {
 	Title                      string
 	Notes                      pgtype.Text
 	AttentionOn                pgtype.Date
+	AttentionAnchorDay         pgtype.Int2
 	RecurrenceIntervalValue    pgtype.Int4
 	RecurrenceIntervalUnit     pgtype.Text
 	RecurrenceMode             pgtype.Text
@@ -135,6 +140,7 @@ func (q *Queries) FindItemCreation(ctx context.Context, arg FindItemCreationPara
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.AttentionAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -151,7 +157,7 @@ func (q *Queries) FindItemCreation(ctx context.Context, arg FindItemCreationPara
 }
 
 const getItem = `-- name: GetItem :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
 WHERE items.household_id = $1 AND items.id = $2
 `
@@ -169,6 +175,7 @@ type GetItemRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -192,6 +199,7 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.AttentionAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -207,10 +215,10 @@ func (q *Queries) GetItem(ctx context.Context, arg GetItemParams) (GetItemRow, e
 }
 
 const insertInitializedItem = `-- name: InsertInitializedItem :one
-INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version, created_by_user_id, creation_key, creation_request_fingerprint)
-VALUES ($1, $2, $3::uuid, $4, $5::text, NULL, $6::integer, $7::text, $8::text, 1, $9, $10, $11)
+INSERT INTO items (household_id, subject_id, responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, version, created_by_user_id, creation_key, creation_request_fingerprint)
+VALUES ($1, $2, $3::uuid, $4, $5::text, NULL, NULL, $6::integer, $7::text, $8::text, 1, $9, $10, $11)
 ON CONFLICT (household_id, created_by_user_id, creation_key) DO NOTHING
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, NULL::date AS last_completed_on, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, NULL::date AS last_completed_on, created_at, updated_at, version
 `
 
 type InsertInitializedItemParams struct {
@@ -235,6 +243,7 @@ type InsertInitializedItemRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -270,6 +279,7 @@ func (q *Queries) InsertInitializedItem(ctx context.Context, arg InsertInitializ
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.AttentionAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -285,7 +295,7 @@ func (q *Queries) InsertInitializedItem(ctx context.Context, arg InsertInitializ
 }
 
 const listItems = `-- name: ListItems :many
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
 WHERE items.household_id = $1
   AND items.archived = $2
@@ -327,6 +337,7 @@ type ListItemsRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -370,6 +381,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.Title,
 			&i.Notes,
 			&i.AttentionOn,
+			&i.AttentionAnchorDay,
 			&i.RecurrenceIntervalValue,
 			&i.RecurrenceIntervalUnit,
 			&i.RecurrenceMode,
@@ -392,7 +404,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 }
 
 const listItemsByAttention = `-- name: ListItemsByAttention :many
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 FROM items
 WHERE items.household_id = $1
   AND items.archived = $2
@@ -440,6 +452,7 @@ type ListItemsByAttentionRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -484,6 +497,7 @@ func (q *Queries) ListItemsByAttention(ctx context.Context, arg ListItemsByAtten
 			&i.Title,
 			&i.Notes,
 			&i.AttentionOn,
+			&i.AttentionAnchorDay,
 			&i.RecurrenceIntervalValue,
 			&i.RecurrenceIntervalUnit,
 			&i.RecurrenceMode,
@@ -594,6 +608,9 @@ SET title = COALESCE($1::text, title),
     responsible_user_id = CASE WHEN $3::boolean THEN $4::uuid ELSE responsible_user_id END,
     notes = CASE WHEN $5::boolean THEN $6::text ELSE notes END,
     attention_on = CASE WHEN $7::boolean THEN $8::date ELSE attention_on END,
+    attention_anchor_day = CASE WHEN $7::boolean
+        THEN CASE WHEN attention_on IS NOT DISTINCT FROM $8::date THEN attention_anchor_day ELSE extract(day FROM $8::date) END
+        ELSE attention_anchor_day END,
     recurrence_interval_value = CASE WHEN $9::boolean THEN $10::integer ELSE recurrence_interval_value END,
     recurrence_interval_unit = CASE WHEN $9::boolean THEN $11::text ELSE recurrence_interval_unit END,
     recurrence_mode = CASE WHEN $9::boolean THEN $12::text ELSE recurrence_mode END,
@@ -602,7 +619,7 @@ SET title = COALESCE($1::text, title),
     version = version + 1,
     updated_at = now()
 WHERE items.household_id = $15 AND items.id = $16 AND version = $17
-RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
+RETURNING id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version
 `
 
 type UpdateItemParams struct {
@@ -633,6 +650,7 @@ type UpdateItemRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -674,6 +692,7 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (UpdateI
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.AttentionAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,

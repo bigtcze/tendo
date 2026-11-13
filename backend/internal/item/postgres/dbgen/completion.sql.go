@@ -12,7 +12,7 @@ import (
 )
 
 const getCompletionByKey = `-- name: GetCompletionByKey :one
-SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND idempotency_key=$3
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, cycle_anchor_day, next_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND idempotency_key=$3
 `
 
 type GetCompletionByKeyParams struct {
@@ -28,6 +28,8 @@ type GetCompletionByKeyRow struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       string
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -51,6 +53,8 @@ func (q *Queries) GetCompletionByKey(ctx context.Context, arg GetCompletionByKey
 		&i.CompletedOn,
 		&i.CompletedByUserID,
 		&i.CycleAttentionOn,
+		&i.CycleAnchorDay,
+		&i.NextAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -67,7 +71,7 @@ func (q *Queries) GetCompletionByKey(ctx context.Context, arg GetCompletionByKey
 }
 
 const getCompletionForUndo = `-- name: GetCompletionForUndo :one
-SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id=$3
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, cycle_anchor_day, next_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id=$3
 `
 
 type GetCompletionForUndoParams struct {
@@ -83,6 +87,8 @@ type GetCompletionForUndoRow struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       string
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -106,6 +112,8 @@ func (q *Queries) GetCompletionForUndo(ctx context.Context, arg GetCompletionFor
 		&i.CompletedOn,
 		&i.CompletedByUserID,
 		&i.CycleAttentionOn,
+		&i.CycleAnchorDay,
+		&i.NextAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -122,7 +130,7 @@ func (q *Queries) GetCompletionForUndo(ctx context.Context, arg GetCompletionFor
 }
 
 const insertCompletion = `-- name: InsertCompletion :one
-INSERT INTO item_completions (household_id,item_id,completed_on,completed_by_user_id,cycle_attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,prior_workflow_state,next_attention_on,item_version_before,idempotency_key,request_fingerprint) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id
+INSERT INTO item_completions (household_id,item_id,completed_on,completed_by_user_id,cycle_attention_on,cycle_anchor_day,next_anchor_day,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,prior_workflow_state,next_attention_on,item_version_before,idempotency_key,request_fingerprint) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, cycle_anchor_day, next_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id
 `
 
 type InsertCompletionParams struct {
@@ -131,6 +139,8 @@ type InsertCompletionParams struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       pgtype.UUID
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -148,6 +158,8 @@ type InsertCompletionRow struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       string
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -168,6 +180,8 @@ func (q *Queries) InsertCompletion(ctx context.Context, arg InsertCompletionPara
 		arg.CompletedOn,
 		arg.CompletedByUserID,
 		arg.CycleAttentionOn,
+		arg.CycleAnchorDay,
+		arg.NextAnchorDay,
 		arg.RecurrenceIntervalValue,
 		arg.RecurrenceIntervalUnit,
 		arg.RecurrenceMode,
@@ -185,6 +199,8 @@ func (q *Queries) InsertCompletion(ctx context.Context, arg InsertCompletionPara
 		&i.CompletedOn,
 		&i.CompletedByUserID,
 		&i.CycleAttentionOn,
+		&i.CycleAnchorDay,
+		&i.NextAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -201,9 +217,9 @@ func (q *Queries) InsertCompletion(ctx context.Context, arg InsertCompletionPara
 }
 
 const insertInitializationCompletion = `-- name: InsertInitializationCompletion :one
-INSERT INTO item_completions (household_id,item_id,completed_on,completed_by_user_id,cycle_attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,prior_workflow_state,next_attention_on,item_version_before,idempotency_key,request_fingerprint)
-VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, 'open', $8, 1, uuidv7()::text, $9)
-RETURNING id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id
+INSERT INTO item_completions (household_id,item_id,completed_on,completed_by_user_id,cycle_attention_on,cycle_anchor_day,next_anchor_day,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,prior_workflow_state,next_attention_on,item_version_before,idempotency_key,request_fingerprint)
+VALUES ($1, $2, $3, $4, NULL, NULL, $5::smallint, $6, $7, $8, 'open', $9, 1, uuidv7()::text, $10)
+RETURNING id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, cycle_anchor_day, next_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id
 `
 
 type InsertInitializationCompletionParams struct {
@@ -211,6 +227,7 @@ type InsertInitializationCompletionParams struct {
 	ItemID                  pgtype.UUID
 	CompletedOn             pgtype.Date
 	CompletedByUserID       pgtype.UUID
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -225,6 +242,8 @@ type InsertInitializationCompletionRow struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       string
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -244,6 +263,7 @@ func (q *Queries) InsertInitializationCompletion(ctx context.Context, arg Insert
 		arg.ItemID,
 		arg.CompletedOn,
 		arg.CompletedByUserID,
+		arg.NextAnchorDay,
 		arg.RecurrenceIntervalValue,
 		arg.RecurrenceIntervalUnit,
 		arg.RecurrenceMode,
@@ -258,6 +278,8 @@ func (q *Queries) InsertInitializationCompletion(ctx context.Context, arg Insert
 		&i.CompletedOn,
 		&i.CompletedByUserID,
 		&i.CycleAttentionOn,
+		&i.CycleAnchorDay,
+		&i.NextAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -290,7 +312,7 @@ func (q *Queries) LatestActiveCompletionVersion(ctx context.Context, arg LatestA
 }
 
 const listCompletions = `-- name: ListCompletions :many
-SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id>$3 ORDER BY item_completions.id ASC LIMIT $4
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, cycle_anchor_day, next_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id>$3 ORDER BY item_completions.id ASC LIMIT $4
 `
 
 type ListCompletionsParams struct {
@@ -307,6 +329,8 @@ type ListCompletionsRow struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       string
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -341,6 +365,8 @@ func (q *Queries) ListCompletions(ctx context.Context, arg ListCompletionsParams
 			&i.CompletedOn,
 			&i.CompletedByUserID,
 			&i.CycleAttentionOn,
+			&i.CycleAnchorDay,
+			&i.NextAnchorDay,
 			&i.RecurrenceIntervalValue,
 			&i.RecurrenceIntervalUnit,
 			&i.RecurrenceMode,
@@ -364,7 +390,7 @@ func (q *Queries) ListCompletions(ctx context.Context, arg ListCompletionsParams
 }
 
 const listCompletionsNewest = `-- name: ListCompletionsNewest :many
-SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id<$3 ORDER BY item_completions.id DESC LIMIT $4
+SELECT id::text AS id, household_id::text AS household_id, item_id::text AS item_id, completed_on, completed_by_user_id::text AS completed_by_user_id, cycle_attention_on, cycle_anchor_day, next_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, prior_workflow_state, next_attention_on, item_version_before, idempotency_key, request_fingerprint, created_at, undone_at, undone_by_user_id FROM item_completions WHERE household_id=$1 AND item_id=$2 AND id<$3 ORDER BY item_completions.id DESC LIMIT $4
 `
 
 type ListCompletionsNewestParams struct {
@@ -381,6 +407,8 @@ type ListCompletionsNewestRow struct {
 	CompletedOn             pgtype.Date
 	CompletedByUserID       string
 	CycleAttentionOn        pgtype.Date
+	CycleAnchorDay          pgtype.Int2
+	NextAnchorDay           pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -415,6 +443,8 @@ func (q *Queries) ListCompletionsNewest(ctx context.Context, arg ListCompletions
 			&i.CompletedOn,
 			&i.CompletedByUserID,
 			&i.CycleAttentionOn,
+			&i.CycleAnchorDay,
+			&i.NextAnchorDay,
 			&i.RecurrenceIntervalValue,
 			&i.RecurrenceIntervalUnit,
 			&i.RecurrenceMode,
@@ -438,7 +468,7 @@ func (q *Queries) ListCompletionsNewest(ctx context.Context, arg ListCompletions
 }
 
 const lockItemForCompletion = `-- name: LockItemForCompletion :one
-SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version FROM items WHERE items.household_id=$1 AND items.id=$2 FOR UPDATE
+SELECT id::text AS id, household_id::text AS household_id, subject_id::text AS subject_id, responsible_user_id AS responsible_user_id, title, notes, attention_on, attention_anchor_day, recurrence_interval_value, recurrence_interval_unit, recurrence_mode, workflow_state, archived, done, (SELECT completed_on FROM item_completions c WHERE c.household_id = items.household_id AND c.item_id = items.id AND c.undone_at IS NULL ORDER BY c.item_version_before DESC LIMIT 1) AS last_completed_on, created_at, updated_at, version FROM items WHERE items.household_id=$1 AND items.id=$2 FOR UPDATE
 `
 
 type LockItemForCompletionParams struct {
@@ -454,6 +484,7 @@ type LockItemForCompletionRow struct {
 	Title                   string
 	Notes                   pgtype.Text
 	AttentionOn             pgtype.Date
+	AttentionAnchorDay      pgtype.Int2
 	RecurrenceIntervalValue pgtype.Int4
 	RecurrenceIntervalUnit  pgtype.Text
 	RecurrenceMode          pgtype.Text
@@ -477,6 +508,7 @@ func (q *Queries) LockItemForCompletion(ctx context.Context, arg LockItemForComp
 		&i.Title,
 		&i.Notes,
 		&i.AttentionOn,
+		&i.AttentionAnchorDay,
 		&i.RecurrenceIntervalValue,
 		&i.RecurrenceIntervalUnit,
 		&i.RecurrenceMode,
@@ -518,15 +550,16 @@ func (q *Queries) MarkCompletionUndone(ctx context.Context, arg MarkCompletionUn
 }
 
 const updateItemForCompletion = `-- name: UpdateItemForCompletion :exec
-UPDATE items SET attention_on=$3, workflow_state=$4, done=$5, version=version+1, updated_at=now() WHERE household_id=$1 AND id=$2
+UPDATE items SET attention_on=$3, workflow_state=$4, done=$5, attention_anchor_day=$6, version=version+1, updated_at=now() WHERE household_id=$1 AND id=$2
 `
 
 type UpdateItemForCompletionParams struct {
-	HouseholdID   pgtype.UUID
-	ID            pgtype.UUID
-	AttentionOn   pgtype.Date
-	WorkflowState string
-	Done          bool
+	HouseholdID        pgtype.UUID
+	ID                 pgtype.UUID
+	AttentionOn        pgtype.Date
+	WorkflowState      string
+	Done               bool
+	AttentionAnchorDay pgtype.Int2
 }
 
 func (q *Queries) UpdateItemForCompletion(ctx context.Context, arg UpdateItemForCompletionParams) error {
@@ -536,19 +569,21 @@ func (q *Queries) UpdateItemForCompletion(ctx context.Context, arg UpdateItemFor
 		arg.AttentionOn,
 		arg.WorkflowState,
 		arg.Done,
+		arg.AttentionAnchorDay,
 	)
 	return err
 }
 
 const updateItemForUndo = `-- name: UpdateItemForUndo :exec
-UPDATE items SET attention_on=$3, workflow_state=$4, done=false, version=version+1, updated_at=now() WHERE household_id=$1 AND id=$2
+UPDATE items SET attention_on=$3, workflow_state=$4, done=false, attention_anchor_day=$5, version=version+1, updated_at=now() WHERE household_id=$1 AND id=$2
 `
 
 type UpdateItemForUndoParams struct {
-	HouseholdID   pgtype.UUID
-	ID            pgtype.UUID
-	AttentionOn   pgtype.Date
-	WorkflowState string
+	HouseholdID        pgtype.UUID
+	ID                 pgtype.UUID
+	AttentionOn        pgtype.Date
+	WorkflowState      string
+	AttentionAnchorDay pgtype.Int2
 }
 
 func (q *Queries) UpdateItemForUndo(ctx context.Context, arg UpdateItemForUndoParams) error {
@@ -557,6 +592,7 @@ func (q *Queries) UpdateItemForUndo(ctx context.Context, arg UpdateItemForUndoPa
 		arg.ID,
 		arg.AttentionOn,
 		arg.WorkflowState,
+		arg.AttentionAnchorDay,
 	)
 	return err
 }

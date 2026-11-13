@@ -270,6 +270,38 @@ describe('item details', () => {
     await waitFor(() => expect(dueText()).toContain('Next attention date: Feb 28, 2027'));
   });
 
+  it('keeps the idempotency key of an uncertain completion that settled while detail was unmounted', async () => {
+    // The counterpart of the #446 reproducer: only a definite outcome releases the key. An uncertain one
+    // (server error) must keep it so the next Done is a safe retry of the same attempt (ADR 0005).
+    clearPendingCompletions();
+    const monthly = { intervalUnit: 'month' as const, intervalValue: 1, mode: 'fixed' as const };
+    const currentItem = item({ attentionOn: '2026-12-31', recurrence: monthly });
+    let posts = 0;
+    let releaseFirst!: (response: Response) => void;
+    const firstPending = new Promise<Response>((resolve) => { releaseFirst = resolve; });
+    const fake = installFakeServer(common({
+      ...itemRoutes(base, () => [currentItem]),
+      [`GET ${path}`]: () => json(200, currentItem, { ETag: '"1"' }),
+      [`POST ${historyPath}`]: () => {
+        posts++;
+        if (posts === 1) return firstPending;
+        return json(201, completion('first', '2026-12-31', { cycleAttentionOn: '2026-12-31', nextAttentionOn: '2027-01-31' }));
+      },
+    }));
+    window.history.replaceState(null, '', `/items/${itemId}`); app();
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(1));
+    const nav = screen.getByRole('navigation', { name: 'Household navigation' });
+    await userEvent.click(within(nav).getByRole('link', { name: 'All items' }));
+    await waitFor(() => expect(screen.queryByRole('heading', { level: 1, name: 'Renew passport' })).not.toBeInTheDocument());
+    await act(async () => releaseFirst(json(500, {})));
+    await userEvent.click(await screen.findByRole('link', { name: 'Renew passport' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: Renew passport' }));
+    await waitFor(() => expect(requestsOf(fake.requests, 'POST', historyPath)).toHaveLength(2));
+    const posted = requestsOf(fake.requests, 'POST', historyPath);
+    expect(posted[1]!.headers.get('Idempotency-Key')).toBe(posted[0]!.headers.get('Idempotency-Key'));
+  });
+
   it('does not move focus to a retry outcome after the user moved focus elsewhere', async () => {
     let posts = 0;
     let releasePost!: (response: Response) => void;

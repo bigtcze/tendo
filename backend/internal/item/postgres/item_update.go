@@ -99,7 +99,7 @@ func (r *Repository) updateMissingResult(ctx context.Context, params dbgen.Updat
 
 func updateRow(found dbgen.UpdateItemRow) row {
 	return row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID,
-		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
+		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, AttentionAnchorDay: found.AttentionAnchorDay, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
 		RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState,
 		Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt,
 		UpdatedAt: found.UpdatedAt, Version: found.Version}

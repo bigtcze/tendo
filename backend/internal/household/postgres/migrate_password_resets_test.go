@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bigtcze/tendo/backend/internal/platform/database"
+	"github.com/bigtcze/tendo/backend/internal/testpostgres"
 )
 
 func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
@@ -69,7 +70,7 @@ func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, down+"; DELETE FROM tendo_schema_migrations WHERE version=20"); err != nil {
+	if _, err := admin.Exec(ctx, testpostgres.RevertVersion21SQL+" ; "+down+"; DELETE FROM tendo_schema_migrations WHERE version=20"); err != nil {
 		t.Fatalf("execute migration 020 Down on populated schema: %v", err)
 	}
 	if err := admin.QueryRow(ctx, `SELECT to_regclass('public.password_reset_tokens') IS NULL`).Scan(&tableExists); err != nil || !tableExists {
@@ -94,7 +95,7 @@ func TestMigrationTwentyPasswordResetsUpDownAndPrivileges(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM password_reset_tokens`).Scan(&rows); err != nil || rows != 0 {
 		t.Fatalf("recreated table rows=%d err=%v", rows, err)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 20 {
+	if err := admin.QueryRow(ctx, `SELECT max(version) FROM tendo_schema_migrations`).Scan(&version); err != nil || version != 21 {
 		t.Fatalf("ledger after re-migrate=%d err=%v", version, err)
 	}
 }

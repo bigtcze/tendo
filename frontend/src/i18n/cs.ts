@@ -488,6 +488,7 @@ export const cs: Record<MessageKey, string> = {
   'items.notice.archived': 'Položka je nyní archivovaná. Seznam je aktuální.',
   'items.notice.alreadyDone': 'Položka je už hotová. Seznam je aktuální.',
   'items.notice.notLatest': 'Vrátit lze jen poslední dokončení.',
+  'items.notice.undoSuperseded': 'Po tomto dokončení se změnilo datum nebo stav, proto už ho nelze vrátit. Položka je aktuální.',
   'items.notice.validation': 'Dokončení se nepodařilo uložit. Zkontrolujte položku a zkuste to znovu.',
   'items.notice.futureDate': 'Datum dokončení nemůže být v budoucnosti.',
   'items.notice.dateOverflow': 'Další datum se nepodařilo vypočítat. Zkontrolujte interval opakování.',

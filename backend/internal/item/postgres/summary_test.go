@@ -72,7 +72,7 @@ func TestSummarizeItemsPostgresAndListWalk(t *testing.T) {
 		{s, "", "open", "2026-03-03", false, false, true}, {s, "", "paused", "", false, false, true}, {s, "", "open", "", false, true, false}, {s, "", "open", "", false, true, true},
 	}
 	for i, r := range rows {
-		_, err := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,workflow_state,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done) VALUES($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,$4,$5,NULLIF($6,'')::date,CASE WHEN $7 THEN 1 END,CASE WHEN $7 THEN 'day' END,CASE WHEN $7 THEN 'fixed' END,$8,$9)`, h, r.subject, r.responsible, fmt.Sprintf("matrix-%02d", i), r.state, r.date, r.rec, r.arch, r.done)
+		_, err := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,workflow_state,attention_on,attention_anchor_day,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done) VALUES($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,$4,$5,NULLIF($6,'')::date,extract(day from NULLIF($6,'')::date)::smallint,CASE WHEN $7 THEN 1 END,CASE WHEN $7 THEN 'day' END,CASE WHEN $7 THEN 'fixed' END,$8,$9)`, h, r.subject, r.responsible, fmt.Sprintf("matrix-%02d", i), r.state, r.date, r.rec, r.arch, r.done)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,10 +227,11 @@ func TestSummarizeItemsListWalkEquivalenceLarge(t *testing.T) {
 		t.Fatal(err)
 	}
 	today := mustTestDate(2026, time.March, 2)
-	_, err := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,workflow_state,attention_on,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done)
+	_, err := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,responsible_user_id,title,workflow_state,attention_on,attention_anchor_day,recurrence_interval_value,recurrence_interval_unit,recurrence_mode,archived,done)
 SELECT $1::uuid, CASE WHEN n%2=0 THEN $2::uuid ELSE $3::uuid END, CASE WHEN n%3=0 THEN $4::uuid END, 'large-'||n,
 CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,
 CASE n%5 WHEN 0 THEN NULL WHEN 1 THEN DATE '2026-03-01' WHEN 2 THEN DATE '2026-03-02' WHEN 3 THEN DATE '2026-03-03' ELSE CASE WHEN n%4=0 THEN DATE '2026-03-03' ELSE DATE '2026-03-01' END END,
+extract(day from CASE n%5 WHEN 0 THEN NULL WHEN 1 THEN DATE '2026-03-01' WHEN 2 THEN DATE '2026-03-02' WHEN 3 THEN DATE '2026-03-03' ELSE CASE WHEN n%4=0 THEN DATE '2026-03-03' ELSE DATE '2026-03-01' END END)::smallint,
 CASE WHEN n%2=0 THEN 1 END, CASE WHEN n%2=0 THEN 'day' END, CASE WHEN n%2=0 THEN 'fixed' END, n%17=0, n%19=0 FROM generate_series(1,280)n`, h, subjectID, otherSubject, member)
 	if err != nil {
 		t.Fatal(err)
@@ -485,7 +486,7 @@ func TestSummarizeItemsExplainAtScale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = admin.Exec(ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,responsible_user_id,workflow_state,archived,done,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((200000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'summary-explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%10) END,CASE WHEN n%10=0 AND n%2=0 THEN NULLIF($6::text,'')::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,n%11=0,n%13=0,CASE WHEN n%5=0 THEN 1 END,CASE WHEN n%5=0 THEN 'day' END,CASE WHEN n%5=0 THEN 'fixed' END FROM generate_series(1,20000)n`, h, other, s, os, sparse, assignee)
+	_, err = admin.Exec(ctx, `INSERT INTO items(id,household_id,subject_id,title,attention_on,attention_anchor_day,responsible_user_id,workflow_state,archived,done,recurrence_interval_value,recurrence_interval_unit,recurrence_mode) SELECT ('0198a2f0-7c1e-7a53-9b0e-'||lpad((200000+n)::text,12,'0'))::uuid,CASE WHEN n%2=0 THEN $1::uuid ELSE $2::uuid END,CASE WHEN n%100=0 AND n%2=0 THEN $5::uuid WHEN n%2=0 THEN $3::uuid ELSE $4::uuid END,'summary-explain-'||n,CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%10) END,extract(day from CASE WHEN n%7=0 THEN NULL ELSE DATE '2026-01-01'+(n%10) END)::smallint,CASE WHEN n%10=0 AND n%2=0 THEN NULLIF($6::text,'')::uuid ELSE NULL END,CASE n%4 WHEN 0 THEN 'open' WHEN 1 THEN 'in_progress' WHEN 2 THEN 'waiting' ELSE 'paused' END,n%11=0,n%13=0,CASE WHEN n%5=0 THEN 1 END,CASE WHEN n%5=0 THEN 'day' END,CASE WHEN n%5=0 THEN 'fixed' END FROM generate_series(1,20000)n`, h, other, s, os, sparse, assignee)
 	if err != nil {
 		t.Fatal(err)
 	}

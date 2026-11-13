@@ -559,7 +559,7 @@ export interface paths {
         head?: never;
         /**
          * Undo the latest active completion
-         * @description Evaluation order is authentication, canonical Origin/authority, exactly one syntactically valid strong If-Match, media/body validation including undone=true, membership and item/receipt existence, item row lock, receipt lookup, and then the stored-version check, archived state, latest-active receipt and commit. Missing If-Match returns 428; malformed, weak, wildcard, or list returns 412. Body missing undone, null, wrong type, unknown fields, or malformed JSON returns 400 invalid_request; undone=false returns 422 with field undone and code invalid_value. An already-undone receipt replays unchanged after request validation and locking, skipping only the stored-version comparison. Undo restores cycleAttentionOn and priorWorkflowState from the receipt snapshot, clears done, and increments item version. Thus an attentionOn edit after completion is intentionally overwritten by undo. Recurrence policy, title, notes, and subject are user choices and remain unchanged. A previously undone receipt is no longer latest active; chaining undos therefore restores earlier cycles. Completion receipts are never deleted. Requires canonical Origin.
+         * @description Evaluation order is authentication, canonical Origin/authority, exactly one syntactically valid strong If-Match, media/body validation including undone=true, membership and item/receipt existence, item row lock, receipt lookup, stored-version check, archived state, latest-active receipt, superseded schedule state, and commit. Missing If-Match returns 428; malformed, weak, wildcard, or list returns 412. Body missing undone, null, wrong type, unknown fields, or malformed JSON returns 400 invalid_request; undone=false returns 422 with field undone and code invalid_value. An already-undone receipt replays unchanged after request validation and locking, skipping only the stored-version comparison. Undo restores cycleAttentionOn, the cycle anchor, and priorWorkflowState from the receipt snapshot, clears done, and increments item version. Undo is rejected with 409 completion_superseded when the current schedule state no longer matches the receipt snapshot: for a recurring receipt attentionOn must still equal nextAttentionOn, the item must not be done, and, unless the receipt predates anchors, the item anchor must still equal nextAnchorDay; for a one-off receipt the item must still be done and attentionOn must still equal cycleAttentionOn. An attentionOn edit after completion therefore blocks undo rather than being overwritten. Recurrence policy, title, notes, and subject are user choices and remain unchanged. A previously undone receipt is no longer latest active; chaining undos therefore restores earlier cycles. Completion receipts are never deleted. Requires canonical Origin.
          */
         patch: operations["undoItemCompletion"];
         trace?: never;
@@ -8347,7 +8347,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description item_archived or completion_not_latest. */
+            /** @description item_archived, completion_not_latest, or completion_superseded (the current schedule state no longer matches the receipt). */
             409: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
@@ -8355,14 +8355,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "type": "about:blank",
-                     *       "title": "Conflict",
-                     *       "status": 409,
-                     *       "code": "completion_not_latest"
-                     *     }
-                     */
                     "application/problem+json": components["schemas"]["CompletionProblem"];
                 };
             };

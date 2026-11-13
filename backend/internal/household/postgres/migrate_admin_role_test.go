@@ -69,7 +69,7 @@ func TestMigrationSeventeenUpgradesOwnerRolesAndPreservesData(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 20 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	var admins, members, versionOne int
@@ -182,7 +182,7 @@ func TestMigrationSeventeenDownReversesPopulatedSchema(t *testing.T) {
 	}
 	var version int64
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 20 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	if err := admin.QueryRow(ctx, `SELECT role FROM household_memberships WHERE user_id=$1::uuid`, adminID).Scan(&adminRole); err != nil || adminRole != "admin" {
@@ -250,7 +250,7 @@ func TestMigrationSeventeenFailsClosedWithoutAdmin(t *testing.T) {
 	if err := database.Migrate(ctx, admin); err != nil {
 		t.Fatalf("migrate after repair: %v", err)
 	}
-	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 20 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version), bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
 		t.Fatalf("after repair version=%d dirty=%v err=%v", version, dirty, err)
 	}
 }

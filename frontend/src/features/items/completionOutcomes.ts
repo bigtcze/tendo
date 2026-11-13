@@ -16,6 +16,13 @@ export function completionInvalidNoticeKey(code: string) {
 export function completionConflictNoticeKey(code: string) {
   return code === 'item_archived' ? 'items.notice.archived' : code === 'item_done' ? 'items.notice.alreadyDone' : 'items.notice.conflict';
 }
+export function undoConflictNoticeKey(code: string) {
+  return code === 'completion_not_latest'
+    ? 'items.notice.notLatest'
+    : code === 'completion_superseded'
+      ? 'items.notice.undoSuperseded'
+      : 'items.notice.archived';
+}
 export type CompletionTools = {
   userId: string; householdId: string; t: ReturnType<typeof import('../../i18n').useI18n>['t']; locale: string;
   refresh: () => Promise<void>; setNotice: (notice: Notice | null) => void; onSignedOut: () => void;
@@ -66,6 +73,27 @@ async function completionSuccess(
     originGroup: originGroup ?? undefined,
     undoAvailable: true,
   });
+}
+
+/**
+ * Whether a completion attempt has a definite outcome, so its Idempotency-Key must not be reused: the
+ * server committed it (ok, including an undone replay) or definitively refused it (gone, conflict,
+ * invalid). Uncertain outcomes (412, transport/server errors) keep the key so a retry stays idempotent
+ * (ADR 0005). The outcome handlers clear the key for these same cases.
+ */
+export function completionSettled({ current, result }: ReadThenWrite<CompleteResult>): boolean {
+  if (current.kind === 'notFound') return true;
+  if (current.kind !== 'ok' || !result) return false;
+  return result.kind === 'ok' || result.kind === 'notFound' || result.kind === 'conflict' || result.kind === 'invalid';
+}
+
+/**
+ * Clears a settled attempt's key even when the screen that started it is gone. Otherwise a later Done
+ * would reuse the key of a committed completion: the server replays the old receipt and the item keeps
+ * its date (#446 R2).
+ */
+export function settleCompletionKey(userId: string, householdId: string, itemId: string, attemptKey: string, response: ReadThenWrite<CompleteResult>) {
+  if (completionSettled(response)) clearPendingCompletion(userId, householdId, itemId, attemptKey);
 }
 
 export async function handleCompletionResult(
@@ -134,7 +162,7 @@ export async function handleUndoResult(
   } else if (result.kind === 'notFound') { await refresh(); setNotice({ text: t('items.notice.gone') }); }
   else if (result.kind === 'conflict') {
     await refresh();
-    setNotice({ text: t(result.code === 'completion_not_latest' ? 'items.notice.notLatest' : 'items.notice.archived') });
+    setNotice({ text: t(undoConflictNoticeKey(result.code)) });
   } else if (result.kind === 'changed') {
     await refresh();
     setNotice({ ...previous, text: t('items.notice.changed'), retryKind: 'undo', undoAvailable: true });

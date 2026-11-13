@@ -12,6 +12,7 @@ type row struct {
 	ResponsibleUserID                 pgtype.UUID
 	Notes                             pgtype.Text
 	AttentionOn                       pgtype.Date
+	AttentionAnchorDay                pgtype.Int2
 	RecurrenceIntervalValue           pgtype.Int4
 	RecurrenceIntervalUnit            pgtype.Text
 	RecurrenceMode                    pgtype.Text
@@ -44,7 +45,26 @@ func toItem(r row) (item.Item, error) {
 		return item.Item{}, err
 	}
 	out.AttentionOn = attention
+	out.AttentionAnchorDay = intPtr(r.AttentionAnchorDay)
+	if (out.AttentionOn == nil) != (out.AttentionAnchorDay == nil) {
+		return item.Item{}, errPersistence
+	}
 	return out, nil
+}
+
+func int2(v *int) pgtype.Int2 {
+	if v == nil {
+		return pgtype.Int2{}
+	}
+	return pgtype.Int2{Int16: int16(*v), Valid: true}
+}
+
+func intPtr(v pgtype.Int2) *int {
+	if !v.Valid {
+		return nil
+	}
+	n := int(v.Int16)
+	return &n
 }
 
 func nullableText(value pgtype.Text) *string {
@@ -98,7 +118,7 @@ func dateFromRow(value pgtype.Date, rejectInfinity bool) (*schedule.Date, error)
 
 func createdRow(found dbgen.CreateItemRow) row {
 	return row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID,
-		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
+		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, AttentionAnchorDay: found.AttentionAnchorDay, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
 		RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState,
 		Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt,
 		UpdatedAt: found.UpdatedAt, Version: found.Version}
@@ -106,7 +126,7 @@ func createdRow(found dbgen.CreateItemRow) row {
 
 func getRow(found dbgen.GetItemRow) row {
 	return row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID,
-		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
+		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, AttentionAnchorDay: found.AttentionAnchorDay, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
 		RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState,
 		Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt,
 		UpdatedAt: found.UpdatedAt, Version: found.Version}
@@ -114,7 +134,7 @@ func getRow(found dbgen.GetItemRow) row {
 
 func findCreationRow(found dbgen.FindItemCreationRow) row {
 	return row{ID: found.ID, HouseholdID: found.HouseholdID, SubjectID: found.SubjectID, ResponsibleUserID: found.ResponsibleUserID,
-		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
+		Title: found.Title, Notes: found.Notes, AttentionOn: found.AttentionOn, AttentionAnchorDay: found.AttentionAnchorDay, RecurrenceIntervalValue: found.RecurrenceIntervalValue,
 		RecurrenceIntervalUnit: found.RecurrenceIntervalUnit, RecurrenceMode: found.RecurrenceMode, WorkflowState: found.WorkflowState,
 		Archived: found.Archived, Done: found.Done, LastCompletedOn: found.LastCompletedOn, CreatedAt: found.CreatedAt,
 		UpdatedAt: found.UpdatedAt, Version: found.Version}

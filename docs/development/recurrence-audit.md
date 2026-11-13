@@ -157,3 +157,41 @@ code, and whether the old test is replaced) is a reviewed decision for #447.
 4. Replace the sequential-clamp text in `docs/development/schedule-domain.md` and the `NextCycle` comment, and
    update the old tests listed under R1, including the property-test oracle.
 5. Decide the undo rule for intervening changes (R3) and update `api/openapi.yaml` and the old undo test with it.
+
+## Resolution (#447)
+
+Implemented in the same PR as the #446 pending-key fix (decision 3 is frontend and handled there). The
+contract assertions in `scheduletest/contract.go`, the three contract tests, and every golden/coverage expectation
+are unchanged.
+
+1. Anchor persistence. `schedule.Cycle{On, AnchorDay}` carries the planned date and the original day of month;
+   `NextCycle(current *Cycle, completion, policy)` is the only arithmetic path. Fixed month/year occurrences are
+   computed as month of current `On` plus `k*intervalMonths` on `min(AnchorDay, daysInMonth)`, taking the smallest
+   `k >= 1` after the completion, with the anchor unchanged; day/week and fluid month/year units anchor on the
+   resulting date's day. The invariant (anchor 1..31, not below `On.Day()`, above it only on a month-end) is
+   checked by `Cycle.Valid` and by a property test. `items.attention_anchor_day` plus
+   `item_completions.cycle_anchor_day` / `next_anchor_day` persist the anchor, the receipt snapshot and the next
+   anchor. Create and historical initialization set it from the engine/attention date; a patch that changes the
+   attention date resets it to the new day, a same-date patch or policy-only edit keeps it; one-off completion
+   leaves it unchanged; undo restores `cycle_anchor_day`.
+2. Upgrade compatibility. Migration 021 adopts the conservative rule from R1: the default anchor is
+   `day(attention_on)` (NULL when the date is NULL). Exact recovery is applied only for fixed month/year items
+   whose attention date is a clamped month-end and whose active receipts are continuous with
+   `items.version = last + 1` and matching `next_attention_on` links; then the first receipt's
+   `cycle_attention_on` (or its `completed_on`) supplies the anchor when it is strictly larger. Attention dates
+   and receipts are never rewritten, so ambiguous items keep their stored date and only stop drifting from then
+   on. `RevertVersion21SQL` restores the pre-021 schema for older fixture-based tests.
+4. Documentation and tests. `docs/development/schedule-domain.md` now describes anchor restoration instead of
+   sequential clamping, and the "documented collision" note is gone. The `NextCycle` comment was rewritten. The
+   old sequential-clamp tests were updated by compatibility decision, with a comment recording it:
+   `schedule_test.go` consecutive clamp now expects 2025-03-31 and the leap case 2024-03-31, and the
+   `schedule_property_test.go` fixed oracle is anchor + `k*interval` with a single clamp. Historical
+   initialization of the 2026-01-31 fixture now yields 2026-01-31 instead of 2026-01-30.
+5. Undo rule (R3). Undo first compares only schedule state, classified from the receipt snapshot rather than the
+   current policy: a recurring receipt requires `attentionOn == nextAttentionOn`, `done == false` and, unless the
+   receipt predates anchors, the anchor to equal `nextAnchorDay`; a one-off receipt requires `done == true` and
+   `attentionOn == cycleAttentionOn`. `workflow_state` is not compared, so chained undo after an in-progress →
+   done → undo sequence still works. A mismatch returns `ErrCompletionSuperseded`, mapped to 409
+   `completion_superseded`. A legacy receipt (no cycle anchor) keeps a still-valid current anchor, otherwise it
+   recovers `day(cycleAttentionOn)`. `api/openapi.yaml` documents the new evaluation order and code, and
+   `TestUndoOverwritesAttentionEditedAfterCompletion` was replaced by tests that require the rejection.

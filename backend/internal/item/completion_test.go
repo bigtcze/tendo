@@ -291,13 +291,14 @@ func TestUndoThreeCompletionCyclesRestoresSnapshotsInReverse(t *testing.T) {
 		ids = append(ids, completion.ID)
 	}
 	row, _ := e.repo.Row(missingID)
-	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-06-28" || row.LastCompletedOn == nil || row.LastCompletedOn.String() != dates[2] {
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-06-30" || row.LastCompletedOn == nil || row.LastCompletedOn.String() != dates[2] ||
+		row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
 		t.Fatalf("three cycles did not advance: %+v", row)
 	}
 	if _, err := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, ids[0], row.Version); !errors.Is(err, item.ErrCompletionNotLatest) {
 		t.Fatalf("non-latest undo error=%v", err)
 	}
-	wantAttention := []string{"2026-01-31", "2026-02-28", "2026-04-28"}
+	wantAttention := []string{"2026-01-31", "2026-02-28", "2026-04-30"}
 	wantLast := []string{"", dates[0], dates[1]}
 	wantState := []item.WorkflowState{item.StateWaiting, item.StatePaused, item.StateInProgress}
 	for index := 2; index >= 0; index-- {
@@ -308,6 +309,9 @@ func TestUndoThreeCompletionCyclesRestoresSnapshotsInReverse(t *testing.T) {
 		row, _ = e.repo.Row(missingID)
 		if row.AttentionOn == nil || row.AttentionOn.String() != wantAttention[index] || row.WorkflowState != wantState[index] {
 			t.Fatalf("after undo cycle %d: %+v, want attention=%s state=%s", index+1, row, wantAttention[index], wantState[index])
+		}
+		if row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+			t.Fatalf("after undo cycle %d anchor=%v, want 31", index+1, row.AttentionAnchorDay)
 		}
 		if (row.LastCompletedOn == nil) != (wantLast[index] == "") || (row.LastCompletedOn != nil && row.LastCompletedOn.String() != wantLast[index]) {
 			t.Fatalf("after undo cycle %d last completed=%v want=%q", index+1, row.LastCompletedOn, wantLast[index])
@@ -325,6 +329,121 @@ func TestFluidYearlyCompletionAdvancesFromCompletionDate(t *testing.T) {
 	row, _ := e.repo.Row(missingID)
 	if row.AttentionOn == nil || row.AttentionOn.String() != "2027-03-10" || row.LastCompletedOn == nil || row.LastCompletedOn.String() != completedOn {
 		t.Fatalf("fluid yearly completion state=%+v", row)
+	}
+}
+
+// TestUndoChainedAfterInProgressCompletion proves chained undo across a manual
+// in_progress state and the resulting Done state still works, because superseded
+// detection compares schedule state only.
+func TestUndoChainedAfterInProgressCompletion(t *testing.T) {
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-04-05", item.Item{ID: missingID, AttentionOn: d("2026-01-31"), AttentionAnchorDay: ptr(31), Recurrence: policy, WorkflowState: item.StateInProgress})
+	first := "2026-02-01"
+	receipt, _, err := runCompletion(t, e, missingID, "in-progress", 1, &first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-02-28" || row.WorkflowState != item.StateOpen || row.Done {
+		t.Fatalf("completion state=%+v", row)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-01-31" || row.WorkflowState != item.StateInProgress || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+		t.Fatalf("undo state=%+v", row)
+	}
+	second := "2026-02-28"
+	if _, _, err = runCompletion(t, e, missingID, "in-progress-again", 3, &second); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-03-31" || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+		t.Fatalf("re-anchored state=%+v", row)
+	}
+}
+
+// TestUndoRestoresAnchorAcrossClampedMonths covers Jan 31 -> Feb 28 -> undo ->
+// Done again -> Mar 31: the anchor is restored by undo and preserved by the
+// engine instead of drifting with the clamped date.
+func TestUndoRestoresAnchorAcrossClampedMonths(t *testing.T) {
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-04-05", item.Item{ID: missingID, AttentionOn: d("2026-01-31"), AttentionAnchorDay: ptr(31), Recurrence: policy})
+	first := "2026-02-01"
+	receipt, _, err := runCompletion(t, e, missingID, "clamp-first", 1, &first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-02-28" || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+		t.Fatalf("clamped completion state=%+v", row)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-01-31" || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+		t.Fatalf("restored anchor=%+v", row)
+	}
+	second := "2026-02-28"
+	if _, _, err = runCompletion(t, e, missingID, "clamp-second", 3, &second); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-03-31" || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+		t.Fatalf("drifted after undo: %+v", row)
+	}
+}
+
+// TestUndoLegacyReceiptKeepsRecoveredAnchor covers a receipt written before
+// anchors existed: undo keeps the anchor recovered by migration 021 when it is
+// clamp-consistent for the restored cycle date.
+func TestUndoLegacyReceiptKeepsRecoveredAnchor(t *testing.T) {
+	const legacyReceiptID = "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b9a"
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-04-05", item.Item{ID: missingID, AttentionOn: d("2026-03-28"), AttentionAnchorDay: ptr(31), Recurrence: policy})
+	e.repo.SeedCompletion(item.Completion{
+		ID: legacyReceiptID, HouseholdID: householdID, ItemID: missingID,
+		CompletedOn: *d("2026-02-28"), CycleAttentionOn: d("2026-02-28"), NextAttentionOn: d("2026-03-28"),
+		Recurrence: policy, PriorWorkflowState: item.StateOpen, ItemVersionBefore: 1,
+	})
+	row, _ := e.repo.Row(missingID)
+	row.Version = 2
+	row.LastCompletedOn = d("2026-02-28")
+	e.repo.Seed(row)
+	if _, err := e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, legacyReceiptID, 2); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-02-28" || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 31 {
+		t.Fatalf("legacy undo state=%+v", row)
+	}
+	completed := "2026-03-28"
+	if _, _, err := runCompletion(t, e, missingID, "after-legacy", 3, &completed); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.repo.Row(missingID)
+	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-03-31" {
+		t.Fatalf("legacy anchor not restored: %+v", row)
+	}
+}
+
+// TestUndoOneOffRejectedAfterAttentionEdit covers the one-off branch of the
+// superseded rule: while a one-off item is done, editing its attention date
+// means undo no longer matches the receipt snapshot.
+func TestUndoOneOffRejectedAfterAttentionEdit(t *testing.T) {
+	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01")})
+	day := "2026-10-20"
+	receipt, _, err := runCompletion(t, e, missingID, "oneoff-edit", 1, &day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{AttentionOn: item.Some("2026-11-05")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 3); !errors.Is(err, item.ErrCompletionSuperseded) {
+		t.Fatalf("one-off undo after attention edit err=%v, want superseded", err)
 	}
 }
 
@@ -354,8 +473,8 @@ func TestUndoPreservesCurrentEditsExceptCycleSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	fluid := schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 2, Unit: schedule.UnitMonth}, Mode: schedule.ModeAfterCompletion}
-	title, notes, state, attention := "edited title", "edited notes", string(item.StatePaused), "2030-04-05"
-	_, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{Title: &title, Notes: item.Some(notes), WorkflowState: &state, AttentionOn: item.Some(attention), Recurrence: item.Some(fluid)})
+	title, notes, state := "edited title", "edited notes", string(item.StatePaused)
+	_, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{Title: &title, Notes: item.Some(notes), WorkflowState: &state, Recurrence: item.Some(fluid)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,12 +482,12 @@ func TestUndoPreservesCurrentEditsExceptCycleSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, _ := e.repo.Row(missingID)
-	if row.Title != title || row.Notes == nil || *row.Notes != notes || row.SubjectID != subjectID || row.Recurrence == nil || *row.Recurrence != fluid || row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.WorkflowState != item.StateWaiting || row.Done || row.Version != 4 {
+	if row.Title != title || row.Notes == nil || *row.Notes != notes || row.SubjectID != subjectID || row.Recurrence == nil || *row.Recurrence != fluid || row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.AttentionAnchorDay == nil || *row.AttentionAnchorDay != 1 || row.WorkflowState != item.StateWaiting || row.Done || row.Version != 4 {
 		t.Fatalf("undo did not preserve user edits/restore snapshot: %+v", row)
 	}
 }
 
-func TestUndoOverwritesAttentionEditedAfterCompletion(t *testing.T) {
+func TestUndoRejectsAttentionEditedAfterCompletion(t *testing.T) {
 	e := completionEnv("UTC", "2026-10-20", item.Item{ID: missingID, AttentionOn: d("2026-09-01"), Recurrence: &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitYear}, Mode: schedule.ModeFixed}, WorkflowState: item.StateWaiting})
 	day := "2026-10-20"
 	receipt, _, err := runCompletion(t, e, missingID, "attention-snapshot", 1, &day)
@@ -379,12 +498,37 @@ func TestUndoOverwritesAttentionEditedAfterCompletion(t *testing.T) {
 	if _, err = e.svc.Update(context.Background(), userID, householdID, missingID, 2, item.Patch{AttentionOn: item.Some(newAttention)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 3); err != nil {
-		t.Fatal(err)
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, 3); !errors.Is(err, item.ErrCompletionSuperseded) {
+		t.Fatalf("undo after attention edit err=%v, want superseded", err)
 	}
 	row, _ := e.repo.Row(missingID)
-	if row.AttentionOn == nil || row.AttentionOn.String() != "2026-09-01" || row.WorkflowState != item.StateWaiting || row.Done || row.Version != 4 {
-		t.Fatalf("attention snapshot not restored: %+v", row)
+	if row.AttentionOn == nil || row.AttentionOn.String() != newAttention || row.WorkflowState != item.StateOpen || row.Done || row.Version != 3 {
+		t.Fatalf("superseded undo mutated the item: %+v", row)
+	}
+	receipts, err := e.svc.ListCompletions(context.Background(), userID, householdID, missingID, 10, "", item.CompletionOrderOldest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts.Items) != 1 || receipts.Items[0].UndoneAt != nil {
+		t.Fatalf("superseded undo marked the receipt undone: %+v", receipts.Items)
+	}
+}
+
+func TestUndoRejectsAnchorEditedAfterCompletion(t *testing.T) {
+	policy := &schedule.Policy{Enabled: true, Interval: schedule.Interval{Value: 1, Unit: schedule.UnitMonth}, Mode: schedule.ModeFixed}
+	e := completionEnv("UTC", "2026-03-05", item.Item{ID: missingID, AttentionOn: d("2026-01-31"), AttentionAnchorDay: ptr(31), Recurrence: policy})
+	completedOn := "2026-03-01"
+	receipt, _, err := runCompletion(t, e, missingID, "anchor-edit", 1, &completedOn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-anchoring the same date through a different day is not a schedule
+	// change, but the stored anchor no longer matches the receipt snapshot.
+	row, _ := e.repo.Row(missingID)
+	row.AttentionAnchorDay = ptr(28)
+	e.repo.Seed(row)
+	if _, err = e.svc.UndoCompletion(context.Background(), userID, householdID, missingID, receipt.ID, receipt.ItemVersionBefore+1); !errors.Is(err, item.ErrCompletionSuperseded) {
+		t.Fatalf("undo after anchor edit err=%v, want superseded", err)
 	}
 }
 

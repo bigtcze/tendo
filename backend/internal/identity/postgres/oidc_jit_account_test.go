@@ -536,7 +536,7 @@ func TestOIDCJITMigrationFromVersion18(t *testing.T) {
 		t.Fatalf("existing account gained email data: %v/%v/%v/%v", email, emailVerified, emailSource, emailIssuer)
 	}
 	var dirty bool
-	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 20 || dirty {
+	if err := admin.QueryRow(ctx, `SELECT max(version),bool_or(dirty) FROM tendo_schema_migrations`).Scan(&version, &dirty); err != nil || version != 21 || dirty {
 		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 	}
 	// Constraint and grant coverage for the new schema.
