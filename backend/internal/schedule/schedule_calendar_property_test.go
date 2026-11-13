@@ -51,6 +51,8 @@ func forcedChainStarts() []Date {
 		referenceDate(2027, time.January, 30),
 		referenceDate(2027, time.January, 31),
 		referenceDate(2028, time.February, 29),
+		referenceDate(2099, time.December, 31),
+		referenceDate(2100, time.January, 31),
 		referenceDate(2100, time.February, 28),
 		referenceDate(2200, time.February, 28),
 		referenceDate(2300, time.February, 28),
@@ -78,6 +80,24 @@ func randomChainStarts(seed uint64) []Date {
 		starts = append(starts, referenceDate(year, month, day))
 	}
 	return starts
+}
+
+// explicitFixedStep computes the occurrence one interval after the current cycle
+// directly from the cycle month and its anchor day: month(current) + interval,
+// clamped once to the target month's last day. It is deliberately not derived from
+// fixedCycleOracle, so the early/exact single-occurrence rule has its own check.
+func explicitFixedStep(current Cycle, interval Interval) Cycle {
+	months := interval.Value
+	if interval.Unit == UnitYear {
+		months *= 12
+	}
+	total := current.On.Year()*12 + int(current.On.Month()) - 1 + months
+	year, month := total/12, time.Month(total%12+1)
+	day := current.AnchorDay
+	if last := lastDayOf(year, month); day > last {
+		day = last
+	}
+	return Cycle{On: referenceDate(year, month, day), AnchorDay: current.AnchorDay}
 }
 
 // chainOracleNext is the independent expectation for a single NextCycle step.
@@ -156,7 +176,7 @@ func assertChainStep(t *testing.T, label string, current Cycle, completion Date,
 		t.Fatalf("%s: clamped day %d want %d (anchor %d) at %s", label, got.On.Day(), wantDay, current.AnchorDay, got.On)
 	}
 	if completion.Compare(current.On) <= 0 {
-		one := chainOracleNext(current, current.On, policy)
+		one := explicitFixedStep(current, policy.Interval)
 		if *got != one {
 			t.Fatalf("%s: early/exact completion %s did not consume exactly the next occurrence: got %s anchor %d, want %s anchor %d",
 				label, completion, got.On, got.AnchorDay, one.On, one.AnchorDay)
