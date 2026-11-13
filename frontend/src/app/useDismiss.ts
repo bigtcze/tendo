@@ -33,6 +33,9 @@ export function useDismiss(open: boolean, close: () => void, root: RefObject<HTM
         if (!root.current?.contains(next)) close();
         return;
       }
+      // A control the page itself removed from a popover (the last "more" row, once its page arrived) sends focus
+      // nowhere. The page is about to hand focus to the reader's next place, so this is not the reader leaving.
+      if (!(event.target as Node | null)?.isConnected) return;
       if (pressedInside) pressedInside = false;
       else close();
     };

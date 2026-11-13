@@ -130,7 +130,7 @@ describe('signed out', () => {
 });
 
 describe('signed in', () => {
-  it('login posts exactly {login,password} then shows the household home with no switcher', async () => {
+  it('login posts exactly {login,password} then shows the household home with one membership and no switch rows', async () => {
     const fake = installFakeServer({
       'GET /api/v1/session': problem(401),
       'GET /api/v1/auth/setup': json(200, { required: false }),
@@ -247,7 +247,8 @@ describe('signed in', () => {
     const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
     const banner = screen.getByRole('banner');
     expect(banner).toHaveTextContent('Tendo');
-    // The bar names the active household without offering a switcher no endpoint supports yet.
+    // The bar names the active household; the switcher itself lives in the panel and lists only the caller's own
+    // memberships, which the household list endpoint now provides.
     const householdButton = await within(banner).findByRole('button', { name: 'Household: Veselí' });
     expect(householdButton).toHaveAttribute('aria-expanded', 'false');
     // The selector is a real 44 px box of its own, not a padded hit area around a smaller control.
@@ -289,6 +290,8 @@ describe('signed in', () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       [householdPath]: json(200, household),
+      // One membership: the panel is the selector it has always been, with nothing to switch to.
+      'GET /api/v1/households': json(200, { items: [household], nextCursor: null }),
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
@@ -301,6 +304,8 @@ describe('signed in', () => {
     expect(within(panel).getByText('Active household')).toBeVisible();
     // The same name is announced by the trigger; the panel repeats it once as the current row.
     expect(within(panel).getAllByText('Veselí')).toHaveLength(1);
+    await waitFor(() => expect(within(panel).queryByText('Loading your households…')).not.toBeInTheDocument());
+    expect(within(panel).queryAllByRole('button'), 'the only membership is not offered as a switch').toHaveLength(0);
     await userEvent.click(within(panel).getByRole('link', { name: 'Admin center' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Admin center' })).toHaveFocus();
     expect(window.location.pathname).toBe('/admin');
@@ -340,6 +345,7 @@ describe('signed in', () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       [householdPath]: json(200, household),
+      'GET /api/v1/households': json(200, { items: [household], nextCursor: null }),
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();

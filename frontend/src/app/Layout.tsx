@@ -76,10 +76,14 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
       <header className={HEADER}>
         <div className={HEADER_GROUP}>
           <BrandMark />
+          {/* The switch paints only once the household is known. A default that today's caller cannot reach cannot
+              occur: `user_default_membership_fk` keeps `default_household_id` pointing at one of their own
+              memberships. When membership removal lands, that work owes this bar a fallback to the membership list
+              instead of leaving it without a switcher (ADR 0015, "Consequences"). */}
           {readyHousehold && navigation ? (
             <>
               <span aria-hidden="true" className="hidden h-5 w-px shrink-0 bg-line sm:block" />
-              <HouseholdMenu name={readyHousehold.name} canManage={readyHousehold.viewerRole === 'admin'} />
+              <HouseholdMenu householdId={readyHousehold.id} name={readyHousehold.name} canManage={readyHousehold.viewerRole === 'admin'} />
             </>
           ) : null}
         </div>
