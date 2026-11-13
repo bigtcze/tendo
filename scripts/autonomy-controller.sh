@@ -34,6 +34,16 @@ set -u -o pipefail
 # inherited by children (8>&- 9>&-). The singleton lock prevents a second
 # controller; the legacy maintenance lock keeps the host maintenance
 # controller out while an autonomy session may be working.
+#
+# Logging: the controller's own `[autonomy]` lines are the only journal
+# output. Each session's stdout and stderr go by plain redirection (no pipe,
+# so `timeout` stays the process-group leader and its exit status is kept)
+# into private per-cycle files below CYCLE_LOG_DIR (directories 0700, files
+# 0600): <UTC start>-c<cycle>-p<controller pid>/{stdout.log,stderr.log,status}.
+# The journal gets only a short summary with the exit code, duration and the
+# diagnostics path, never the session's raw output. A session never starts
+# when its diagnostics cannot be created. Old cycle directories are pruned by
+# count, age and total size; the newest one is always kept.
 
 ROOT="${TENDO_ROOT:-/home/tomas/repositories/tendo}"
 IDLE_POLL_SECONDS="${IDLE_POLL_SECONDS:-300}"
@@ -52,6 +62,10 @@ GUARD_CHECK_TIMEOUT="${GUARD_CHECK_TIMEOUT:-120}"
 # Test-only bound: 0 (default) means unlimited.
 AUTONOMY_MAX_LOOPS="${AUTONOMY_MAX_LOOPS:-0}"
 GUARD_CHECK="${GUARD_CHECK:-auto}"
+CYCLE_LOG_DIR="${CYCLE_LOG_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/tendo-autonomy/cycles}"
+CYCLE_LOG_KEEP_COUNT="${CYCLE_LOG_KEEP_COUNT:-200}"
+CYCLE_LOG_MAX_AGE_DAYS="${CYCLE_LOG_MAX_AGE_DAYS:-30}"
+CYCLE_LOG_MAX_BYTES="${CYCLE_LOG_MAX_BYTES:-2147483648}"
 
 RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
 LOCK_FILE="${RUNTIME}/tendo-autonomous-${UID}.lock"
@@ -76,7 +90,19 @@ err() { printf '[autonomy] %s\n' "$*" >&2; }
 # fresh instance (Restart=on-failure) instead of polling/starting new work.
 fail_closed() {
   err "fail-closed: ${1}; exiting ${FAIL_CLOSED_EXIT} so the service manager cleans up the whole cgroup"
+  cycle_interrupted "fail-closed" "${FAIL_CLOSED_EXIT}"
   exit "${FAIL_CLOSED_EXIT}"
+}
+
+# cycle_interrupted <reason> <controller exit code>: the controller is leaving
+# while a cycle is in flight; keep the evidence and name it in the journal.
+# Defined before use; the per-cycle state it reads is initialised later.
+cycle_interrupted() {
+  [[ "${cycle_running:-0}" -eq 1 && -n "${cycle_log_dir:-}" ]] || return 0
+  cycle_running=0
+  printf '%s\n' "finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "interrupted=${1}" \
+    "controller_exit_code=${2}" >>"${cycle_log_dir}/status" 2>/dev/null || true
+  err "cycle ${cycle} interrupted (${1}); controller exit ${2}; diagnostics=${cycle_log_dir}"
 }
 
 require_int() {
@@ -114,7 +140,7 @@ cd "${ROOT}" 2>/dev/null || {
   exit 2
 }
 
-for tool in flock timeout git python3; do
+for tool in flock timeout git python3 du realpath; do
   command -v "${tool}" >/dev/null 2>&1 || {
     err "required tool not found: ${tool}"
     exit 2
@@ -144,6 +170,27 @@ require_int CYCLE_STOP_GRACE "${CYCLE_STOP_GRACE}" 1
 require_int CYCLE_DRAIN_TIMEOUT "${CYCLE_DRAIN_TIMEOUT}" 1
 require_int GUARD_CHECK_TIMEOUT "${GUARD_CHECK_TIMEOUT}" 1
 require_int AUTONOMY_MAX_LOOPS "${AUTONOMY_MAX_LOOPS}" 0
+require_int CYCLE_LOG_KEEP_COUNT "${CYCLE_LOG_KEEP_COUNT}" 1
+require_int CYCLE_LOG_MAX_AGE_DAYS "${CYCLE_LOG_MAX_AGE_DAYS}" 1
+require_int CYCLE_LOG_MAX_BYTES "${CYCLE_LOG_MAX_BYTES}" 1
+
+# Cycle logs must be persistent and private: an absolute path outside the
+# repository checkout (never committed or published) and outside the volatile
+# runtime directory.
+if [[ "${CYCLE_LOG_DIR}" != /* ]]; then
+  err "invalid CYCLE_LOG_DIR='${CYCLE_LOG_DIR}' (expected an absolute path)"
+  exit 2
+fi
+log_dir_real="$(realpath -m -- "${CYCLE_LOG_DIR}")"
+root_real="$(realpath -m -- "${ROOT}")"
+runtime_real="$(realpath -m -- "${XDG_RUNTIME_DIR:-/tmp}")"
+tmp_real="$(realpath -m -- "${TMPDIR:-/tmp}")"
+for forbidden in "${root_real}" "${runtime_real}" "${tmp_real}"; do
+  if [[ "${log_dir_real}" == "${forbidden}" || "${log_dir_real}" == "${forbidden}"/* ]]; then
+    err "invalid CYCLE_LOG_DIR='${CYCLE_LOG_DIR}' (must be outside ${forbidden})"
+    exit 2
+  fi
+done
 
 case "${GUARD_CHECK}" in
   1 | on | true) guard=1 ;;
@@ -194,7 +241,7 @@ if [[ "${guard}" -eq 1 ]]; then
 else
   guard_label=off
 fi
-log "controller started idle_poll=${IDLE_POLL_SECONDS}s opencode=$(basename "${OPENCODE_BIN}") guard=${guard_label}"
+log "controller started idle_poll=${IDLE_POLL_SECONDS}s opencode=$(basename "${OPENCODE_BIN}") guard=${guard_label} cycle_logs=${CYCLE_LOG_DIR}"
 
 child_pid=""
 child_group=0
@@ -305,6 +352,7 @@ on_signal() {
     # the remnant (KillMode=control-group) before any restart.
     err "shutdown: live cycle group members survived SIGKILL; leaving them to the service manager's cgroup cleanup"
   fi
+  cycle_interrupted "SIG${name}" $((number + 128))
   exit $((${number} + 128))
 }
 trap 'on_signal HUP 1' HUP
@@ -387,16 +435,129 @@ drain_group() {
   child_group=0
 }
 
+# --- private per-cycle diagnostics -------------------------------------------
+
+# private_dir <path>: create (or tighten) a directory only the controller user
+# can read. Refuses symlinks and directories owned by someone else.
+private_dir() {
+  local dir="$1"
+  (umask 077 && mkdir -p -- "${dir}") 2>/dev/null || return 1
+  [[ -d "${dir}" && ! -L "${dir}" && -O "${dir}" ]] || return 1
+  chmod 0700 -- "${dir}" 2>/dev/null
+}
+
+# file_bytes <file>: size in bytes, 0 when unreadable.
+file_bytes() {
+  local size
+  size="$(stat -c %s -- "$1" 2>/dev/null)" || size=0
+  printf '%s' "${size:-0}"
+}
+
+# prune_cycle_logs: bounded retention. Cycle directories are ordered newest
+# first by their UTC-stamped name; the newest is always kept, older ones are
+# removed beyond CYCLE_LOG_KEEP_COUNT, CYCLE_LOG_MAX_AGE_DAYS or a cumulative
+# CYCLE_LOG_MAX_BYTES. Only controller-named, non-symlink directories directly
+# inside CYCLE_LOG_DIR are ever removed. Failure is logged, never fatal.
+prune_cycle_logs() {
+  local entries=() dir index=0 total=0 bytes mtime now cutoff removed=0
+  [[ -d "${CYCLE_LOG_DIR}" && ! -L "${CYCLE_LOG_DIR}" ]] || return 0
+  for dir in "${CYCLE_LOG_DIR}"/[0-9]*T[0-9]*Z-c[0-9]*-p[0-9]*; do
+    [[ -d "${dir}" && ! -L "${dir}" ]] || continue
+    entries+=("${dir}")
+  done
+  ((${#entries[@]} > 0)) || return 0
+  now="$(date +%s)"
+  cutoff=$((now - CYCLE_LOG_MAX_AGE_DAYS * 86400))
+  while IFS= read -r dir; do
+    bytes="$(du -sb -- "${dir}" 2>/dev/null)" || bytes=0
+    bytes="${bytes%%[[:space:]]*}"
+    [[ "${bytes}" =~ ^[0-9]+$ ]] || bytes=0
+    total=$((total + bytes))
+    mtime="$(stat -c %Y -- "${dir}" 2>/dev/null)" || mtime="${now}"
+    if ((index > 0)) && ((index >= CYCLE_LOG_KEEP_COUNT || mtime < cutoff || total > CYCLE_LOG_MAX_BYTES)); then
+      if rm -rf -- "${dir}" 2>/dev/null; then
+        removed=$((removed + 1))
+      else
+        err "cycle log retention: cannot remove ${dir}"
+      fi
+      total=$((total - bytes))
+    fi
+    index=$((index + 1))
+  done < <(printf '%s\n' "${entries[@]}" | sort -r)
+  if ((removed > 0)); then
+    log "cycle log retention: removed ${removed} old cycle log director$( ((removed == 1)) && echo y || echo ies)"
+  fi
+  return 0
+}
+
+# prepare_cycle_logs: creates this cycle's private directory and empty 0600
+# files; sets cycle_log_dir. Returns 1 (nothing started) on any failure.
+prepare_cycle_logs() {
+  local dir file
+  cycle_log_dir=""
+  private_dir "${CYCLE_LOG_DIR}" || return 1
+  dir="${CYCLE_LOG_DIR}/$(date -u +%Y%m%dT%H%M%SZ)-c${cycle}-p$$"
+  (umask 077 && mkdir -m 0700 -- "${dir}") 2>/dev/null || return 1
+  for file in stdout.log stderr.log status; do
+    (umask 077 && : >"${dir}/${file}") 2>/dev/null || return 1
+    [[ -f "${dir}/${file}" && ! -L "${dir}/${file}" ]] || return 1
+    chmod 0600 -- "${dir}/${file}" 2>/dev/null || return 1
+  done
+  cycle_log_dir="${dir}"
+}
+
+# record_cycle_status <key=value>...: append to this cycle's status file.
+record_cycle_status() {
+  [[ -n "${cycle_log_dir}" ]] || return 1
+  printf '%s\n' "$@" >>"${cycle_log_dir}/status" 2>/dev/null
+}
+
+cycle_log_dir=""
+cycle_started=0
+cycle_running=0
+
 run_cycle() { # <prompt> <decision line>
-  local prompt="$1" decision="$2" rc
+  local prompt="$1" decision="$2" rc started finished duration
   cycle=$((cycle + 1))
+  cycle_started=0
+  if ! prepare_cycle_logs ||
+    ! record_cycle_status "cycle=${cycle}" "controller_pid=$$" \
+      "decision=${decision}" "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; then
+    # Never run a session whose output could not be preserved.
+    err "cycle ${cycle} not started: cannot create private diagnostics under ${CYCLE_LOG_DIR}"
+    return 1
+  fi
+  cycle_started=1
+  cycle_running=1
   log "cycle ${cycle} start: ${decision}"
-  run_child_group timeout --signal=TERM --kill-after="${CYCLE_KILL_AFTER}" "${CYCLE_TIMEOUT}" \
+  log "cycle ${cycle} diagnostics: ${cycle_log_dir}"
+  started="$(date +%s)"
+  # Plain redirection into the private files: `timeout` stays the background
+  # job and process-group leader, and its exit status is the cycle status.
+  run_capture_group "${cycle_log_dir}/stdout.log" "${cycle_log_dir}/stderr.log" \
+    timeout --signal=TERM --kill-after="${CYCLE_KILL_AFTER}" "${CYCLE_TIMEOUT}" \
     "${OPENCODE_BIN}" run --auto --agent orchestrator \
     --title "Tendo autonomy cycle ${cycle}" \
     "${prompt}"
   rc=$?
   drain_group "${last_pid}"
+  cycle_running=0
+  finished="$(date +%s)"
+  duration=$((finished - started))
+  if ! record_cycle_status "finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "duration_seconds=${duration}" "exit_code=${rc}"; then
+    err "cycle ${cycle} could not record its exit status in ${cycle_log_dir}/status"
+  fi
+  local summary
+  summary="cycle ${cycle} exit rc=${rc} duration=${duration}s"
+  summary+=" stdout=$(file_bytes "${cycle_log_dir}/stdout.log")B"
+  summary+=" stderr=$(file_bytes "${cycle_log_dir}/stderr.log")B diagnostics=${cycle_log_dir}"
+  if [[ "${rc}" -eq 0 ]]; then
+    log "${summary}"
+  else
+    err "${summary}"
+  fi
+  prune_cycle_logs
   return "${rc}"
 }
 
@@ -452,6 +613,10 @@ while :; do
     prompt+=$'\n'"${RECOVERY_DECISION}"
     run_cycle "${prompt}" "${RECOVERY_DECISION}"
     rc=$?
+    if [[ "${cycle_started}" -eq 0 ]]; then
+      cycle_failed
+      continue
+    fi
     case "${rc}" in
       0)
         log "cycle ${cycle} finished (wrapper recovery)"
@@ -563,6 +728,10 @@ while :; do
 
   run_cycle "${prompt}" "${first_line}"
   rc=$?
+  if [[ "${cycle_started}" -eq 0 ]]; then
+    cycle_failed
+    continue
+  fi
   case "${rc}" in
     0)
       log "cycle ${cycle} finished"
