@@ -1,6 +1,6 @@
 # ADR 0014: Administrator-issued local password reset links
 
-Status: accepted
+Status: accepted; amended by [ADR 0017](0017-password-reset-account-authority.md) (reset authority over the whole account)
 
 ## Context
 

@@ -135,6 +135,8 @@ func writePasswordResetError(w http.ResponseWriter, err error) {
 		httpx.ProblemResponse(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, identity.ErrCannotResetSelf):
 		httpx.ProblemResponse(w, http.StatusConflict, "cannot_reset_self")
+	case errors.Is(err, identity.ErrPasswordResetNotPermitted):
+		httpx.ProblemResponse(w, http.StatusConflict, "password_reset_not_permitted")
 	case errors.Is(err, identity.ErrNoLocalPassword):
 		httpx.ProblemResponse(w, http.StatusConflict, "no_local_password")
 	case errors.Is(err, security.ErrPasswordWorkLimit):

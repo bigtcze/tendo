@@ -100,6 +100,7 @@ func TestPasswordResetIssueAndRevokeHTTPContract(t *testing.T) {
 		{"not found", household.ErrNotFound, 404, "not_found"},
 		{"identity not found", identity.ErrNotFound, 404, "not_found"},
 		{"self", identity.ErrCannotResetSelf, 409, "cannot_reset_self"},
+		{"not permitted", identity.ErrPasswordResetNotPermitted, 409, "password_reset_not_permitted"},
 		{"no local password", identity.ErrNoLocalPassword, 409, "no_local_password"},
 		{"work limit", security.ErrPasswordWorkLimit, 429, "rate_limited"},
 		{"default", errors.New("boom"), 503, "unavailable"},

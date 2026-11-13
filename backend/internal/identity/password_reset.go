@@ -24,6 +24,11 @@ var (
 	// the admin path; a stolen admin session must not mint a new permanent
 	// credential.
 	ErrCannotResetSelf = errors.New("cannot reset self")
+	// ErrPasswordResetNotPermitted refuses a reset whose target belongs to a
+	// household the actor does not administer, or is an instance administrator
+	// while the actor is not. A reset replaces the global credential, so one
+	// household's admin role must not reach another household's member.
+	ErrPasswordResetNotPermitted = errors.New("password reset not permitted")
 	// ErrNoLocalPassword means the target signs in only through OIDC.
 	ErrNoLocalPassword = errors.New("no local password")
 	// ErrInvalidPasswordReset is the uniform answer for every unusable link:
@@ -60,6 +65,11 @@ type PasswordResetTransaction interface {
 	GetMembership(context.Context, string, string) (string, error)
 	FindUserLogin(context.Context, string) (string, error)
 	LockPasswordResetTarget(context.Context, string) (string, error)
+	// PasswordResetPermitted reports whether the actor (first argument) holds
+	// reset authority over the whole target account (second argument): admin of
+	// every household the target belongs to, and an instance administrator when
+	// the target is one.
+	PasswordResetPermitted(context.Context, string, string) (bool, error)
 	HasLocalCredential(context.Context, string) (bool, error)
 	RevokeOutstandingPasswordResetsForTarget(context.Context, string, time.Time) error
 	RevokeOutstandingPasswordResetsInHousehold(context.Context, string, string, time.Time) error
@@ -152,6 +162,13 @@ func (s *PasswordResetService) IssuePasswordReset(ctx context.Context, actorID, 
 		}
 		if _, e := tx.GetMembership(ctx, targetUserID, householdID); e != nil {
 			return e
+		}
+		permitted, e := tx.PasswordResetPermitted(ctx, actorID, targetUserID)
+		if e != nil {
+			return e
+		}
+		if !permitted {
+			return ErrPasswordResetNotPermitted
 		}
 		local, e := tx.HasLocalCredential(ctx, targetUserID)
 		if e != nil {
@@ -318,8 +335,9 @@ func passwordResetUsable(record PasswordResetRecord, now time.Time) bool {
 }
 
 // passwordResetAuthorization re-checks the facts that can change after the
-// link was issued: the target must still be a member and the issuer must still
-// be an admin of the same household.
+// link was issued: the target must still be a member, the issuer must still be
+// an admin of the same household, and the issuer must still hold reset
+// authority over every household the target belongs to.
 func passwordResetAuthorization(ctx context.Context, tx PasswordResetTransaction, record PasswordResetRecord) error {
 	role, err := tx.GetMembership(ctx, record.TargetUserID, record.HouseholdID)
 	if errors.Is(err, household.ErrNotFound) {
@@ -339,6 +357,16 @@ func passwordResetAuthorization(ctx context.Context, tx PasswordResetTransaction
 		return err
 	}
 	if issuerRole != household.RoleAdmin {
+		return ErrInvalidPasswordReset
+	}
+	// The target may have joined another household, or become an instance
+	// administrator, since the link was issued; the issuer must still hold
+	// authority over the whole account.
+	permitted, err := tx.PasswordResetPermitted(ctx, record.CreatedByUserID, record.TargetUserID)
+	if err != nil {
+		return err
+	}
+	if !permitted {
 		return ErrInvalidPasswordReset
 	}
 	return nil

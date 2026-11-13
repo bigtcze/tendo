@@ -46,3 +46,21 @@ SELECT target_user_id::text AS user_id, created_at, expires_at
 FROM password_reset_tokens
 WHERE household_id=$1 AND target_user_id = ANY($2::uuid[])
   AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $3;
+
+-- name: PasswordResetPermitted :one
+-- A reset replaces the target's global credential, so the actor must
+-- administer every household the target belongs to, and only an instance
+-- administrator may reset another instance administrator (ADR 0017).
+SELECT
+  NOT EXISTS (
+    SELECT 1 FROM household_memberships t
+    WHERE t.user_id = sqlc.arg(target_user_id)::uuid
+      AND NOT EXISTS (
+        SELECT 1 FROM household_memberships a
+        WHERE a.user_id = sqlc.arg(actor_user_id)::uuid AND a.household_id = t.household_id AND a.role = 'admin'
+      )
+  )
+  AND (
+    NOT EXISTS (SELECT 1 FROM instance_admins i WHERE i.user_id = sqlc.arg(target_user_id)::uuid)
+    OR EXISTS (SELECT 1 FROM instance_admins i WHERE i.user_id = sqlc.arg(actor_user_id)::uuid)
+  ) AS permitted;

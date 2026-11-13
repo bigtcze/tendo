@@ -293,6 +293,7 @@ export const en = {
   'admin.notice.resetCancelled': 'The reset link for {login} was cancelled.',
   'admin.error.resetSelf': 'You can’t reset your own password here. Use Account to change it.',
   'admin.error.resetNoPassword': '{login} signs in with single sign-on, so there’s no password to reset.',
+  'admin.error.resetNotPermitted': 'You can’t reset {login}’s password. They also belong to a household you don’t administer, or they administer this installation.',
   'admin.error.resetRateLimited': 'Too many reset links were created just now. Wait a little, then try again.',
   'admin.error.resetUnavailable': 'The reset link couldn’t be created. Check your connection and try again.',
   'admin.error.resetCancel': 'The reset link couldn’t be cancelled. Check your connection and try again.',

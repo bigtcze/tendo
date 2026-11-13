@@ -588,3 +588,100 @@ func containsPlanType(nodes []string, want string) bool {
 	}
 	return false
 }
+
+// TestSummaryIsolatesDualMemberHouseholds covers an actor who administers both
+// households: the summary of H2 counts only H2 items even though the same actor
+// owns visible H1 items, and the read never mutates either household.
+func TestSummaryIsolatesDualMemberHouseholds(t *testing.T) {
+	appURL, adminURL := integrationURLs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, app := pool(t, ctx, adminURL), pool(t, ctx, appURL)
+	if err := database.Migrate(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	reset := func() {
+		t.Helper()
+		c, cc := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cc()
+		if _, err := admin.Exec(c, `TRUNCATE user_accounts, household_memberships, households CASCADE; UPDATE installation_state SET setup_required=true`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reset()
+	defer reset()
+
+	var h1, h2, actor string
+	for _, q := range []struct {
+		sql string
+		dst *string
+	}{
+		{`INSERT INTO households(name,timezone) VALUES('summary dual home one','UTC') RETURNING id::text`, &h1},
+		{`INSERT INTO households(name,timezone) VALUES('summary dual home two','UTC') RETURNING id::text`, &h2},
+		{`INSERT INTO user_accounts(login) VALUES('summary_dual_actor') RETURNING id::text`, &actor},
+	} {
+		if err := admin.QueryRow(ctx, q.sql).Scan(q.dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO household_memberships(user_id,household_id,role) VALUES($1::uuid,$2::uuid,'admin'),($1::uuid,$3::uuid,'admin')`, actor, h1, h2); err != nil {
+		t.Fatal(err)
+	}
+	subject := func(house, name string) string {
+		t.Helper()
+		var id string
+		if err := admin.QueryRow(ctx, `INSERT INTO subjects(household_id,type,name) VALUES($1::uuid,'person',$2) RETURNING id::text`, house, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	s1, s2 := subject(h1, "dual summary one"), subject(h2, "dual summary two")
+	insert := func(house, sid, title string, archived, done bool) {
+		t.Helper()
+		if _, err := admin.Exec(ctx, `INSERT INTO items(household_id,subject_id,title,archived,done) VALUES($1::uuid,$2::uuid,$3,$4,$5)`, house, sid, title, archived, done); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(h1, s1, "h1 open", false, false)
+	insert(h1, s1, "h1 done", false, true)
+	insert(h1, s1, "h1 archived", true, false)
+	insert(h2, s2, "h2 open", false, false)
+	insert(h2, s2, "h2 done", false, true)
+
+	repo := NewRepository(app)
+	houses := func(_ context.Context, userID, householdID string) (string, error) {
+		var exists bool
+		if err := admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM household_memberships WHERE user_id=$1::uuid AND household_id=$2::uuid)`, userID, householdID).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", item.ErrNotFound
+		}
+		return "UTC", nil
+	}
+	svc := item.NewService(repo, houses, nil, nil, func() time.Time { return time.Date(2026, time.March, 2, 12, 0, 0, 0, time.UTC) })
+	today := mustTestDate(2026, time.March, 2)
+
+	if got := mustSummaryService(t, svc, ctx, actor, h1, item.SummaryQuery{}); got != (item.Summary{EvaluatedOn: today, SummaryCounts: item.SummaryCounts{Total: 3, NeedsAttention: 1, Done: 1, Archived: 1}}) {
+		t.Fatalf("H1 summary=%+v", got)
+	}
+	want := item.Summary{EvaluatedOn: today, SummaryCounts: item.SummaryCounts{Total: 2, NeedsAttention: 1, Done: 1}}
+	if got := mustSummaryService(t, svc, ctx, actor, h2, item.SummaryQuery{}); got != want {
+		t.Fatalf("H2 summary=%+v want=%+v; H1 items leaked into the count", got, want)
+	}
+
+	// The read is inert: no item version or lifecycle flag changed.
+	versions := func(house string) string {
+		t.Helper()
+		var state string
+		if err := admin.QueryRow(ctx, `SELECT coalesce(string_agg(version::text||':'||archived::text||':'||done::text,',' ORDER BY title),'') FROM items WHERE household_id=$1::uuid`, house).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	before1, before2 := versions(h1), versions(h2)
+	_ = mustSummaryService(t, svc, ctx, actor, h2, item.SummaryQuery{})
+	if versions(h1) != before1 || versions(h2) != before2 {
+		t.Fatalf("summary mutated items H1 %q -> %q, H2 %q -> %q", before1, versions(h1), before2, versions(h2))
+	}
+}

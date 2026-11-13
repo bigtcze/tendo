@@ -80,6 +80,8 @@ describe('adminApi', () => {
     await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'self' });
     refuse(409, 'no_local_password');
     await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'noLocalPassword' });
+    refuse(409, 'password_reset_not_permitted');
+    await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'notPermitted' });
     refuse(409, 'member_person_changed');
     await expect(issuePasswordReset(HOUSEHOLD_ID, 'u-1')).resolves.toEqual({ kind: 'rejected' });
     refuse(403, 'admin_required');

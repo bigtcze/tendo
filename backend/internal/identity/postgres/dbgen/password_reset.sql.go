@@ -239,6 +239,37 @@ func (q *Queries) OutstandingPasswordResetsByUserIDs(ctx context.Context, arg Ou
 	return items, nil
 }
 
+const passwordResetPermitted = `-- name: PasswordResetPermitted :one
+SELECT
+  NOT EXISTS (
+    SELECT 1 FROM household_memberships t
+    WHERE t.user_id = $1::uuid
+      AND NOT EXISTS (
+        SELECT 1 FROM household_memberships a
+        WHERE a.user_id = $2::uuid AND a.household_id = t.household_id AND a.role = 'admin'
+      )
+  )
+  AND (
+    NOT EXISTS (SELECT 1 FROM instance_admins i WHERE i.user_id = $1::uuid)
+    OR EXISTS (SELECT 1 FROM instance_admins i WHERE i.user_id = $2::uuid)
+  ) AS permitted
+`
+
+type PasswordResetPermittedParams struct {
+	TargetUserID pgtype.UUID
+	ActorUserID  pgtype.UUID
+}
+
+// A reset replaces the target's global credential, so the actor must
+// administer every household the target belongs to, and only an instance
+// administrator may reset another instance administrator (ADR 0017).
+func (q *Queries) PasswordResetPermitted(ctx context.Context, arg PasswordResetPermittedParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, passwordResetPermitted, arg.TargetUserID, arg.ActorUserID)
+	var permitted pgtype.Bool
+	err := row.Scan(&permitted)
+	return permitted, err
+}
+
 const revokeOutstandingPasswordResetsForTarget = `-- name: RevokeOutstandingPasswordResetsForTarget :execrows
 UPDATE password_reset_tokens SET revoked_at=$2
 WHERE target_user_id=$1 AND used_at IS NULL AND revoked_at IS NULL

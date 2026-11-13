@@ -126,6 +126,7 @@ type passwordResetTxStub struct {
 	record          PasswordResetRecord
 	updateRows      int64
 	sessionsDeleted bool
+	notPermitted    bool
 }
 
 func (s *passwordResetTxStub) RequireAdmin(context.Context, string, string) error { return nil }
@@ -140,6 +141,9 @@ func (s *passwordResetTxStub) FindUserLogin(context.Context, string) (string, er
 }
 func (s *passwordResetTxStub) LockPasswordResetTarget(context.Context, string) (string, error) {
 	return "target_login", nil
+}
+func (s *passwordResetTxStub) PasswordResetPermitted(context.Context, string, string) (bool, error) {
+	return !s.notPermitted, nil
 }
 func (s *passwordResetTxStub) HasLocalCredential(context.Context, string) (bool, error) {
 	return true, nil
@@ -201,5 +205,30 @@ func TestPasswordResetZeroRowCredentialUpdateRollsBack(t *testing.T) {
 	}
 	if tx.sessionsDeleted {
 		t.Fatal("sessions were deleted without a credential row")
+	}
+}
+
+// Losing reset authority over the whole account after issue voids the link
+// with the uniform invalid answer, before any credential or session write.
+func TestPasswordResetRedeemWithoutAccountAuthorityIsInvalid(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	record := PasswordResetRecord{
+		ID: "reset-id", HouseholdID: "house-id", TargetUserID: "target-id", CreatedByUserID: "issuer-id",
+		CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour),
+	}
+	tx := &passwordResetTxStub{record: record, updateRows: 1, notPermitted: true}
+	service, err := NewPasswordResetService(&passwordResetTxRepoStub{record: record, tx: tx}, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetPasswordHasher(func(string) (string, error) { return "hash:new", nil })
+	if _, err = service.RedeemPasswordReset(context.Background(), repeat("A", 43), "a long enough new password"); !errors.Is(err, ErrInvalidPasswordReset) {
+		t.Fatalf("redeem without account authority error=%v", err)
+	}
+	if tx.sessionsDeleted {
+		t.Fatal("sessions were deleted without reset authority")
+	}
+	if _, err = service.IssuePasswordReset(context.Background(), "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b60", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b61", "0198a2f0-7c1e-7a53-9b0e-5d3f2c1a4b62"); !errors.Is(err, ErrPasswordResetNotPermitted) {
+		t.Fatalf("issue without account authority error=%v", err)
 	}
 }

@@ -296,6 +296,7 @@ export const cs: Record<MessageKey, string> = {
   'admin.notice.resetCancelled': 'Odkaz pro obnovení hesla účtu {login} byl zrušen.',
   'admin.error.resetSelf': 'Tady své heslo obnovit nemůžete. Změňte ho v části Účet.',
   'admin.error.resetNoPassword': '{login} používá jednotné přihlášení, takže heslo nemá.',
+  'admin.error.resetNotPermitted': 'Heslo účtu {login} obnovit nemůžete. Patří i do domácnosti, kterou nespravujete, nebo spravuje tuto instalaci.',
   'admin.error.resetRateLimited': 'Odkazů pro obnovení hesla se právě vytvořilo příliš mnoho. Chvíli počkejte a zkuste to znovu.',
   'admin.error.resetUnavailable': 'Odkaz pro obnovení hesla se nepodařilo vytvořit. Zkontrolujte připojení a zkuste to znovu.',
   'admin.error.resetCancel': 'Odkaz pro obnovení hesla se nepodařilo zrušit. Zkontrolujte připojení a zkuste to znovu.',

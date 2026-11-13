@@ -508,7 +508,7 @@ paths:
               example: { login: bob }
         '400': { description: 'Malformed JSON, unknown or duplicate keys, missing or wrong-typed fields, or malformed trusted forwarded metadata.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Bad Request, status: 400, code: invalid_request } } } }
         '403': { description: 'Request Origin is missing, malformed, or foreign.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Forbidden, status: 403, code: forbidden_origin } } } }
-        '404': { description: 'The link is unusable: malformed, unknown, already used, revoked, expired, or its target or issuer is no longer authorized. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: invalid_password_reset } } } }
+        '404': { description: 'The link is unusable: malformed, unknown, already used, revoked, expired, or its target or issuer is no longer authorized, including an issuer who no longer administers every household of the target or a target who became an instance administrator. All cases are indistinguishable.', headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Not Found, status: 404, code: invalid_password_reset } } } }
         '413': { description: Request body exceeds 4 KiB., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Content Too Large, status: 413, code: content_too_large } } } }
         '415': { description: Unsupported request media type., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Unsupported Media Type, status: 415, code: unsupported_media_type } } } }
         '421': { description: Request authority does not match the configured public origin., headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' }, example: { type: 'about:blank', title: Misdirected Request, status: 421 } } } }
@@ -1245,7 +1245,7 @@ paths:
     post:
       operationId: issueHouseholdAccountPasswordReset
       summary: Issue a local-password reset link for a household member
-      description: 'Household admin only. The body is an empty object. The token is returned once and only its SHA-256 digest is stored. Issuing again revokes the previous outstanding link. The link shape is /reset-password#<token>: the fragment never reaches the server, a proxy, or the Referer. OIDC-only accounts return 409 no_local_password; an admin cannot reset their own password.'
+      description: 'Household admin only. The body is an empty object. The token is returned once and only its SHA-256 digest is stored. Issuing again revokes the previous outstanding link. The link shape is /reset-password#<token>: the fragment never reaches the server, a proxy, or the Referer. A reset replaces the account-wide credential, so the caller must administer every household the target belongs to, and only an instance administrator may reset another instance administrator; otherwise 409 password_reset_not_permitted (ADR 0017). OIDC-only accounts return 409 no_local_password; an admin cannot reset their own password.'
       tags: [Members]
       security: [{ SessionCookie: [] }]
       parameters:
@@ -1297,13 +1297,14 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               example: { type: 'about:blank', title: Not Found, status: 404, code: not_found }
         '409':
-          description: The target has no local password, or the caller targeted themselves.
+          description: The caller targeted themselves, the caller lacks reset authority over the whole account (the target also belongs to a household the caller does not administer, or is an instance administrator while the caller is not), or the target has no local password.
           headers: { X-Request-ID: { $ref: '#/components/headers/RequestId' }, Cache-Control: { $ref: '#/components/headers/NoStore' } }
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 self: { value: { type: 'about:blank', title: Conflict, status: 409, code: cannot_reset_self } }
+                notPermitted: { value: { type: 'about:blank', title: Conflict, status: 409, code: password_reset_not_permitted } }
                 oidcOnly: { value: { type: 'about:blank', title: Conflict, status: 409, code: no_local_password } }
         '413':
           description: Request body exceeds 4 KiB.
