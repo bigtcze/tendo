@@ -155,7 +155,7 @@ status,_,anon_list,_=call('GET','/api/v1/households',template='/api/v1/household
 assert status==401 and anon_list['code']=='unauthenticated',('list households without cookie',status,anon_list)
 status,_,bad_cursor,_=call('GET','/api/v1/households?cursor=h1bad',template='/api/v1/households',headers=cookie_header,sink=fixtures)
 assert status==400 and bad_cursor['code']=='invalid_query' and bad_cursor['parameter']=='cursor',('list households forged cursor',status,bad_cursor)
-status,_,foreign_default,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':random_id},headers={**cookie_header,'Origin':origin},sink=fixtures)
+status,_,foreign_default,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':other_id},headers={**cookie_header,'Origin':origin},sink=fixtures)
 assert status==422 and foreign_default['code']=='invalid_reference' and foreign_default['field']=='defaultHouseholdId',('patch session non-member household',status,foreign_default)
 assert psql("SELECT default_household_id FROM user_accounts WHERE login='owner_smoke'")==household,'rejected default selection persisted'
 status,_,foreign_origin,_=call('PATCH','/api/v1/session',template='/api/v1/session',body={'defaultHouseholdId':household},headers={**cookie_header,'Origin':'http://foreign.example'},sink=fixtures)
