@@ -16,14 +16,21 @@ function HistoryRow({ completion, t, locale }: { completion: Completion; t: Tran
   </li>;
 }
 
+/**
+ * Paged history controls. The list is newest first, so Newer/Older are the Previous/Next of this list and the
+ * current page is stated as text inside the navigation, announced politely when the page changes.
+ */
 function HistoryPaging({ history, t }: { history: ItemDetailHistoryState; t: Translate }) {
   const hasNewer = history.cursors.length > 1;
   if (!history.nextCursor && !hasNewer) return null;
-  return <div className="mt-3 flex flex-wrap gap-2">
+  return <nav aria-label={t('itemDetail.historyPages')} className="mt-3 flex flex-wrap items-center gap-2">
     {hasNewer ? <Button type="button" variant="quiet" onClick={history.newer}>{t('itemDetail.historyNewer')}</Button> : null}
+    <p role="status" aria-live="polite" className="px-1 text-small text-muted">
+      {t('itemDetail.historyPage', { page: String(history.cursors.length) })}
+    </p>
     {history.nextCursor ? <Button type="button" variant="quiet" onClick={history.older}>{t('itemDetail.historyOlder')}</Button> : null}
     {hasNewer ? <Button type="button" variant="quiet" onClick={history.latest}>{t('itemDetail.historyLatest')}</Button> : null}
-  </div>;
+  </nav>;
 }
 
 function HistoryBody({ history, t, locale }: { history: ItemDetailHistoryState; t: Translate; locale: string }) {

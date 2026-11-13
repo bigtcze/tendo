@@ -542,6 +542,8 @@ export const cs: Record<MessageKey, string> = {
   'itemDetail.historyOlder': 'Starší',
   'itemDetail.historyNewer': 'Novější',
   'itemDetail.historyLatest': 'Nejnovější',
+  'itemDetail.historyPages': 'Stránky historie',
+  'itemDetail.historyPage': 'Strana {page}',
   'itemDetail.lastDone': 'Naposledy hotovo {date}',
   'itemDetail.repeat.fixed': 'Plánované termíny zůstávají stejné.',
   'itemDetail.repeat.fluid': 'Další opakování se počítá od dokončení této položky.',

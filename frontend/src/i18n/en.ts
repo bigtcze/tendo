@@ -539,6 +539,8 @@ export const en = {
   'itemDetail.historyOlder': 'Older',
   'itemDetail.historyNewer': 'Newer',
   'itemDetail.historyLatest': 'Latest',
+  'itemDetail.historyPages': 'History pages',
+  'itemDetail.historyPage': 'Page {page}',
   'itemDetail.lastDone': 'Last done {date}',
   'itemDetail.repeat.fixed': 'Keeps the planned dates.',
   'itemDetail.repeat.fluid': 'The next repeat is counted from when you complete this.',

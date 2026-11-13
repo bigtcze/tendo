@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import { listCompletions, type Completion } from './itemsApi';
 
-const HISTORY_PAGE_SIZE = 25;
+const HISTORY_PAGE_SIZE = 20;
 
 type Options = {
   headingRef: RefObject<HTMLHeadingElement | null>; sectionRef: RefObject<HTMLElement | null>;
@@ -12,7 +12,7 @@ type Options = {
   liveToken: () => number;
 };
 
-/** Item history as replacement pages of 25, newest first, with a cursor stack for Older / Newer / Latest. */
+/** Item history as replacement pages of 20, newest first, with a cursor stack for Older / Newer / Latest. */
 export function useItemDetailHistory({ headingRef, sectionRef, householdId, itemId, onSignedOut, current, liveToken }: Options) {
   const [history, setHistory] = useState<Completion[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');

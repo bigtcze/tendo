@@ -75,15 +75,17 @@ describe('shell brand assets', () => {
 
   it('draws the brand tile in both browser themes from the accent tokens', () => {
     const svg = readPublic('/favicon.svg').toString('utf8');
-    const lower = svg.toLowerCase();
     // A 32-unit square tile keeps the glyph crisp at 16 and 32 px without relying on an external font.
     expect(svg).toMatch(/viewBox="0 0 32 32"/);
     expect(svg).not.toContain('<text');
     const darkRule = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{([\s\S]*)\}/i.exec(svg);
     expect(darkRule, 'a prefers-color-scheme dark rule').not.toBeNull();
-    const lightPart = lower.slice(0, svg.search(/@media/i));
-    expect(lightPart).toContain(designTokens.light.accent.toLowerCase());
-    expect(lightPart).toContain(designTokens.light.onAccent.toLowerCase());
+    // The default (light) declarations must hold outside the dark override, so a browser without dark support
+    // and the raster exports keep the light tile.
+    const defaultPart = svg.replace(darkRule![0], '').toLowerCase();
+    expect(defaultPart).toContain(designTokens.light.accent.toLowerCase());
+    expect(defaultPart).toContain(designTokens.light.onAccent.toLowerCase());
+    expect(defaultPart).not.toContain(designTokens.dark.accent);
     expect(darkRule![1].toLowerCase()).toContain(designTokens.dark.accent);
     expect(darkRule![1].toLowerCase()).toContain(designTokens.dark.onAccent);
   });

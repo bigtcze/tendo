@@ -35,6 +35,7 @@ Vite proxies `/api` and `/health` to `http://localhost:8080` and rewrites the `O
 - `src/components/ui`: shared primitives copied from shadcn/ui (MIT)
 - `src/fonts.css`: self-hosted Inter Variable faces (`@fontsource-variable/inter` 5.3.0, SIL OFL 1.1; latin + latin-ext, no CDN)
 - `public/fonts/INTER-OFL-LICENSE.txt`: canonical OFL text, copied into the production build at `/fonts/INTER-OFL-LICENSE.txt`
+- `public/favicon.svg`, `public/apple-touch-icon.png`, `public/icon-192.png`, `public/icon-512.png`, `public/manifest.webmanifest`: the brand tile and app icons linked from `index.html`
 - `src/i18n`: translations (`en.ts`, `cs.ts`) and the language provider
 - `src/lib`: the API client and small helpers
 - `src/test`: test setup and the fake server used by tests
@@ -46,6 +47,20 @@ Every user-visible string lives in `src/i18n`. Add each new key to both `en.ts` 
 ## API types
 
 The client in `src/lib/api.ts` is typed from `api/generated/api.d.ts`. Do not write API types by hand. After changing `api/openapi.yaml`, run `npm run generate` in `api/` and commit the generated output. The Docker build copies `api/generated/` into the frontend stage.
+
+## Brand assets
+
+`public/favicon.svg` is the only drawn source: the accent rounded-square tile with the house glyph from `src/app/BrandMark.tsx`. It carries a `prefers-color-scheme: dark` rule so the tab icon follows the browser theme, and it uses the accent/on-accent values from `src/designTokens.ts` (a test fails if the drawn colours and the tokens drift apart). `index.html` links it together with the Apple touch icon and the web app manifest.
+
+The PNG icons are exported from that SVG with `rsvg-convert`; regenerate them from `frontend/` after changing the SVG or the tokens:
+
+```sh
+rsvg-convert -w 180 -h 180 -b '#1a6a55' -o public/apple-touch-icon.png public/favicon.svg
+rsvg-convert -w 192 -h 192 -b '#1a6a55' -o public/icon-192.png public/favicon.svg
+rsvg-convert -w 512 -h 512 -b '#1a6a55' -o public/icon-512.png public/favicon.svg
+```
+
+`-b` paints the light tile colour behind the rounded corners, because Apple touch icons and the manifest icons must be opaque (`rsvg-convert` ignores the dark media rule and always exports the light variant). The manifest declares `display: browser`: Tendo is an ordinary web app, not an installable standalone app, and it registers no service worker.
 
 ## Checks
 

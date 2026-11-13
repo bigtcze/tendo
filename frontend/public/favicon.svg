@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Tendo">
+  <!-- The brand tile from src/app/BrandMark.tsx: a house glyph on the accent rounded square.
+       Browsers evaluate prefers-color-scheme inside SVG favicons, so the tab icon follows the browser theme.
+       The light tile is the default (also what rsvg-convert exports), the dark rule overrides it. -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #7ad3b6; }
+      .glyph { stroke: #0b211a; }
+    }
+  </style>
+  <rect class="tile" width="32" height="32" rx="7" fill="#1a6a55" />
+  <g class="glyph" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(4 4.5)">
+    <path d="M3.5 10.2 12 3.5l8.5 6.7" />
+    <path d="M5.5 9v10.5h13V9" />
+    <path d="M9.5 19v-5.5h5V19" />
+  </g>
+</svg>
