@@ -535,7 +535,7 @@ describe('item details', () => {
     window.history.replaceState(null, '', `/items/${itemId}`); app();
     expect(await screen.findByRole('heading', { name: 'That item is gone' })).toBeVisible();
     await userEvent.click(screen.getByRole('link', { name: /^Home$/ }));
-    expect(await screen.findByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeVisible();
     cleanup(); window.history.replaceState(null, '', '/items/not-an-id');
     const malformed = installFakeServer(baseRoutes); app();
     expect(await screen.findByRole('heading', { name: 'That item is gone' })).toBeVisible();
@@ -1187,6 +1187,6 @@ describe('item details', () => {
     expect(await screen.findByRole('heading', { name: 'Renew passport' })).toBeVisible();
     expect(screen.getByText('Naposledy hotovo 10. 10. 2025')).toBeVisible();
     window.history.back(); await waitFor(() => expect(window.location.pathname).toBe('/'));
-    expect(await screen.findByRole('heading', { name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Přehled' })).toBeVisible();
   });
 });

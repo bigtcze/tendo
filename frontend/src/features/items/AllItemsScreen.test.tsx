@@ -698,7 +698,7 @@ describe('All items', () => {
     await openAllItems([makeItem(1)]);
     window.history.pushState(null, '', '/');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    await screen.findByRole('heading', { name: 'Veselí' });
+    await screen.findByRole('heading', { name: 'Overview' });
     expect(window.location.pathname).toBe('/');
     expect(screen.queryByRole('heading', { name: 'All items' })).not.toBeInTheDocument();
   });

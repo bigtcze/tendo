@@ -1,38 +1,47 @@
 import { useContext, useRef, type ReactNode, type RefObject } from 'react';
 import { useI18n } from '../i18n';
 import { BrandMark } from './BrandMark';
+import { useHouseholdData } from './HouseholdData';
+import { HouseholdMenu } from './HouseholdMenu';
 import { HouseholdNavigation, HouseholdNavigationContext } from './HouseholdNavigation';
 import { LanguageSwitch } from './LanguageSwitch';
 
 /**
- * Shell variants. `household`: rail from `lg`, fixed bottom bar below it. `householdLess`: signed in without a
- * household — small inline navigation, no rail space. `centered`: signed out (sign-in, setup, invite, boot states).
+ * Shell variants. `household`: quiet sidebar from `lg`, fixed bottom bar below it. `householdLess`:
+ * signed in without a household — small inline navigation, no rail space. `centered`: signed out
+ * (sign-in, setup, invite, boot states).
  */
 type Shell = 'household' | 'householdLess' | 'centered';
 
 /**
  * Padding alone only clears the end of the page. When Tab scrolls a control into view, the browser also needs to
- * know the fixed bottom bar covers the viewport's last ~5rem, so every descendant reserves it as scroll margin.
- * Off where the bar is static (short viewports) or replaced by the rail (lg).
+ * know the fixed bottom bar covers the viewport's last ~5.5rem, so every descendant reserves it as scroll margin.
+ * Off where the bar is static (short viewports) or replaced by the sidebar (lg).
  */
-const KEEP_FOCUS_ABOVE_BAR = '[&_*]:scroll-mb-[calc(6rem+env(safe-area-inset-bottom))] short:[&_*]:scroll-mb-0 lg:[&_*]:scroll-mb-0';
+const KEEP_FOCUS_ABOVE_BAR = '[&_*]:scroll-mb-[calc(6.5rem+env(safe-area-inset-bottom))] short:[&_*]:scroll-mb-0 lg:[&_*]:scroll-mb-0';
 
 const FRAME: Record<Shell, string> = {
-  household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh flex-col lg:mx-auto lg:grid lg:w-full lg:max-w-[90rem]`
-    + ' lg:grid-cols-[14rem_minmax(0,1fr)] lg:grid-rows-[auto_1fr_auto]',
-  householdLess: 'mx-auto flex min-h-dvh max-w-3xl flex-col',
-  centered: 'mx-auto flex min-h-dvh w-full max-w-6xl flex-col',
+  household: `${KEEP_FOCUS_ABOVE_BAR} flex min-h-dvh flex-col`,
+  householdLess: 'flex min-h-dvh flex-col',
+  centered: 'flex min-h-dvh flex-col',
 };
-// The bar has a minimum height but never a fixed one: a wrapped identity block, a long login or the
-// sign-out failure message must grow the header instead of painting over main. `lg:py-0` keeps the
-// household bar at exactly 56 px in the normal case, because its 44 px account actions fit inside the
-// 56 px minimum; the same minimum keeps the signed-out and household-less bars at 56 px on phones.
-const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-raised px-5 py-2 sm:px-8 lg:py-0';
-const HEADER_HOUSEHOLD = 'lg:col-span-2 lg:px-8';
-const MAIN = 'w-full min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8';
-/** Bottom padding keeps the last content row clear of the fixed bar (bar height + safe area). */
-const MAIN_HOUSEHOLD = 'pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pb-[calc(6rem+env(safe-area-inset-bottom))] short:pb-6 lg:col-start-2 lg:row-start-2 lg:min-w-0 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
-const FOOTER = 'flex justify-end px-5 py-3 sm:px-8';
+/**
+ * The bar spans the whole viewport — never a centered frame — at every width and in every shell variant. It has a
+ * minimum height but never a fixed one: a long login or a sign-out failure must grow it instead of painting over
+ * main. Phones get 16 px side insets, desktops 24–32 px, so the bar's controls line up with the content edge.
+ */
+const HEADER = 'flex min-h-14 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-line bg-raised px-4 py-1.5 sm:px-6 lg:min-h-16 lg:px-8 xl:px-10';
+const HEADER_GROUP = 'flex min-w-0 flex-1 items-center gap-2 sm:gap-4';
+const BODY = 'flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start';
+const MAIN = 'w-full min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:pb-12 lg:pt-8 xl:px-10';
+/**
+ * Bottom padding keeps the last content clear of the fixed phone bar; the sidebar needs none, so `lg` falls back to
+ * the shared 48 px. MAIN's `sm:py-8` is declared after the base utilities, so the clearance must be repeated at `sm`
+ * too — otherwise the final row of a long list can sit behind the bar at max scroll.
+ */
+const MAIN_HOUSEHOLD = 'pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:pb-[calc(6.5rem+env(safe-area-inset-bottom))]'
+  + ' short:pb-6 lg:col-start-2 lg:row-start-1 lg:min-w-0';
+const FOOTER = 'flex justify-end px-4 py-3 sm:px-6 lg:px-8 xl:px-10';
 
 function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
   const { t } = useI18n();
@@ -47,19 +56,32 @@ function SkipLink({ target }: { target: RefObject<HTMLElement | null> }) {
 export function Layout({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
   const mainRef = useRef<HTMLElement>(null);
   const navigation = useContext(HouseholdNavigationContext);
+  const householdData = useHouseholdData();
   const shell: Shell = navigation?.household ? 'household' : navigation ? 'householdLess' : 'centered';
   const household = shell === 'household';
+  const readyHousehold = householdData?.data.kind === 'ready' ? householdData.data.household : null;
+
   return (
     <div className={FRAME[shell]}>
       <SkipLink target={mainRef} />
-      <header className={`${HEADER} ${household ? HEADER_HOUSEHOLD : ''}`}>
-        <BrandMark />
+      <header className={HEADER}>
+        <div className={HEADER_GROUP}>
+          <BrandMark />
+          {readyHousehold && navigation ? (
+            <>
+              <span aria-hidden="true" className="hidden h-5 w-px shrink-0 bg-line sm:block" />
+              <HouseholdMenu name={readyHousehold.name} canManage={readyHousehold.viewerRole === 'admin'} />
+            </>
+          ) : null}
+        </div>
         {actions}
       </header>
-      <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
-        {children}
-      </main>
-      {navigation ? <HouseholdNavigation rail={household} /> : null}
+      <div className={household ? BODY : 'contents'}>
+        <main id="main" ref={mainRef} tabIndex={-1} className={`${MAIN} ${household ? MAIN_HOUSEHOLD : ''}`}>
+          {children}
+        </main>
+        {navigation ? <HouseholdNavigation rail={household} /> : null}
+      </div>
       {/* Signed-in navigation carries Account, where the language choice lives. The footer switch is for signed-out paths. */}
       {navigation ? null : (
         <footer className={FOOTER}>

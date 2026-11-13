@@ -142,7 +142,7 @@ describe('signed in', () => {
     await userEvent.type(await screen.findByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(await screen.findByText('Nothing needs attention right now.')).toBeVisible();
 
     const post = fake.requests.find((r) => r.method === 'POST')!;
@@ -150,7 +150,7 @@ describe('signed in', () => {
     expect(JSON.parse(post.body)).toEqual({ login: 'anna', password: 'correct horse battery' });
     expect(fake.requests.some((r) => r.path === `/api/v1/households/${HOUSEHOLD_ID}`)).toBe(true);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toHaveFocus();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toHaveFocus();
     expect(screen.getByText('Signed in as anna')).toBeVisible();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
@@ -169,24 +169,28 @@ describe('signed in', () => {
     renderApp();
     const nav = await screen.findByRole('navigation', { name: 'Household navigation' });
     const currentHrefs = () => within(screen.getByRole('navigation', { name: 'Household navigation' })).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page').map((link) => link.getAttribute('href'));
-    // Admin center joins the rail once the household reports the viewer's role.
-    await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(6));
-    expect(within(nav).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/', '/items', '/people', '/members', '/account', '/admin']);
+    // Admin center joins the rail once the household reports the viewer's role; Archive is its own destination.
+    await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(7));
+    expect(within(nav).getAllByRole('link').map((link) => link.getAttribute('href')))
+      .toEqual(['/', '/items', '/items?status=archived', '/people', '/members', '/account', '/admin']);
     expect(screen.getAllByRole('navigation')).toHaveLength(1);
     expect(screen.getByRole('main').compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(currentHrefs()).toEqual(['/']);
     for (const [name, href, heading] of [
       ['All items', '/items', 'All items'],
+      ['Archive', '/items?status=archived', 'All items'],
       ['People and things', '/people', 'People and things'],
       ['Household members', '/members', 'Household members'],
       ['Your account', '/account', 'Your account'],
-      ['Home', '/', 'Veselí'],
+      ['Home', '/', 'Overview'],
     ] as const) {
       await userEvent.click(within(screen.getByRole('navigation', { name: 'Household navigation' })).getByRole('link', { name: new RegExp(`^${name}$`) }));
       expect(await screen.findByRole('heading', { level: 1, name: heading })).toHaveFocus();
-      expect(window.location.pathname).toBe(href);
+      expect(window.location.pathname + window.location.search).toBe(href);
       expect(currentHrefs()).toEqual([href]);
     }
+    // The archived filter decides which of the two lists is the current page.
+    expect(window.location.pathname + window.location.search).toBe('/');
   });
 
   it.each(['en', 'cs'] as const)('every visible navigation label is part of the link name (%s)', async (locale) => {
@@ -198,12 +202,15 @@ describe('signed in', () => {
     });
     renderApp();
     const nav = await screen.findByRole('navigation', { name: locale === 'cs' ? 'Navigace domácnosti' : 'Household navigation' });
-    await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(6));
+    await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(7));
     const links = within(nav).getAllByRole('link');
     for (const link of links) {
       const name = link.getAttribute('aria-label') ?? '';
       const labels = [...link.querySelectorAll('span')].map((span) => span.textContent?.trim() ?? '');
-      expect(labels.length, `${name} has a compact and a full label`).toBe(2);
+      // Destinations with a compact phone label carry two spans; the rest carry one. Every visible label must be
+      // part of the accessible name, so a short phone word never disagrees with what is announced.
+      expect(labels.length, `${name} shows at least one label`).toBeGreaterThan(0);
+      expect(labels.length, `${name} shows no more than a compact and a full label`).toBeLessThanOrEqual(2);
       for (const label of labels) {
         expect(label, `${name} label is not empty`).not.toBe('');
         expect(name.toLocaleLowerCase(locale), `${name} contains visible label ${label}`).toContain(label.toLocaleLowerCase(locale));
@@ -221,7 +228,7 @@ describe('signed in', () => {
       ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
     });
     renderApp();
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
     expect(screen.queryByRole('contentinfo'), 'a signed-in shell has no footer language switch').not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('link', { name: 'Your account' }));
     const main = await screen.findByRole('main');
@@ -230,7 +237,7 @@ describe('signed in', () => {
     expect(within(language).getByRole('button', { name: 'Čeština' })).toBeVisible();
   });
 
-  it('shows the workspace rail label, brand tagline, avatar initial and mobile account affordance', async () => {
+  it('shows the brand, the active household name and the account controls in the top bar', async () => {
     installFakeServer({
       'GET /api/v1/session': json(200, session()),
       [householdPath]: json(200, household),
@@ -238,14 +245,72 @@ describe('signed in', () => {
     });
     renderApp();
     const navigation = await screen.findByRole('navigation', { name: 'Household navigation' });
-    expect(screen.getByText('Workspace')).toBeVisible();
-    expect(screen.getByText('Home, handled.')).toBeVisible();
+    const banner = screen.getByRole('banner');
+    expect(banner).toHaveTextContent('Tendo');
+    // The bar names the active household without offering a switcher no endpoint supports yet.
+    const householdButton = await within(banner).findByRole('button', { name: 'Household: Veselí' });
+    expect(householdButton).toHaveAttribute('aria-expanded', 'false');
+    // The selector is a real 44 px box of its own, not a padded hit area around a smaller control.
+    expect(householdButton.className).toContain('min-h-11');
+    expect(within(banner).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(banner).queryByRole('searchbox')).not.toBeInTheDocument();
     expect(document.querySelector('[data-avatar]')).toHaveTextContent('A');
     expect(within(navigation).getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     const account = screen.getByRole('link', { name: 'Account settings' });
     expect(account).toHaveAttribute('href', '/account');
     await userEvent.click(account);
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toHaveFocus();
+  });
+
+  it('opens the household panel with the active household and the admin center for an administrator', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const button = await screen.findByRole('button', { name: 'Household: Veselí' });
+    const panel = document.getElementById(button.getAttribute('aria-controls')!)!;
+    expect(panel).not.toBeVisible();
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).toBeVisible();
+    expect(within(panel).getByText('Active household')).toBeVisible();
+    // The same name is announced by the trigger; the panel repeats it once as the current row.
+    expect(within(panel).getAllByText('Veselí')).toHaveLength(1);
+    await userEvent.click(within(panel).getByRole('link', { name: 'Members and access' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Admin center' })).toHaveFocus();
+    expect(window.location.pathname).toBe('/admin');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Household: Veselí' })).toHaveAttribute('aria-expanded', 'false'));
+  });
+
+  it('reaches Archive, Members and the admin center from the phone More sheet', async () => {
+    installFakeServer({
+      'GET /api/v1/session': json(200, session()),
+      [householdPath]: json(200, household),
+      [`GET /api/v1/households/${HOUSEHOLD_ID}/accounts`]: json(200, { items: [], nextCursor: null }),
+      ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
+    });
+    renderApp();
+    const nav = () => screen.getByRole('navigation', { name: 'Household navigation' });
+    const more = () => within(nav()).getByRole('button', { name: 'More' });
+    const sheet = () => document.getElementById(more().getAttribute('aria-controls')!)!;
+    await waitFor(() => expect(within(nav()).getAllByRole('link')).toHaveLength(7));
+    expect(more()).toHaveAttribute('aria-expanded', 'false');
+    // A closed sheet holds no links, so nothing off screen can be tabbed into.
+    expect(sheet().querySelectorAll('a')).toHaveLength(0);
+    await userEvent.click(more());
+    expect(more()).toHaveAttribute('aria-expanded', 'true');
+    expect(within(sheet()).getByRole('link', { name: 'Archive' })).toHaveAttribute('href', '/items?status=archived');
+    expect(within(sheet()).getByRole('link', { name: 'Household members' })).toHaveAttribute('href', '/members');
+    expect(within(sheet()).getByRole('link', { name: 'Admin center' })).toHaveAttribute('href', '/admin');
+    await userEvent.click(within(sheet()).getByRole('link', { name: 'Archive' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'All items' })).toHaveFocus();
+    expect(window.location.pathname + window.location.search).toBe('/items?status=archived');
+    // Navigating closes the sheet, so Archive stays one tap away without hiding the page behind a panel.
+    await waitFor(() => expect(more()).toHaveAttribute('aria-expanded', 'false'));
+    expect(sheet().querySelectorAll('a')).toHaveLength(0);
+    expect(within(nav()).getByRole('link', { name: 'Archive' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('shared navigation and popstate restore the prior route and focus', async () => {
@@ -302,7 +367,7 @@ describe('signed in', () => {
       [householdPath]: json(200, household),
     });
     renderApp();
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(document.body).toHaveFocus();
     expect(screen.getByRole('banner')).toHaveTextContent('Tendo');
     expect(screen.getByRole('main')).toBeInTheDocument();
@@ -348,7 +413,7 @@ describe('signed in', () => {
         ...itemRoutes(`/api/v1/households/${HOUSEHOLD_ID}`, []),
         [householdPath]: json(200, household),
       }),
-      ready: () => screen.findByRole('heading', { level: 1, name: 'Veselí' }),
+      ready: () => screen.findByRole('heading', { level: 1, name: 'Overview' }),
     },
     {
       shell: 'household without a membership',
@@ -405,7 +470,7 @@ describe('signed in', () => {
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign you out. Try again.');
-    expect(screen.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   });
 
   it('401 on household fetch explains the ended session, then deliberate sign out has no notice', async () => {
@@ -423,11 +488,11 @@ describe('signed in', () => {
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toHaveFocus();
     expect(screen.getByRole('status')).toHaveTextContent('You were signed out. Sign in again to continue. Saved changes are kept.');
-    expect(screen.queryByRole('heading', { name: 'Veselí' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Overview' })).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Username'), 'anna');
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery{Enter}');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeVisible();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
@@ -469,7 +534,7 @@ describe('signed in', () => {
     });
     renderApp();
     await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   });
 });
 

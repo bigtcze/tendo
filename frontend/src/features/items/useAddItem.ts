@@ -106,6 +106,7 @@ export function useAddItem(options: AddItemOptions) {
     retryDraft: recoveryEditable && !createUncertain ? pendingValues : undefined,
     recoverySubjects: recoveryCatalogue(recoveryTarget, catalogue.activeSubjects, labelNames, t('items.subject.unknown')),
     returnFocusRef, openAddForm, cancelAddForm, create,
+    dismissCreateNotice: recovery.dismissNotice,
     cancelForPeople() { cancelAddForm(); addRef.current?.focus(); },
   };
 }

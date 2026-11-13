@@ -23,7 +23,7 @@ describe('invitation acceptance', () => {
     expect(screen.queryByRole('navigation', { name: 'Household navigation' })).toBeNull();
     await waitFor(() => { expect(location.pathname).toBe('/invite'); expect(location.hash).toBe(''); });
     await userEvent.type(screen.getByLabelText('Login'), 'newuser'); await userEvent.type(screen.getByLabelText('Password'), 'a sufficiently long password'); await userEvent.click(screen.getByRole('button', { name: 'Create account and join' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     const accept = fake.requests.find((r) => r.method === 'POST' && r.path === '/api/v1/auth/invitations/accept')!;
     expect(JSON.parse(accept.body)).toEqual({ token, login: 'newuser', password: 'a sufficiently long password' });
     const login = fake.requests.find((r) => r.method === 'POST' && r.path === '/api/v1/session')!; expect(JSON.parse(login.body)).toEqual({ login: 'newuser', password: 'a sufficiently long password' });
@@ -195,7 +195,7 @@ describe('invitation acceptance', () => {
     expect(await screen.findByRole('button', { name: 'Join household' })).toBeVisible();
     expect(screen.getByText('Join the household to share its people, things and plans. You’ll return to the household when you’re done.')).toBeVisible();
     expect(screen.queryByRole('navigation', { name: 'Household navigation' })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: 'Join household' })); expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Join household' })); expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     const acceptIndex = fake.requests.findIndex((r) => r.method === 'POST' && r.path === '/api/v1/invitations/accept');
     const sessionReadsAfterAccept = fake.requests.map((r, index) => ({ r, index })).filter(({ r, index }) => index > acceptIndex && r.method === 'GET' && r.path === '/api/v1/session');
     expect(sessionReadsAfterAccept).toHaveLength(1);
@@ -210,7 +210,7 @@ describe('invitation acceptance', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Join household' }));
     expect(await screen.findByRole('status')).toHaveTextContent('You’ve joined the household, but Tendo couldn’t load it yet.');
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(fake.requests.filter((r) => r.method === 'POST' && r.path === '/api/v1/invitations/accept')).toHaveLength(1);
     expect(fake.requests.filter((r) => r.method === 'GET' && r.path === '/api/v1/session')).toHaveLength(3);
   });

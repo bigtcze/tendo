@@ -26,6 +26,15 @@ const routeMetrics: Record<string, CaptureMetrics> = {};
 const journeyMetrics: Record<string, import('./audit/journeys').JourneyResult> = {};
 const shownInviteTokens: string[] = [];
 
+/** Archive, Members and the Admin center open from the phone More sheet; wider layouts show them in the rail. */
+async function openNavDestination(page: Page, name: string) {
+  const nav = page.getByRole('navigation', { name: en['nav.label'] });
+  const link = nav.getByRole('link', { name, exact: true });
+  if (await link.isVisible()) { await link.click(); return; }
+  await nav.getByRole('button', { name: en['nav.more'], exact: true }).click();
+  await nav.getByRole('link', { name, exact: true }).click();
+}
+
 async function capture(page: Page, path: string, fullPage = true, mask: Locator[] = []) {
   const width = page.viewportSize()?.width;
   if (!width) throw new Error(`Capture requires a viewport: ${path}`);
@@ -63,9 +72,6 @@ async function capture(page: Page, path: string, fullPage = true, mask: Locator[
   if (captureFocus) await captureFocus.focus();
   routeMetrics[file] = await measureCapture(page, resultSelector);
   if (captureFocus) await captureFocus.focus();
-  // measureCapture tabs through the overview; capture it in its pristine, unscrolled state.
-  const overview = page.locator(`main nav[aria-label="${en['items.group.overview']}"], main nav[aria-label="${cs['items.group.overview']}"]`);
-  if (await overview.count()) await overview.evaluate((nav) => { nav.scrollLeft = 0; });
   // Measurement tabs through page content; restore viewport captures to the intended position afterwards.
   if (file === 'audit-all-items-cs-320-active-filter.png') {
     await page.getByRole('heading', { level: 1, name: cs['allItems.title'] }).scrollIntoViewIfNeeded();
@@ -98,7 +104,7 @@ async function captureShell(page: Page) {
   for (const [width, height, expected] of [[320, 640, 'fixed'], [390, 844, 'fixed'], [768, 1024, 'fixed'], [640, 360, 'static'], [1024, 768, 'sticky'], [1440, 900, 'sticky']] as const) {
     await page.setViewportSize({ width, height });
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
     await expect(page.locator('main li[data-item-id]').first(), `loaded Home rows at ${width}x${height}`).toBeVisible();
     evidence[`${width}x${height}`] = await nav.evaluate((element) => getComputedStyle(element).position);
     expect(evidence[`${width}x${height}`], `household navigation presentation at ${width}x${height}`).toBe(expected);
@@ -163,13 +169,13 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   await page.setViewportSize({ width: 390, height: 844 });
   const setupRecorder = new JourneyRecorder(); setupRecorder.start();
   journeyMetrics['J9 first-run setup 390x844'] = await runFirstRunSetup(page, process.env.E2E_SETUP_TOKEN!, process.env.E2E_OWNER_PASSWORD!, setupRecorder);
-  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
   for (const width of [320, 360, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await capture(page, join(dir, `home-after-setup-en-${width}.png`));
     if (width === 390) {
       await applySavedDarkPreference(page);
-      await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
       await capture(page, join(dir, 'home-empty-dark-en-390.png'));
       await applySystemAppearance(page);
     }
@@ -189,7 +195,7 @@ function rng(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525
   await capturePeopleMemberOnly(page, browser, dir, capture);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
   const invite = await api(page, 'post', `${root}/invitations`, {}, { 'Idempotency-Key': key() });
   expect(invite.status(), 'create member invitation').toBe(201);
   const invitation = await invite.json() as { token: string };
@@ -890,7 +896,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
           await capture(offlinePage, join(dir, 'audit-home-server-error-en-390.png')); await offlineContext.close();
         }
         await page.goto('/');
-        await page.getByRole('navigation', { name: en['nav.label'] }).getByRole('link', { name: en['home.members'], exact: true }).click();
+        await openNavDestination(page, en['home.members']);
         await expect(page.getByRole('heading', { name: en['members.title'] })).toBeVisible();
         await expect(page.getByText(en['members.loading'], { exact: true })).toHaveCount(0);
         await expect(page.getByRole('main').getByText(`audit_owner (${en['members.you']})`, { exact: true })).toBeVisible();
@@ -908,7 +914,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('audit_member');
         await memberPage.getByLabel(en['login.password'], { exact: true }).fill('audit-member-password-long-enough');
         await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-        await expect(memberPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expect(memberPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
         await memberPage.goto('/members'); await expect(memberPage.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.list.title'] }).getByRole('list', { name: en['members.list.title'] }).getByRole('listitem').first()).toBeVisible();
         await expect(memberPage.getByRole('main').getByRole('region', { name: en['members.help.title'] }).getByRole('heading', { name: en['members.help.title'] })).toBeVisible();
@@ -974,9 +980,9 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await expect.poll(async () => (await row.isVisible().catch(() => false)) || (await empty.isVisible().catch(() => false)), { timeout: 10_000 }).toBe(true);
       const timeToContentMs = Date.now() - started;
       await targetPage.waitForLoadState('networkidle');
-      const overview = targetPage.getByRole('main').getByRole('navigation', { name: (locale === 'cs' ? cs : en)['items.group.overview'] });
+      const groupHeading = targetPage.locator('main [data-home-layout="list"] section[id^="group-"] [data-group-heading]').first();
       if (stage === 'empty') await expect(targetPage.getByRole('main').getByRole('button', { name: (locale === 'cs' ? cs : en)['items.add'], exact: true })).toBeVisible();
-      if (stage === '1200') await expect(overview).toBeVisible();
+      if (stage === '1200') await expect(groupHeading).toBeVisible();
       const actualViewport = targetPage.viewportSize();
       const innerWidth = await targetPage.evaluate(() => window.innerWidth);
       expect(innerWidth, `${locale} viewport width`).toBe(width);
@@ -989,7 +995,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       // V4-17: the initial 1200-item Home (five groups of 25 rows) stays below the V2-era DOM budget.
       if (stage === '1200') expect(observed.dom, `initial 1200-item Home DOM elements (${locale} ${width}px)`).toBeLessThan(3000);
       if (stage === '100') {
-        await expect(overview, `100-item overview is visible (${locale} ${width}px)`).toBeVisible();
+        await expect(groupHeading, `100-item group heading is visible (${locale} ${width}px)`).toBeVisible();
         const renderedGroups = await targetPage.locator('main section[id^="group-"] ul').evaluateAll((lists) =>
           lists.map((list) => list.querySelectorAll(':scope > li[data-item-id]').length),
         );
@@ -1007,7 +1013,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await capture(targetPage, join(dir, `${file}-fold.png`), false);
       if (stage === '1200' && locale === 'en') {
         await applySavedDarkPreference(targetPage);
-        await expect(targetPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expect(targetPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
         await capture(targetPage, join(dir, `home-1200-en-${width}-dark.png`), false);
         await applySystemAppearance(targetPage);
       }
@@ -1018,7 +1024,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await darkCsHome.goto('/');
         await darkCsHome.evaluate(() => { localStorage.setItem('tendo.locale', 'cs'); localStorage.setItem('tendo.theme', 'dark'); });
         await darkCsHome.reload();
-        await expect(darkCsHome.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expect(darkCsHome.getByRole('heading', { level: 1, name: cs['home.overview'] })).toBeVisible();
         await capture(darkCsHome, join(dir, 'home-1200-cs-390-dark.png'), false);
         await darkCsHomeContext.close();
       }
@@ -1060,34 +1066,28 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         await expect(page.locator('main a[data-group-all]')).toHaveCount(expectedSeeAllLinks);
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).showMoreClicks = clickMetrics;
         (metrics.stages[`1200-en-${width}`] as Record<string, unknown>).seeAllLinks = await page.locator('main a[data-group-all]').evaluateAll(links => links.map(link => ({ group: link.getAttribute('data-group-all'), label: link.textContent?.trim() })));
-        // Home fills the main column at every width; groups share one left edge and rows use aligned grid columns.
-        const stack = await page.locator('main [data-home-layout="wide"]').evaluate((element) => {
+        // Home fills the main column at every width; groups share one left edge and rows share one completion box edge.
+        const stack = await page.locator('main [data-home-layout="list"]').evaluate((element) => {
           const main = document.querySelector('main')!.getBoundingClientRect();
-          const row = element.querySelector('li[data-item-id]');
+          const rows = [...element.querySelectorAll('li[data-item-id]')];
+          const rounded = (value: number) => Math.round(value);
           return {
             width: element.getBoundingClientRect().width,
             mainWidth: main.width,
-            lefts: [...element.querySelectorAll(':scope > section')].map((section) => Math.round(section.getBoundingClientRect().left)),
-            rowColumns: row ? getComputedStyle(row).gridTemplateColumns.split(' ').length : 0,
+            lefts: [...element.querySelectorAll(':scope > section')].map((section) => rounded(section.getBoundingClientRect().left)),
+            doneLefts: [...new Set(rows.map((row) => rounded(row.querySelector('[data-action="done"]')!.getBoundingClientRect().left)))],
+            titleLefts: [...new Set(rows.map((row) => rounded(row.querySelector('a')!.getBoundingClientRect().left)))],
+            shortestRow: Math.min(...rows.map((row) => rounded(row.getBoundingClientRect().height))),
           };
         });
         expect(stack.width, `Home fills the main column at ${width}px`).toBeGreaterThanOrEqual(stack.mainWidth - 80);
         if (width === 1440) expect(stack.width, `Home uses desktop width at ${width}px`).toBeGreaterThanOrEqual(900);
         expect(new Set(stack.lefts).size, `Home groups share one left edge at ${width}px`).toBe(1);
-        // Desktop: tile, title/meta, subject pill, status, Done (V4-17 gives the pill its own column); phone: tile, content, Done.
-        expect(stack.rowColumns, `Home row grid columns at ${width}px`).toBe(width === 1440 ? 5 : 3);
-        // Each overview chip's 2px outline + 2px offset must stay inside the horizontally clipped nav when focused.
-        const overviewNav = page.getByRole('main').getByRole('navigation', { name: en['items.group.overview'] });
-        for (const link of await overviewNav.getByRole('link').all()) {
-          await link.focus();
-          await expect.poll(async () => link.evaluate((element) => {
-            const nav = element.closest('nav')!.getBoundingClientRect();
-            const rect = element.getBoundingClientRect();
-            return rect.left - 4 >= nav.left - 0.5 && rect.right + 4 <= nav.right + 0.5 && rect.top - 4 >= nav.top - 0.5 && rect.bottom + 4 <= nav.bottom + 0.5;
-          }), `overview focus ring fits inside the nav at ${width}px`).toBe(true);
-        }
+        // Desktop and phone share one row order: completion box, then the title and its single metadata line.
+        expect(stack.doneLefts, `Home rows share one completion box edge at ${width}px`).toHaveLength(1);
+        expect(stack.titleLefts, `Home rows share one title edge at ${width}px`).toHaveLength(1);
+        expect(stack.shortestRow, `every Home row keeps a 44 px completion box at ${width}px`).toBeGreaterThanOrEqual(44);
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-        await overviewNav.evaluate((nav) => { nav.scrollLeft = 0; });
         await capture(page, join(dir, `home-1200-en-${width}-expanded.png`), false);
         if (width === 1440) {
           await applySavedDarkPreference(page);
@@ -1101,7 +1101,7 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
       await darkContext.addCookies(await page.context().cookies());
       const darkPage = await darkContext.newPage();
       await darkPage.goto('/');
-      await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+      await expect(darkPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
       await darkPage.waitForLoadState('networkidle');
       await capture(darkPage, join(dir, 'home-1200-en-390-dark-scheme.png'));
       metrics.stages.darkMode = {
@@ -1109,13 +1109,13 @@ Třetí odstavec obsahuje další důležité podrobnosti, které mají zůstat 
         resolvedBackground: await darkPage.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
         dataTheme: await darkPage.locator('html').getAttribute('data-theme'),
       };
-      expect(metrics.stages.darkMode.resolvedBackground, 'System follows the emulated dark device').toBe('rgb(15, 26, 36)');
+      expect(metrics.stages.darkMode.resolvedBackground, 'System follows the emulated dark device').toBe('rgb(23, 22, 20)');
       expect(metrics.stages.darkMode.dataTheme, 'System leaves the explicit preference unset').toBeNull();
       for (const width of [390, 1440]) {
         await darkPage.setViewportSize({ width, height: 900 });
         await expect(darkPage.evaluate(() => window.innerWidth)).resolves.toBe(width);
         await applySavedDarkPreference(darkPage);
-        await expect(darkPage.getByRole('heading', { level: 1, name: 'Audit household' })).toBeVisible();
+        await expect(darkPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
         await capture(darkPage, join(dir, `home-1200-en-${width}-dark.png`), false);
         await applySystemAppearance(darkPage);
       }

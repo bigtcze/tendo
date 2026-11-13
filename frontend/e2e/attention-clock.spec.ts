@@ -30,7 +30,7 @@ test('future one-off item crosses midnight into needs attention', async ({ page 
   await page.getByLabel(en['login.login']).fill('owner_e2e');
   await page.getByLabel(en['login.password']).fill(ownerPassword);
   await page.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
   const session = await page.request.get('/api/v1/session');
   expect(session.status()).toBe(200);
   const householdId = (await session.json() as { defaultHouseholdId: string }).defaultHouseholdId;

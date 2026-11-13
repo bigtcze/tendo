@@ -10,7 +10,6 @@ import type { Notice } from './HomeOverview';
 import { HomeGroupList } from './HomeGroupList';
 import { HomeHeader } from './HomeHeader';
 import { ItemsNoticeArea, SubjectLabelRetry } from './HomeOverview';
-import { HomeStatusPills } from './HomeStatusPills';
 import { HomeEmptyState, HomeLoadState } from './HomeStates';
 import { useHomeItems } from './useHomeItems';
 import { useHomeMembers } from './useHomeMembers';
@@ -26,7 +25,6 @@ export { HOME_GROUP_ROW_CAP };
 type ItemsScreenProps = {
   userId: string;
   householdId: string;
-  householdName: string;
   onOpenPeople: () => void;
   onOpenItem: (itemId: string) => void;
   onOpenAllItems: (status: ItemGroup) => void;
@@ -71,6 +69,17 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
     requestAnimationFrame(() => addRef.current?.focus());
   }
 
+  /** Retires the notice without touching the list; focus goes back to the row that produced it, or to Add. */
+  function dismissNotice() {
+    const origin = completion.focusRefs.focusOriginRef.current;
+    setNotice(null);
+    add.dismissCreateNotice();
+    requestAnimationFrame(() => {
+      if (origin && origin.isConnected) origin.focus();
+      else addRef.current?.focus();
+    });
+  }
+
   function subjectName(subjectId: string) {
     const known = names.get(subjectId);
     if (known !== undefined) return known;
@@ -87,7 +96,7 @@ function useItemsScreen({ userId, householdId, onSignedOut }: Pick<ItemsScreenPr
 
   return {
     t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice, visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
-    cancelAddAndFocus, subjectName, subjectType, emptyHome,
+    cancelAddAndFocus, dismissNotice, subjectName, subjectType, emptyHome,
   };
 }
 
@@ -99,14 +108,14 @@ export function ItemsScreen(props: ItemsScreenProps) {
     t, busy, home, homeMembers, noticeRef, addRef, addInitialFocusRef, notice,
     visibleSubjectIDs, labels, labelRetry, add, recovering, completion,
   } = screen;
-  const { cancelAddAndFocus, subjectName, subjectType } = screen;
+  const { cancelAddAndFocus, dismissNotice, subjectName, subjectType } = screen;
   const emptyHome = Boolean(screen.emptyHome);
   const homeReady = home.itemsRequestComplete && (!home.error || !!home.summary);
   const { groupData, summary, loading, error, refresh, sectionHeadingRefs } = home;
   const { adding, createNotice, names, pendingCreate, createUncertain, recoveryEditable } = add;
 
   return <div data-home-screen className="min-w-0 space-y-6">
-    <HomeHeader householdName={props.householdName} ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
+    <HomeHeader ready={homeReady} adding={adding} addRef={addRef} onAdd={add.openAddForm} />
     <ItemsNoticeArea
       noticeRef={noticeRef}
       createNotice={createNotice}
@@ -115,15 +124,13 @@ export function ItemsScreen(props: ItemsScreenProps) {
       onUndo={() => void completion.undo()}
       onRetry={() => void completion.retryNotice()}
       onRetryFocus={completion.markRetryFocused}
+      onDismiss={dismissNotice}
     />
     <HomeLoadState loading={loading} error={error} onRetry={() => void refresh()} />
     {labels.loading && visibleSubjectIDs.some((id) => !names.has(id))
       ? <p role="status" className="sr-only">{t('items.subjectLabels.loading')}</p>
       : null}
     <SubjectLabelRetry hasFailures={labels.hasFailures} pending={labelRetry.pending} retryRef={labelRetry.retryRef} onRetry={labelRetry.retry} />
-    {!loading && summary && !adding
-      ? <HomeStatusPills summary={summary} groupData={groupData} sectionHeadingRefs={sectionHeadingRefs} />
-      : null}
     {emptyHome && !adding ? <HomeEmptyState /> : null}
     <Dialog open={adding} onOpenChange={(open) => { if (!open) cancelAddAndFocus(); }} title={t('items.add.formLabel')} closeLabel={t('items.cancel')}
       busy={busy || recovering} sheet triggerRef={addRef} initialFocusRef={addInitialFocusRef}>

@@ -37,9 +37,10 @@ export function SignedInApp(props: Props) {
   const { route, session, navigation } = props;
   const householdId = session.defaultHouseholdId;
   const navRoute = householdNavRoute(route, Boolean(householdId));
-  const navigationActions = {
+  const navigationActions: NavigationActions = {
     home: navigation.goHome,
     allItems: navigation.openAllItems,
+    archive: navigation.openArchive,
     people: navigation.openPeople,
     members: navigation.openMembers,
     account: navigation.openAccount,
@@ -52,10 +53,13 @@ export function SignedInApp(props: Props) {
 
 /** Unknown pages keep the signed-in shell (account actions and navigation); Home is the nearest destination. */
 function renderNotFound(props: Props, householdId: string | null, navigationActions: NavigationActions) {
-  const { session, sessionActions } = props;
+  const { session, sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdDataProvider householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
-      <HouseholdNavigationContext value={{ route: 'home', actions: navigationActions, household: Boolean(householdId) }}>
+      <HouseholdNavigationContext value={{
+        route: 'home', actions: navigationActions, household: Boolean(householdId),
+        archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
+      }}>
         <ScreenTransitionContext value={props.transitioned}>
           <Layout actions={<AccountActions login={session.login} onSignedOut={sessionActions.sessionEnded} />}>
             <NotFoundScreen />
@@ -99,6 +103,7 @@ function renderHouseholdRecords(props: Props, householdId: string) {
       onBack={navigation.goHome}
       onSignedOut={sessionActions.sessionEnded}
       onOpenItem={navigation.openItemFromAllItems}
+      onArchivedViewChange={navigation.reportItemsView}
     />;
   }
   if (route.kind === 'item' || route.kind === 'invalidItem') {
@@ -145,10 +150,13 @@ function renderHouseholdScreens(
   navRoute: ReturnType<typeof householdNavRoute>,
   navigationActions: NavigationActions,
 ) {
-  const { sessionActions } = props;
+  const { sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
     <HouseholdDataProvider householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
-      <HouseholdNavigationContext value={{ route: navRoute, actions: navigationActions, household: Boolean(householdId) }}>
+      <HouseholdNavigationContext value={{
+        route: navRoute, actions: navigationActions, household: Boolean(householdId),
+        archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
+      }}>
         <ScreenTransitionContext value={props.transitioned}>{renderRouteScreen(props, householdId)}</ScreenTransitionContext>
       </HouseholdNavigationContext>
     </HouseholdDataProvider>

@@ -102,7 +102,8 @@ function escapeRegExp(value: string) {
 // Every reference capture starts from the same settled UI: real heading counts, ten resolved titles and subject pills.
 async function assertSettledReference(page: Page, locale: 'en' | 'cs') {
   const catalog = locale === 'cs' ? cs : en;
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: catalog['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: catalog['household.menu.label'].replace('{name}', REFERENCE_HOUSEHOLD) })).toBeVisible();
   await expect(page.locator('main li[data-item-id]')).toHaveCount(REFERENCE_TITLES.length);
   const headings: Array<[string, number]> = [
     [catalog['items.group.needs'], REFERENCE_COUNTS.needsAttention],
@@ -124,16 +125,15 @@ function referenceDate(iso: string, locale: 'en' | 'cs') {
   return new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
     .format(new Date(`${iso}T00:00:00Z`));
 }
-// The needs-attention fact keeps its full wording in the desktop status column and drops the words the
-// group heading already says on phones; the date itself is never dropped at either width.
+// The needs-attention fact keeps one honest wording at every width: the group heading already says
+// "Needs attention", so the row adds only the date the item has been waiting since.
 async function assertNeedsSinceWording(page: Page, locale: 'en' | 'cs', width: number) {
   const catalog = locale === 'cs' ? cs : en;
   const date = referenceDate('2026-05-12', locale);
   const row = page.locator('main li[data-item-id]').filter({ hasText: "Renew Tom's passport" });
-  const wide = row.getByText(catalog['items.needsSince'].replace('{date}', date), { exact: true }).first();
-  const phone = row.getByText(catalog['items.needsSinceCompact'].replace('{date}', date), { exact: true }).first();
-  await expect(phone).toBeVisible({ visible: width < 1280 });
-  await expect(wide).toBeVisible({ visible: width >= 1280 });
+  const since = row.getByText(catalog['items.needsSinceCompact'].replace('{date}', date), { exact: true }).first();
+  await expect(since, `needs-attention date at ${width}`).toBeVisible();
+  await expect(row).not.toContainText(catalog['items.needsSince'].replace('{date}', date));
 }
 async function assertReferenceFactsAt390(page: Page, locale: 'en' | 'cs') {
   const catalog = locale === 'cs' ? cs : en;
@@ -221,7 +221,8 @@ test('onboarding and empty Home', async ({ page }) => {
   household = await firstRun(page);
   await page.context().storageState({ path: statePath });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD) })).toBeVisible();
   await expect(page.locator('main li[data-item-id]')).toHaveCount(0);
   await captureScreen(page, 'home-empty');
 });
@@ -235,7 +236,8 @@ test('approved reference fixture at approved widths, locales and themes', async 
   const apiRoot = `/api/v1/households/${householdId}`;
   const reference = await seedReferenceFixture(page, { householdId, apiRoot, ownerPassword });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: en['household.menu.label'].replace('{name}', REFERENCE_HOUSEHOLD) })).toBeVisible();
   await expect(page.locator('main li[data-item-id]')).toHaveCount(REFERENCE_TITLES.length);
   const summaryResponse = await page.request.get(`${apiRoot}/items/summary`);
   expect(summaryResponse.status()).toBe(200);
@@ -256,17 +258,17 @@ test('approved reference fixture at approved widths, locales and themes', async 
       const rowHeight = await smokeRow.evaluate((row) => row.getBoundingClientRect().height);
       console.info(`visual-reference-row-height width=${width} height=${rowHeight}`);
       if (width === 1440) {
-        expect(rowHeight, 'one-line reference row height at 1440').toBeGreaterThanOrEqual(48);
-        expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(56);
+        expect(rowHeight, 'one-line reference row height at 1440').toBeGreaterThanOrEqual(64);
+        expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(96);
       }
     }
     if (width === 390) {
-      // V4-17 phone density: every real fact still renders, but on a flowing line instead of one line per fact.
+      // V5-06: one title line plus a calm metadata line that wraps honestly instead of clipping.
       const phoneRow = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
       const phoneRowHeight = await phoneRow.evaluate((row) => row.getBoundingClientRect().height);
       const phoneRows = await page.locator('main li[data-item-id]').evaluateAll((rows) => rows.map((row) => Math.round(row.getBoundingClientRect().height)));
       console.info(`visual-reference-phone-row-height height=${phoneRowHeight} rows=${phoneRows.join(',')}`);
-      expect(phoneRowHeight, 'phone row height for an ordinary title at 390').toBeLessThanOrEqual(110);
+      expect(phoneRowHeight, 'phone row height for an ordinary title at 390').toBeLessThanOrEqual(140);
     }
     await capture(page, `home-reference-en-light-${width}`, width, height, true);
   }

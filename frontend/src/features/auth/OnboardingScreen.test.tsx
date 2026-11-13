@@ -97,7 +97,7 @@ describe('onboarding', () => {
     expect(screen.getByText(/Used for dates in your household: Prague · /)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Create household' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Veselí' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     const put = fake.requests.find((r) => r.method === 'PUT')!;
     expect(put.path).toBe('/api/v1/auth/setup');
     expect(put.headers.get('X-Tendo-Setup-Token')).toBe('secret-code');
