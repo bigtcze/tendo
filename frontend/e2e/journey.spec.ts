@@ -5665,6 +5665,56 @@ test.describe('Tendo production journey', () => {
       const listedJoinMembers = await listOwnerMembers();
       expect(listedJoinMembers.filter(member => member.login === 'existing_conflict_e2e' && member.role === 'member')).toHaveLength(1);
       await waitForSettledHouseholdRequests(joining.actor);
+
+      // Switching households through the top bar: the panel lists both memberships, choosing the other one persists
+      // the choice on the server and lands on that household's Home, even when it is chosen from another route.
+      await joining.actor.goto('/members');
+      await expect(joining.actor.getByRole('heading', { level: 1, name: en['members.title'] })).toBeVisible();
+      await waitForSettledHouseholdRequests(joining.actor);
+      const joinedTrigger = joining.actor.getByRole('banner').getByRole('button', { name: householdSelector(householdName) });
+      await joinedTrigger.click();
+      const switchPanel = joining.actor.getByRole('group', { name: householdSelector(householdName) });
+      await expect(switchPanel.locator('[aria-current="true"]')).toContainText(householdName);
+      const conflictOption = switchPanel.getByRole('button', { name: 'Conflict household', exact: true });
+      await expect(conflictOption).toBeVisible();
+      await expect(switchPanel.getByRole('button', { name: householdName, exact: true }), 'the active household is not offered as a switch').toHaveCount(0);
+      const switchBox = await conflictOption.boundingBox();
+      expect(switchBox?.height ?? 0, 'household switch rows are 44 px touch targets').toBeGreaterThanOrEqual(44);
+      const switchResponse = joining.actor.waitForResponse(response => response.request().method() === 'PATCH' && new URL(response.url()).pathname === '/api/v1/session');
+      const conflictItemsRead = joining.actor.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname.startsWith(`/api/v1/households/${conflictHouseholdId}/items`));
+      await conflictOption.click();
+      const switched = await switchResponse;
+      expect(switched.status()).toBe(200);
+      expect(switched.request().postDataJSON()).toEqual({ defaultHouseholdId: conflictHouseholdId });
+      expect((await conflictItemsRead).status()).toBe(200);
+      await waitForSettledHome(joining.actor, 'Conflict household');
+      await expect(joining.actor).toHaveURL(`${baseURL}/`);
+      await expect(joining.actor.getByRole('heading', { level: 1, name: homeHeadings })).toBeFocused();
+      const switchedSession = await joining.actor.request.get('/api/v1/session');
+      expect((await switchedSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(conflictHouseholdId);
+      // The choice is stored on the server, so a reload keeps the chosen household.
+      await joining.actor.reload();
+      await waitForSettledHome(joining.actor, 'Conflict household');
+
+      // And back again with the keyboard alone: Enter opens the panel, Tab reaches the other household, Enter picks it.
+      const conflictTrigger = joining.actor.getByRole('banner').getByRole('button', { name: householdSelector('Conflict household') });
+      await conflictTrigger.focus();
+      await joining.actor.keyboard.press('Enter');
+      const backPanel = joining.actor.getByRole('group', { name: householdSelector('Conflict household') });
+      const backOption = backPanel.getByRole('button', { name: householdName, exact: true });
+      await expect(backOption).toBeVisible();
+      await joining.actor.keyboard.press('Tab');
+      await expect(backOption).toBeFocused();
+      const backResponse = joining.actor.waitForResponse(response => response.request().method() === 'PATCH' && new URL(response.url()).pathname === '/api/v1/session');
+      await joining.actor.keyboard.press('Enter');
+      expect((await backResponse).status()).toBe(200);
+      await waitForSettledHome(joining.actor, householdName);
+      const backSession = await joining.actor.request.get('/api/v1/session');
+      expect((await backSession.json() as { defaultHouseholdId: string }).defaultHouseholdId).toBe(householdId);
+      // Switching never changed either membership or its role.
+      const afterSwitchList = await (await joining.actor.request.get('/api/v1/households')).json() as { items: Array<{ id: string; viewerRole: string }> };
+      expect(afterSwitchList.items.map(item => [item.id, item.viewerRole]).sort()).toEqual([[conflictHouseholdId, 'admin'], [householdId, 'member']].sort());
+      await waitForSettledHouseholdRequests(joining.actor);
       joining.assertClean([]);
     } finally { await joining.context.close(); }
 

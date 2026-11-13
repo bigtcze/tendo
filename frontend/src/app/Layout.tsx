@@ -79,7 +79,7 @@ export function Layout({ actions, children }: { actions?: ReactNode; children: R
           {readyHousehold && navigation ? (
             <>
               <span aria-hidden="true" className="hidden h-5 w-px shrink-0 bg-line sm:block" />
-              <HouseholdMenu name={readyHousehold.name} canManage={readyHousehold.viewerRole === 'admin'} />
+              <HouseholdMenu householdId={readyHousehold.id} name={readyHousehold.name} canManage={readyHousehold.viewerRole === 'admin'} />
             </>
           ) : null}
         </div>

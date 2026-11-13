@@ -1,5 +1,6 @@
 import { AccountScreen } from '../features/auth/AccountScreen';
-import type { MessageKey } from '../i18n';
+import { useState } from 'react';
+import { useI18n, type MessageKey } from '../i18n';
 import type { useAppNavigation } from './useAppNavigation';
 import type { useAppSession } from './useAppSession';
 import { HomeScreen } from '../features/home/HomeScreen';
@@ -10,6 +11,7 @@ import { MembersScreen } from '../features/members/MembersScreen';
 import { InviteScreen } from '../features/members/InviteScreen';
 import { AdminScreen } from '../features/admin/AdminScreen';
 import { ScreenTransitionContext } from './Heading';
+import { HouseholdSwitchContext } from './HouseholdSwitchContext';
 import { Layout } from './Layout';
 import { NotFoundScreen } from './StatusScreens';
 import { SignOutContext } from './SignOutContext';
@@ -34,7 +36,9 @@ type Props = {
 };
 
 export function SignedInApp(props: Props) {
-  const { route, session, navigation } = props;
+  const { route, session, navigation, sessionActions } = props;
+  const { t } = useI18n();
+  const [announcement, setAnnouncement] = useState('');
   const householdId = session.defaultHouseholdId;
   const navRoute = householdNavRoute(route, Boolean(householdId));
   const navigationActions: NavigationActions = {
@@ -46,16 +50,28 @@ export function SignedInApp(props: Props) {
     account: navigation.openAccount,
     admin: navigation.openAdmin,
   };
+  // Adopting a household chosen in the top bar is the same transition as signing in: Home at '/', a new session
+  // generation so callbacks from the previous household are ignored, and the returned session as the live one.
+  const switchTo = (next: Session, name: string) => {
+    setAnnouncement(t('household.menu.switched', { name }));
+    sessionActions.signedIn(next);
+  };
   if (route.kind === 'invite') return renderInvite(props);
-  if (route.kind === 'notFound') return renderNotFound(props, householdId ?? null, navigationActions);
-  return renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions);
+  return <HouseholdSwitchContext value={{ switchTo, sessionEnded: sessionActions.sessionEnded }}>
+    {route.kind === 'notFound'
+      ? renderNotFound(props, householdId ?? null, navigationActions)
+      : renderHouseholdScreens(props, householdId ?? null, navRoute, navigationActions)}
+    {/* WCAG 4.1.3: one polite host stays mounted above the screens, so a switch is spoken once Home has taken over.
+        It carries no status role, so it never competes with the screen's own mutation notice or action alert. */}
+    <p aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
+  </HouseholdSwitchContext>;
 }
 
 /** Unknown pages keep the signed-in shell (account actions and navigation); Home is the nearest destination. */
 function renderNotFound(props: Props, householdId: string | null, navigationActions: NavigationActions) {
   const { session, sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
-    <HouseholdDataProvider householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
+    <HouseholdDataProvider key={householdId ?? 'none'} householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
       <HouseholdNavigationContext value={{
         route: 'home', actions: navigationActions, household: Boolean(householdId),
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,
@@ -144,6 +160,10 @@ function renderRouteScreen(props: Props, householdId: string | null) {
   />;
 }
 
+/**
+ * The household subtree (and its data) is keyed by the household it shows: after a switch it mounts again with the
+ * new household's own requests, and nothing keeps reading the household that was left behind.
+ */
 function renderHouseholdScreens(
   props: Props,
   householdId: string | null,
@@ -152,7 +172,7 @@ function renderHouseholdScreens(
 ) {
   const { sessionActions, navigation } = props;
   return <SignOutContext value={sessionActions.signedOut}>
-    <HouseholdDataProvider householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
+    <HouseholdDataProvider key={householdId ?? 'none'} householdId={householdId} onSignedOut={sessionActions.sessionEnded}>
       <HouseholdNavigationContext value={{
         route: navRoute, actions: navigationActions, household: Boolean(householdId),
         archivedView: navigation.archivedView, itemOrigin: navigation.itemOrigin,

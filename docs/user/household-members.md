@@ -70,7 +70,11 @@ If the page says the link can't be used, it has expired, been cancelled, been re
 Open the link you were sent.
 
 - **No account yet:** choose a login and a password (at least 15 characters), then select **Create account and join**. Tendo signs you in and opens the household. If signing in does not work right away, your account is still ready: sign in with the login and password you just chose.
-- **Already signed in:** select **Join household**. An account can belong to only one household. If your account already belongs to another household, select **Sign out and continue** and create a new account for this one.
+- **Already signed in:** select **Join household**. If your account already belongs to another household, you keep that membership and your role in it; Tendo opens the household you just joined.
+
+## Switch between households
+
+If your account belongs to more than one household, select the household name in the top bar. The panel marks the household you are in now and lists your other households; choose one to open its Home. Tendo remembers your choice the next time you sign in. Switching only changes which household you are looking at: it never changes who belongs to a household or what they may do there. If you belong to only one household, the panel shows just that household.
 
 If the page says the link can't be used, it has expired, been revoked, or already been used. Ask an administrator for a new one.
 
