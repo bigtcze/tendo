@@ -645,7 +645,8 @@ test('Members owner and non-owner', async ({ browser }) => {
   await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('visual_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill(`${ownerPassword}-member`);
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(memberPage.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(memberPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(memberPage.getByRole('banner').getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD), exact: true })).toBeVisible();
   await memberPage.goto('/members'); await captureScreen(memberPage, 'members-non-owner', true);
   await memberContext.close();
 });
@@ -686,7 +687,8 @@ test('Admin center and the member refusal', async ({ browser }) => {
   await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('visual_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill(`${ownerPassword}-member`);
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(memberPage.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(memberPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(memberPage.getByRole('banner').getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD), exact: true })).toBeVisible();
   await memberPage.goto('/admin');
   await expect(memberPage.getByRole('heading', { name: en['admin.onlyAdmins.title'] })).toBeVisible();
   await expect(memberPage.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);
