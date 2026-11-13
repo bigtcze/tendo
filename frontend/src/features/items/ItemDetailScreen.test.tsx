@@ -451,8 +451,8 @@ describe('item details', () => {
     expect(screen.getByRole('heading', { name: 'History' })).toBeVisible();
   });
 
-  it('pages history with a cursor stack, keeps 25 rows, and returns to latest with focus', async () => {
-    const page = (prefix: string, year: number) => Array.from({ length: 25 }, (_, index) => completion(`${prefix}-${index}`, `${year}-${String(12 - Math.floor(index / 2.5)).padStart(2, '0')}-${String(28 - index).padStart(2, '0')}`));
+  it('pages history with a cursor stack, keeps 20 rows, states the current page, and returns to latest with focus', async () => {
+    const page = (prefix: string, year: number) => Array.from({ length: 20 }, (_, index) => completion(`${prefix}-${index}`, `${year}-${String(12 - Math.floor(index / 2.5)).padStart(2, '0')}-${String(28 - index).padStart(2, '0')}`));
     const fake = installFakeServer(common({ [`GET ${historyPath}`]: (request) => {
       const cursor = request.query.get('cursor');
       if (cursor === 'c-older') return json(200, { items: [completion('oldest', '2020-01-01', { undoneAt: '2020-01-02T00:00:00Z' })], nextCursor: null });
@@ -464,17 +464,20 @@ describe('item details', () => {
     const main = within(screen.getByRole('main'));
     const historyList = async () => within(await main.findByRole('list'));
     const historyQuery = () => requestsOf(fake.requests, 'GET', historyPath).map((request) => request.query.get('cursor'));
-    expect((await historyList()).getAllByRole('listitem')).toHaveLength(25);
+    const currentPage = () => within(main.getByRole('navigation', { name: 'History pages' })).getByRole('status');
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(20);
     const first = requestsOf(fake.requests, 'GET', historyPath)[0]!;
-    expect(first.query.get('limit')).toBe('25'); expect(first.query.get('order')).toBe('newest'); expect(first.query.has('cursor')).toBe(false);
+    expect(first.query.get('limit')).toBe('20'); expect(first.query.get('order')).toBe('newest'); expect(first.query.has('cursor')).toBe(false);
     expect((await historyList()).getAllByRole('listitem')[0]).toHaveTextContent('Done Dec 28, 2025');
+    expect(currentPage()).toHaveTextContent('Page 1');
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
 
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
     expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
-    expect((await historyList()).getAllByRole('listitem')).toHaveLength(25);
+    expect((await historyList()).getAllByRole('listitem')).toHaveLength(20);
     expect(main.queryByText('Done Dec 28, 2025')).not.toBeInTheDocument();
+    expect(currentPage()).toHaveTextContent('Page 2');
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
 
     await userEvent.click(main.getByRole('button', { name: 'Older' }));
@@ -483,15 +486,18 @@ describe('item details', () => {
     expect(oldest.closest('li')).not.toHaveClass(/opacity-/);
     expect((await historyList()).getAllByRole('listitem')).toHaveLength(1);
     expect(main.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+    expect(currentPage()).toHaveTextContent('Page 3');
 
     await userEvent.click(main.getByRole('button', { name: 'Newer' }));
     expect(await main.findByText('Done Dec 28, 2024')).toBeVisible();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
+    expect(currentPage()).toHaveTextContent('Page 2');
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle']);
 
     await userEvent.click(main.getByRole('button', { name: 'Newer' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null]);
+    expect(currentPage()).toHaveTextContent('Page 1');
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
     expect(main.getByRole('heading', { name: 'History' })).toHaveFocus();
@@ -502,11 +508,12 @@ describe('item details', () => {
     await userEvent.click(main.getByRole('button', { name: 'Latest' }));
     expect(await main.findByText('Done Dec 28, 2025')).toBeVisible();
     expect(historyQuery()).toEqual([null, 'c-middle', 'c-older', 'c-middle', null, 'c-middle', 'c-older', null]);
+    expect(currentPage()).toHaveTextContent('Page 1');
     expect(main.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'Latest' })).not.toBeInTheDocument();
     expect(main.getByRole('button', { name: 'Older' })).toBeVisible();
     expect(main.queryByText('secret-user')).not.toBeInTheDocument();
-    expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '25' && request.query.get('order') === 'newest')).toBe(true);
+    expect(requestsOf(fake.requests, 'GET', historyPath).every((request) => request.query.get('limit') === '20' && request.query.get('order') === 'newest')).toBe(true);
   });
 
   it('does not steal focus when a slow history page arrives after the user moved on', async () => {
@@ -606,6 +613,7 @@ describe('item details', () => {
     expect(await main.findByRole('button', { name: 'Novější' })).toBeVisible();
     expect(main.getByRole('button', { name: 'Nejnovější' })).toBeVisible();
     expect(main.queryByRole('button', { name: 'Starší' })).not.toBeInTheDocument();
+    expect(within(main.getByRole('navigation', { name: 'Stránky historie' })).getByRole('status')).toHaveTextContent('Strana 2');
   });
 
   it('loads details via deep link, shows gone for 404/malformed ids and Home returns home', async () => {

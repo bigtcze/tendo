@@ -680,7 +680,7 @@ test.describe('Tendo production journey', () => {
     await expect(page.getByRole('form', { name: en['items.add.formLabel'] })).toHaveCount(0);
   }
 
-  test('n0. item history pages 25 receipts at a time, newest first, and every receipt stays reachable', async () => {
+  test('n0. item history pages 20 receipts at a time, newest first, and every receipt stays reachable', async () => {
     // Dates render as one non-breaking unit (V4-17); RegExp matchers see the raw U+00A0, so expect it explicitly.
     const displayDate = (value: string) => new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)).replace(/\s/g, '\u00a0');
     const doneRow = (value: string) => en['itemDetail.historyDone'].replace('{date}', displayDate(value));
@@ -710,40 +710,51 @@ test.describe('Tendo production journey', () => {
       const history = main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true }).locator('xpath=ancestor::section[1]');
       const rows = history.getByRole('listitem');
       const button = (key: 'itemDetail.historyOlder' | 'itemDetail.historyNewer' | 'itemDetail.historyLatest') => history.getByRole('button', { name: en[key], exact: true });
+      // The current page is stated inside the History pages navigation, for sighted and screen-reader users alike.
+      const currentPage = history.getByRole('navigation', { name: en['itemDetail.historyPages'] }).getByRole('status');
+      const expectPageNumber = (pageNumber: number) => expect(currentPage).toHaveText(en['itemDetail.historyPage'].replace('{page}', String(pageNumber)));
       // Every page row, in order: a receipt's first line is its done date (planned/next dates follow).
       const expectPage = async (from: number, to: number) => {
         const expected = newestFirst.slice(from, to).map((value) => new RegExp(`^${escapeRegExp(doneRow(value))}`));
         await expect(rows).toHaveText(expected);
       };
-      await expectPage(0, 25);
+      await expectPage(0, 20);
+      await expectPageNumber(1);
       await expect(button('itemDetail.historyNewer')).toHaveCount(0);
       await expect(button('itemDetail.historyLatest')).toHaveCount(0);
 
       await button('itemDetail.historyOlder').click();
-      await expectPage(25, 50);
+      await expectPage(20, 40);
+      await expectPageNumber(2);
       await expect(main.getByRole('heading', { level: 2, name: en['itemDetail.history'], exact: true })).toBeFocused();
 
+      // 60 receipts fill the third page exactly; the server reports no further cursor, so Older disappears.
       await button('itemDetail.historyOlder').click();
-      await expectPage(50, 60);
+      await expectPage(40, 60);
+      await expectPageNumber(3);
       await expect(rows.last()).toHaveText(new RegExp(`^${escapeRegExp(doneRow(seededDates[0]!))}`));
       await expect(button('itemDetail.historyOlder')).toHaveCount(0);
 
       await button('itemDetail.historyNewer').click();
-      await expectPage(25, 50);
+      await expectPage(20, 40);
+      await expectPageNumber(2);
       await button('itemDetail.historyNewer').click();
-      await expectPage(0, 25);
+      await expectPage(0, 20);
+      await expectPageNumber(1);
       await expect(button('itemDetail.historyNewer')).toHaveCount(0);
       await expect(button('itemDetail.historyLatest')).toHaveCount(0);
 
       await button('itemDetail.historyOlder').click();
-      await expectPage(25, 50);
+      await expectPage(20, 40);
+      await expectPageNumber(2);
       await button('itemDetail.historyLatest').click();
-      await expectPage(0, 25);
+      await expectPage(0, 20);
+      await expectPageNumber(1);
       await expect(button('itemDetail.historyLatest')).toHaveCount(0);
 
       expect(detailRequests.length).toBe(7);
       for (const url of detailRequests) {
-        expect(url.searchParams.get('limit'), url.search).toBe('25');
+        expect(url.searchParams.get('limit'), url.search).toBe('20');
         expect(url.searchParams.get('order'), url.search).toBe('newest');
       }
       expect(detailRequests.map((url) => url.searchParams.has('cursor'))).toEqual([false, true, true, true, false, true, false]);
@@ -784,7 +795,7 @@ test.describe('Tendo production journey', () => {
       let cursor: string | undefined;
       do {
         const url = new URL(`${baseURL}${completionsPath}`);
-        url.searchParams.set('limit', '25');
+        url.searchParams.set('limit', '20');
         url.searchParams.set('order', 'newest');
         if (cursor) url.searchParams.set('cursor', cursor);
         const response = await page.request.get(url.toString());
@@ -815,7 +826,7 @@ test.describe('Tendo production journey', () => {
         return date.toISOString().slice(0, 10);
       }).reverse();
       const assertPage = async (offset: number) => {
-        const dates = newestDates.slice(offset, offset + 25);
+        const dates = newestDates.slice(offset, offset + 20);
         await expect(rows).toHaveText(dates.map((date) => new RegExp(`^${escapeRegExp(historyDoneRow(date))}`)));
         visitedDates.push(...dates);
       };
@@ -823,9 +834,9 @@ test.describe('Tendo production journey', () => {
       await assertPage(offset);
       expect(await page.getByText(/partial history/i).count()).toBe(0);
       await expect(button('itemDetail.historyNewer')).toHaveCount(0);
-      while (offset + 25 < count) {
+      while (offset + 20 < count) {
         await button('itemDetail.historyOlder').click();
-        offset += 25;
+        offset += 20;
         await assertPage(offset);
       }
       expect(visitedDates).toEqual(newestDates);
@@ -833,20 +844,20 @@ test.describe('Tendo production journey', () => {
       expect(visitedDates.at(-1)).toBe('2020-01-01');
       visitedDates.length = 0;
       await button('itemDetail.historyNewer').click();
-      offset -= 25;
+      offset -= 20;
       await assertPage(offset);
       visitedDates.length = 0;
       await button('itemDetail.historyLatest').click();
       await assertPage(0);
       await expect(button('itemDetail.historyLatest')).toHaveCount(0);
       try {
-        expect(historyRequests.length).toBe(Math.ceil(count / 25) + 2);
+        expect(historyRequests.length).toBe(Math.ceil(count / 20) + 2);
         for (const url of historyRequests) {
-          expect(url.searchParams.get('limit'), url.search).toBe('25');
+          expect(url.searchParams.get('limit'), url.search).toBe('20');
           expect(url.searchParams.get('order'), url.search).toBe('newest');
         }
         expect(historyRequests[0]!.searchParams.has('cursor')).toBe(false);
-        expect(historyRequests.slice(1, Math.ceil(count / 25) + 1).every((url) => url.searchParams.has('cursor'))).toBe(true);
+        expect(historyRequests.slice(1, Math.ceil(count / 20) + 1).every((url) => url.searchParams.has('cursor'))).toBe(true);
         expect(historyRequests.at(-2)!.searchParams.has('cursor')).toBe(true);
         expect(historyRequests.at(-1)!.searchParams.has('cursor')).toBe(false);
       } finally {
