@@ -381,7 +381,7 @@ describe('members and invitations', () => {
     renderApp();
     await screen.findByRole('link', { name: 'Household members' });
     await userEvent.click(screen.getByRole('link', { name: 'Home' }));
-    await screen.findByRole('heading', { level: 1, name: 'Veselí' });
+    await screen.findByRole('heading', { level: 1, name: 'Overview' });
     await openMembersAfterHomeRead(fake);
     expect(await screen.findByRole('heading', { name: 'Need to invite someone?' })).toBeVisible();
     expect(await screen.findByText('Ask a household administrator to send them an invite link.')).toBeVisible();

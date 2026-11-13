@@ -102,7 +102,8 @@ function escapeRegExp(value: string) {
 // Every reference capture starts from the same settled UI: real heading counts, ten resolved titles and subject pills.
 async function assertSettledReference(page: Page, locale: 'en' | 'cs') {
   const catalog = locale === 'cs' ? cs : en;
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: catalog['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: catalog['household.menu.label'].replace('{name}', REFERENCE_HOUSEHOLD) })).toBeVisible();
   await expect(page.locator('main li[data-item-id]')).toHaveCount(REFERENCE_TITLES.length);
   const headings: Array<[string, number]> = [
     [catalog['items.group.needs'], REFERENCE_COUNTS.needsAttention],
@@ -124,16 +125,15 @@ function referenceDate(iso: string, locale: 'en' | 'cs') {
   return new Intl.DateTimeFormat(locale === 'cs' ? 'cs-CZ' : 'en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
     .format(new Date(`${iso}T00:00:00Z`));
 }
-// The needs-attention fact keeps its full wording in the desktop status column and drops the words the
-// group heading already says on phones; the date itself is never dropped at either width.
+// The needs-attention fact keeps one honest wording at every width: the group heading already says
+// "Needs attention", so the row adds only the date the item has been waiting since.
 async function assertNeedsSinceWording(page: Page, locale: 'en' | 'cs', width: number) {
   const catalog = locale === 'cs' ? cs : en;
   const date = referenceDate('2026-05-12', locale);
   const row = page.locator('main li[data-item-id]').filter({ hasText: "Renew Tom's passport" });
-  const wide = row.getByText(catalog['items.needsSince'].replace('{date}', date), { exact: true }).first();
-  const phone = row.getByText(catalog['items.needsSinceCompact'].replace('{date}', date), { exact: true }).first();
-  await expect(phone).toBeVisible({ visible: width < 1280 });
-  await expect(wide).toBeVisible({ visible: width >= 1280 });
+  const since = row.getByText(catalog['items.needsSinceCompact'].replace('{date}', date), { exact: true }).first();
+  await expect(since, `needs-attention date at ${width}`).toBeVisible();
+  await expect(row).not.toContainText(catalog['items.needsSince'].replace('{date}', date));
 }
 async function assertReferenceFactsAt390(page: Page, locale: 'en' | 'cs') {
   const catalog = locale === 'cs' ? cs : en;
@@ -149,20 +149,23 @@ async function assertTitleTargetGeometry(page: Page, width: number) {
   const row = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
   const link = row.getByRole('link', { name: 'Open item Replace the smoke alarm battery' });
   await expect(link).toBeVisible();
+  // The link's stretched pseudo-element covers the whole row, so the row — not a minimum height on the title line —
+  // is the 44 px target. Its own box is only the text block; the sampled points sit clear of the Done control.
   const geometry = await link.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
+    const row = element.closest('li')!;
+    const rect = row.getBoundingClientRect();
     const panel = element.closest('ul')!.getBoundingClientRect();
-    const midX = rect.left + rect.width / 2;
+    const midX = rect.left + rect.width * 0.75;
     const hits = (y: number) => {
       const hit = document.elementFromPoint(midX, y);
       return Boolean(hit && (hit === element || element.contains(hit)));
     };
     return { height: rect.height, top: rect.top, panelTop: panel.top, topHit: hits(rect.top + 2), bottomHit: hits(rect.bottom - 2) };
   });
-  expect(geometry.height, `title target height at ${width}`).toBeGreaterThanOrEqual(44);
-  expect(geometry.topHit, `title target top-edge hit at ${width}`).toBe(true);
-  expect(geometry.bottomHit, `title target bottom-edge hit at ${width}`).toBe(true);
-  expect(geometry.top, `title target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
+  expect(geometry.height, `row target height at ${width}`).toBeGreaterThanOrEqual(44);
+  expect(geometry.topHit, `row target top-edge hit at ${width}`).toBe(true);
+  expect(geometry.bottomHit, `row target bottom-edge hit at ${width}`).toBe(true);
+  expect(geometry.top, `row target starts inside the group panel at ${width}`).toBeGreaterThanOrEqual(geometry.panelTop - 0.5);
 }
 
 // Captures one route in saved light then saved dark theme. Snapshot names must stay unique across the suite.
@@ -221,7 +224,8 @@ test('onboarding and empty Home', async ({ page }) => {
   household = await firstRun(page);
   await page.context().storageState({ path: statePath });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD) })).toBeVisible();
   await expect(page.locator('main li[data-item-id]')).toHaveCount(0);
   await captureScreen(page, 'home-empty');
 });
@@ -235,7 +239,8 @@ test('approved reference fixture at approved widths, locales and themes', async 
   const apiRoot = `/api/v1/households/${householdId}`;
   const reference = await seedReferenceFixture(page, { householdId, apiRoot, ownerPassword });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: en['household.menu.label'].replace('{name}', REFERENCE_HOUSEHOLD) })).toBeVisible();
   await expect(page.locator('main li[data-item-id]')).toHaveCount(REFERENCE_TITLES.length);
   const summaryResponse = await page.request.get(`${apiRoot}/items/summary`);
   expect(summaryResponse.status()).toBe(200);
@@ -256,12 +261,14 @@ test('approved reference fixture at approved widths, locales and themes', async 
       const rowHeight = await smokeRow.evaluate((row) => row.getBoundingClientRect().height);
       console.info(`visual-reference-row-height width=${width} height=${rowHeight}`);
       if (width === 1440) {
-        expect(rowHeight, 'one-line reference row height at 1440').toBeGreaterThanOrEqual(48);
-        expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(56);
+        // Restored to the original budget: with no minimum height on the title, an ordinary row is its title line
+        // plus one metadata line, about 64 px at 1440.
+        expect(rowHeight, 'one-line reference row height at 1440').toBeGreaterThanOrEqual(56);
+        expect(rowHeight, 'one-line reference row height at 1440').toBeLessThanOrEqual(68);
       }
     }
     if (width === 390) {
-      // V4-17 phone density: every real fact still renders, but on a flowing line instead of one line per fact.
+      // V5-06: one title line plus a calm metadata line that wraps honestly instead of clipping.
       const phoneRow = page.locator('main li[data-item-id]').filter({ hasText: 'Replace the smoke alarm battery' });
       const phoneRowHeight = await phoneRow.evaluate((row) => row.getBoundingClientRect().height);
       const phoneRows = await page.locator('main li[data-item-id]').evaluateAll((rows) => rows.map((row) => Math.round(row.getBoundingClientRect().height)));
@@ -643,7 +650,8 @@ test('Members owner and non-owner', async ({ browser }) => {
   await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('visual_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill(`${ownerPassword}-member`);
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(memberPage.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(memberPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(memberPage.getByRole('banner').getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD), exact: true })).toBeVisible();
   await memberPage.goto('/members'); await captureScreen(memberPage, 'members-non-owner', true);
   await memberContext.close();
 });
@@ -684,7 +692,8 @@ test('Admin center and the member refusal', async ({ browser }) => {
   await memberPage.getByLabel(en['onboarding.login'], { exact: true }).fill('visual_member');
   await memberPage.getByLabel(en['login.password'], { exact: true }).fill(`${ownerPassword}-member`);
   await memberPage.getByRole('button', { name: en['login.submit'], exact: true }).click();
-  await expect(memberPage.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(memberPage.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(memberPage.getByRole('banner').getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD), exact: true })).toBeVisible();
   await memberPage.goto('/admin');
   await expect(memberPage.getByRole('heading', { name: en['admin.onlyAdmins.title'] })).toBeVisible();
   await expect(memberPage.getByRole('main').getByRole('list', { name: en['admin.list.title'] })).toHaveCount(0);

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { AccountActions } from '../../app/AccountActions';
 import { Heading } from '../../app/Heading';
 import { Layout } from '../../app/Layout';
@@ -21,16 +22,20 @@ function AllItemsHeader() {
   </header>;
 }
 
-export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut, onOpenItem }: {
+export function AllItemsScreen({ householdId, login, userId, onBack, onSignedOut, onOpenItem, onArchivedViewChange }: {
   householdId: string;
   login: string;
   userId: string;
   onBack: () => void;
   onSignedOut: () => void;
   onOpenItem: (itemId: string, returnTo: string) => void;
+  onArchivedViewChange?: (archived: boolean) => void;
 }) {
   const { t, locale } = useI18n();
   const { context, draft, page, actions, resultRef, searchRef, onNoHousehold } = useAllItems(householdId, onSignedOut);
+  // The Archive link's selected state follows what the filters really show, including edits made on this screen.
+  const archived = context.status === 'archived';
+  useEffect(() => { onArchivedViewChange?.(archived); }, [archived, onArchivedViewChange]);
   const facets = useAllItemsFacets(householdId, onSignedOut, onNoHousehold);
   const view = resultsView(context, page, buildQuery(context));
   const subjectNames = new Map(facets.subjects.values.map((subject) => [subject.id, subject.name]));

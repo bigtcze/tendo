@@ -23,7 +23,8 @@ export function useCompletionNoticeFocus(refs: CompletionFocusRefs, { notice, cr
   useEffect(() => {
     if (createNotice === 'reused' || (notice && (focusedRowRef.current || retryHadFocusRef.current))) {
       // A completion outcome may arrive after the user has moved on (for example into the add form); keep their focus.
-      if (createNotice === 'reused' || focusUnclaimed(focusOriginRef.current)) noticeRef.current?.focus();
+      // The notice is fixed in the viewport, so focusing it never needs to scroll the list the reader is in.
+      if (createNotice === 'reused' || focusUnclaimed(focusOriginRef.current)) noticeRef.current?.focus({ preventScroll: true });
       focusedRowRef.current = false;
       retryHadFocusRef.current = false;
     }
@@ -50,7 +51,7 @@ export function useUndoFocus(refs: CompletionFocusRefs, { busy, sectionHeadingRe
     if (done) done.focus();
     else if (pending.group && headings?.has(pending.group)) headings.get(pending.group)?.focus();
     else if (firstHeading) firstHeading.focus();
-    else if (noticeRef.current) noticeRef.current.focus();
+    else if (noticeRef.current) noticeRef.current.focus({ preventScroll: true });
     else addRef.current?.focus();
   }, [busy, sectionHeadingRefs, noticeRef, addRef, undoFocusRef]);
 }

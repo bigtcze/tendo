@@ -1,43 +1,30 @@
 import { Fragment } from 'react';
 import { NavLink } from '../../app/NavLink';
-import { Button } from '../../components/ui/button';
 import { useI18n } from '../../i18n';
 import type { Member } from '../members/membersApi';
 import type { SubjectType } from '../subjects/subjectsApi';
 import { SubjectTypeIcon } from '../subjects/SubjectTypeIcon';
 import { AlertIcon, CalendarIcon, CheckIcon } from './HomeIcons';
-import { groupTone } from './homeGroupTone';
-import { responsibleLabels, rowFacts, type RowFact } from './homeRowMeta';
+import { responsibleLabel as labelFor, rowFacts, type RowFact } from './homeRowMeta';
 import type { Item, ItemGroup } from './itemsApi';
 
-// Phone rows flow: subject pill and every fact share one wrapping line. From `xl` the same elements move
-// into the aligned columns through `display: contents`, so no fact is rendered twice.
-const ROW = [
-  'grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-2.5 py-2.5',
-  'sm:px-4',
-  'xl:grid-cols-[2.25rem_minmax(0,1fr)_8rem_14rem_auto] xl:gap-x-4 xl:py-0 xl:pt-[11px]',
-].join(' ');
-const SUBJECT_PILL = 'mr-2 inline-flex max-w-full items-center rounded-full bg-upcoming-bg px-2.5 py-0.5 align-top '
-  + 'text-meta font-semibold text-ink [overflow-wrap:anywhere] xl:col-start-3 xl:row-span-2 xl:mr-0 xl:self-center xl:justify-self-start';
-// One text line in layout, 44 px pointer target: 11 px above and below the title line, both compensated by
-// negative margins so the row keeps its compact height.
-const TITLE_LINK = 'relative z-10 flex min-w-0 items-center rounded-lg pt-[11px] pb-[11px] -my-[11px] '
-  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus xl:col-start-2 xl:row-start-1';
-/** Phone metadata line; from `xl` its children are placed in the row grid directly. */
-const META = 'mt-0.5 text-meta leading-snug xl:contents';
-/** The one status column from `xl`: the fact the desktop reference puts beside the title. */
-const STATUS_COLUMN = 'contents xl:col-start-4 xl:row-span-2 xl:flex xl:min-w-0 xl:flex-wrap xl:items-center xl:self-center';
-/** A single status fact needs no wrapper: it is placed in the column itself. */
-const STATUS_FACT = 'xl:col-start-4 xl:row-span-2 xl:self-center';
-/** The remaining facts, still under the title from `xl`. */
-const META_LINE = 'contents xl:col-start-2 xl:row-start-2 xl:flex xl:min-w-0 xl:flex-wrap xl:items-center';
-// Every phone fact is one atomic inline-level box, so the line breaks only between facts; a fact wraps
-// internally only when it is wider than the whole line. Ordinary spaces (not just margins) separate the
-// units so copied text keeps its word boundaries; the 8 px margin plus that space keeps the ~12 px rhythm
-// of the line. From `xl` the same spans are flex items separated by a quiet middle dot, where the metadata
-// line and the status column keep facts beside each other (whitespace-only nodes are not rendered there).
-const FACT = 'mr-2 inline-block max-w-full align-top [overflow-wrap:anywhere] xl:mr-0';
-const FACT_DOT = "xl:after:content-['·'] xl:after:mx-1.5";
+// One reading line per row: the completion control in its own 44 px box, then the title and a single quiet
+// metadata line. Nothing is aligned into columns, so long Czech names and dates wrap instead of clipping and a
+// 320 px screen keeps the same order as a wide one.
+//
+// The link's own box is the text block, but its stretched pseudo-element covers the whole row: the row — not a
+// minimum height on the title — is the target, so a two-line row stays as short as its content honestly needs.
+const ROW_LINK = 'block rounded text-row-title font-semibold text-ink transition-colors hover:text-accent '
+  + 'after:absolute after:inset-0 after:rounded '
+  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+const META = 'mt-0.5 block text-meta leading-snug text-muted';
+const SEPARATOR = 'select-none text-muted';
+const FACT = 'inline max-w-full [overflow-wrap:anywhere]';
+// Above the stretched row link, so the completion box keeps its own clicks and its own focus ring.
+const DONE = 'relative z-10 grid size-11 shrink-0 place-items-center rounded-full border-[1.5px] border-field bg-raised '
+  + 'text-muted transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 '
+  + 'focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-60 '
+  + 'lg:size-auto lg:w-auto lg:min-h-11 lg:grid-flow-col lg:gap-2 lg:px-3';
 
 type Props = {
   item: Item;
@@ -55,87 +42,64 @@ type Props = {
   rowRef?: (node: HTMLLIElement | null) => void;
 };
 
-/** Compact row: real subject-type tile, selectable title link, every real fact inline and Done. */
+/** One calm row: a completion box, the title, then subject, date, responsibility and cadence. */
 export function HomeItemRow(props: Props) {
   const { item, group, evaluatedOn, subjectName, subjectType, locale, userId, members, membersLoaded, busy, rowRef, onDone, onOpenItem } = props;
   const { t } = useI18n();
-  const { responsibleLabel, assigneeLabel } = responsibleLabels(item, members, membersLoaded, userId, t);
-  const facts = rowFacts({ item, group, evaluatedOn, locale, t, responsibleLabel, assigneeLabel });
-  const column = facts.filter((fact) => fact.column);
-  const inline = facts.filter((fact) => !fact.column);
-  const tone = groupTone[group];
+  const responsibleLabel = labelFor(item, members, membersLoaded, userId, t);
+  const facts = rowFacts({ item, group, evaluatedOn, locale, t, responsibleLabel });
   return (
-    <li ref={rowRef} data-item-id={item.id} className={ROW}>
-      <span
-        aria-hidden="true"
-        data-subject-icon={subjectType ?? 'unknown'}
-        className={`grid size-9 place-items-center rounded-xl ${tone.tile} xl:row-span-2 xl:self-center`}
-      >
-        <SubjectTypeIcon type={subjectType ?? 'custom'} />
-      </span>
-      <div className="min-w-0 xl:contents">
-        <NavLink
-          href={`/items/${encodeURIComponent(item.id)}`}
-          onNavigate={() => onOpenItem(item.id)}
-          aria-label={t('itemDetail.open', { title: item.title })}
-          className={TITLE_LINK}
-        >
-          <span data-item-title className="text-row-title font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{item.title}</span>
-        </NavLink>
-        <div data-item-meta className={META}>
-          <span data-subject-pill className={SUBJECT_PILL}>{subjectName}</span>
-          {facts.length ? ' ' : null}
-          {column.length > 1 ? <div className={STATUS_COLUMN}>
-            {column.map((fact, index) => (
-              <Fragment key={fact.kind}>{index > 0 ? ' ' : null}<Fact fact={fact} last={index === column.length - 1} /></Fragment>
-            ))}
-          </div> : column.map((fact) => (
-            <Fragment key={fact.kind}><Fact fact={fact} last placement={STATUS_FACT} /></Fragment>
-          ))}
-          {column.length && inline.length ? ' ' : null}
-          {inline.length ? <div className={META_LINE}>
-            {inline.map((fact, index) => (
-              <Fragment key={fact.kind}>{index > 0 ? ' ' : null}<Fact fact={fact} last={index === inline.length - 1} /></Fragment>
-            ))}
-          </div> : null}
-        </div>
-      </div>
-      <Button
+    <li ref={rowRef} data-item-id={item.id} className="relative flex items-start gap-2 py-2 pr-1">
+      <button
         type="button"
-        variant="secondary"
         data-action="done"
         aria-label={t('items.done.label', { title: item.title })}
         disabled={busy}
         onClick={onDone}
-        className="h-11 w-11 shrink-0 gap-2 p-0 lg:w-auto lg:px-3 xl:col-start-5 xl:row-span-2 xl:self-center xl:px-4"
+        className={DONE}
       >
-        <CheckIcon />
-        <span className="hidden lg:inline">{t('items.done')}</span>
-      </Button>
+        <CheckIcon className="size-4" />
+        {/* Phones stay a circle; from lg the row has the room to name the action in words. */}
+        <span className="hidden text-small font-medium lg:inline">{t('items.done')}</span>
+      </button>
+      <div className="min-w-0 flex-1 py-0.5">
+        <NavLink
+          href={`/items/${encodeURIComponent(item.id)}`}
+          onNavigate={() => onOpenItem(item.id)}
+          aria-label={t('itemDetail.open', { title: item.title })}
+          className={ROW_LINK}
+        >
+          <span data-item-title className="[overflow-wrap:anywhere]">{item.title}</span>
+        </NavLink>
+        <div data-item-meta className={META}>
+          <span data-subject-pill className="inline-flex min-w-0 max-w-full items-center gap-1 align-[-0.15em] [overflow-wrap:anywhere]">
+            <span aria-hidden="true" data-subject-icon={subjectType ?? 'custom'} className="inline-flex shrink-0">
+              <SubjectTypeIcon type={subjectType ?? 'custom'} className="size-3.5" />
+            </span>
+            {subjectName}
+          </span>
+          {facts.map((fact) => (
+            <Fragment key={fact.kind}>
+              {' '}<span aria-hidden="true" className={SEPARATOR}>·</span>{' '}
+              <Fact fact={fact} />
+            </Fragment>
+          ))}
+        </div>
+      </div>
     </li>
   );
 }
 
-/** One real fact with its semantic icon; the words differ per width, never the meaning. */
-function Fact({ fact, last, placement = '' }: { fact: RowFact; last: boolean; placement?: string }) {
+/** One real fact with its semantic icon; meaning never depends on colour alone. */
+function Fact({ fact }: { fact: RowFact }) {
   const Icon = fact.icon === 'alert' ? AlertIcon : fact.icon === 'calendar' ? CalendarIcon : null;
+  const [before, after] = fact.emphasis ? fact.text.split(fact.emphasis) : [fact.text, ''];
   return (
-    <span
-      data-item-fact={fact.kind}
-      className={[
-        placement,
-        FACT,
-        last ? '' : FACT_DOT,
-        fact.tone === 'attention' ? 'text-needs-attention' : 'text-muted',
-      ].filter(Boolean).join(' ')}
-    >
-      {Icon ? <Icon className="mr-1 inline-block size-4 align-[-0.15em]" /> : null}
-      {fact.phone === fact.wide
-        ? fact.phone
-        : <>
-          <span className="xl:hidden">{fact.phone}</span>
-          <span className="hidden xl:inline">{fact.wide}</span>
-        </>}
+    <span data-item-fact={fact.kind} className={FACT}>
+      {Icon ? <Icon className={`mr-1 inline-block size-3.5 align-[-0.15em] ${fact.tone === 'attention' ? 'text-needs-attention' : 'text-muted'}`} /> : null}
+      {before}
+      {fact.emphasis ? <span className={fact.tone === 'attention' ? 'font-semibold text-needs-attention' : 'font-semibold text-ink'}>{fact.emphasis}</span> : null}
+      {after}
     </span>
   );
 }

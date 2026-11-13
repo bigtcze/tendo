@@ -1,4 +1,3 @@
-import type { MessageKey } from '../../i18n';
 import type { ItemGroup } from './itemsApi';
 
 type Tone = {
@@ -41,10 +40,4 @@ export const groupTone: Record<ItemGroup, Tone> = {
     text: 'text-paused',
     pill: 'border-line bg-raised text-ink hover:border-control-border hover:bg-sand',
   },
-};
-
-/** Only honest, static explanations; groups without a resting summary stay quiet. */
-export const groupContextKey: Partial<Record<ItemGroup, MessageKey>> = {
-  needs: 'items.group.context.needs',
-  inProgress: 'items.group.context.inProgress',
 };

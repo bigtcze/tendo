@@ -27,7 +27,8 @@ export async function firstRun(page: Page) {
   await page.locator('#onboarding-login').fill(OWNER_LOGIN);
   await page.locator('#onboarding-password').fill(OWNER_PASSWORD!);
   await page.getByRole('button', { name: en['onboarding.submit'] }).click();
-  await expect(page.getByRole('heading', { level: 1, name: HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('banner').getByRole('button', { name: en['household.menu.label'].replace('{name}', HOUSEHOLD), exact: true })).toBeVisible();
   const response = await api(page, 'get', '/api/v1/session');
   expect(response.status()).toBe(200);
   const session = await response.json() as { defaultHouseholdId: string; userId: string };

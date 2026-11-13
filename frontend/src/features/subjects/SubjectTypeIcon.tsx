@@ -11,6 +11,6 @@ const subjectPaths: Record<SubjectType, ReactNode> = {
 };
 
 /** Real subject type only: person, home, vehicle, pet or the generic custom thing. Never an invented topic category. */
-export function SubjectTypeIcon({ type }: { type: SubjectType }) {
-  return <Glyph>{subjectPaths[type]}</Glyph>;
+export function SubjectTypeIcon({ type, className }: { type: SubjectType; className?: string }) {
+  return <Glyph className={className}>{subjectPaths[type]}</Glyph>;
 }

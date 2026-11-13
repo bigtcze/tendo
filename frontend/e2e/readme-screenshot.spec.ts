@@ -24,7 +24,8 @@ test('capture populated README household home screen', async ({ page }) => {
   await page.locator('#onboarding-login').fill(REFERENCE_OWNER_LOGIN);
   await page.locator('#onboarding-password').fill(ownerPassword);
   await page.getByRole('button', { name: en['onboarding.submit'] }).click();
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
+  await expect(page.getByRole('button', { name: en['household.menu.label'].replace('{name}', REFERENCE_HOUSEHOLD) })).toBeVisible();
 
   const sessionResponse = await page.request.get('/api/v1/session');
   expect(sessionResponse.status()).toBe(200);
@@ -36,7 +37,7 @@ test('capture populated README household home screen', async ({ page }) => {
   await page.reload();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.waitForLoadState('networkidle');
-  await expect(page.getByRole('heading', { level: 1, name: REFERENCE_HOUSEHOLD })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: en['home.overview'] })).toBeVisible();
   const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const heading of [en['items.group.needs'], en['items.group.inProgress'], en['items.group.waiting'], en['items.group.upcoming']]) {
     await expect(page.getByRole('heading', { level: 2, name: new RegExp(`^${escapeRegExp(heading)}(\\s|$)`) })).toBeVisible();
@@ -45,9 +46,13 @@ test('capture populated README household home screen', async ({ page }) => {
     await expect(page.getByText(title, { exact: true })).toBeVisible();
     expect(fixture.items[index]?.title).toBe(title);
   }
-  await expect(page.getByRole('navigation', { name: en['items.group.overview'] })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: en['items.group.overview'] }).getByRole('link')).toHaveText([
-    `${en['items.group.needs']} 4`, `${en['items.group.inProgress']} 2`, `${en['items.group.waiting']} 1`, `${en['items.group.upcoming']} 3`,
+  // Each group states its status once and carries its own count on the heading line.
+  const countLabel = (count: number) => (count === 1 ? en['items.group.count.one'] : en['items.group.count.other']).replace('{count}', String(count));
+  await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toHaveText([
+    `${en['items.group.needs']} ${countLabel(4)}`,
+    `${en['items.group.inProgress']} ${countLabel(2)}`,
+    `${en['items.group.waiting']} ${countLabel(1)}`,
+    `${en['items.group.upcoming']} ${countLabel(3)}`,
   ]);
   // Rows keep the real subject pill, attention date and responsible member as separate readable facts.
   const main = page.getByRole('main');
