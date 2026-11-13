@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prove a published release installation upgrades in place to this checkout without losing data.
-# TENDO_UPGRADE_FROM selects the published source release (default v1.0.0); CI runs v1.0.0, v2.1.0 and v3.0.0.
+# TENDO_UPGRADE_FROM selects the published source release (default v1.0.0); CI runs v1.0.0, v2.1.0, v3.0.0 and v4.0.0.
 set -Eeuo pipefail
 umask 077
 
@@ -53,7 +53,8 @@ case "$TENDO_VERSION" in
   v1.0.0) expected_source=14 ;;
   v2.1.0) expected_source=16 ;;
   v3.0.0) expected_source=16 ;;
-  *) printf 'Unsupported TENDO_UPGRADE_FROM=%s (supported: v1.0.0, v2.1.0, v3.0.0)\n' "$TENDO_VERSION" >&2; exit 2 ;;
+  v4.0.0) expected_source=20 ;;
+  *) printf 'Unsupported TENDO_UPGRADE_FROM=%s (supported: v1.0.0, v2.1.0, v3.0.0, v4.0.0)\n' "$TENDO_VERSION" >&2; exit 2 ;;
 esac
 # Start the source release from the compose.yaml published with that exact release, not this checkout.
 source_compose="$temp_dir/source-compose.yaml"
@@ -73,8 +74,19 @@ SQL
 snapshot_ledger() {
   "$@" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT version::text || ' dirty=' || dirty::text FROM tendo_schema_migrations ORDER BY version"
 }
+# Recurrence data that migration 021 must add to without rewriting: item schedule state
+# and every receipt's snapshot dates and undo state.
+snapshot_recurrence() {
+  "$@" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At <<'SQL'
+SELECT 'item|' || id::text || '|' || coalesce(attention_on::text, '-') || '|' || version::text || '|' || done::text FROM items ORDER BY id;
+SELECT 'receipt|' || item_id::text || '|' || item_version_before::text || '|' || coalesce(cycle_attention_on::text, '-') || '|' || completed_on::text || '|' || coalesce(next_attention_on::text, '-') || '|' || (undone_at IS NOT NULL)::text FROM item_completions ORDER BY item_id, item_version_before;
+SQL
+}
+item_column() {
+  "${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT $1 FROM items WHERE id='${recurrence_item[$2]}'"
+}
 api() {
-  UPGRADE_SMOKE_ORIGIN="$origin" UPGRADE_SMOKE_STATE="$temp_dir/state.json" python3 "$temp_dir/api.py" "$1"
+  UPGRADE_SMOKE_ORIGIN="$origin" UPGRADE_SMOKE_STATE="$temp_dir/state.json" UPGRADE_SMOKE_RECURRENCE="$temp_dir/recurrence.tsv" UPGRADE_SMOKE_SOURCE="$source_version" python3 "$temp_dir/api.py" "$1"
 }
 cat >"$temp_dir/api.py" <<'PY'
 import json, os, sys, urllib.error, urllib.parse, urllib.request
@@ -130,9 +142,18 @@ def populate():
     _,invite=ok(201,'POST',base+'/invitations',{},owner,{'Idempotency-Key':'upgrade-member'})
     ok(201,'POST','/api/v1/auth/invitations/accept',{'token':invite['token'],'login':'member_upgrade','password':mp})
     _,members=ok(200,'GET',base+'/members',cookie=owner); member=next(m['userId'] for m in members['items'] if m['login']=='member_upgrade')
-    # V1 supports descriptive person-to-member linkage; do it after member admission.
-    ph,_=ok(200,'GET',f'{base}/subjects/{person["id"]}',cookie=owner)
-    _,person=ok(200,'PATCH',f'{base}/subjects/{person["id"]}',{'linkedUserId':member},owner,{'If-Match':ph['ETag']})
+    # V1-V3 only describe the person-to-member link, so link the fixture person after
+    # admission. V4 provisions a canonical person for every member at setup and at
+    # invitation acceptance and rejects a second link with 409 member_person_exists,
+    # so there the member's own canonical person is the fixture person.
+    listed=[item for page in pages(base+'/subjects?archived=false',owner) for item in page['body']['items']]
+    canonical=next((item for item in listed if item.get('linkedUserId')==member),None)
+    if canonical is not None:
+        assert canonical.get('type')=='person' and canonical.get('archived') is False,canonical
+        person=canonical
+    else:
+        ph,_=ok(200,'GET',f'{base}/subjects/{person["id"]}',cookie=owner)
+        _,person=ok(200,'PATCH',f'{base}/subjects/{person["id"]}',{'linkedUserId':member},owner,{'If-Match':ph['ETag']})
     items={}; keys={}
     def create(name,body):
         key='upgrade-item-'+name; _,b=ok(201,'POST',base+'/items',body,owner,{'Idempotency-Key':key}); items[name]=b['id']; keys[name]=key; return b
@@ -155,6 +176,22 @@ def populate():
     create('done_oneoff',{'title':'Buy winter tyres','subjectId':car['id']}); complete('done_oneoff',1,'upgrade-done','2025-02-03')
     create('archived_item',{'title':'Paint the fence','subjectId':person['id'],'attentionOn':'2031-05-01'})
     ok(200,'PATCH',f'{base}/items/{items["archived_item"]}',{'archived':True},owner,{'If-Match':'"1"'})
+    # V5 anchor fixtures, completed on the source release so migration 021 has real
+    # pre-V5 data: a Jan 31 fixed monthly item and a Feb 29 fixed yearly item both clamp
+    # in the source release, which is exactly what the anchor recovery must read.
+    create('anchor_exact',{'title':'Anchor exact monthly','subjectId':person['id'],'attentionOn':'2025-01-31','recurrence':{'intervalValue':1,'intervalUnit':'month','mode':'fixed'}})
+    exact=complete('anchor_exact',1,'upgrade-anchor-exact','2025-01-31')
+    assert exact['nextAttentionOn']=='2025-02-28',exact
+    create('anchor_ambiguous',{'title':'Anchor ambiguous monthly','subjectId':person['id'],'attentionOn':'2025-01-31','recurrence':{'intervalValue':1,'intervalUnit':'month','mode':'fixed'}})
+    ambiguous=complete('anchor_ambiguous',1,'upgrade-anchor-ambiguous','2025-01-31')
+    assert ambiguous['nextAttentionOn']=='2025-02-28',ambiguous
+    ambiguous_hs,_=ok(200,'GET',f'{base}/items/{items["anchor_ambiguous"]}',cookie=owner)
+    assert ambiguous_hs['ETag']=='"2"',ambiguous_hs
+    _,ambiguous_patched=ok(200,'PATCH',f'{base}/items/{items["anchor_ambiguous"]}',{'notes':'Edited after the completion, so the receipt chain is discontinuous.'},owner,{'If-Match':ambiguous_hs['ETag']})
+    assert ambiguous_patched['attentionOn']=='2025-02-28',ambiguous_patched
+    create('anchor_yearly',{'title':'Anchor yearly leap day','subjectId':car['id'],'attentionOn':'2024-02-29','recurrence':{'intervalValue':1,'intervalUnit':'year','mode':'fixed'}})
+    yearly_anchor=complete('anchor_yearly',1,'upgrade-anchor-yearly','2024-02-29')
+    assert yearly_anchor['nextAttentionOn']=='2025-02-28',yearly_anchor
     for n in range(60): create(f'page_{n:02d}',{'title':f'Pagination household obligation {n:02d}','subjectId':person['id']})
     page_zero=items['page_00']; page_zero_etag,_=ok(200,'GET',f'{base}/items/{page_zero}',cookie=owner)
     ok(200,'PATCH',f'{base}/items/{page_zero}',{'workflowState':'waiting'},owner,{'If-Match':page_zero_etag['ETag']})
@@ -162,6 +199,9 @@ def populate():
     s={'ownerSession':owner,'ownerPassword':op,'memberPassword':mp,'householdId':hid,'personId':person['id'],'memberId':member,'items':items,'itemKeys':keys,'fluidReceipt':receipt,'pendingToken':pending['token'],'v1Session':owner}
     s['before']=capture(s)
     with open(state_path,'w',encoding='utf-8') as f: json.dump(s,f,ensure_ascii=False)
+    with open(os.environ['UPGRADE_SMOKE_RECURRENCE'],'w',encoding='utf-8') as f:
+        for name in ('anchor_exact','anchor_ambiguous','anchor_yearly'):
+            f.write(f'{name}\t{items[name]}\n')
     print(f'Populated source release with {len(items)} items; captured public API representations.')
 def verify():
     with open(state_path,encoding='utf-8') as f:s=json.load(f)
@@ -172,11 +212,17 @@ def verify():
     for page in expected.get('members',[]):
         for item in page['body']['items']:
             if item.get('role')=='owner': item['role']='admin'
-    # V4-07 adds the caller's viewerRole to the household body without a version bump;
-    # the snapshot is read with the upgraded owner's session, so only that field may appear.
+    # V4-07 added the caller's viewerRole to the household body without a version bump:
+    # sources before v4.0.0 must not expose it, and v4.0.0 already ships the admin role,
+    # so it must report exactly the value the upgrade keeps. Only the missing field is
+    # normalized; an unexpected source value is a failure, not something to overwrite.
     if 'household' in expected:
-        assert 'viewerRole' not in expected['household']['body'],('source release already exposed viewerRole',expected['household'])
-        expected['household']['body']['viewerRole']='admin'
+        source=os.environ['UPGRADE_SMOKE_SOURCE']; household=expected['household']['body']
+        if source=='v4.0.0':
+            assert household.get('viewerRole')=='admin',('v4.0.0 household viewerRole',household.get('viewerRole'))
+        else:
+            assert 'viewerRole' not in household,('source release before v4.0.0 already exposed viewerRole',source,household.get('viewerRole'))
+        household['viewerRole']='admin'
     def flatten(groups):
         return [item for page in groups for item in page['body']['items']]
     active_key='subjects archived=false'
@@ -241,10 +287,37 @@ def exercise():
     assert undone['undoneAt'] is not None
     _,created=ok(201,'POST',base+'/items',{'title':'New V2 search record','subjectId':s['personId']},owner,{'Idempotency-Key':'upgrade-new-v2-item'})
     found=ok(200,'GET',f'{base}/items?q=V2%20search',cookie=owner)[1]['items']; assert [i['id'] for i in found]==[created['id']],found
+    # V5 anchor recovery over source-release data. The exact item kept a continuous
+    # receipt chain, so migration 021 restored anchor 31 (29 for the Feb 29 yearly item);
+    # the edited item is ambiguous and keeps the conservative clamped day 28.
+    def done(name,completed_on,key):
+        iid=s['items'][name]; hs,_=ok(200,'GET',f'{base}/items/{iid}',cookie=owner)
+        _,receipt=ok(201,'POST',f'{base}/items/{iid}/completions',{'completedOn':completed_on},owner,{'If-Match':hs['ETag'],'Idempotency-Key':key})
+        return hs,receipt
+    before_hs,exact_receipt=done('anchor_exact','2025-02-28','upgrade-anchor-exact-next')
+    assert exact_receipt['nextAttentionOn']=='2025-03-31',exact_receipt
+    anchored_hs,_=ok(200,'GET',f'{base}/items/{s["items"]["anchor_exact"]}',cookie=owner)
+    assert anchored_hs['ETag']!=before_hs['ETag'],anchored_hs
+    _,exact_undone=ok(200,'PATCH',f'{base}/items/{s["items"]["anchor_exact"]}/completions/{exact_receipt["id"]}',{'undone':True},owner,{'If-Match':anchored_hs['ETag']})
+    assert exact_undone['undoneAt'] is not None,exact_undone
+    restored=ok(200,'GET',f'{base}/items/{s["items"]["anchor_exact"]}',cookie=owner)[1]
+    assert restored['attentionOn']=='2025-02-28',restored
+    _,exact_again=done('anchor_exact','2025-02-28','upgrade-anchor-exact-again')
+    assert exact_again['nextAttentionOn']=='2025-03-31',exact_again
+    _,ambiguous_receipt=done('anchor_ambiguous','2025-02-28','upgrade-anchor-ambiguous-next')
+    assert ambiguous_receipt['nextAttentionOn']=='2025-03-28',ambiguous_receipt
+    # Yearly: the migrated cycle is completed on its own date, then the next cycles are
+    # consumed early with the same past date. A future completedOn is rejected, so early
+    # completions are the only way to reach the 2028 leap day; the leap day proves the
+    # recovered anchor 29 (the conservative day 28 would return 2028-02-28).
+    for index,(completed_on,next_on) in enumerate((('2025-02-28','2026-02-28'),('2026-02-28','2027-02-28'),('2026-02-28','2028-02-29'))):
+        _,yearly_receipt=done('anchor_yearly',completed_on,f'upgrade-anchor-yearly-next-{index}')
+        assert yearly_receipt['nextAttentionOn']==next_on,(completed_on,next_on,yearly_receipt)
+    print('Anchor recovery passed: exact monthly -> 2025-03-31, ambiguous monthly -> 2025-03-28, yearly leap day -> 2028-02-29.')
     _,oldmembers=ok(200,'GET',base+'/members',cookie=owner)
     ok(201,'POST','/api/v1/auth/invitations/accept',{'token':s['pendingToken'],'login':'late_upgrade','password':os.urandom(18).hex()})
     _,newmembers=ok(200,'GET',base+'/members',cookie=owner); assert len(newmembers['items'])==len(oldmembers['items'])+1
-    print('Summaries, search, attention pagination, source-release session, password login, completion replay/undo, create/search, and pending invitation passed.')
+    print('Summaries, search, attention pagination, source-release session, password login, completion replay/undo, anchor recovery, create/search, and pending invitation passed.')
 {'populate':populate,'verify':verify,'exercise':exercise}[phase]()
 PY
 
@@ -280,6 +353,9 @@ fi
 "${compose_source[@]}" stop app
 snapshot_counts "${compose_source[@]}" >"$temp_dir/counts-before.txt"
 snapshot_ledger "${compose_source[@]}" >"$temp_dir/ledger-before.txt"
+snapshot_recurrence "${compose_source[@]}" >"$temp_dir/recurrence-before.txt"
+declare -A recurrence_item
+while IFS=$'\t' read -r recurrence_name recurrence_id; do recurrence_item[$recurrence_name]=$recurrence_id; done <"$temp_dir/recurrence.tsv"
 
 # Reuse the same Postgres service/volume. The checkout app bootstraps the role and schema
 # itself; --remove-orphans deletes the source release's one-shot migrate container.
@@ -294,6 +370,29 @@ role_user=$("${compose_build[@]}" exec -T -e "TENDO_DATABASE_PASSWORD=$TENDO_DAT
 [[ -z $(docker ps -aq --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=migrate") ]] \
   || { printf 'Source release migrate container survived the upgrade\n' >&2; exit 1; }
 snapshot_counts "${compose_build[@]}" >"$temp_dir/counts-after.txt"
+# Migration 021 adds the anchor next to the stored date; it must never rewrite an
+# attention date, a completion receipt or an item version. Compare the whole schedule
+# state, then assert the recovered anchor per fixture item.
+snapshot_recurrence "${compose_build[@]}" >"$temp_dir/recurrence-after.txt"
+if ! cmp -s "$temp_dir/recurrence-before.txt" "$temp_dir/recurrence-after.txt"; then
+  diff -u "$temp_dir/recurrence-before.txt" "$temp_dir/recurrence-after.txt" >&2 || true
+  printf 'Migration 021 rewrote item attention dates, versions or completion receipts\n' >&2
+  exit 1
+fi
+for entry in anchor_exact:31:2025-02-28:2 anchor_ambiguous:28:2025-02-28:3 anchor_yearly:29:2025-02-28:2; do
+  IFS=: read -r recurrence_name expected_anchor expected_attention expected_version <<<"$entry"
+  actual_anchor=$(item_column attention_anchor_day "$recurrence_name")
+  actual_attention=$(item_column attention_on "$recurrence_name")
+  actual_version=$(item_column version "$recurrence_name")
+  [[ "$actual_anchor" == "$expected_anchor" ]] || { printf 'Item %s attention_anchor_day is %s, expected %s after migration 021\n' "$recurrence_name" "$actual_anchor" "$expected_anchor" >&2; exit 1; }
+  [[ "$actual_attention" == "$expected_attention" ]] || { printf 'Item %s attention_on is %s, expected %s (migration must not rewrite dates)\n' "$recurrence_name" "$actual_attention" "$expected_attention" >&2; exit 1; }
+  [[ "$actual_version" == "$expected_version" ]] || { printf 'Item %s version is %s, expected %s (migration must not bump versions)\n' "$recurrence_name" "$actual_version" "$expected_version" >&2; exit 1; }
+done
+receipt_anchors=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM item_completions WHERE cycle_anchor_day IS NOT NULL OR next_anchor_day IS NOT NULL")
+[[ "$receipt_anchors" == 0 ]] || { printf 'Migration 021 invented anchors on %s legacy receipts\n' "$receipt_anchors" >&2; exit 1; }
+anchor_invariant=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM items WHERE (attention_on IS NULL) <> (attention_anchor_day IS NULL) OR attention_anchor_day < extract(day FROM attention_on)")
+[[ "$anchor_invariant" == 0 ]] || { printf 'Migration 021 left %s items with an inconsistent anchor\n' "$anchor_invariant" >&2; exit 1; }
+printf 'Migration 021 recovered anchor 31 and 29 from continuous receipt chains, kept 28 for the ambiguous item, and rewrote no attention date, receipt or version.\n'
 subjects_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM subjects")
 unlinks_after=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM member_person_migration_unlinks")
 memberships_without_single=$("${compose_build[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d tendo -At -c "SELECT count(*) FROM household_memberships m WHERE (SELECT count(*) FROM subjects s WHERE s.household_id=m.household_id AND s.linked_user_id=m.user_id AND s.type='person') <> 1")
@@ -321,19 +420,24 @@ for name, count in before.items():
     assert after.get(name) == count, ('pre-existing table row counts changed during upgrade', name, count, after.get(name))
 unexpected = set(after) - set(before) - {'household_role_changes', 'member_person_migration_unlinks', 'oidc_pending_logins', 'password_reset_tokens'}
 assert not unexpected, ('unexpected new application tables during upgrade', sorted(unexpected))
-assert after.get('oidc_pending_logins') == '0', ('migration 019 pending continuation table must be empty after upgrade', after.get('oidc_pending_logins'))
-assert after.get('password_reset_tokens') == '0', ('migration 020 password reset table must be empty after upgrade', after.get('password_reset_tokens'))
+# Migration tables must exist afterwards. A source release that already shipped the
+# migration keeps its rows (the generic preservation check above); a source that
+# predates it must get an empty table. member_person_migration_unlinks may hold
+# deliberate non-canonical unlink rows, so only its existence is required here and its
+# count is asserted against the measured expectation below.
+for name, migration in (('household_role_changes', '017'), ('oidc_pending_logins', '019'), ('password_reset_tokens', '020')):
+    assert name in after, (f'migration {migration} table missing after upgrade', sorted(after))
+    if name not in before:
+        assert after[name] == '0', (f'migration {migration} must create {name} empty', name, after[name])
+assert 'member_person_migration_unlinks' in after, ('migration 018 table missing after upgrade', sorted(after))
 assert os.environ['ACCOUNTS_WITH_EMAIL'] == '0', ('migration 019 must never infer an email for pre-existing accounts', os.environ['ACCOUNTS_WITH_EMAIL'])
-assert 'household_role_changes' in after, ('migration 017 audit table missing after upgrade', sorted(after))
-assert after['household_role_changes'] == '0', ('new table must be empty after migration', 'household_role_changes', after['household_role_changes'])
-assert 'member_person_migration_unlinks' in after, ('migration 018 audit table missing after upgrade', sorted(after))
 assert int(os.environ['UNLINKS_AFTER']) == expected_unlinks, ('member person unlink log count', expected_unlinks, os.environ['UNLINKS_AFTER'])
 assert os.environ['MEMBERSHIPS_WITHOUT_SINGLE'] == '0', ('membership without exactly one linked person', os.environ['MEMBERSHIPS_WITHOUT_SINGLE'])
 before_ids = set(open(sys.argv[3], encoding='utf-8').read().split())
 after_ids = set(open(sys.argv[4], encoding='utf-8').read().split())
 missing = sorted(before_ids - after_ids)
 assert not missing, ('pre-existing subject ids disappeared during upgrade', missing[:10])
-print(f'{len(before)} pre-existing table row counts preserved; subjects +{expected_backfill} canonical member persons; {expected_unlinks} duplicate links logged; household_role_changes empty.')
+print(f'{len(before)} pre-existing table row counts preserved; subjects +{expected_backfill} canonical member persons; {expected_unlinks} duplicate links logged; migration tables present and newly created ones empty.')
 PY
 snapshot_ledger "${compose_build[@]}" >"$temp_dir/ledger-after.txt"
 python3 - "$temp_dir/ledger-before.txt" "$temp_dir/ledger-after.txt" <<'PY'
